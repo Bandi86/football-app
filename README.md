@@ -56,6 +56,10 @@ A részletes döntéseket a [rendszertervezési specifikáció](docs/superpowers
 
 A teljes program több önálló tervre bomlik: backend alap, SwiftUI kliens, teljes identitás- és forráskezelés, meccsközpont, live, predikció, papírszimuláció és autonóm üzemeltetés.
 
+## Projekt- és ügynökszabályok
+
+Minden emberi és AI közreműködőre az [AGENTS.md](AGENTS.md) szabályai érvényesek. Ott találhatók a kötelező olvasási sorrend, a repository- és dokumentációstruktúra, a lassú haladási és megállási pontok, a migrációs, adatvédelmi, tesztelési és git-szabályok.
+
 ## Tervezett repository-szerkezet
 
 ```text
