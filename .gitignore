@@ -1,0 +1,58 @@
+# macOS
+.DS_Store
+._*
+.AppleDouble
+.LSOverride
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+.pgpass
+*.pem
+*.key
+*.p12
+*.cer
+*.mobileprovision
+*.provisionprofile
+
+# Private working notes
+/notes/
+
+# Rust
+/target/
+**/target/
+**/*.rs.bk
+*.profraw
+*.profdata
+
+# Swift / Xcode
+DerivedData/
+.build/
+.swiftpm/
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+
+# Runtime and generated data
+/data/
+/runtime/
+/logs/
+*.log
+*.dump
+*.sql.gz
+*.zst
+
+# Local databases and caches
+*.sqlite
+*.sqlite3
+*.db
+.cache/
+tmp/
