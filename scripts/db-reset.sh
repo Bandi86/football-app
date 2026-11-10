@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${TEST_DATABASE_URL:?TEST_DATABASE_URL hiányzik}"
+
+psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+DROP SCHEMA IF EXISTS raw CASCADE;
+DROP SCHEMA IF EXISTS stage CASCADE;
+DROP SCHEMA IF EXISTS core CASCADE;
+DROP SCHEMA IF EXISTS identity CASCADE;
+DROP SCHEMA IF EXISTS fact CASCADE;
+DROP SCHEMA IF EXISTS ops CASCADE;
+DROP TABLE IF EXISTS public._sqlx_migrations;
+SQL
+
+DATABASE_URL="$TEST_DATABASE_URL" sqlx migrate run --source db/migrations
