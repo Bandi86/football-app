@@ -12,6 +12,11 @@ enum AppTheme {
     static let surface = Color(hex: 0x0E0E10)
     static let surfaceElevated = Color(hex: 0x16161A)
     static let hairline = Color.white.opacity(0.08)
+
+    // Előrejelzés (modell) 1X2 színek
+    static let predictionHome = Color(hex: 0x34C759)
+    static let predictionDraw = Color(hex: 0x8E8E93)
+    static let predictionAway = Color(hex: 0x5E9EFF)
 }
 
 extension Color {

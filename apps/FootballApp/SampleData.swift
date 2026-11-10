@@ -14,6 +14,17 @@ enum Outcome {
     case home, draw, away
 }
 
+struct Prediction {
+    let homePct: Int
+    let drawPct: Int
+    let awayPct: Int
+    let over25Pct: Int
+    let bttsPct: Int
+    let exactHome: Int
+    let exactAway: Int
+    let exactPct: Int
+}
+
 struct SampleLeague: Identifiable {
     let id: String
     let name: String
@@ -109,6 +120,37 @@ struct SampleMatch: Identifiable {
         guard status == "finished", let home = homeScore, let away = awayScore else { return nil }
         return home + away >= 3
     }
+
+    /// Minta-modell előrejelzés (az 1X2 odds implied valószínűségeiből, normalizálva).
+    var prediction: Prediction? {
+        guard let odds else { return nil }
+        let ih = 1 / odds.home
+        let idr = 1 / odds.draw
+        let ia = 1 / odds.away
+        let s = ih + idr + ia
+        let home = Int((ih / s * 100).rounded())
+        let draw = Int((idr / s * 100).rounded())
+        let away = max(0, 100 - home - draw)
+
+        let over = Int((1 / odds.over25) / (1 / odds.over25 + 1 / odds.under25) * 100)
+        let btts = Int((1 / odds.bttsYes) / (1 / odds.bttsYes + 1 / odds.bttsNo) * 100)
+
+        let favHome = home >= away && home >= draw
+        let exactHome = favHome ? (over >= 50 ? 2 : 1) : (over >= 50 ? 1 : 0)
+        let exactAway = favHome ? (over >= 50 ? 1 : 0) : (over >= 50 ? 2 : 1)
+        let exactPct = max(6, min(18, 100 - max(home, draw, away)))
+
+        return Prediction(
+            homePct: home,
+            drawPct: draw,
+            awayPct: away,
+            over25Pct: over,
+            bttsPct: btts,
+            exactHome: exactHome,
+            exactAway: exactAway,
+            exactPct: exactPct
+        )
+    }
 }
 
 /// Fake adat a lista-design teszteléséhez. A ligák prioritás-sávokban:
@@ -122,6 +164,22 @@ enum SampleData {
     static var allMatches: [SampleMatch] { leagues.flatMap { $0.matches } }
     static var countries: [String] { Array(Set(leagues.map(\.country))).sorted() }
     static let oddsSource = "Tipplap"
+
+    /// Bajnoki tabella-helyezések (minta) csapatnevenként.
+    static let positions: [String: Int] = [
+        "Arsenal": 1, "Chelsea": 5, "Manchester City": 2, "Liverpool": 3, "Newcastle": 6, "Tottenham": 7,
+        "Real Madrid": 1, "Barcelona": 2, "Atlético Madrid": 4, "Sevilla": 9, "Betis": 7, "Valencia": 12,
+        "Inter": 1, "Juventus": 3, "Milan": 2, "Napoli": 5,
+        "Bayern München": 1, "Dortmund": 4, "RB Leipzig": 3, "Leverkusen": 2,
+        "PSG": 1, "Marseille": 3,
+        "Ferencváros": 1, "Újpest": 8, "Debrecen": 4, "Győr": 6,
+        "Leeds United": 2, "West Brom": 9, "Eibar": 4, "Levante": 6,
+        "Palermo": 5, "Sampdoria": 8, "Hamburger SV": 3, "Schalke 04": 7,
+        "Saint-Étienne": 5, "Bordeaux": 10, "Vasas": 4, "Szentlőrinc": 12,
+        "Manchester United": 6,
+    ]
+
+    static func position(of team: String) -> Int? { positions[team] }
 
     private static func o(_ h: Double, _ d: Double, _ a: Double, _ by: Double, _ bn: Double, _ ov: Double, _ un: Double) -> MatchOdds {
         MatchOdds(home: h, draw: d, away: a, bttsYes: by, bttsNo: bn, over25: ov, under25: un)

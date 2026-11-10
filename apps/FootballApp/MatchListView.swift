@@ -96,7 +96,7 @@ private struct LeagueSectionView: View {
 
             VStack(spacing: 0) {
                 ForEach(Array(sortedMatches.enumerated()), id: \.element.id) { index, match in
-                    MatchItemRow(match: match)
+                    MatchItemRow(match: match, showPositions: league.tier != 0)
                     if index < sortedMatches.count - 1 {
                         Rectangle().fill(AppTheme.hairline).frame(height: 1).padding(.leading, 18)
                     }
@@ -114,6 +114,7 @@ private struct LeagueSectionView: View {
 
 private struct MatchItemRow: View {
     let match: SampleMatch
+    let showPositions: Bool
     @State private var hover = false
 
     private var group: MatchFilter? { MatchFilter.group(of: match.status) }
@@ -168,6 +169,7 @@ private struct MatchItemRow: View {
                 resultBlock
             }
 
+            predictionBlock
             oddsRow
         }
         .padding(.horizontal, 18)
@@ -194,7 +196,7 @@ private struct MatchItemRow: View {
     }
 
     private func teamLine(_ name: String) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(AppTheme.surface)
                 .frame(width: 24, height: 24)
@@ -204,7 +206,55 @@ private struct MatchItemRow: View {
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(AppTheme.primaryText)
                 .lineLimit(1)
+
+            if showPositions, let position = SampleData.position(of: name) {
+                Text("(\(position))")
+                    .font(.system(size: 11, weight: .medium).monospacedDigit())
+                    .foregroundStyle(AppTheme.secondaryText)
+            }
         }
+    }
+
+    @ViewBuilder
+    private var predictionBlock: some View {
+        if let prediction = match.prediction {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 12) {
+                    Text("ELŐREJELZÉS")
+                        .font(.system(size: 9, weight: .semibold))
+                        .tracking(1)
+                        .foregroundStyle(AppTheme.secondaryText.opacity(0.6))
+                    Text("Hazai \(prediction.homePct)%")
+                        .foregroundStyle(AppTheme.predictionHome)
+                    Text("Döntetlen \(prediction.drawPct)%")
+                        .foregroundStyle(AppTheme.predictionDraw)
+                    Text("Vendég \(prediction.awayPct)%")
+                        .foregroundStyle(AppTheme.predictionAway)
+                }
+                .font(.system(size: 11, weight: .medium))
+
+                ProbabilityBar(home: prediction.homePct, draw: prediction.drawPct, away: prediction.awayPct)
+                    .frame(height: 6)
+
+                HStack(spacing: 14) {
+                    predItem("Több 2,5", "\(prediction.over25Pct)%")
+                    predItem("BTTS", "\(prediction.bttsPct)%")
+                    predItem("Pontos", "\(prediction.exactHome)–\(prediction.exactAway) (\(prediction.exactPct)%)")
+                }
+            }
+            .padding(.leading, 72)
+        }
+    }
+
+    private func predItem(_ label: String, _ value: String) -> some View {
+        HStack(spacing: 4) {
+            Text(label)
+                .foregroundStyle(AppTheme.secondaryText)
+            Text(value)
+                .foregroundStyle(AppTheme.primaryText)
+                .monospacedDigit()
+        }
+        .font(.system(size: 11))
     }
 
     private var resultBlock: some View {
@@ -302,5 +352,30 @@ private struct LiveDot: View {
                     on = true
                 }
             }
+    }
+}
+
+private struct ProbabilityBar: View {
+    let home: Int
+    let draw: Int
+    let away: Int
+
+    var body: some View {
+        GeometryReader { geo in
+            let gap: CGFloat = 2
+            let total = CGFloat(max(1, home + draw + away))
+            let content = max(0, geo.size.width - gap * 2)
+            HStack(spacing: gap) {
+                segment(content * CGFloat(home) / total, AppTheme.predictionHome)
+                segment(content * CGFloat(draw) / total, AppTheme.predictionDraw)
+                segment(content * CGFloat(away) / total, AppTheme.predictionAway)
+            }
+        }
+    }
+
+    private func segment(_ width: CGFloat, _ color: Color) -> some View {
+        RoundedRectangle(cornerRadius: 3, style: .continuous)
+            .fill(color)
+            .frame(width: width)
     }
 }
