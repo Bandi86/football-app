@@ -2,11 +2,10 @@ import SwiftUI
 
 @main
 struct FootballAppApp: App {
-    @State private var model = DayModel()
-
     var body: some Scene {
         WindowGroup {
-            DayView(model: model)
+            HomeView()
         }
+        .defaultSize(width: 1040, height: 680)
     }
 }
