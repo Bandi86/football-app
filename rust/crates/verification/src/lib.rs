@@ -1,3 +1,4 @@
+pub mod conflict;
 pub mod engine;
 pub mod gate;
 pub mod persist;

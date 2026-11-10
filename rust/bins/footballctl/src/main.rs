@@ -63,12 +63,17 @@ async fn main() -> Result<()> {
             let rules = default_rules();
 
             for materialized in day.matches {
+                let source_values = football_verification::conflict::load_material_values(
+                    &pool,
+                    materialized.match_id,
+                )
+                .await?;
                 let context = VerificationContext {
                     snapshot: &materialized.snapshot,
                     home_identity_exact: true,
                     away_identity_exact: true,
                     duplicate_match_count: duplicate_count(&pool, &materialized).await?,
-                    source_values: &[],
+                    source_values: &source_values,
                 };
                 let report = VerificationEngine::run(&rules, &context);
                 let run_id =
