@@ -129,4 +129,36 @@ final class DayModelTests: XCTestCase {
             XCTFail("A megszakítást nem szabad hibaként megjeleníteni")
         }
     }
+
+    private func makeModel() -> DayModel {
+        DayModel(
+            loader: StubLoader(result: .failure(.runtimeMissing)),
+            serviceFactory: { _ in StubService(result: .success([])) }
+        )
+    }
+
+    func testGoToNextDayAdvancesOneDay() {
+        let model = makeModel()
+        let start = Calendar.current.date(from: DateComponents(year: 2026, month: 11, day: 9))!
+        model.selectedDate = start
+        model.goToNextDay()
+        let expected = Calendar.current.date(byAdding: .day, value: 1, to: start)!
+        XCTAssertTrue(Calendar.current.isDate(model.selectedDate, inSameDayAs: expected))
+    }
+
+    func testGoToPreviousDayGoesBackOneDay() {
+        let model = makeModel()
+        let start = Calendar.current.date(from: DateComponents(year: 2026, month: 11, day: 9))!
+        model.selectedDate = start
+        model.goToPreviousDay()
+        let expected = Calendar.current.date(byAdding: .day, value: -1, to: start)!
+        XCTAssertTrue(Calendar.current.isDate(model.selectedDate, inSameDayAs: expected))
+    }
+
+    func testGoToTodaySelectsToday() {
+        let model = makeModel()
+        model.selectedDate = Calendar.current.date(from: DateComponents(year: 2000, month: 1, day: 1))!
+        model.goToToday()
+        XCTAssertTrue(Calendar.current.isDateInToday(model.selectedDate))
+    }
 }

@@ -53,6 +53,22 @@ final class DayModel {
         }
     }
 
+    func goToPreviousDay() {
+        if let previous = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate) {
+            selectedDate = previous
+        }
+    }
+
+    func goToNextDay() {
+        if let next = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) {
+            selectedDate = next
+        }
+    }
+
+    func goToToday() {
+        selectedDate = Date()
+    }
+
     private static func makeService(_ info: RuntimeInfo) throws -> DayService {
         guard let baseURL = URL(string: "http://127.0.0.1:\(info.port)") else {
             throw APIError.runtimeMissing

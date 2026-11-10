@@ -6,6 +6,7 @@ struct MatchRowView: View {
 
     private static let kickoffFormatter: DateFormatter = {
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "hu_HU")
         formatter.dateStyle = .none
         formatter.timeStyle = .short
         return formatter
