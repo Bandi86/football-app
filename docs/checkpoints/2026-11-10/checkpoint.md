@@ -856,3 +856,16 @@ Elvárt:
 **Eltérések:** a `URLSession` nem dob `CancellationError`-t (a megszakítás `URLError(.cancelled)`), ezért a `HTTPDayService` ezt is kezeli; a `statusLabel` internal (tesztelhető); a teszt-target Swift 5 módban maradt (csak az app-target 6.0).
 
 **Nyitott:** a csiszoló szelet commitolása külön döntés; a `footballd` daemon (port 62009) és a v2 app fut.
+
+---
+
+## Főoldal-redesign — app-shell + liga-listás napi lista (mintaadat)
+
+**Eredmény:** A SwiftUI kliens főoldala újratervezve: **felső navigáció** (márka + nav-pirulák + állapot/óra) → **változó HEADER** (köszöntés + nagy dátum + relatív nap-címke `MA/TEGNAP/HOLNAP` + nap-navigáció + **nagy havi naptár** popover) → **szűrők** (státusz-chipek darabszámmal + **ország** és **osztály** menük) → **liga szerint csoportosított napi lista**. A kártya: státusz/idő oszlop, **logó-helyőrzők** (üres, hely kihagyva), csapatnevek, jobb oldali **eredmény-blokk** (időben visszafelé: `11-es → 120' → 90' → HT`), **1X2 + BTTS (I/N) + Over/Under 2,5 (O/U)** odds **nyerő-kiemeléssel** lezárt meccsnél, „**Piacok (N) › · forrás: Tipplap**", élő pulzálás. OLED-fekete, borostyán akcentus, natív animációk (`reduce motion`-tisztelet), magyar tizedesvessző. **Mintaadat** (SampleData): 13 liga sávos prioritással (top-5 + NB I első osztálya, majd alsóbb osztályok; + FA Kupa), 20 meccs vegyes státusszal. A régi `DayView` törölve (beolvadt a főoldalba); a valós út komponensei (`DayModel`, `MatchDetailView`, üres/hiba nézetek) megmaradtak a későbbi bekötéshez.
+
+**Futtatott ellenőrzések:**
+- Core: `swift test` → 13/4 zöld (változatlan).
+- App: `xcodebuild test` → 11 teszt, TEST SUCCEEDED.
+- Vizuális: ablak-specifikus screenshotok — liga-lista (odds/kiemelés/félidő), kupa (`11-es→120'→90'→HT`), naptár-popover.
+
+**Nyitott / következő:** valós adat bekötése (a backendnek liga/ország/osztály/prioritás/HT/ET/pens/odds/piacszám/forrás mezők kellenek); a „Piacok" és a kártyára kattintás → részletes mérkőzés-elemzés; női foci külön; kereső. A `MINTA ADAT` jelzés a mintaadatot jelöli; a forrás/piacszám minta-érték.
