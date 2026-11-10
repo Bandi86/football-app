@@ -1,6 +1,6 @@
 # 2026-11-10 — Napi checkpoint
 
-**Állapot:** kész, zöld (Task 3 + Task 4 + Task 5 + Task 6 + Task 7 + Task 8 + Task 9 + Task 10 + Task 11 + Task 12 + daemon HTTP E2E)  
+**Állapot:** kész, zöld (Task 3 + Task 4 + Task 5 + Task 6 + Task 7 + Task 8 + Task 9 + Task 10 + Task 11 + Task 12 + daemon HTTP E2E + Task 13)  
 **Előző nap:** 2026-11-09  
 **Kapcsolódó terv:** [Ellenőrzött napi lista backend](../../superpowers/plans/2026-11-09-v2-verified-daily-list-backend.md), Task 3
 
@@ -767,3 +767,66 @@ Elvárt:
 - A commit/push továbbra is külön döntés; a Tasks 3–12 (+ ez a gyakorlás) változásai nincsenek commitolva.
 
 **Következő apró szelet:** Task 13 — kétforrásos konfliktus végponttól végpontig, csak jóváhagyás után.
+
+---
+
+## Tizenegyedik szelet — Task 13: kétforrásos konfliktus végponttól végpontig
+
+**Engedély:** a felhasználó a daemon HTTP E2E zárása után kérte: „most csinaljuk meg a commitokat aztan mehet a 13”. A commitok elkészültek (00d38fe DB migrációk + scriptek, f3b818e backend kód, 627488b docs; szerző Bandi86 noreply; push nem történt, a branch ahead 3). Ezután a Task 13 engedélyezett. A terv Task 13 kódja az előfeltételekkel egyezik (SourceMaterialValues/VerificationContext mezők, normalized_payload kulcsok, stage.observation séma, MatchStatus/PublishState variánsok, tempfile dev-dep, fixture_c azonos kanonikus meccs-ID eltérő kickoff-fal). Commit/push a szelet végén csak külön kérésre.
+
+**Terv:** [Task 13](../../superpowers/plans/2026-11-09-v2-verified-daily-list-backend.md).
+
+### T13.1 — Bukó kétforrásos teszt
+
+- [x] `tests/conflict_pipeline.rs` a terv szerint (fixture_a + fixture_c, azonos kanonikus meccs, load_material_values, MATERIAL_SOURCE_CONFLICT blokkoló, Withheld gate).
+- [x] Piros evidence: a `football_verification::conflict` modul hiányzik.
+
+### T13.2 — conflict.rs betöltő
+
+- [x] `pub mod conflict;` a lib.rs-ben; `conflict.rs` a terv szerint (DISTINCT ON source_id, match_core observation, kanonikus payload parse).
+- [x] Fordul és clippy-tiszta.
+
+### T13.3 — CLI bekötés
+
+- [x] footballctl IngestFixture: `load_material_values` hívás a context előtt, `source_values: &source_values` a `&[]` helyett.
+- [x] Fordul és clippy-tiszta.
+
+### T13.4 — Zöld tesztek és teljes ellenőrzés
+
+- [x] conflict_pipeline teszt zöld; `./scripts/check.sh` zöld (fmt + clippy + szekvenciális workspace tesztek).
+- [x] CLI E2E smoke a TESZT DB-n: fixture_a + fixture_c → withheld; day --include-all withheld.
+- [x] TesztDB reset 21/6/0; db-check: dev változatlan 21/6/43, teszt 21/6/0.
+- [x] Magyar szövegek visszaolvasása.
+
+### T13.5 — Zárás
+
+- [x] Eredmény, parancsok, eltérések rögzítve.
+- [x] Commit/push nem történt (csak a felhasználó külön kérésére).
+- [ ] Következő szelet csak jóváhagyásra előkészítve.
+
+### Záró jegyzet (Task 13)
+
+**Eredmény:** Elkészült a `verification::conflict::load_material_values` betöltő (stage.observation match_core, DISTINCT ON source_id, kanonikus payload → SourceMaterialValues), a CLI `source_values` bekötése és a kétforrásos `conflict_pipeline` teszt. A fixture_a + fixture_c (azonos kanonikus meccs …0101, eltérő kickoff 18:00 vs 19:00) `MATERIAL_SOURCE_CONFLICT` blokkolót és `withheld` gate-et ad. A CLI smoke a teszt DB-n igazolta: egy forrás → `provisional_publish` (SINGLE_SOURCE warning), két konfliktusos forrás → `withheld`; az alapértelmezett napi lista üres, az `--include-all` a withheld meccset a blokkolóval mutatja. A dev DB változatlan (21/6/43), a teszt DB reset után 21/6/0. Ebben a szeletben commit/push nem történt. A terv a Task 13-mal zárul — a backend megvalósítási terv (Tasks 1–13) kész.
+
+**Futtatott ellenőrzések:**
+- Piros: `cargo test -p football-verification --test conflict_pipeline` → E0432 unresolved import `football_verification::conflict` (exit 101).
+- clippy: `cargo clippy -p football-verification -p footballctl --all-targets -- -D warnings` → exit 0.
+- Zöld: conflict_pipeline teszt → 1 passed (exit 0).
+- `./scripts/check.sh` → exit 0: reset + fmt + clippy (workspace) + 18 teszt szekvenciálisan (mind passed; +1 conflict_pipeline a Task 12 17-hez képest).
+- CLI E2E smoke a TESZT DB-n (DATA_DIR temp, DATABASE_URL=test): reset exit 0; fixture_a → match=…0101 state=provisional_publish, observations=3; fixture_c → state=withheld, observations=3; day default → `[]`; day --include-all → 1 meccs withheld, blockers [MATERIAL_SOURCE_CONFLICT / blocker / „A források anyagi meccsmezőben eltérnek.”], kickoff 19:00 UTC; doctor → db=1 gates=1.
+- Reset + db-check: reset exit 0; dev OK 21/6/43, teszt OK 21/6/0, exit 0.
+- Magyar szövegek visszaolvasva: conflict.rs („ismeretlen státusz”, „hiányzó mező”), checkpoint szekció + zárójegyzet.
+
+**Eltérések / hibák:**
+- A terv Interfaces prózája `load_source_values`-t említ, de minden kód (teszt, Step 3, Step 4) `load_material_values`-t használ; ez utóbbit követtem (konzisztens).
+- Viselkedésváltozás a Task 12-höz képest (a bekötés helyes következménye): a CLI most valós source_values-t ad, így az egyforrásos meccs SINGLE_SOURCE warningot kap → `provisional_publish` (Task 12-ben a `&[]` miatt `verified_publish` volt). Két egyező értékű forrás (a+b) verified_publish maradna; a konfliktusos (a+c) withheld.
+- A kanonikus meccs kickoff a második materialize után 19:00 (fixture_c); a gate withheld a konfliktus miatt, a blokkoló üzenet helyes.
+- Tesztkörnyezeti elírás (nem termék-kód): az első CLI smoke hívás rossz dir_path-tel futott (rust/ a gyökér helyett), semmi nem történt (reset 127); gyökérből újra futtatva hibátlan.
+- A terv kódja érdemi módosítás nélkül fordult és futott (cargo fmt formázás).
+
+**Nyitott kérdések / nem ellenőrzött részek:**
+- A dev DB-t nem futtattam újra a Task 13 kódjával (üzleti sor 43, változatlan); a dev gate a Task 12-i állapotban maradt. A dev demóadat frissítése az új CLI-vel külön döntés lenne.
+- A Task 13 változásai (conflict.rs, lib.rs, main.rs, conflict_pipeline.rs, checkpoint) commitolatlanok; a commit/push külön felhasználói döntés.
+- A backend terv kész; a következő lépés (Task 13 commitolása, a development branch lezárása/integrálása, vagy új tervezési szelet) csak a felhasználó jóváhagyásával.
+
+**Következő apró szelet:** a terv a Task 13-mal lezárult; következő lépés csak jóváhagyás után (commit / branch-lezárás / új tervezés).
