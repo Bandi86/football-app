@@ -22,7 +22,7 @@ struct DayView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .task { await model.load() }
-        .onChange(of: model.selectedDate) { Task { await model.load() } }
+        .onChange(of: model.selectedDate) { _, _ in Task { await model.load() } }
     }
 
     @ViewBuilder

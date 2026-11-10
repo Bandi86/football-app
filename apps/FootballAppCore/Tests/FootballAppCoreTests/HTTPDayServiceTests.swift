@@ -69,7 +69,12 @@ struct HTTPDayServiceTests {
 
     @Test func mapsStatusCodesToErrors() async {
         defer { StubURLProtocol.handler = nil }
-        let cases: [(Int, APIError)] = [(401, .unauthorized), (400, .badRequest), (500, .server)]
+        let cases: [(Int, APIError)] = [
+            (401, .unauthorized),
+            (400, .badRequest),
+            (404, .server),
+            (500, .server),
+        ]
         for (code, expected) in cases {
             let service = makeService { request in (self.response(request.url, code), Data()) }
             do {
@@ -80,6 +85,24 @@ struct HTTPDayServiceTests {
             } catch {
                 Issue.record("Váratlan hibatípus: \(error)")
             }
+        }
+    }
+
+    /// A `URLSession` a megszakított kérést `URLError(.cancelled)` formában dobja,
+    /// amit a szolgáltatásnak `CancellationError`-rá kell alakítania, hogy a hívó
+    /// figyelmen kívül hagyhassa (és ne hálózati hibaként jelenjen meg).
+    @Test func cancellationIsRethrownAsCancellationError() async {
+        defer { StubURLProtocol.handler = nil }
+        let service = makeService { _ in
+            throw URLError(.cancelled)
+        }
+        do {
+            _ = try await service.day(for: sampleDate)
+            Issue.record("Várt megszakítási hiba")
+        } catch is CancellationError {
+            // Elvárt: a megszakítást nem alakítjuk hálózati hibává.
+        } catch {
+            Issue.record("Váratlan hibatípus: \(error)")
         }
     }
 

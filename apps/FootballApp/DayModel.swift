@@ -19,6 +19,10 @@ final class DayModel {
     private let loader: any RuntimeInfoLoading
     private let serviceFactory: (RuntimeInfo) throws -> DayService
 
+    /// Minden `load()` saját generációt kap; csak a legfrissebb generáció
+    /// eredménye írhatja felül a `state`-et.
+    private var generation = 0
+
     init(
         loader: any RuntimeInfoLoading = RuntimeInfoLoader(),
         serviceFactory: ((RuntimeInfo) throws -> DayService)? = nil
@@ -28,15 +32,23 @@ final class DayModel {
     }
 
     func load() async {
+        generation &+= 1
+        let currentGeneration = generation
         state = .loading
         do {
             let info = try loader.load()
             let service = try serviceFactory(info)
             let matches = try await service.day(for: selectedDate)
+            guard currentGeneration == generation else { return }
             state = matches.isEmpty ? .empty : .loaded(matches)
+        } catch is CancellationError {
+            // Megszakított betöltés: nem hiba, a frissebb betöltés veszi át.
+            return
         } catch let error as APIError {
+            guard currentGeneration == generation else { return }
             state = .error(error)
         } catch {
+            guard currentGeneration == generation else { return }
             state = .error(.network)
         }
     }

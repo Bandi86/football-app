@@ -24,6 +24,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: hu.bandi86.FootballApp
+        SWIFT_VERSION: "6.0"
   FootballAppTests:
     type: bundle.unit-test
     platform: macOS

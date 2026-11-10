@@ -26,6 +26,11 @@ public struct HTTPDayService: DayService {
         let response: URLResponse
         do {
             (data, response) = try await session.data(for: request)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            // A `URLSession` a megszakított kérést ebben a formában dobja.
+            throw CancellationError()
         } catch {
             throw APIError.network
         }

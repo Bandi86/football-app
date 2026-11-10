@@ -11,6 +11,23 @@ struct MatchRowView: View {
         return formatter
     }()
 
+    private static let statusLabels: [String: String] = [
+        "scheduled": "Ütemezett",
+        "confirmed": "Megerősített",
+        "live": "Élő",
+        "halftime": "Félidő",
+        "finished": "Lezárt",
+        "postponed": "Elhalasztott",
+        "canceled": "Törölt",
+        "abandoned": "Félbeszakadt",
+        "awarded": "Megítélt",
+    ]
+
+    /// Ismert állapot magyar címkéje, ismeretlen esetén a nyers érték.
+    static func statusLabel(for status: String) -> String {
+        statusLabels[status] ?? status
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             Text(Self.kickoffFormatter.string(from: match.kickoffAt))
@@ -20,7 +37,7 @@ struct MatchRowView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(match.home) – \(match.away)")
-                Text(match.status)
+                Text(Self.statusLabel(for: match.status))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

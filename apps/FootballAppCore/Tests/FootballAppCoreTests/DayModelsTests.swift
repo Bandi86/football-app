@@ -36,6 +36,33 @@ import Testing
         #expect(response.matches[0].publishState == .unknown)
     }
 
+    @Test func decodesKickoffWithFractionalSeconds() throws {
+        let json = """
+        {"date":"2026-11-09","timezone":"Europe/Budapest","matches":[
+          {"id":"00000000-0000-0000-0000-000000000104","kickoff_at":"2026-11-09T18:00:00.500Z",
+           "status":"scheduled","home":"A","away":"B","home_score":null,"away_score":null,
+           "publish_state":"verified_publish","blockers":[]}
+        ]}
+        """.data(using: .utf8)!
+        let match = try APIDecoding.makeDecoder().decode(DayResponse.self, from: json).matches[0]
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "UTC"))
+        let components = calendar.dateComponents(
+            [.year, .month, .day, .hour, .minute, .second, .nanosecond],
+            from: match.kickoffAt
+        )
+        #expect(components.year == 2026)
+        #expect(components.month == 11)
+        #expect(components.day == 9)
+        #expect(components.hour == 18)
+        #expect(components.minute == 0)
+        #expect(components.second == 0)
+        #expect(match.kickoffAt.timeIntervalSince1970 > 0)
+        // A törtrész pontosabban kell dekódolódjon, mint egész másodpercre kerekítve.
+        #expect(components.nanosecond == 500_000_000)
+    }
+
     @Test func decodesResultAndBlocker() throws {
         let json = """
         {"date":"2026-11-09","timezone":"Europe/Budapest","matches":[
