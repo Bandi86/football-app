@@ -83,6 +83,21 @@ struct HTTPDayServiceTests {
         }
     }
 
+    @Test func networkErrorMapsToNetwork() async {
+        defer { StubURLProtocol.handler = nil }
+        let service = makeService { _ in
+            throw URLError(.notConnectedToInternet)
+        }
+        do {
+            _ = try await service.day(for: sampleDate)
+            Issue.record("Várt hálózati hiba")
+        } catch let error as APIError {
+            #expect(error == .network)
+        } catch {
+            Issue.record("Váratlan hibatípus: \(error)")
+        }
+    }
+
     @Test func badJSONMapsToDecoding() async {
         defer { StubURLProtocol.handler = nil }
         let service = makeService { request in
