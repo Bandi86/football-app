@@ -840,3 +840,19 @@ Elvárt:
 **Megjegyzés a fenti szakaszokhoz:** a nap eleji „Napi cél" és „Nem része a holnapi napnak" keretezés a nap eredeti, Task 3-as hatókörét írja le; a nap folyamán hozzáfűzött szeletek (Task 3–13 + daemon HTTP E2E) ezt felülírták — a teljes backend elkészült. A Task 13 zárójegyzet „commitolatlan" állítása a commitok előtti pillanatot tükrözi; a commitok és a merge ebben a szakaszban történtek.
 
 **Dokumentáció-tisztítás (folyamatban):** a `docs/backend-closure-cleanup` ágon a commitolt helyi DB-jelszó genericizálása (`.env.example` placeholder, `db-create.sh` a jelszót a `.env`-ből olvassa, terv), a README-állapot frissítése, és ez a lezáró szakasz. A következő munkák tervezete ezután jön, csak jóváhagyás után.
+
+---
+
+## Kliens-szelet — SwiftUI „Ma" + csiszolás (2026-11-10)
+
+**Eredmény:** A SwiftUI „Ma" napi-lista kliens (Xcode-alkalmazás + SwiftPM mag) elkészült és a `main`-re mergelve (`598372a` docs, `2ab9fb0` Core, `ca807d8` app; majd `00a4198` hálózati-hiba teszt, `e663096` Info.plist higiénia). Ezután egy csiszoló szelet a `polish/swiftui-client` ágon: magyar `status`-leképezés (Ütemezett/Élő/Lezárt/…, ismeretlen → nyers), `SWIFT_VERSION 6.0` (a Swift-6 strict concurrency tiszta), `DayModel` generáció-védelem (stale-válasz) + `CancellationError` kezelés, nem-elavult `onChange`, `HTTPDayService` cancellation. Új tesztek: APIDecoding frakcionális ISO-8601, `APIError.userMessage`, 404→.server, stale-load, cancellation, status-címkék. README frissítve (a „Ma" szelet kész).
+
+**Futtatott ellenőrzések:**
+- Core: `cd apps/FootballAppCore && swift test` → 13 teszt / 4 suite passed.
+- App: `xcodebuild test` (Xcode 27.2, `DEVELOPER_DIR`, `CODE_SIGNING_ALLOWED=NO`) → 8 teszt, 0 failure, TEST SUCCEEDED.
+- Vizuális: a futó appban (daemon port 62009, fixture 2026-11-09) a meccssor „19:00 | Újpest – Győr | Ütemezett | ellenőrzött" — a magyar status és a badge helyes; a demó-dátum utána visszaállítva.
+- Élő dev-loop igazolva: kódmódosítás → ~7 s inkrementális `xcodebuild build` → újraindítás → friss UI; `screencapture` működik.
+
+**Eltérések:** a `URLSession` nem dob `CancellationError`-t (a megszakítás `URLError(.cancelled)`), ezért a `HTTPDayService` ezt is kezeli; a `statusLabel` internal (tesztelhető); a teszt-target Swift 5 módban maradt (csak az app-target 6.0).
+
+**Nyitott:** a csiszoló szelet commitolása külön döntés; a `footballd` daemon (port 62009) és a v2 app fut.

@@ -2,7 +2,7 @@
 
 Helyi, macOS-re tervezett futball-adatplatform. A cél nem egy újabb tippoldal, hanem egy **visszakövethető, ellenőrzött és elemzésre alkalmas adatrendszer**, amelyre később predikciós és papíralapú fogadásszimulációs rétegek épülhetnek.
 
-> **Állapot:** a verifikált napi lista backend elkészült és a `main` ágon van: Rust `domain`/`storage`/`ingest`/`verification`/`api` crate-ek, két PostgreSQL migráció (21 tábla), `footballd` daemon (helyi, tokenes HTTP API a 127.0.0.1-en) és `footballctl` CLI (`migrate` / `ingest-fixture` / `day` / `doctor`). A SwiftUI kliens és a további rétegek még hátravannak.
+> **Állapot:** a verifikált napi lista backend elkészült és a `main` ágon van: Rust `domain`/`storage`/`ingest`/`verification`/`api` crate-ek, két PostgreSQL migráció (21 tábla), `footballd` daemon (helyi, tokenes HTTP API a 127.0.0.1-en) és `footballctl` CLI (`migrate` / `ingest-fixture` / `day` / `doctor`). Elkészült a **SwiftUI macOS kliens első szelete („Ma" napi lista)** is (Xcode-alkalmazás + SwiftPM mag). A meccsközpont további oldalai, a live, a predikció és a többi réteg még hátravan.
 
 ## Mi ez a projekt?
 
