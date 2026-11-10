@@ -1,7 +1,7 @@
 use football_storage::{connect, ping, user_table_count};
 
 #[tokio::test]
-async fn empty_test_database_is_reachable() {
+async fn migrated_test_database_is_reachable() {
     let database_url =
         std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL kötelező a teszthez");
     let pool = connect(&database_url)
@@ -13,7 +13,10 @@ async fn empty_test_database_is_reachable() {
     let tables = user_table_count(&pool)
         .await
         .expect("a táblaszám lekérdezhető");
-    assert_eq!(tables, 0, "az alapozási fázisban a tesztdb legyen üres");
+    assert_eq!(
+        tables, 21,
+        "a 0001 és 0002 migráció után 20 terméktábla és a _sqlx_migrations várható"
+    );
 
     pool.close().await;
 }

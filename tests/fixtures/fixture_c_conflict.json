@@ -1,0 +1,52 @@
+{
+  "source_code": "fixture_c",
+  "source_display_name": "Fixture C",
+  "captured_at": "2026-11-09T09:00:00Z",
+  "endpoint_key": "day-fixtures",
+  "request_url": "fixture://fixture_c/day/2026-11-09",
+  "adapter_version": "fixture-c-1.0.0",
+  "parser_version": "fixture-parser-1.0.0",
+  "competition": {
+    "id": "10000000-0000-7000-8000-000000000001",
+    "name": "Hungarian NB I",
+    "country_code": "HU",
+    "country_name": "Hungary"
+  },
+  "season": {
+    "id": "10000000-0000-7000-8000-000000000002",
+    "label": "2026/27"
+  },
+  "teams": [
+    {
+      "id": "10000000-0000-7000-8000-000000000011",
+      "source_entity_id": "B-UJP",
+      "name": "Újpest",
+      "country_code": "HU",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    },
+    {
+      "id": "10000000-0000-7000-8000-000000000012",
+      "source_entity_id": "B-GYOR",
+      "name": "Győr",
+      "country_code": "HU",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    }
+  ],
+  "matches": [
+    {
+      "id": "10000000-0000-7000-8000-000000000101",
+      "source_match_id": "B-1001",
+      "home_source_entity_id": "B-UJP",
+      "away_source_entity_id": "B-GYOR",
+      "round_label": "12",
+      "kickoff_at": "2026-11-09T19:00:00Z",
+      "competition_timezone": "Europe/Budapest",
+      "status": "scheduled",
+      "result": null
+    }
+  ]
+}

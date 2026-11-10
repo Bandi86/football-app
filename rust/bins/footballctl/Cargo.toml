@@ -1,0 +1,20 @@
+[package]
+name = "footballctl"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+football-domain = { path = "../../crates/domain" }
+football-ingest = { path = "../../crates/ingest" }
+football-storage = { path = "../../crates/storage" }
+football-verification = { path = "../../crates/verification" }
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true

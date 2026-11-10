@@ -1,3 +1,7 @@
+pub mod object_store;
+pub mod repositories;
+pub mod test_support;
+
 use sqlx::{PgPool, postgres::PgPoolOptions};
 
 pub async fn connect(database_url: &str) -> Result<PgPool, sqlx::Error> {

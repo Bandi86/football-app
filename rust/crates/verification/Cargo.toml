@@ -1,0 +1,21 @@
+[package]
+name = "football-verification"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+football-domain = { path = "../domain" }
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+football-ingest = { path = "../ingest" }
+football-storage = { path = "../storage" }
+tempfile.workspace = true
+tokio.workspace = true
