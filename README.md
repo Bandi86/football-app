@@ -2,7 +2,7 @@
 
 Helyi, macOS-re tervezett futball-adatplatform. A cél nem egy újabb tippoldal, hanem egy **visszakövethető, ellenőrzött és elemzésre alkalmas adatrendszer**, amelyre később predikciós és papíralapú fogadásszimulációs rétegek épülhetnek.
 
-> **Állapot:** korai tervezési és alapozási fázis. Működő alkalmazás még nem készült. A repó jelenleg a specifikációt, a megvalósítási tervet és a fejlesztői alapokat tartalmazza.
+> **Állapot:** a verifikált napi lista backend elkészült és a `main` ágon van: Rust `domain`/`storage`/`ingest`/`verification`/`api` crate-ek, két PostgreSQL migráció (21 tábla), `footballd` daemon (helyi, tokenes HTTP API a 127.0.0.1-en) és `footballctl` CLI (`migrate` / `ingest-fixture` / `day` / `doctor`). A SwiftUI kliens és a további rétegek még hátravannak.
 
 ## Mi ez a projekt?
 
@@ -85,7 +85,7 @@ A Rust verziót a [`rust-toolchain.toml`](rust-toolchain.toml) rögzíti.
 
 ## Helyi környezet
 
-A repó jelenleg alapozási állapotban van, ezért a teljes alkalmazás még nem indítható. A környezeti változók mintája:
+A backend már futtatható (a `footballd` daemon és a `footballctl` CLI; lásd a [helyi fejlesztési útmutatót](docs/operations/local-development.md)). A teljes asztali alkalmazás a SwiftUI kliens elkészültéig még nem indítható. A környezeti változók mintája:
 
 ```bash
 cp .env.example .env

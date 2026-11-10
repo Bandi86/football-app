@@ -830,3 +830,13 @@ Elvárt:
 - A backend terv kész; a következő lépés (Task 13 commitolása, a development branch lezárása/integrálása, vagy új tervezési szelet) csak a felhasználó jóváhagyásával.
 
 **Következő apró szelet:** a terv a Task 13-mal lezárult; következő lépés csak jóváhagyás után (commit / branch-lezárás / új tervezés).
+
+---
+
+## Lezárás — commit és branch-merge (2026-11-10)
+
+**Eredmény:** A Task 13 változásai commitolva, és a `feat/rust-domain-foundation` ág fast-forward mergével bekerült a `main`-be. A napi munka commitjai: `00d38fe` (DB migrációk + scriptek), `f3b818e` (backend kód), `627488b` (docs), `1651f40` (Task 13 kód: kétforrásos konfliktus), `62cbbb7` (Task 13 checkpoint). A merge után `main` = `62cbbb7`, ahead 6 az `origin/main`-hez képest; a mergelt eredményen `./scripts/check.sh` zöld (18 teszt). A feature branch törölve (jóváhagyott `-D`; minden commit a `main`-ben él). Push nem történt. Az adatbázisok nyugalmi állapotban: dev 21/6/43, teszt 21/6/0 (`db-check.sh` exit 0).
+
+**Megjegyzés a fenti szakaszokhoz:** a nap eleji „Napi cél" és „Nem része a holnapi napnak" keretezés a nap eredeti, Task 3-as hatókörét írja le; a nap folyamán hozzáfűzött szeletek (Task 3–13 + daemon HTTP E2E) ezt felülírták — a teljes backend elkészült. A Task 13 zárójegyzet „commitolatlan" állítása a commitok előtti pillanatot tükrözi; a commitok és a merge ebben a szakaszban történtek.
+
+**Dokumentáció-tisztítás (folyamatban):** a `docs/backend-closure-cleanup` ágon a commitolt helyi DB-jelszó genericizálása (`.env.example` placeholder, `db-create.sh` a jelszót a `.env`-ből olvassa, terv), a README-állapot frissítése, és ez a lezáró szakasz. A következő munkák tervezete ezután jön, csak jóváhagyás után.

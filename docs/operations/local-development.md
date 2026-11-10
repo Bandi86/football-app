@@ -2,10 +2,12 @@
 
 ## Előkészítés
 
-A környezet a `.env` fájlban állítható be (a `.env.example` alapján; a `.env` nem kerül verziókövetésbe). Az adatbázisok létrehozása és a környezet betöltése:
+A környezet a `.env` fájlban állítható be (a `.env.example` alapján; a `.env` nem kerül verziókövetésbe). Először hozd létre a `.env`-et, és a `LOCAL_DB_PASSWORD` helyére írd a helyi PostgreSQL jelszót; ezután hozd létre az adatbázisokat:
 
 ```bash
-./scripts/db-create.sh
+cp .env.example .env
+# szerkeszd a .env-et: LOCAL_DB_PASSWORD → a helyi jelszó
+./scripts/db-create.sh      # a jelszót a .env TEST_DATABASE_URL-jéből olvassa
 set -a; . ./.env; set +a
 export DATA_DIR="$PWD/data"
 ```

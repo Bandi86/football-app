@@ -174,8 +174,8 @@ DerivedData/
 - [ ] **Step 3: Írd meg a `.env.example` fájlt**
 
 ```dotenv
-DATABASE_URL=postgres://football_v2:football_v2_dev@127.0.0.1:5432/football_v2_dev
-TEST_DATABASE_URL=postgres://football_v2:football_v2_dev@127.0.0.1:5432/football_v2_test
+DATABASE_URL=postgres://football_v2:LOCAL_DB_PASSWORD@127.0.0.1:5432/football_v2_dev
+TEST_DATABASE_URL=postgres://football_v2:LOCAL_DB_PASSWORD@127.0.0.1:5432/football_v2_test
 APP_TIMEZONE=Europe/Budapest
 DATA_DIR=./data
 BIND_ADDR=127.0.0.1:0
@@ -219,7 +219,7 @@ psql -d postgres -v ON_ERROR_STOP=1 <<'SQL'
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'football_v2') THEN
-    CREATE ROLE football_v2 LOGIN CREATEDB PASSWORD 'football_v2_dev';
+    CREATE ROLE football_v2 LOGIN CREATEDB PASSWORD 'LOCAL_DB_PASSWORD';
   END IF;
 END
 $$;
@@ -241,7 +241,7 @@ done
 chmod +x scripts/check-toolchain.sh scripts/db-create.sh
 ./scripts/check-toolchain.sh
 ./scripts/db-create.sh
-psql 'postgres://football_v2:football_v2_dev@127.0.0.1:5432/football_v2_dev' -c 'SELECT current_database();'
+psql 'postgres://football_v2:LOCAL_DB_PASSWORD@127.0.0.1:5432/football_v2_dev' -c 'SELECT current_database();'
 ```
 
 Elvárt: minden eszköz verziója megjelenik; a PostgreSQL válaszban `football_v2_dev` szerepel.
@@ -830,7 +830,7 @@ DATABASE_URL="$TEST_DATABASE_URL" sqlx migrate run --source db/migrations
 - [ ] **Step 3: Futtasd a migrációt a fejlesztői adatbázison**
 
 ```bash
-export DATABASE_URL='postgres://football_v2:football_v2_dev@127.0.0.1:5432/football_v2_dev'
+export DATABASE_URL='postgres://football_v2:LOCAL_DB_PASSWORD@127.0.0.1:5432/football_v2_dev'
 sqlx database create
 sqlx migrate run --source db/migrations
 psql "$DATABASE_URL" -c '\dt raw.*'
@@ -844,7 +844,7 @@ Elvárt: a felsorolt táblák léteznek, és az `ops.validation_rule` hat sort t
 
 ```bash
 chmod +x scripts/db-reset.sh
-export TEST_DATABASE_URL='postgres://football_v2:football_v2_dev@127.0.0.1:5432/football_v2_test'
+export TEST_DATABASE_URL='postgres://football_v2:LOCAL_DB_PASSWORD@127.0.0.1:5432/football_v2_test'
 ./scripts/db-reset.sh
 psql "$TEST_DATABASE_URL" -tAc "SELECT count(*) FROM ops.validation_rule;"
 ```
@@ -1030,7 +1030,7 @@ COMMIT;
 - [ ] **Step 2: Futtasd a migrációt**
 
 ```bash
-export DATABASE_URL='postgres://football_v2:football_v2_dev@127.0.0.1:5432/football_v2_dev'
+export DATABASE_URL='postgres://football_v2:LOCAL_DB_PASSWORD@127.0.0.1:5432/football_v2_dev'
 sqlx migrate run --source db/migrations
 psql "$DATABASE_URL" -c '\dt core.*'
 psql "$DATABASE_URL" -c '\dt identity.*'
@@ -1052,7 +1052,7 @@ Elvárt: idegen kulcs hiba, azaz a hibás meccs nem írható be. A parancs szán
 - [ ] **Step 4: Állítsd vissza és ellenőrizd a tesztadatbázist**
 
 ```bash
-export TEST_DATABASE_URL='postgres://football_v2:football_v2_dev@127.0.0.1:5432/football_v2_test'
+export TEST_DATABASE_URL='postgres://football_v2:LOCAL_DB_PASSWORD@127.0.0.1:5432/football_v2_test'
 ./scripts/db-reset.sh
 psql "$TEST_DATABASE_URL" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema IN ('core','identity','fact');"
 ```
@@ -1287,7 +1287,7 @@ pub async fn test_pool() -> PgPool {
 cd rust
 cargo fmt --all --check
 cargo test -p football-storage --test object_store
-export TEST_DATABASE_URL='postgres://football_v2:football_v2_dev@127.0.0.1:5432/football_v2_test'
+export TEST_DATABASE_URL='postgres://football_v2:LOCAL_DB_PASSWORD@127.0.0.1:5432/football_v2_test'
 ```
 
 Elvárt: az objektumtár teszt zöld, egyetlen fájl keletkezik, és a payload visszaolvasható.
@@ -1404,7 +1404,7 @@ async fn fixture_is_stored_raw_and_observed_once() {
 - [ ] **Step 3: Futtasd, és igazold a hiányzó adaptert**
 
 ```bash
-export TEST_DATABASE_URL='postgres://football_v2:football_v2_dev@127.0.0.1:5432/football_v2_test'
+export TEST_DATABASE_URL='postgres://football_v2:LOCAL_DB_PASSWORD@127.0.0.1:5432/football_v2_test'
 cd rust
 cargo test -p football-ingest --test capture_observation
 ```
@@ -1741,7 +1741,7 @@ async fn insert_observation(
 - [ ] **Step 6: Futtasd a capture-tesztet**
 
 ```bash
-export TEST_DATABASE_URL='postgres://football_v2:football_v2_dev@127.0.0.1:5432/football_v2_test'
+export TEST_DATABASE_URL='postgres://football_v2:LOCAL_DB_PASSWORD@127.0.0.1:5432/football_v2_test'
 cd rust
 cargo fmt --all --check
 cargo test -p football-ingest --test capture_observation
@@ -1809,7 +1809,7 @@ async fn fixture_materializes_one_canonical_match_with_exact_identity_and_proven
 - [ ] **Step 2: Futtasd, és igazold a hiányt**
 
 ```bash
-export TEST_DATABASE_URL='postgres://football_v2:football_v2_dev@127.0.0.1:5432/football_v2_test'
+export TEST_DATABASE_URL='postgres://football_v2:LOCAL_DB_PASSWORD@127.0.0.1:5432/football_v2_test'
 cd rust
 cargo test -p football-ingest --test canonicalize_fixture
 ```
@@ -2191,7 +2191,7 @@ A `Canonicalizer::materialize` a fixture-azonosító alapján kapcsolja a megfig
 - [ ] **Step 4: Futtasd a kanonizálási tesztet**
 
 ```bash
-export TEST_DATABASE_URL='postgres://football_v2:football_v2_dev@127.0.0.1:5432/football_v2_test'
+export TEST_DATABASE_URL='postgres://football_v2:LOCAL_DB_PASSWORD@127.0.0.1:5432/football_v2_test'
 cd rust
 cargo fmt --all --check
 cargo test -p football-ingest --test canonicalize_fixture
@@ -2701,7 +2701,7 @@ async fn blocker_report_creates_withheld_gate() {
 - [ ] **Step 3: Futtasd, és igazold a hiányt**
 
 ```bash
-export TEST_DATABASE_URL='postgres://football_v2:football_v2_dev@127.0.0.1:5432/football_v2_test'
+export TEST_DATABASE_URL='postgres://football_v2:LOCAL_DB_PASSWORD@127.0.0.1:5432/football_v2_test'
 cd rust
 cargo test -p football-verification --test publish_gate
 ```
@@ -2891,7 +2891,7 @@ fn match_severity(severity: Severity) -> &'static str {
 - [ ] **Step 5: Futtasd a gate-tesztet**
 
 ```bash
-export TEST_DATABASE_URL='postgres://football_v2:football_v2_dev@127.0.0.1:5432/football_v2_test'
+export TEST_DATABASE_URL='postgres://football_v2:LOCAL_DB_PASSWORD@127.0.0.1:5432/football_v2_test'
 cd rust
 cargo fmt --all --check
 cargo test -p football-verification --test publish_gate
@@ -3048,7 +3048,7 @@ async fn seed_match(
 - [ ] **Step 2: Futtasd, és igazold a hiányt**
 
 ```bash
-export TEST_DATABASE_URL='postgres://football_v2:football_v2_dev@127.0.0.1:5432/football_v2_test'
+export TEST_DATABASE_URL='postgres://football_v2:LOCAL_DB_PASSWORD@127.0.0.1:5432/football_v2_test'
 cd rust
 cargo test -p football-storage --test day_query
 ```
@@ -3118,7 +3118,7 @@ pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatch
 - [ ] **Step 4: Futtasd a teszteket**
 
 ```bash
-export TEST_DATABASE_URL='postgres://football_v2:football_v2_dev@127.0.0.1:5432/football_v2_test'
+export TEST_DATABASE_URL='postgres://football_v2:LOCAL_DB_PASSWORD@127.0.0.1:5432/football_v2_test'
 cd rust
 cargo fmt --all --check
 cargo test -p football-storage --test day_query
@@ -3212,7 +3212,7 @@ async fn day_requires_read_token() {
 - [ ] **Step 2: Futtasd, és igazold a hiányzó API-t**
 
 ```bash
-export TEST_DATABASE_URL='postgres://football_v2:football_v2_dev@127.0.0.1:5432/football_v2_test'
+export TEST_DATABASE_URL='postgres://football_v2:LOCAL_DB_PASSWORD@127.0.0.1:5432/football_v2_test'
 cd rust
 cargo test -p football-api --test routes
 ```
@@ -3640,7 +3640,7 @@ async fn main() -> Result<()> {
 - [ ] **Step 5: Futtasd a route-teszteket**
 
 ```bash
-export TEST_DATABASE_URL='postgres://football_v2:football_v2_dev@127.0.0.1:5432/football_v2_test'
+export TEST_DATABASE_URL='postgres://football_v2:LOCAL_DB_PASSWORD@127.0.0.1:5432/football_v2_test'
 cd rust
 cargo fmt --all --check
 cargo test -p football-api --test routes
@@ -3823,7 +3823,7 @@ A `source_values` ebben az utolsó lépésben még üres; a Task 9 konfliktus-fi
 #!/usr/bin/env bash
 set -euo pipefail
 
-export TEST_DATABASE_URL='postgres://football_v2:football_v2_dev@127.0.0.1:5432/football_v2_test'
+export TEST_DATABASE_URL='postgres://football_v2:LOCAL_DB_PASSWORD@127.0.0.1:5432/football_v2_test'
 export DATABASE_URL="$TEST_DATABASE_URL"
 
 ./scripts/db-reset.sh
@@ -3836,7 +3836,7 @@ cargo test --workspace -- --test-threads=1
 - [ ] **Step 3: Futtasd a teljes pipeline-t fejlesztői adatbázison**
 
 ```bash
-export DATABASE_URL='postgres://football_v2:football_v2_dev@127.0.0.1:5432/football_v2_dev'
+export DATABASE_URL='postgres://football_v2:LOCAL_DB_PASSWORD@127.0.0.1:5432/football_v2_dev'
 export DATA_DIR='./data'
 cd rust
 cargo run -p footballctl -- migrate
@@ -3860,7 +3860,7 @@ Elvárt: a két egyező forrás után a meccs `verified_publish` állapotú; az 
 ```bash
 ./scripts/check-toolchain.sh
 ./scripts/db-create.sh
-export DATABASE_URL='postgres://football_v2:football_v2_dev@127.0.0.1:5432/football_v2_dev'
+export DATABASE_URL='postgres://football_v2:LOCAL_DB_PASSWORD@127.0.0.1:5432/football_v2_dev'
 export DATA_DIR='./data'
 ```
 
@@ -3966,7 +3966,7 @@ A teszt a `rust/crates/verification/tests/conflict_pipeline.rs` fájlban él, é
 - [ ] **Step 2: Futtasd, és igazold, hogy a conflict betöltő hiányzik**
 
 ```bash
-export TEST_DATABASE_URL='postgres://football_v2:football_v2_dev@127.0.0.1:5432/football_v2_test'
+export TEST_DATABASE_URL='postgres://football_v2:LOCAL_DB_PASSWORD@127.0.0.1:5432/football_v2_test'
 cd rust
 cargo test -p football-verification --test conflict_pipeline
 ```
@@ -4086,7 +4086,7 @@ Ezután a második fixture betöltése a `MATERIAL_SOURCE_CONFLICT` blokkolót �
 - [ ] **Step 5: Futtasd a kétforrásos tesztet és a teljes ellenőrzést**
 
 ```bash
-export TEST_DATABASE_URL='postgres://football_v2:football_v2_dev@127.0.0.1:5432/football_v2_test'
+export TEST_DATABASE_URL='postgres://football_v2:LOCAL_DB_PASSWORD@127.0.0.1:5432/football_v2_test'
 cd rust
 cargo fmt --all --check
 cargo test -p football-verification --test conflict_pipeline
