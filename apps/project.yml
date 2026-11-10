@@ -1,0 +1,41 @@
+name: FootballApp
+options:
+  bundleIdPrefix: hu.bandi86
+  deploymentTarget:
+    macOS: "14.0"
+packages:
+  FootballAppCore:
+    path: FootballAppCore
+targets:
+  FootballApp:
+    type: application
+    platform: macOS
+    sources:
+      - FootballApp
+    info:
+      path: FootballApp/Info.plist
+      properties:
+        CFBundleName: FootballApp
+        LSMinimumSystemVersion: "14.0"
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    dependencies:
+      - package: FootballAppCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: hu.bandi86.FootballApp
+  FootballAppTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - FootballAppTests
+    dependencies:
+      - target: FootballApp
+schemes:
+  FootballApp:
+    build:
+      targets:
+        FootballApp: all
+    test:
+      targets:
+        - FootballAppTests

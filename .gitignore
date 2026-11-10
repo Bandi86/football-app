@@ -41,6 +41,9 @@ xcuserdata/
 *.xccheckout
 *.xcscmblueprint
 
+# XcodeGen-generated project (regenerate with `xcodegen generate`; not committed)
+*.xcodeproj/
+
 # Runtime and generated data
 /data/
 /runtime/
