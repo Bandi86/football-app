@@ -44,6 +44,9 @@ xcuserdata/
 # XcodeGen-generated project (regenerate with `xcodegen generate`; not committed)
 *.xcodeproj/
 
+# XcodeGen-generated Info.plist (source of truth: apps/project.yml info.properties)
+apps/FootballApp/Info.plist
+
 # Runtime and generated data
 /data/
 /runtime/
