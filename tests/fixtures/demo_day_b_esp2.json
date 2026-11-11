@@ -1,0 +1,74 @@
+{
+  "source_code": "demo_day_b",
+  "source_display_name": "Demo odds feed",
+  "captured_at": "2026-11-11T09:00:00Z",
+  "endpoint_key": "day-fixtures",
+  "request_url": "fixture://demo_day_b/day/2026-11-11",
+  "adapter_version": "demo-1.0.0",
+  "parser_version": "fixture-parser-1.0.0",
+  "competition": {
+    "id": "20000000-0000-7000-8000-000000000801",
+    "name": "LaLiga 2",
+    "country_code": "ESP",
+    "country_name": "Spain",
+    "tier": 2,
+    "priority": 8
+  },
+  "season": {
+    "id": "20000000-0000-7000-8000-000000000802",
+    "label": "2026/27"
+  },
+  "teams": [
+    {
+      "id": "20000000-0000-7000-8000-000000000810",
+      "source_entity_id": "E-29",
+      "name": "Eibar",
+      "country_code": "ESP",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000811",
+      "source_entity_id": "E-30",
+      "name": "Levante",
+      "country_code": "ESP",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    }
+  ],
+  "matches": [
+    {
+      "id": "20000000-0000-7000-8000-000000000820",
+      "source_match_id": "B-esp2-1",
+      "home_source_entity_id": "E-29",
+      "away_source_entity_id": "E-30",
+      "round_label": "13",
+      "kickoff_at": "2026-11-11T21:00:00+01:00",
+      "competition_timezone": "Europe/Budapest",
+      "status": "scheduled",
+      "result": null,
+      "odds": {
+        "home": 2.3,
+        "draw": 3.1,
+        "away": 3.1,
+        "btts_yes": 1.88,
+        "btts_no": 1.92,
+        "over25": 2.2,
+        "under25": 1.65
+      },
+      "market_count": 12
+    }
+  ],
+  "standings": [
+    {
+      "team_source_entity_id": "E-29",
+      "position": 4
+    },
+    {
+      "team_source_entity_id": "E-30",
+      "position": 6
+    }
+  ]
+}

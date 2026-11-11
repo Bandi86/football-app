@@ -1,9 +1,10 @@
 import SwiftUI
+import FootballAppCore
 
 /// A főoldal: felső navigáció → változó HEADER → szűrő → liga szerint csoportosított
-/// napi lista. Jelenleg **mintaadatból** (SampleData) dolgozik a design teszteléséhez.
+/// napi lista, a footballd API valós válaszából.
 struct HomeView: View {
-    @State private var selectedDate = Date()
+    @State private var model = DayModel()
     @State private var filter: MatchFilter = .all
     @State private var country: String? = nil
     @State private var division: Int? = nil
@@ -12,49 +13,72 @@ struct HomeView: View {
     @State private var appeared = false
 
     var body: some View {
+        @Bindable var model = model
         VStack(spacing: 0) {
             TopNavigationBar()
 
             Rectangle().fill(AppTheme.hairline).frame(height: 1)
 
             HomeHeader(
-                date: $selectedDate,
-                count: SampleData.totalMatches,
+                date: $model.selectedDate,
+                count: loadedCount,
                 appeared: appeared,
-                onPrevious: { shift(-1) },
-                onToday: { selectedDate = Date() },
-                onNext: { shift(1) },
-                onRefresh: { replayEntrance() }
+                onPrevious: { model.goToPreviousDay() },
+                onToday: { model.goToToday() },
+                onNext: { model.goToNextDay() },
+                onRefresh: { Task { await model.load() } }
             )
 
-            FilterBar(filter: $filter, country: $country, division: $division, counts: filterCounts)
+            FilterBar(filter: $filter, country: $country, division: $division,
+                      counts: filterCounts, countries: allCountries)
 
-            MatchListView(leagues: filteredLeagues)
+            content
         }
         .background(AppTheme.background)
         .onAppear {
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.4)) { appeared = true }
         }
+        .task(id: model.selectedDate) { await model.load() }
     }
 
-    private func shift(_ delta: Int) {
-        selectedDate = Calendar.current.date(byAdding: .day, value: delta, to: selectedDate) ?? selectedDate
+    @ViewBuilder
+    private var content: some View {
+        switch model.state {
+        case .idle, .loading:
+            ProgressView()
+                .controlSize(.large)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .loaded(let matches):
+            MatchListView(leagues: filteredLeagues(matches))
+        case .empty:
+            EmptyStateView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .error(let error):
+            ErrorStateView(message: error.userMessage, retry: { Task { await model.load() } })
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 
-    private func replayEntrance() {
-        appeared = false
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.4)) { appeared = true }
+    private var loadedCount: Int? {
+        if case .loaded(let matches) = model.state { return matches.count }
+        return nil
     }
 
-    private var baseLeagues: [SampleLeague] {
-        SampleData.leagues.filter { league in
+    private func baseGroups(_ matches: [DayMatch]) -> [LeagueGroup] {
+        LeagueGroup.fromDay(matches).filter { league in
             (country == nil || league.country == country) &&
             (division == nil || league.tier == division)
         }
     }
 
+    private var allCountries: [String] {
+        guard case .loaded(let matches) = model.state else { return [] }
+        return Array(Set(LeagueGroup.fromDay(matches).map(\.country))).sorted()
+    }
+
     private var filterCounts: [MatchFilter: Int] {
-        let all = baseLeagues.flatMap { $0.matches }
+        guard case .loaded(let matches) = model.state else { return [:] }
+        let all = baseGroups(matches).flatMap { $0.matches }
         var result: [MatchFilter: Int] = [:]
         for candidate in MatchFilter.allCases {
             result[candidate] = all.filter { candidate.matches(status: $0.status) }.count
@@ -62,8 +86,8 @@ struct HomeView: View {
         return result
     }
 
-    private var filteredLeagues: [SampleLeague] {
-        baseLeagues.compactMap { $0.filtering(filter) }
+    private func filteredLeagues(_ matches: [DayMatch]) -> [LeagueGroup] {
+        baseGroups(matches).compactMap { $0.filtering(filter) }
     }
 }
 
@@ -97,17 +121,6 @@ private struct TopNavigationBar: View {
             Spacer()
 
             HStack(spacing: 14) {
-                HStack(spacing: 6) {
-                    Circle().fill(AppTheme.accent).frame(width: 7, height: 7)
-                    Text("MINTA ADAT")
-                        .font(.system(size: 11, weight: .semibold))
-                        .tracking(0.5)
-                        .foregroundStyle(AppTheme.accent)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(AppTheme.accent.opacity(0.12), in: Capsule())
-
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     Text(Self.clock.string(from: context.date))
                         .font(.system(size: 12, weight: .medium).monospacedDigit())
@@ -289,6 +302,7 @@ private struct FilterBar: View {
     @Binding var country: String?
     @Binding var division: Int?
     let counts: [MatchFilter: Int]
+    let countries: [String]
 
     var body: some View {
         HStack(spacing: 8) {
@@ -307,7 +321,7 @@ private struct FilterBar: View {
             Menu {
                 Button("Minden ország") { country = nil }
                 Divider()
-                ForEach(SampleData.countries, id: \.self) { name in
+                ForEach(countries, id: \.self) { name in
                     Button(name) { country = name }
                 }
             } label: {

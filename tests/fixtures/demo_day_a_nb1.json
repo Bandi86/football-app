@@ -1,0 +1,130 @@
+{
+  "source_code": "demo_day_a",
+  "source_display_name": "Demo odds feed",
+  "captured_at": "2026-11-11T08:00:00Z",
+  "endpoint_key": "day-fixtures",
+  "request_url": "fixture://demo_day_a/day/2026-11-11",
+  "adapter_version": "demo-1.0.0",
+  "parser_version": "fixture-parser-1.0.0",
+  "competition": {
+    "id": "20000000-0000-7000-8000-000000000601",
+    "name": "NB I",
+    "country_code": "HUN",
+    "country_name": "Hungary",
+    "tier": 1,
+    "priority": 6
+  },
+  "season": {
+    "id": "20000000-0000-7000-8000-000000000602",
+    "label": "2026/27"
+  },
+  "teams": [
+    {
+      "id": "20000000-0000-7000-8000-000000000610",
+      "source_entity_id": "D-23",
+      "name": "Ferencváros",
+      "country_code": "HUN",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000611",
+      "source_entity_id": "D-24",
+      "name": "Újpest",
+      "country_code": "HUN",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000612",
+      "source_entity_id": "D-25",
+      "name": "Debrecen",
+      "country_code": "HUN",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000613",
+      "source_entity_id": "D-26",
+      "name": "Győr",
+      "country_code": "HUN",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    }
+  ],
+  "matches": [
+    {
+      "id": "20000000-0000-7000-8000-000000000620",
+      "source_match_id": "A-nb1-1",
+      "home_source_entity_id": "D-23",
+      "away_source_entity_id": "D-24",
+      "round_label": "13",
+      "kickoff_at": "2026-11-11T19:00:00+01:00",
+      "competition_timezone": "Europe/Budapest",
+      "status": "live",
+      "result": {
+        "home_ft": 1,
+        "away_ft": 0,
+        "home_ht": 1,
+        "away_ht": 0,
+        "home_et": null,
+        "away_et": null,
+        "home_pens": null,
+        "away_pens": null
+      },
+      "odds": {
+        "home": 1.45,
+        "draw": 4.3,
+        "away": 6,
+        "btts_yes": 2,
+        "btts_no": 1.8,
+        "over25": 2.4,
+        "under25": 1.55
+      },
+      "market_count": 12
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000621",
+      "source_match_id": "A-nb1-2",
+      "home_source_entity_id": "D-25",
+      "away_source_entity_id": "D-26",
+      "round_label": "13",
+      "kickoff_at": "2026-11-11T17:00:00+01:00",
+      "competition_timezone": "Europe/Budapest",
+      "status": "scheduled",
+      "result": null,
+      "odds": {
+        "home": 2.2,
+        "draw": 3.3,
+        "away": 3.2,
+        "btts_yes": 1.85,
+        "btts_no": 1.95,
+        "over25": 2.15,
+        "under25": 1.7
+      },
+      "market_count": 13
+    }
+  ],
+  "standings": [
+    {
+      "team_source_entity_id": "D-23",
+      "position": 1
+    },
+    {
+      "team_source_entity_id": "D-24",
+      "position": 8
+    },
+    {
+      "team_source_entity_id": "D-25",
+      "position": 4
+    },
+    {
+      "team_source_entity_id": "D-26",
+      "position": 6
+    }
+  ]
+}

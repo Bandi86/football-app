@@ -36,7 +36,7 @@ enum MatchFilter: String, CaseIterable, Identifiable {
 
 /// Liga szerint csoportosított, prioritás szerint rendezett napi lista.
 struct MatchListView: View {
-    let leagues: [SampleLeague]
+    let leagues: [LeagueGroup]
 
     var body: some View {
         if leagues.isEmpty {
@@ -63,9 +63,9 @@ struct MatchListView: View {
 }
 
 private struct LeagueSectionView: View {
-    let league: SampleLeague
+    let league: LeagueGroup
 
-    private var sortedMatches: [SampleMatch] {
+    private var sortedMatches: [MatchCardModel] {
         league.matches.sorted { $0.time < $1.time }
     }
 
@@ -113,7 +113,7 @@ private struct LeagueSectionView: View {
 }
 
 private struct MatchItemRow: View {
-    let match: SampleMatch
+    let match: MatchCardModel
     let showPositions: Bool
     @State private var hover = false
 
@@ -160,8 +160,8 @@ private struct MatchItemRow: View {
                 statusColumn
 
                 VStack(alignment: .leading, spacing: 9) {
-                    teamLine(match.home)
-                    teamLine(match.away)
+                    teamLine(match.home, position: match.homePosition)
+                    teamLine(match.away, position: match.awayPosition)
                 }
 
                 Spacer(minLength: 12)
@@ -169,8 +169,9 @@ private struct MatchItemRow: View {
                 resultBlock
             }
 
-            predictionBlock
-            oddsRow
+            if match.odds != nil {
+                oddsRow
+            }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
@@ -195,7 +196,7 @@ private struct MatchItemRow: View {
         .frame(width: 56, alignment: .leading)
     }
 
-    private func teamLine(_ name: String) -> some View {
+    private func teamLine(_ name: String, position: Int?) -> some View {
         HStack(spacing: 8) {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(AppTheme.surface)
@@ -207,54 +208,12 @@ private struct MatchItemRow: View {
                 .foregroundStyle(AppTheme.primaryText)
                 .lineLimit(1)
 
-            if showPositions, let position = SampleData.position(of: name) {
+            if showPositions, let position {
                 Text("(\(position))")
                     .font(.system(size: 11, weight: .medium).monospacedDigit())
                     .foregroundStyle(AppTheme.secondaryText)
             }
         }
-    }
-
-    @ViewBuilder
-    private var predictionBlock: some View {
-        if let prediction = match.prediction {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 12) {
-                    Text("ELŐREJELZÉS")
-                        .font(.system(size: 9, weight: .semibold))
-                        .tracking(1)
-                        .foregroundStyle(AppTheme.secondaryText.opacity(0.6))
-                    Text("Hazai \(prediction.homePct)%")
-                        .foregroundStyle(AppTheme.predictionHome)
-                    Text("Döntetlen \(prediction.drawPct)%")
-                        .foregroundStyle(AppTheme.predictionDraw)
-                    Text("Vendég \(prediction.awayPct)%")
-                        .foregroundStyle(AppTheme.predictionAway)
-                }
-                .font(.system(size: 11, weight: .medium))
-
-                ProbabilityBar(home: prediction.homePct, draw: prediction.drawPct, away: prediction.awayPct)
-                    .frame(height: 6)
-
-                HStack(spacing: 14) {
-                    predItem("Több 2,5", "\(prediction.over25Pct)%")
-                    predItem("BTTS", "\(prediction.bttsPct)%")
-                    predItem("Pontos", "\(prediction.exactHome)–\(prediction.exactAway) (\(prediction.exactPct)%)")
-                }
-            }
-            .padding(.leading, 72)
-        }
-    }
-
-    private func predItem(_ label: String, _ value: String) -> some View {
-        HStack(spacing: 4) {
-            Text(label)
-                .foregroundStyle(AppTheme.secondaryText)
-            Text(value)
-                .foregroundStyle(AppTheme.primaryText)
-                .monospacedDigit()
-        }
-        .font(.system(size: 11))
     }
 
     private var resultBlock: some View {
@@ -295,7 +254,7 @@ private struct MatchItemRow: View {
                 Text("Piacok (\(match.markets)) ›")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(AppTheme.secondaryText.opacity(0.85))
-                Text("forrás: \(SampleData.oddsSource)")
+                Text("forrás: \(match.oddsSource)")
                     .font(.system(size: 9.5))
                     .foregroundStyle(AppTheme.secondaryText.opacity(0.6))
             }
@@ -352,30 +311,5 @@ private struct LiveDot: View {
                     on = true
                 }
             }
-    }
-}
-
-private struct ProbabilityBar: View {
-    let home: Int
-    let draw: Int
-    let away: Int
-
-    var body: some View {
-        GeometryReader { geo in
-            let gap: CGFloat = 2
-            let total = CGFloat(max(1, home + draw + away))
-            let content = max(0, geo.size.width - gap * 2)
-            HStack(spacing: gap) {
-                segment(content * CGFloat(home) / total, AppTheme.predictionHome)
-                segment(content * CGFloat(draw) / total, AppTheme.predictionDraw)
-                segment(content * CGFloat(away) / total, AppTheme.predictionAway)
-            }
-        }
-    }
-
-    private func segment(_ width: CGFloat, _ color: Color) -> some View {
-        RoundedRectangle(cornerRadius: 3, style: .continuous)
-            .fill(color)
-            .frame(width: width)
     }
 }

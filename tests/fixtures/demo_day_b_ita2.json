@@ -1,0 +1,74 @@
+{
+  "source_code": "demo_day_b",
+  "source_display_name": "Demo odds feed",
+  "captured_at": "2026-11-11T09:00:00Z",
+  "endpoint_key": "day-fixtures",
+  "request_url": "fixture://demo_day_b/day/2026-11-11",
+  "adapter_version": "demo-1.0.0",
+  "parser_version": "fixture-parser-1.0.0",
+  "competition": {
+    "id": "20000000-0000-7000-8000-000000000901",
+    "name": "Serie B",
+    "country_code": "ITA",
+    "country_name": "Italy",
+    "tier": 2,
+    "priority": 9
+  },
+  "season": {
+    "id": "20000000-0000-7000-8000-000000000902",
+    "label": "2026/27"
+  },
+  "teams": [
+    {
+      "id": "20000000-0000-7000-8000-000000000910",
+      "source_entity_id": "E-31",
+      "name": "Palermo",
+      "country_code": "ITA",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000911",
+      "source_entity_id": "E-32",
+      "name": "Sampdoria",
+      "country_code": "ITA",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    }
+  ],
+  "matches": [
+    {
+      "id": "20000000-0000-7000-8000-000000000920",
+      "source_match_id": "B-ita2-1",
+      "home_source_entity_id": "E-31",
+      "away_source_entity_id": "E-32",
+      "round_label": "13",
+      "kickoff_at": "2026-11-11T20:30:00+01:00",
+      "competition_timezone": "Europe/Budapest",
+      "status": "scheduled",
+      "result": null,
+      "odds": {
+        "home": 2.45,
+        "draw": 3.15,
+        "away": 2.95,
+        "btts_yes": 1.85,
+        "btts_no": 1.95,
+        "over25": 2.15,
+        "under25": 1.68
+      },
+      "market_count": 12
+    }
+  ],
+  "standings": [
+    {
+      "team_source_entity_id": "E-31",
+      "position": 5
+    },
+    {
+      "team_source_entity_id": "E-32",
+      "position": 8
+    }
+  ]
+}

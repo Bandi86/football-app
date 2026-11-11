@@ -2,7 +2,7 @@
 
 Helyi, macOS-re tervezett futball-adatplatform. A cél nem egy újabb tippoldal, hanem egy **visszakövethető, ellenőrzött és elemzésre alkalmas adatrendszer**, amelyre később predikciós és papíralapú fogadásszimulációs rétegek épülhetnek.
 
-> **Állapot:** a verifikált napi lista backend elkészült és a `main` ágon van: Rust `domain`/`storage`/`ingest`/`verification`/`api` crate-ek, két PostgreSQL migráció (21 tábla), `footballd` daemon (helyi, tokenes HTTP API a 127.0.0.1-en) és `footballctl` CLI (`migrate` / `ingest-fixture` / `day` / `doctor`). Elkészült a **SwiftUI macOS kliens első szelete („Ma" napi lista)** is (Xcode-alkalmazás + SwiftPM mag). A meccsközpont további oldalai, a live, a predikció és a többi réteg még hátravan.
+> **Állapot:** a verifikált napi lista backend elkészült és a `main` ágon van: Rust `domain`/`storage`/`ingest`/`verification`/`api` crate-ek, PostgreSQL migrációk, `footballd` daemon (helyi, tokenes HTTP API a 127.0.0.1-en) és `footballctl` CLI (`migrate` / `ingest-fixture` / `day` / `doctor`). Elkészült a **SwiftUI macOS kliens első szelete („Ma" napi lista)** is (Xcode-alkalmazás + SwiftPM mag). A `feat/real-data-wiring` ágon (commitolatlan) a főoldal már **valós API-adatból** dolgozik: a 0003 migráció (23 tábla) competition tier/prioritást, tabellát (`core.standing`) és odds snapshotot (`fact.odds_snapshot`) vezet be, a `/v1/day` válasz ezekkel bővül, a kliens liga-csoportokban, helyezésekkel és oddsokkal jelenít meg; a demóadat bővített fixture-pár (26 fájl, 20 meccs, két egyező forrás). A meccsközpont további oldalai, a live, a predikció és a többi réteg még hátravan.
 
 ## Mi ez a projekt?
 

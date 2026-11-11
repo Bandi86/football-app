@@ -1,0 +1,121 @@
+{
+  "source_code": "demo_day_a",
+  "source_display_name": "Demo odds feed",
+  "captured_at": "2026-11-11T08:00:00Z",
+  "endpoint_key": "day-fixtures",
+  "request_url": "fixture://demo_day_a/day/2026-11-11",
+  "adapter_version": "demo-1.0.0",
+  "parser_version": "fixture-parser-1.0.0",
+  "competition": {
+    "id": "20000000-0000-7000-8000-000000000301",
+    "name": "Serie A",
+    "country_code": "ITA",
+    "country_name": "Italy",
+    "tier": 1,
+    "priority": 3
+  },
+  "season": {
+    "id": "20000000-0000-7000-8000-000000000302",
+    "label": "2026/27"
+  },
+  "teams": [
+    {
+      "id": "20000000-0000-7000-8000-000000000310",
+      "source_entity_id": "D-13",
+      "name": "Inter",
+      "country_code": "ITA",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000311",
+      "source_entity_id": "D-14",
+      "name": "Juventus",
+      "country_code": "ITA",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000312",
+      "source_entity_id": "D-15",
+      "name": "Milan",
+      "country_code": "ITA",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000313",
+      "source_entity_id": "D-16",
+      "name": "Napoli",
+      "country_code": "ITA",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    }
+  ],
+  "matches": [
+    {
+      "id": "20000000-0000-7000-8000-000000000320",
+      "source_match_id": "A-sa-1",
+      "home_source_entity_id": "D-13",
+      "away_source_entity_id": "D-14",
+      "round_label": "13",
+      "kickoff_at": "2026-11-11T18:00:00+01:00",
+      "competition_timezone": "Europe/Budapest",
+      "status": "scheduled",
+      "result": null,
+      "odds": {
+        "home": 2.05,
+        "draw": 3.25,
+        "away": 3.6,
+        "btts_yes": 1.95,
+        "btts_no": 1.85,
+        "over25": 2.25,
+        "under25": 1.62
+      },
+      "market_count": 12
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000321",
+      "source_match_id": "A-sa-2",
+      "home_source_entity_id": "D-15",
+      "away_source_entity_id": "D-16",
+      "round_label": "13",
+      "kickoff_at": "2026-11-11T20:45:00+01:00",
+      "competition_timezone": "Europe/Budapest",
+      "status": "scheduled",
+      "result": null,
+      "odds": {
+        "home": 2.5,
+        "draw": 3.3,
+        "away": 2.75,
+        "btts_yes": 1.8,
+        "btts_no": 2,
+        "over25": 2.05,
+        "under25": 1.78
+      },
+      "market_count": 13
+    }
+  ],
+  "standings": [
+    {
+      "team_source_entity_id": "D-13",
+      "position": 1
+    },
+    {
+      "team_source_entity_id": "D-14",
+      "position": 3
+    },
+    {
+      "team_source_entity_id": "D-15",
+      "position": 2
+    },
+    {
+      "team_source_entity_id": "D-16",
+      "position": 5
+    }
+  ]
+}

@@ -1,0 +1,74 @@
+{
+  "source_code": "demo_day_a",
+  "source_display_name": "Demo odds feed",
+  "captured_at": "2026-11-11T08:00:00Z",
+  "endpoint_key": "day-fixtures",
+  "request_url": "fixture://demo_day_a/day/2026-11-11",
+  "adapter_version": "demo-1.0.0",
+  "parser_version": "fixture-parser-1.0.0",
+  "competition": {
+    "id": "20000000-0000-7000-8000-000000000501",
+    "name": "Ligue 1",
+    "country_code": "FRA",
+    "country_name": "France",
+    "tier": 1,
+    "priority": 5
+  },
+  "season": {
+    "id": "20000000-0000-7000-8000-000000000502",
+    "label": "2026/27"
+  },
+  "teams": [
+    {
+      "id": "20000000-0000-7000-8000-000000000510",
+      "source_entity_id": "D-21",
+      "name": "PSG",
+      "country_code": "FRA",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000511",
+      "source_entity_id": "D-22",
+      "name": "Marseille",
+      "country_code": "FRA",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    }
+  ],
+  "matches": [
+    {
+      "id": "20000000-0000-7000-8000-000000000520",
+      "source_match_id": "A-l1-1",
+      "home_source_entity_id": "D-21",
+      "away_source_entity_id": "D-22",
+      "round_label": "13",
+      "kickoff_at": "2026-11-11T21:00:00+01:00",
+      "competition_timezone": "Europe/Budapest",
+      "status": "scheduled",
+      "result": null,
+      "odds": {
+        "home": 1.55,
+        "draw": 4.2,
+        "away": 5.5,
+        "btts_yes": 1.6,
+        "btts_no": 2.3,
+        "over25": 1.75,
+        "under25": 2.05
+      },
+      "market_count": 12
+    }
+  ],
+  "standings": [
+    {
+      "team_source_entity_id": "D-21",
+      "position": 1
+    },
+    {
+      "team_source_entity_id": "D-22",
+      "position": 3
+    }
+  ]
+}

@@ -1,30 +1,5 @@
 import Foundation
 
-struct MatchOdds {
-    let home: Double
-    let draw: Double
-    let away: Double
-    let bttsYes: Double
-    let bttsNo: Double
-    let over25: Double
-    let under25: Double
-}
-
-enum Outcome {
-    case home, draw, away
-}
-
-struct Prediction {
-    let homePct: Int
-    let drawPct: Int
-    let awayPct: Int
-    let over25Pct: Int
-    let bttsPct: Int
-    let exactHome: Int
-    let exactAway: Int
-    let exactPct: Int
-}
-
 struct SampleLeague: Identifiable {
     let id: String
     let name: String
@@ -119,37 +94,6 @@ struct SampleMatch: Identifiable {
     var over25Won: Bool? {
         guard status == "finished", let home = homeScore, let away = awayScore else { return nil }
         return home + away >= 3
-    }
-
-    /// Minta-modell előrejelzés (az 1X2 odds implied valószínűségeiből, normalizálva).
-    var prediction: Prediction? {
-        guard let odds else { return nil }
-        let ih = 1 / odds.home
-        let idr = 1 / odds.draw
-        let ia = 1 / odds.away
-        let s = ih + idr + ia
-        let home = Int((ih / s * 100).rounded())
-        let draw = Int((idr / s * 100).rounded())
-        let away = max(0, 100 - home - draw)
-
-        let over = Int((1 / odds.over25) / (1 / odds.over25 + 1 / odds.under25) * 100)
-        let btts = Int((1 / odds.bttsYes) / (1 / odds.bttsYes + 1 / odds.bttsNo) * 100)
-
-        let favHome = home >= away && home >= draw
-        let exactHome = favHome ? (over >= 50 ? 2 : 1) : (over >= 50 ? 1 : 0)
-        let exactAway = favHome ? (over >= 50 ? 1 : 0) : (over >= 50 ? 2 : 1)
-        let exactPct = max(6, min(18, 100 - max(home, draw, away)))
-
-        return Prediction(
-            homePct: home,
-            drawPct: draw,
-            awayPct: away,
-            over25Pct: over,
-            bttsPct: btts,
-            exactHome: exactHome,
-            exactAway: exactAway,
-            exactPct: exactPct
-        )
     }
 }
 

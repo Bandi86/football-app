@@ -1,0 +1,74 @@
+{
+  "source_code": "demo_day_a",
+  "source_display_name": "Demo odds feed",
+  "captured_at": "2026-11-11T08:00:00Z",
+  "endpoint_key": "day-fixtures",
+  "request_url": "fixture://demo_day_a/day/2026-11-11",
+  "adapter_version": "demo-1.0.0",
+  "parser_version": "fixture-parser-1.0.0",
+  "competition": {
+    "id": "20000000-0000-7000-8000-000000000c01",
+    "name": "NB II",
+    "country_code": "HUN",
+    "country_name": "Hungary",
+    "tier": 2,
+    "priority": 12
+  },
+  "season": {
+    "id": "20000000-0000-7000-8000-000000000c02",
+    "label": "2026/27"
+  },
+  "teams": [
+    {
+      "id": "20000000-0000-7000-8000-000000000c10",
+      "source_entity_id": "D-37",
+      "name": "Vasas",
+      "country_code": "HUN",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000c11",
+      "source_entity_id": "D-38",
+      "name": "Szentlőrinc",
+      "country_code": "HUN",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    }
+  ],
+  "matches": [
+    {
+      "id": "20000000-0000-7000-8000-000000000c20",
+      "source_match_id": "A-nb2-1",
+      "home_source_entity_id": "D-37",
+      "away_source_entity_id": "D-38",
+      "round_label": "13",
+      "kickoff_at": "2026-11-11T17:00:00+01:00",
+      "competition_timezone": "Europe/Budapest",
+      "status": "scheduled",
+      "result": null,
+      "odds": {
+        "home": 1.8,
+        "draw": 3.5,
+        "away": 4.1,
+        "btts_yes": 1.95,
+        "btts_no": 1.85,
+        "over25": 2.3,
+        "under25": 1.62
+      },
+      "market_count": 12
+    }
+  ],
+  "standings": [
+    {
+      "team_source_entity_id": "D-37",
+      "position": 4
+    },
+    {
+      "team_source_entity_id": "D-38",
+      "position": 12
+    }
+  ]
+}

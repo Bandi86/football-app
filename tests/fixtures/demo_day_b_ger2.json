@@ -1,0 +1,74 @@
+{
+  "source_code": "demo_day_b",
+  "source_display_name": "Demo odds feed",
+  "captured_at": "2026-11-11T09:00:00Z",
+  "endpoint_key": "day-fixtures",
+  "request_url": "fixture://demo_day_b/day/2026-11-11",
+  "adapter_version": "demo-1.0.0",
+  "parser_version": "fixture-parser-1.0.0",
+  "competition": {
+    "id": "20000000-0000-7000-8000-000000000a01",
+    "name": "2. Bundesliga",
+    "country_code": "GER",
+    "country_name": "Germany",
+    "tier": 2,
+    "priority": 10
+  },
+  "season": {
+    "id": "20000000-0000-7000-8000-000000000a02",
+    "label": "2026/27"
+  },
+  "teams": [
+    {
+      "id": "20000000-0000-7000-8000-000000000a10",
+      "source_entity_id": "E-33",
+      "name": "Hamburger SV",
+      "country_code": "GER",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000a11",
+      "source_entity_id": "E-34",
+      "name": "Schalke 04",
+      "country_code": "GER",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    }
+  ],
+  "matches": [
+    {
+      "id": "20000000-0000-7000-8000-000000000a20",
+      "source_match_id": "B-ger2-1",
+      "home_source_entity_id": "E-33",
+      "away_source_entity_id": "E-34",
+      "round_label": "13",
+      "kickoff_at": "2026-11-11T18:30:00+01:00",
+      "competition_timezone": "Europe/Budapest",
+      "status": "scheduled",
+      "result": null,
+      "odds": {
+        "home": 2.15,
+        "draw": 3.4,
+        "away": 3.25,
+        "btts_yes": 1.8,
+        "btts_no": 2,
+        "over25": 2.05,
+        "under25": 1.78
+      },
+      "market_count": 12
+    }
+  ],
+  "standings": [
+    {
+      "team_source_entity_id": "E-33",
+      "position": 3
+    },
+    {
+      "team_source_entity_id": "E-34",
+      "position": 7
+    }
+  ]
+}

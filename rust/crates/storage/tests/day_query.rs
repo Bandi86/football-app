@@ -58,6 +58,82 @@ async fn default_day_contains_only_verified_publish_matches() {
     assert_eq!(all.len(), 2);
 }
 
+#[tokio::test]
+async fn day_row_includes_display_fields() {
+    let pool = test_pool().await;
+    let base = seed_match_base(&pool).await;
+    let match_id = seed_match(
+        &pool,
+        &base,
+        "verified_publish",
+        Utc.with_ymd_and_hms(2026, 11, 9, 18, 0, 0).unwrap(),
+    )
+    .await;
+
+    sqlx::query("UPDATE core.competition SET tier=1, priority=6 WHERE id=$1")
+        .bind(base.competition_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO core.match_result (match_id, home_ft, away_ft, home_ht, away_ht)
+         VALUES ($1,2,1,1,0)",
+    )
+    .bind(match_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let source_id = Uuid::now_v7();
+    sqlx::query("INSERT INTO ops.source (id, code, display_name) VALUES ($1,'demo','Demó')")
+        .bind(source_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO fact.odds_snapshot (match_id, source_id, captured_at, market_count, odds)
+         VALUES ($1,$2,now(),18,'{\"home\":2.2,\"draw\":3.3,\"away\":3.2}'::jsonb)",
+    )
+    .bind(match_id)
+    .bind(source_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO core.standing (season_id, team_id, position, source_id, captured_at)
+         VALUES ($1,$2,8,$3,now()),($1,$4,6,$3,now())",
+    )
+    .bind(base.season_id)
+    .bind(base.home_team_id)
+    .bind(source_id)
+    .bind(base.away_team_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let rows = fetch_day(
+        &pool,
+        &DayFilter {
+            date: NaiveDate::from_ymd_opt(2026, 11, 9).unwrap(),
+            timezone: "Europe/Budapest".into(),
+            include_all: false,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(rows.len(), 1);
+    let row = &rows[0];
+    assert_eq!(row.competition_name, "NB I");
+    assert_eq!(row.country_code.as_deref(), Some("HU"));
+    assert_eq!((row.tier, row.priority), (1, 6));
+    assert_eq!((row.home_ht, row.away_ht), (Some(1), Some(0)));
+    assert_eq!((row.home_position, row.away_position), (Some(8), Some(6)));
+    assert_eq!(row.market_count, Some(18));
+    assert_eq!(row.odds_source.as_deref(), Some("Demó"));
+    assert_eq!(row.odds.as_ref().unwrap()["home"], 2.2);
+    assert!(row.odds_captured_at.is_some());
+}
+
 async fn seed_match_base(pool: &PgPool) -> MatchBase {
     let country_id = Uuid::now_v7();
     let competition_entity_id = Uuid::now_v7();

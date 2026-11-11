@@ -1,0 +1,186 @@
+{
+  "source_code": "demo_day_b",
+  "source_display_name": "Demo odds feed",
+  "captured_at": "2026-11-11T09:00:00Z",
+  "endpoint_key": "day-fixtures",
+  "request_url": "fixture://demo_day_b/day/2026-11-11",
+  "adapter_version": "demo-1.0.0",
+  "parser_version": "fixture-parser-1.0.0",
+  "competition": {
+    "id": "20000000-0000-7000-8000-000000000201",
+    "name": "La Liga",
+    "country_code": "ESP",
+    "country_name": "Spain",
+    "tier": 1,
+    "priority": 2
+  },
+  "season": {
+    "id": "20000000-0000-7000-8000-000000000202",
+    "label": "2026/27"
+  },
+  "teams": [
+    {
+      "id": "20000000-0000-7000-8000-000000000210",
+      "source_entity_id": "E-7",
+      "name": "Real Madrid",
+      "country_code": "ESP",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000211",
+      "source_entity_id": "E-8",
+      "name": "Barcelona",
+      "country_code": "ESP",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000212",
+      "source_entity_id": "E-9",
+      "name": "Atlético Madrid",
+      "country_code": "ESP",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000213",
+      "source_entity_id": "E-10",
+      "name": "Sevilla",
+      "country_code": "ESP",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000214",
+      "source_entity_id": "E-11",
+      "name": "Betis",
+      "country_code": "ESP",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000215",
+      "source_entity_id": "E-12",
+      "name": "Valencia",
+      "country_code": "ESP",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    }
+  ],
+  "matches": [
+    {
+      "id": "20000000-0000-7000-8000-000000000220",
+      "source_match_id": "B-ll-1",
+      "home_source_entity_id": "E-7",
+      "away_source_entity_id": "E-8",
+      "round_label": "13",
+      "kickoff_at": "2026-11-11T21:00:00+01:00",
+      "competition_timezone": "Europe/Budapest",
+      "status": "finished",
+      "result": {
+        "home_ft": 3,
+        "away_ft": 2,
+        "home_ht": 2,
+        "away_ht": 1,
+        "home_et": null,
+        "away_et": null,
+        "home_pens": null,
+        "away_pens": null
+      },
+      "odds": {
+        "home": 2.3,
+        "draw": 3.5,
+        "away": 3,
+        "btts_yes": 1.55,
+        "btts_no": 2.35,
+        "over25": 1.7,
+        "under25": 2.15
+      },
+      "market_count": 12
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000221",
+      "source_match_id": "B-ll-2",
+      "home_source_entity_id": "E-9",
+      "away_source_entity_id": "E-10",
+      "round_label": "13",
+      "kickoff_at": "2026-11-11T19:00:00+01:00",
+      "competition_timezone": "Europe/Budapest",
+      "status": "live",
+      "result": {
+        "home_ft": 0,
+        "away_ft": 0,
+        "home_ht": 0,
+        "away_ht": 0,
+        "home_et": null,
+        "away_et": null,
+        "home_pens": null,
+        "away_pens": null
+      },
+      "odds": {
+        "home": 1.7,
+        "draw": 3.6,
+        "away": 5,
+        "btts_yes": 2.1,
+        "btts_no": 1.7,
+        "over25": 2.3,
+        "under25": 1.62
+      },
+      "market_count": 13
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000222",
+      "source_match_id": "B-ll-3",
+      "home_source_entity_id": "E-11",
+      "away_source_entity_id": "E-12",
+      "round_label": "13",
+      "kickoff_at": "2026-11-11T20:30:00+01:00",
+      "competition_timezone": "Europe/Budapest",
+      "status": "scheduled",
+      "result": null,
+      "odds": {
+        "home": 2.4,
+        "draw": 3.2,
+        "away": 2.9,
+        "btts_yes": 1.85,
+        "btts_no": 1.95,
+        "over25": 2.2,
+        "under25": 1.65
+      },
+      "market_count": 14
+    }
+  ],
+  "standings": [
+    {
+      "team_source_entity_id": "E-7",
+      "position": 1
+    },
+    {
+      "team_source_entity_id": "E-8",
+      "position": 2
+    },
+    {
+      "team_source_entity_id": "E-9",
+      "position": 4
+    },
+    {
+      "team_source_entity_id": "E-10",
+      "position": 9
+    },
+    {
+      "team_source_entity_id": "E-11",
+      "position": 7
+    },
+    {
+      "team_source_entity_id": "E-12",
+      "position": 12
+    }
+  ]
+}

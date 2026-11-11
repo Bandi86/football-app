@@ -14,6 +14,35 @@ pub struct FixtureCompetition {
     pub name: String,
     pub country_code: String,
     pub country_name: String,
+    #[serde(default = "default_tier")]
+    pub tier: i16,
+    #[serde(default = "default_priority")]
+    pub priority: i32,
+}
+
+fn default_tier() -> i16 {
+    1
+}
+
+fn default_priority() -> i32 {
+    100
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct FixtureOdds {
+    pub home: f64,
+    pub draw: f64,
+    pub away: f64,
+    pub btts_yes: f64,
+    pub btts_no: f64,
+    pub over25: f64,
+    pub under25: f64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct FixtureStanding {
+    pub team_source_entity_id: String,
+    pub position: i16,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -56,6 +85,10 @@ pub struct FixtureMatch {
     pub competition_timezone: String,
     pub status: String,
     pub result: Option<FixtureResult>,
+    #[serde(default)]
+    pub odds: Option<FixtureOdds>,
+    #[serde(default)]
+    pub market_count: Option<i32>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -71,6 +104,8 @@ pub struct FixtureSource {
     pub season: FixtureSeason,
     pub teams: Vec<FixtureTeam>,
     pub matches: Vec<FixtureMatch>,
+    #[serde(default)]
+    pub standings: Option<Vec<FixtureStanding>>,
 }
 
 #[derive(Debug, Clone)]
@@ -205,6 +240,62 @@ impl FixtureAdapter {
             )
             .await?;
             observation_ids.push(observation_id);
+        }
+
+        for fixture_match in &fixture.matches {
+            if let Some(odds) = &fixture_match.odds {
+                let payload = serde_json::json!({
+                    "canonical_match_id": fixture_match.id,
+                    "odds": odds,
+                    "market_count": fixture_match.market_count,
+                });
+                let observation_id = insert_observation(
+                    pool,
+                    source_id,
+                    capture_id,
+                    "match",
+                    "match_odds",
+                    &fixture_match.id.to_string(),
+                    &fixture_match.source_match_id,
+                    fixture.captured_at,
+                    payload,
+                )
+                .await?;
+                observation_ids.push(observation_id);
+            }
+        }
+
+        if let Some(standings) = &fixture.standings {
+            for standing in standings {
+                let team = fixture
+                    .teams
+                    .iter()
+                    .find(|team| team.source_entity_id == standing.team_source_entity_id)
+                    .with_context(|| {
+                        format!(
+                            "ismeretlen csapatforrás a tabellában: {}",
+                            standing.team_source_entity_id
+                        )
+                    })?;
+                let payload = serde_json::json!({
+                    "team_id": team.id,
+                    "position": standing.position,
+                    "season_id": fixture.season.id,
+                });
+                let observation_id = insert_observation(
+                    pool,
+                    source_id,
+                    capture_id,
+                    "team",
+                    "standing",
+                    &team.id.to_string(),
+                    &team.source_entity_id,
+                    fixture.captured_at,
+                    payload,
+                )
+                .await?;
+                observation_ids.push(observation_id);
+            }
         }
 
         Ok(IngestReport {

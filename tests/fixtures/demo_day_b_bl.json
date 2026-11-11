@@ -1,0 +1,130 @@
+{
+  "source_code": "demo_day_b",
+  "source_display_name": "Demo odds feed",
+  "captured_at": "2026-11-11T09:00:00Z",
+  "endpoint_key": "day-fixtures",
+  "request_url": "fixture://demo_day_b/day/2026-11-11",
+  "adapter_version": "demo-1.0.0",
+  "parser_version": "fixture-parser-1.0.0",
+  "competition": {
+    "id": "20000000-0000-7000-8000-000000000401",
+    "name": "Bundesliga",
+    "country_code": "GER",
+    "country_name": "Germany",
+    "tier": 1,
+    "priority": 4
+  },
+  "season": {
+    "id": "20000000-0000-7000-8000-000000000402",
+    "label": "2026/27"
+  },
+  "teams": [
+    {
+      "id": "20000000-0000-7000-8000-000000000410",
+      "source_entity_id": "E-17",
+      "name": "Bayern München",
+      "country_code": "GER",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000411",
+      "source_entity_id": "E-18",
+      "name": "Dortmund",
+      "country_code": "GER",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000412",
+      "source_entity_id": "E-19",
+      "name": "RB Leipzig",
+      "country_code": "GER",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000413",
+      "source_entity_id": "E-20",
+      "name": "Leverkusen",
+      "country_code": "GER",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    }
+  ],
+  "matches": [
+    {
+      "id": "20000000-0000-7000-8000-000000000420",
+      "source_match_id": "B-bl-1",
+      "home_source_entity_id": "E-17",
+      "away_source_entity_id": "E-18",
+      "round_label": "13",
+      "kickoff_at": "2026-11-11T17:30:00+01:00",
+      "competition_timezone": "Europe/Budapest",
+      "status": "finished",
+      "result": {
+        "home_ft": 4,
+        "away_ft": 2,
+        "home_ht": 2,
+        "away_ht": 1,
+        "home_et": null,
+        "away_et": null,
+        "home_pens": null,
+        "away_pens": null
+      },
+      "odds": {
+        "home": 1.65,
+        "draw": 4,
+        "away": 4.6,
+        "btts_yes": 1.45,
+        "btts_no": 2.6,
+        "over25": 1.55,
+        "under25": 2.4
+      },
+      "market_count": 12
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000421",
+      "source_match_id": "B-bl-2",
+      "home_source_entity_id": "E-19",
+      "away_source_entity_id": "E-20",
+      "round_label": "13",
+      "kickoff_at": "2026-11-11T18:30:00+01:00",
+      "competition_timezone": "Europe/Budapest",
+      "status": "scheduled",
+      "result": null,
+      "odds": {
+        "home": 2.7,
+        "draw": 3.4,
+        "away": 2.55,
+        "btts_yes": 1.75,
+        "btts_no": 2.05,
+        "over25": 1.95,
+        "under25": 1.88
+      },
+      "market_count": 13
+    }
+  ],
+  "standings": [
+    {
+      "team_source_entity_id": "E-17",
+      "position": 1
+    },
+    {
+      "team_source_entity_id": "E-18",
+      "position": 4
+    },
+    {
+      "team_source_entity_id": "E-19",
+      "position": 3
+    },
+    {
+      "team_source_entity_id": "E-20",
+      "position": 2
+    }
+  ]
+}

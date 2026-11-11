@@ -1,0 +1,74 @@
+{
+  "source_code": "demo_day_b",
+  "source_display_name": "Demo odds feed",
+  "captured_at": "2026-11-11T09:00:00Z",
+  "endpoint_key": "day-fixtures",
+  "request_url": "fixture://demo_day_b/day/2026-11-11",
+  "adapter_version": "demo-1.0.0",
+  "parser_version": "fixture-parser-1.0.0",
+  "competition": {
+    "id": "20000000-0000-7000-8000-000000000d01",
+    "name": "FA Kupa",
+    "country_code": "ENG",
+    "country_name": "England",
+    "tier": 0,
+    "priority": 13
+  },
+  "season": {
+    "id": "20000000-0000-7000-8000-000000000d02",
+    "label": "2026/27"
+  },
+  "teams": [
+    {
+      "id": "20000000-0000-7000-8000-000000000d10",
+      "source_entity_id": "E-39",
+      "name": "Manchester United",
+      "country_code": "ENG",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000d11",
+      "source_entity_id": "E-40",
+      "name": "Liverpool",
+      "country_code": "ENG",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    }
+  ],
+  "matches": [
+    {
+      "id": "20000000-0000-7000-8000-000000000d20",
+      "source_match_id": "B-facup-1",
+      "home_source_entity_id": "E-39",
+      "away_source_entity_id": "E-40",
+      "round_label": "negyeddöntő",
+      "kickoff_at": "2026-11-11T16:30:00+01:00",
+      "competition_timezone": "Europe/Budapest",
+      "status": "finished",
+      "result": {
+        "home_ft": 1,
+        "away_ft": 1,
+        "home_ht": 1,
+        "away_ht": 0,
+        "home_et": 2,
+        "away_et": 2,
+        "home_pens": 4,
+        "away_pens": 3
+      },
+      "odds": {
+        "home": 2.4,
+        "draw": 3.3,
+        "away": 2.8,
+        "btts_yes": 1.5,
+        "btts_no": 2.45,
+        "over25": 1.8,
+        "under25": 1.95
+      },
+      "market_count": 12
+    }
+  ],
+  "standings": []
+}

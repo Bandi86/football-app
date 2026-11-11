@@ -42,13 +42,18 @@ impl Canonicalizer {
         .await?;
 
         sqlx::query(
-            "INSERT INTO core.competition (id, entity_id, country_id, name)
-             VALUES ($1,$1,$2,$3)
-             ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name",
+            "INSERT INTO core.competition (id, entity_id, country_id, name, tier, priority)
+             VALUES ($1,$1,$2,$3,$4,$5)
+             ON CONFLICT (id) DO UPDATE SET
+               name = EXCLUDED.name,
+               tier = EXCLUDED.tier,
+               priority = EXCLUDED.priority",
         )
         .bind(fixture.competition.id)
         .bind(country_id)
         .bind(&fixture.competition.name)
+        .bind(fixture.competition.tier)
+        .bind(fixture.competition.priority)
         .execute(&mut *tx)
         .await?;
 
@@ -162,6 +167,57 @@ impl Canonicalizer {
                 },
                 observation_ids,
             });
+        }
+
+        let source_id: Uuid = sqlx::query_scalar("SELECT id FROM ops.source WHERE code=$1")
+            .bind(&fixture.source_code)
+            .fetch_one(&mut *tx)
+            .await?;
+
+        for fixture_match in &fixture.matches {
+            let Some(odds) = &fixture_match.odds else {
+                continue;
+            };
+            let market_count = fixture_match
+                .market_count
+                .with_context(|| format!("hiányzó piacszám az odds mellé: {}", fixture_match.id))?;
+            sqlx::query(
+                "INSERT INTO fact.odds_snapshot (match_id, source_id, captured_at, market_count, odds)
+                 VALUES ($1,$2,$3,$4,$5)
+                 ON CONFLICT (match_id) DO UPDATE SET
+                   source_id = EXCLUDED.source_id,
+                   captured_at = EXCLUDED.captured_at,
+                   market_count = EXCLUDED.market_count,
+                   odds = EXCLUDED.odds",
+            )
+            .bind(fixture_match.id)
+            .bind(source_id)
+            .bind(fixture.captured_at)
+            .bind(market_count)
+            .bind(serde_json::to_value(odds)?)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        if let Some(standings) = &fixture.standings {
+            for standing in standings {
+                let team_id = team_by_source_id(&mut tx, &standing.team_source_entity_id).await?;
+                sqlx::query(
+                    "INSERT INTO core.standing (season_id, team_id, position, source_id, captured_at)
+                     VALUES ($1,$2,$3,$4,$5)
+                     ON CONFLICT (season_id, team_id) DO UPDATE SET
+                       position = EXCLUDED.position,
+                       source_id = EXCLUDED.source_id,
+                       captured_at = EXCLUDED.captured_at",
+                )
+                .bind(fixture.season.id)
+                .bind(team_id)
+                .bind(standing.position)
+                .bind(source_id)
+                .bind(fixture.captured_at)
+                .execute(&mut *tx)
+                .await?;
+            }
         }
 
         tx.commit().await?;

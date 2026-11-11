@@ -25,10 +25,11 @@ for name in DATABASE_URL TEST_DATABASE_URL; do
     (SELECT count(*) FROM core.match) + (SELECT count(*) FROM core.match_result) +
     (SELECT count(*) FROM identity.source_entity_ref) + (SELECT count(*) FROM fact.provenance) +
     (SELECT count(*) FROM fact.conflict) + (SELECT count(*) FROM fact.verification) +
-    (SELECT count(*) FROM ops.publish_gate);")"
+    (SELECT count(*) FROM ops.publish_gate) +
+    (SELECT count(*) FROM core.standing) + (SELECT count(*) FROM fact.odds_snapshot);")"
 
-  if [ "$tables" -ne 21 ] || [ "$rules" -ne 6 ]; then
-    printf 'HIBA: %s nincs a 0002 migráció utáni elvárt állapotban (táblák: %s, szabályok: %s, üzleti sorok: %s)\n' "$identity" "$tables" "$rules" "$business" >&2
+  if [ "$tables" -ne 23 ] || [ "$rules" -ne 6 ]; then
+    printf 'HIBA: %s nincs a 0003 migráció utáni elvárt állapotban (táblák: %s, szabályok: %s, üzleti sorok: %s)\n' "$identity" "$tables" "$rules" "$business" >&2
     exit 1
   fi
 

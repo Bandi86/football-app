@@ -1,0 +1,41 @@
+{
+  "source_code": "fixture_d",
+  "source_display_name": "Fixture D",
+  "captured_at": "2026-11-11T08:00:00Z",
+  "endpoint_key": "day-fixtures",
+  "request_url": "fixture://fixture_d/day/2026-11-11",
+  "adapter_version": "fixture-d-1.0.0",
+  "parser_version": "fixture-parser-1.0.0",
+  "competition": {
+    "id": "30000000-0000-7000-8000-000000000001",
+    "name": "Hungarian NB I",
+    "country_code": "HUN",
+    "country_name": "Hungary",
+    "tier": 1,
+    "priority": 6
+  },
+  "season": { "id": "30000000-0000-7000-8000-000000000002", "label": "2026/27" },
+  "teams": [
+    { "id": "30000000-0000-7000-8000-000000000011", "source_entity_id": "D-UJP", "name": "Újpest", "country_code": "HUN", "gender": "male", "age_group": "senior", "branch": "senior" },
+    { "id": "30000000-0000-7000-8000-000000000012", "source_entity_id": "D-GYOR", "name": "Győr", "country_code": "HUN", "gender": "male", "age_group": "senior", "branch": "senior" }
+  ],
+  "matches": [
+    {
+      "id": "30000000-0000-7000-8000-000000000101",
+      "source_match_id": "D-1001",
+      "home_source_entity_id": "D-UJP",
+      "away_source_entity_id": "D-GYOR",
+      "round_label": "13",
+      "kickoff_at": "2026-11-11T18:00:00Z",
+      "competition_timezone": "Europe/Budapest",
+      "status": "scheduled",
+      "result": null,
+      "odds": { "home": 2.20, "draw": 3.30, "away": 3.20, "btts_yes": 1.85, "btts_no": 1.95, "over25": 2.15, "under25": 1.70 },
+      "market_count": 18
+    }
+  ],
+  "standings": [
+    { "team_source_entity_id": "D-UJP", "position": 8 },
+    { "team_source_entity_id": "D-GYOR", "position": 6 }
+  ]
+}

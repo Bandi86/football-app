@@ -1,0 +1,74 @@
+{
+  "source_code": "demo_day_b",
+  "source_display_name": "Demo odds feed",
+  "captured_at": "2026-11-11T09:00:00Z",
+  "endpoint_key": "day-fixtures",
+  "request_url": "fixture://demo_day_b/day/2026-11-11",
+  "adapter_version": "demo-1.0.0",
+  "parser_version": "fixture-parser-1.0.0",
+  "competition": {
+    "id": "20000000-0000-7000-8000-000000000b01",
+    "name": "Ligue 2",
+    "country_code": "FRA",
+    "country_name": "France",
+    "tier": 2,
+    "priority": 11
+  },
+  "season": {
+    "id": "20000000-0000-7000-8000-000000000b02",
+    "label": "2026/27"
+  },
+  "teams": [
+    {
+      "id": "20000000-0000-7000-8000-000000000b10",
+      "source_entity_id": "E-35",
+      "name": "Saint-Étienne",
+      "country_code": "FRA",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000b11",
+      "source_entity_id": "E-36",
+      "name": "Bordeaux",
+      "country_code": "FRA",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    }
+  ],
+  "matches": [
+    {
+      "id": "20000000-0000-7000-8000-000000000b20",
+      "source_match_id": "B-fra2-1",
+      "home_source_entity_id": "E-35",
+      "away_source_entity_id": "E-36",
+      "round_label": "13",
+      "kickoff_at": "2026-11-11T20:00:00+01:00",
+      "competition_timezone": "Europe/Budapest",
+      "status": "scheduled",
+      "result": null,
+      "odds": {
+        "home": 2.35,
+        "draw": 3.2,
+        "away": 3.05,
+        "btts_yes": 1.85,
+        "btts_no": 1.95,
+        "over25": 2.1,
+        "under25": 1.72
+      },
+      "market_count": 12
+    }
+  ],
+  "standings": [
+    {
+      "team_source_entity_id": "E-35",
+      "position": 5
+    },
+    {
+      "team_source_entity_id": "E-36",
+      "position": 10
+    }
+  ]
+}

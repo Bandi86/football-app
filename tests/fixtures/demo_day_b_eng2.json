@@ -1,0 +1,74 @@
+{
+  "source_code": "demo_day_b",
+  "source_display_name": "Demo odds feed",
+  "captured_at": "2026-11-11T09:00:00Z",
+  "endpoint_key": "day-fixtures",
+  "request_url": "fixture://demo_day_b/day/2026-11-11",
+  "adapter_version": "demo-1.0.0",
+  "parser_version": "fixture-parser-1.0.0",
+  "competition": {
+    "id": "20000000-0000-7000-8000-000000000701",
+    "name": "Championship",
+    "country_code": "ENG",
+    "country_name": "England",
+    "tier": 2,
+    "priority": 7
+  },
+  "season": {
+    "id": "20000000-0000-7000-8000-000000000702",
+    "label": "2026/27"
+  },
+  "teams": [
+    {
+      "id": "20000000-0000-7000-8000-000000000710",
+      "source_entity_id": "E-27",
+      "name": "Leeds United",
+      "country_code": "ENG",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000711",
+      "source_entity_id": "E-28",
+      "name": "West Brom",
+      "country_code": "ENG",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    }
+  ],
+  "matches": [
+    {
+      "id": "20000000-0000-7000-8000-000000000720",
+      "source_match_id": "B-eng2-1",
+      "home_source_entity_id": "E-27",
+      "away_source_entity_id": "E-28",
+      "round_label": "13",
+      "kickoff_at": "2026-11-11T20:45:00+01:00",
+      "competition_timezone": "Europe/Budapest",
+      "status": "scheduled",
+      "result": null,
+      "odds": {
+        "home": 1.95,
+        "draw": 3.3,
+        "away": 3.9,
+        "btts_yes": 1.9,
+        "btts_no": 1.9,
+        "over25": 2.1,
+        "under25": 1.72
+      },
+      "market_count": 12
+    }
+  ],
+  "standings": [
+    {
+      "team_source_entity_id": "E-27",
+      "position": 2
+    },
+    {
+      "team_source_entity_id": "E-28",
+      "position": 9
+    }
+  ]
+}
