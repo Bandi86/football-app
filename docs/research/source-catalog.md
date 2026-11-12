@@ -156,7 +156,10 @@ adoptációs rang.
   vélhetően prémium kulcsot igényel; mitigáció: focis gerinc football-data
   (rang 1) mellé TheSportsDB csak stadion/referee/meta kiegészítőként, vagy
   felhasználói döntés a prémiumról.
-- **Státusz + bizonyíték:** `regisztráció szükséges` — spike 2026-11-11,
+- **Státusz + bizonyíték:** `elvetett` (**felhasználói döntés, 2026-11-12,
+  1. pont** — nincs mért rés: gerinc = footballdata, stadion/referee = FotMob;
+  korábbi státusz: `regisztráció szükséges`; újrabírálás mért rés esetén) —
+  spike 2026-11-11,
   python3.13, `/tmp/s1/probe_thesportsdb.py`: robots 200 engedett, majd
   `eventsseason.php?id=4328&s=2026-2027` a „3” kulccsal **403** → StopSpike,
   nincs retry, minta nem mentődött (nincs sha256). Dekoy-teszt offline OK.
@@ -709,7 +712,9 @@ adoptációs rang.
     útvonal-feloldás, nem hardkódolt path.
   - Zászló-rés + NB I/NB II rés → alternatív forrás kell (Wikimedia jelenleg
     robots-tiltott; FotMob CDN csak jegyzet, lásd lent).
-- **Státusz + bizonyíték:** `javasolt` — spike 2026-11-11, python3.13,
+- **Státusz + bizonyíték:** `elvetett` (**felhasználói döntés, 2026-11-12,
+  3. pont** — kiváltva a v1 logó-megoldás auditált átvételével; korábbi
+  státusz: `javasolt`, licenc null) — spike 2026-11-11, python3.13,
   `/tmp/s1/probe_logos.py`: technikailag zöld (robots „nincs robots” jegyzet,
   PNG 200 + magic + 139×181 IHDR, tree 2304 bejegyzés, repo meta 200), de a
   **licenc hiányzik** (`license: null`, nincs LICENSE) → a brief szerint
@@ -1055,8 +1060,10 @@ adoptációs rang.
   újra-probe / elvetés — megkerülés nélkül); 60k JSON-kap → text formátum +
   toleráns részfa; 500-meccs feed-plafon → ország-szeletelt kérések a kvótán
   belül; serving-drift → spike újraellenőrzés az adapter-szelet előtt.
-- **Státusz + bizonyíték:** `javasolt` — **FELHASZNÁLÓI DÖNTÉSI PONT
-  (robots-tilt az API útvonalon; a brief szerint NEM `elvetett`)** — spike
+- **Státusz + bizonyíték:** `elvetett` (**felhasználói döntés, 2026-11-12,
+  2. pont** — robots-tilt az API útvonalon, megkerülés nélkül; a fedettség
+  FotMob/ESPN/OpenFoot; korábbi státusz: `javasolt` + döntési pont;
+  újrabírálás szolgáltatói engedéllyel) — spike
   2026-11-11, python3.13: robots-kapu `(False, 'robots tilt')` (`/mcp`);
   a `/tmp/s1/probe_livescore.py` fail-closed **StopSpike-pal megállt a
   kapun** — `tools/list` és `tools/call` NEM futott, tartalmi minta NEM
@@ -1832,7 +1839,9 @@ adoptációs rang.
   a kiadóra hárul; explicit nyílt licenc nincs a README-ben →
   **licenc-review kötelező adoptáció előtt**; a provenance-felosztás
   (observed/provisional) minden esetben kötelező.
-- **Státusz + bizonyíték:** `halasztott` — a README-probe zöld
+- **Státusz + bizonyíték:** `elvetett` (**felhasználói döntés, 2026-11-12,
+  6. pont** — saját Elo-számítás a footballdata-eredményekből, a tükör nem
+  adoptálható; korábbi státusz: `halasztott`) — a README-probe zöld
   (szerkezet + provenance dokumentált, guard zöld), de a CSV
   fejléce/sorai NINCSENEK MÉRVE (>5 MB harness-plafon; a 200-as válasz
   az útvonal létezését igazolja). Teljes igazolás a saját
@@ -1982,7 +1991,9 @@ adoptációs rang.
   **regisztráció előtt tisztázandó**, hogy a kulcsos API egyáltalán
   válaszol-e (különben a regisztráció felesleges). Alternatíva: RapidAPI
   közvetítés (nem probe-olt).
-- **Státusz + bizonyíték:** `regisztráció szükséges` — spike 2026-11-11,
+- **Státusz + bizonyíték:** `elvetett` (**felhasználói döntés, 2026-11-12,
+  9. pont** — host-403, elérhetőségi próba és regisztráció nélkül; korábbi
+  státusz: `regisztráció szükséges`) — spike 2026-11-11,
   python3.13, `/tmp/s1/probe_access.py`: a robots.txt 403-nál
   **StopSpike, a fixtures végpont kulcs nélküli probe-ja NEM futott le**
   (nincs endpoint-spike-bizonyíték); a kulcsigény és az ingyenes keret
@@ -2656,3 +2667,38 @@ Ismert, NEM teljesített részletek (őszinte zárás):
   (`.superpowers/sdd/2026-11-11-real-data-sources-research/progress.md`
   „minor (deferred)” sorai); a checkpoint :477 „identity-rés”
   szóhasználatát a Task 15 checkpoint-pointer korrigálja (append-only).
+
+## Felhasználói döntések (2026-11-12, S1 záró review)
+
+A felhasználó mind a 16 döntési pontról egyesével döntött; a hivatalos
+rögzítés: `docs/decisions/2026-11-12-s1-review-dontesek.md`. Ez a fejezet
+a katalógus státuszaira gyakorolt hatást vezeti át (a fenti bejegyzések
+közül az érintettek státusz-sora frissült; a többi bejegyzés változatlan,
+a döntés itt hivatkozott). Új hálózati kérés NEM történt.
+
+| Pont | Forrás / téma | Döntés | Státusz-hatás |
+|---|---|---|---|
+| 1 | thesportsdb | elvetés (nincs mért rés; free tier elégtelen) | `regisztráció szükséges` → `elvetett` |
+| 2 | livescore-mcp | elvetés (robots-tilt, megkerülés nélkül) | `javasolt` → `elvetett` |
+| 3 | logók/zászlók | a v1 réteges megoldás auditált átvétele (MIT zászlók; v1 asset-bázis lokális, nem publikus tárolóba + audit; FotMob liga-logók; új forrás csak mért résekre, lefedettség-ellenőrzéssel) | logos-github `javasolt` → `elvetett` (kiváltva); logos-wikimedia elvetett marad (kiváltva); zászló-rés zárul |
+| 4 | wikidata | nem kell most (reep + v1 alias-táblák fedik) | `elvetett` marad; új spike csak mért identitás-rés esetén |
+| 5 | openfoot | read-only folytatás közös kulccsal; havi számláló → S2 worker-ledger; server-side remaining az irányadó; kanonikus írás csak külön döntéssel | `igazolt` marad, read-only fegyelemmel |
+| 6 | clubelo | saját Elo-számítás a footballdata-eredményekből (predikciós fázis, as-of, provenance kötelező) | `halasztott` → `elvetett` (tükör nem adoptálható); séma-rés 18. tétel módosul |
+| 7 | fm27 játékmentés-adat | kihagyás most (MegaPack logók helyi használata a 3. pont szerint külön él) | `halasztott` marad, döntés rögzítve |
+| 8 | guardian | ToS-review az adoptáció előtt (tiltás esetén elvetés) | `halasztott` marad, ToS-kapuval |
+| 9 | api-football | elvetés (host-403; próba és regisztráció nélkül) | `regisztráció szükséges` → `elvetett` |
+| 10 | reep | tudomásulvétel; stamp-guard + idempotens adapter + kiadói sha256 → S2 követelmény | `igazolt` marad, stamp-guard feltétellel |
+| 11 | worldfootball | kupa-gerinc végleg a Sky/ESPN/thefa hármasé; újra-probe csak indokolt archívum-mélységnél | `elvetett` marad, szerep-átadással |
+| 12 | soccerway | tartalék az Obscura-integráció után (mért hármas-rés + év/TZ/ToS/mid-stabilitás tisztázása esetén) | `halasztott` marad, aktiválási feltételekkel |
+| 13 | FA Kupa | Sky elsődleges + ESPN kereszt + thefa fixture/round-dates; 90 perces skip-őr mindenhol; Magyar Kupa: FotMob 213 + Tipplap | facup-gap döntés-előkészítés → jóváhagyott felállás |
+| 14 | football-data-org / the-odds-api | regisztráció nem kell most (kétforrásos odds-szabály fedett) | `regisztráció szükséges` marad, halasztva mért résig |
+| 15 | espn | ToS-review az adoptáció előtt (tiltás esetén keresztforrás-szerep újratárgyalása) | `igazolt` marad, ToS-kapuval |
+| 16 | bizalmi mátrix + adoptációs sorrend | jóváhagyva a fenti átvezetésekkel; S2 spec ciklus elindul | a mátrix és a sorrend érvényes gate-bemenet, az átvezetésekkel |
+
+**Érvényesség:** a „Bizalmi mátrix (jóváhagyásra)” és „Adoptációs sorrend
+(jóváhagyásra)” fejezetek ezzel jóváhagyott státuszba kerülnek, a fenti
+átvezetésekkel együtt; a „Döntési pontok (S1 záró review)” fejezet
+történeti előkészítés marad (nem szerkesztett). Az S2 spec bemenete:
+jóváhagyott mátrix + adoptációs sorrend + 18 tételes séma-rés lista
+(a 18. tétel a 6. pont szerint módosul: saját Elo-feature, nem
+tükör-pillanatkép).
