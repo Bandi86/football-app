@@ -272,3 +272,21 @@ munkafa-diff + untracked fájlok).
 A deferred minorok teljes listája az SDD ledgerben
 (`.superpowers/sdd/2026-11-12-s2a-ingest-framework/progress.md`);
 a final review triázs szerint egyik sem merge-blokkoló.
+
+### Deferred minor roll-up (a final review triázsa; az SDD workspace törlése előtt rögzítve)
+
+Merge előtt NEM blokkoló, polírozás/későbbi kapu tételek (a final reviewer
+csoportosítása szerint):
+- **S3 kapu:** robots direktíva-kapu szigorúsága (Sitemap-only/BOM),
+  port/séma cache-kulcs, blocked-TTL; interval-validáció + ismeretlen
+  event_type; persist_raw media_type; robots-fetch ledger-sor; CLI nyers
+  SQL → repo; live ág identity_exact → S2b linker; drift-nevező újragondolás.
+- **Többworker-bevezetéskor kötelező:** complete_job fencing-guard;
+  half_open get+set atomitás (feltételes UPDATE).
+- **Polírozás:** serde wire-assert + FetchJob teszt; 23514 CHECK-kód assert;
+  9-outcome paraméterezett kvótateszt; index-only cast; from_dir NotFound
+  teszt (kézi dev kör fedte); chunked CL-assert + Vec kapacitás-tipp;
+  happy-path payload-assert; next_state defenzív ág + rollback-teszt;
+  generálás tx; quota-zaj; no_data ág; sender-drop shutdown-teszt.
+- **Tudatos tervezés, nem hiba:** ledger job_id FK nélkül (append-only);
+  from_dir last-wins/non-UTF-8 (ops doc dokumentálja).
