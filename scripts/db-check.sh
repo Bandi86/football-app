@@ -12,6 +12,10 @@ fi
 
 for name in DATABASE_URL TEST_DATABASE_URL; do
   url="${!name}"
+  # Elvárt táblaszám DB-nként: a dev és a tesztDB is a 0001–0004 migrációk
+  # után 29 táblát vár (28 terméktábla + _sqlx_migrations); a dev 0004
+  # migrációja a Task 11 engedélyezett kézi körében futott le.
+  expected_tables=29
   identity="$(psql "$url" -v ON_ERROR_STOP=1 -tA -F '|' -c 'SELECT current_database(), current_user;')"
   tables="$(psql "$url" -v ON_ERROR_STOP=1 -tAc "SELECT count(*) FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema');")"
   rules="$(psql "$url" -v ON_ERROR_STOP=1 -tAc "SELECT count(*) FROM ops.validation_rule;")"
@@ -28,15 +32,23 @@ for name in DATABASE_URL TEST_DATABASE_URL; do
     (SELECT count(*) FROM ops.publish_gate) +
     (SELECT count(*) FROM core.standing) + (SELECT count(*) FROM fact.odds_snapshot);")"
 
-  if [ "$tables" -ne 23 ] || [ "$rules" -ne 6 ]; then
-    printf 'HIBA: %s nincs a 0003 migráció utáni elvárt állapotban (táblák: %s, szabályok: %s, üzleti sorok: %s)\n' "$identity" "$tables" "$rules" "$business" >&2
+  if [ "$tables" -ne "$expected_tables" ] || [ "$rules" -ne 6 ]; then
+    printf 'HIBA: %s nincs az elvárt migrációs állapotban (elvárt táblák: %s, táblák: %s, szabályok: %s, üzleti sorok: %s)\n' "$identity" "$expected_tables" "$tables" "$rules" "$business" >&2
     exit 1
   fi
 
-  if [ "$name" = "TEST_DATABASE_URL" ] && [ "$business" -ne 0 ]; then
-    printf 'HIBA: %s tesztadatbázis üzleti sorokat tartalmaz (%s) — db-reset.sh szükséges\n' "$identity" "$business" >&2
+  # A 0004 worker táblái az üzleti összegben NEM szerepelnek, külön számoljuk
+  # őket; a lekérdezés a táblaszám-ellenőrzés UTÁN fut, hogy hiányzó sémánál a
+  # fenti barátságos hibaüzenet jelenjen meg, ne nyers psql-hiba.
+  worker_rows="$(psql "$url" -v ON_ERROR_STOP=1 -tAc "SELECT
+    (SELECT count(*) FROM ops.source_policy) + (SELECT count(*) FROM ops.fetch_ledger) +
+    (SELECT count(*) FROM ops.breaker_state) + (SELECT count(*) FROM ops.job) +
+    (SELECT count(*) FROM ops.coverage_slot) + (SELECT count(*) FROM ops.robots_cache);")"
+
+  if [ "$name" = "TEST_DATABASE_URL" ] && { [ "$business" -ne 0 ] || [ "$worker_rows" -ne 0 ]; }; then
+    printf 'HIBA: %s tesztadatbázis üzleti sorokat tartalmaz (üzleti: %s, worker: %s) — db-reset.sh szükséges\n' "$identity" "$business" "$worker_rows" >&2
     exit 1
   fi
 
-  printf 'OK: %s, táblák: %s, szabályok: %s, üzleti sorok: %s\n' "$identity" "$tables" "$rules" "$business"
+  printf 'OK: %s, táblák: %s, szabályok: %s, üzleti sorok: %s, worker sorok: %s\n' "$identity" "$tables" "$rules" "$business" "$worker_rows"
 done

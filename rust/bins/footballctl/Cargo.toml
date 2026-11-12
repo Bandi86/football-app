@@ -12,6 +12,7 @@ football-domain = { path = "../../crates/domain" }
 football-ingest = { path = "../../crates/ingest" }
 football-storage = { path = "../../crates/storage" }
 football-verification = { path = "../../crates/verification" }
+football-worker = { path = "../../crates/worker" }
 serde_json.workspace = true
 sqlx.workspace = true
 tokio.workspace = true

@@ -1,0 +1,74 @@
+{
+  "source_code": "demo-synthetic",
+  "source_display_name": "Demó szintetikus forrás",
+  "captured_at": "2026-11-12T08:00:00Z",
+  "endpoint_key": "match",
+  "request_url": "fixture://demo-synthetic/2026-11-12",
+  "adapter_version": "1.0",
+  "parser_version": "1.0",
+  "competition": {
+    "id": "20000000-0000-7000-8000-000000000001",
+    "name": "Demó Liga",
+    "country_code": "XX",
+    "country_name": "Demó Ország",
+    "tier": 1,
+    "priority": 10
+  },
+  "season": {
+    "id": "20000000-0000-7000-8000-000000000002",
+    "label": "2026/27"
+  },
+  "teams": [
+    {
+      "id": "20000000-0000-7000-8000-000000000011",
+      "source_entity_id": "DEMO-FC",
+      "name": "Demó FC",
+      "country_code": "XX",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000012",
+      "source_entity_id": "DEMO-VSC",
+      "name": "Vendég SC",
+      "country_code": "XX",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    }
+  ],
+  "matches": [
+    {
+      "id": "20000000-0000-7000-8000-000000000101",
+      "source_match_id": "DEMO-1001",
+      "home_source_entity_id": "DEMO-FC",
+      "away_source_entity_id": "DEMO-VSC",
+      "round_label": "1. forduló",
+      "kickoff_at": "2026-11-12T23:30:00Z",
+      "competition_timezone": "Europe/Budapest",
+      "status": "scheduled",
+      "result": null
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000102",
+      "source_match_id": "DEMO-1002",
+      "home_source_entity_id": "DEMO-VSC",
+      "away_source_entity_id": "DEMO-FC",
+      "round_label": "1. forduló",
+      "kickoff_at": "2026-11-13T17:00:00Z",
+      "competition_timezone": "Europe/Budapest",
+      "status": "finished",
+      "result": {
+        "home_ft": 2,
+        "away_ft": 1,
+        "home_ht": 1,
+        "away_ht": 0,
+        "home_et": null,
+        "away_et": null,
+        "home_pens": null,
+        "away_pens": null
+      }
+    }
+  ]
+}

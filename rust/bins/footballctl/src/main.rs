@@ -1,16 +1,22 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use chrono::NaiveDate;
+use chrono::{NaiveDate, Utc};
 use clap::{Parser, Subcommand};
+use football_ingest::adapter::SourceAdapter;
 use football_ingest::canonicalize::Canonicalizer;
+use football_ingest::demo::DemoAdapter;
+use football_ingest::fetch::FixtureFetcher;
 use football_ingest::fixture::{FixtureAdapter, FixtureSource};
 use football_storage::object_store::ObjectStore;
 use football_storage::repositories::day::{DayFilter, fetch_day};
+use football_storage::repositories::worker as worker_repo;
 use football_verification::engine::{VerificationContext, VerificationEngine};
 use football_verification::gate::evaluate_and_persist_gate;
 use football_verification::persist::persist_report;
 use football_verification::rules::default_rules;
+use football_worker::{scheduler, tick};
 use sqlx::postgres::PgPoolOptions;
 use tracing_subscriber::EnvFilter;
 
@@ -35,6 +41,16 @@ enum Command {
         include_all: bool,
     },
     Doctor,
+    Worker {
+        #[command(subcommand)]
+        action: WorkerAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum WorkerAction {
+    Status,
+    Tick,
 }
 
 #[tokio::main]
@@ -121,10 +137,89 @@ async fn main() -> Result<()> {
             let gates: i64 = sqlx::query_scalar("SELECT count(*) FROM ops.publish_gate")
                 .fetch_one(&pool)
                 .await?;
-            println!("db={ok} gates={gates}");
+            let jobs_pending: i64 =
+                sqlx::query_scalar("SELECT count(*) FROM ops.job WHERE status='pending'")
+                    .fetch_one(&pool)
+                    .await?;
+            let breakers_open: i64 =
+                sqlx::query_scalar("SELECT count(*) FROM ops.breaker_state WHERE state='open'")
+                    .fetch_one(&pool)
+                    .await?;
+            let quarantined: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM ops.coverage_slot WHERE state='quarantined'",
+            )
+            .fetch_one(&pool)
+            .await?;
+            println!(
+                "db={ok} gates={gates} jobs_pending={jobs_pending} breakers_open={breakers_open} quarantined={quarantined}"
+            );
         }
+        Command::Worker { action } => match action {
+            WorkerAction::Status => worker_status(&pool).await?,
+            WorkerAction::Tick => worker_tick(&pool, &store, &data_dir).await?,
+        },
     }
 
+    Ok(())
+}
+
+/// Worker állapot: policy-k (slug/mód/engedélyezve), mai ledger-szám a napi
+/// kerethez, breaker-állapotok, függő jobok és karanténos coverage-slotok.
+async fn worker_status(pool: &sqlx::PgPool) -> Result<()> {
+    let policies: Vec<(String, String, bool, i32)> = sqlx::query_as(
+        "SELECT source_slug, mode, enabled, daily_budget
+         FROM ops.source_policy ORDER BY source_slug",
+    )
+    .fetch_all(pool)
+    .await?;
+    let today = Utc::now().date_naive();
+    println!("forráspolicy-k:");
+    if policies.is_empty() {
+        println!("  (nincs policy)");
+    }
+    for (slug, mode, enabled, budget) in &policies {
+        let attempts = worker_repo::count_fetch_attempts_today(pool, slug, today).await?;
+        let breaker = worker_repo::get_breaker(pool, slug)
+            .await?
+            .map(|row| row.state.as_db_str())
+            .unwrap_or("closed");
+        let enabled_text = if *enabled { "igen" } else { "nem" };
+        println!(
+            "  {slug} mód={mode} engedélyezve={enabled_text} ma={attempts}/{budget} breaker={breaker}"
+        );
+    }
+    let jobs_pending: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM ops.job WHERE status='pending'")
+            .fetch_one(pool)
+            .await?;
+    let jobs_leased: i64 = sqlx::query_scalar("SELECT count(*) FROM ops.job WHERE status='leased'")
+        .fetch_one(pool)
+        .await?;
+    let quarantined: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM ops.coverage_slot WHERE state='quarantined'")
+            .fetch_one(pool)
+            .await?;
+    println!("függő jobok: {jobs_pending} (leased: {jobs_leased})");
+    println!("karanténban: {quarantined}");
+    Ok(())
+}
+
+/// Egyszeri worker kör kézi indítása: job-generálás + tick a DATA_DIR/worker-fixtures
+/// fixture-eivel és a DemoAdapter registry-vel. Shadow policy esetén csak
+/// observationök íródnak, kanonikus adat nem.
+async fn worker_tick(pool: &sqlx::PgPool, store: &ObjectStore, data_dir: &str) -> Result<()> {
+    let fixture_dir = std::path::Path::new(data_dir).join("worker-fixtures");
+    let fetcher = FixtureFetcher::from_dir(&fixture_dir)?;
+    let mut adapters: HashMap<String, Box<dyn SourceAdapter>> = HashMap::new();
+    adapters.insert("demo-synthetic".into(), Box::new(DemoAdapter));
+    let now = Utc::now();
+    let policies = worker_repo::list_enabled_policies(pool).await?;
+    let generated = scheduler::generate_jobs(pool, &policies, now).await?;
+    let outcome = tick::tick(pool, store, &fetcher, &adapters, uuid::Uuid::now_v7(), now).await?;
+    println!(
+        "generált={generated} feldolgozott={} blokkolt={} sikertelen={}",
+        outcome.processed, outcome.blocked, outcome.failed
+    );
     Ok(())
 }
 

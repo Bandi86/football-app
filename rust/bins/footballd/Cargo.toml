@@ -9,6 +9,9 @@ anyhow.workspace = true
 axum.workspace = true
 dirs.workspace = true
 football-api = { path = "../../crates/api" }
+football-ingest = { path = "../../crates/ingest" }
+football-storage = { path = "../../crates/storage" }
+football-worker = { path = "../../crates/worker" }
 rand.workspace = true
 serde.workspace = true
 serde_json.workspace = true

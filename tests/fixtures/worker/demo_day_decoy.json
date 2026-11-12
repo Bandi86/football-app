@@ -1,0 +1,42 @@
+{
+  "source_code": "demo-synthetic",
+  "source_display_name": "Demó szintetikus forrás",
+  "captured_at": "2026-11-12T08:00:00Z",
+  "endpoint_key": "match",
+  "request_url": "fixture://demo-synthetic/2026-11-12",
+  "adapter_version": "1.0",
+  "parser_version": "1.0",
+  "competition": {
+    "id": "20000000-0000-7000-8000-000000000001",
+    "name": "Demó Liga",
+    "country_code": "XX",
+    "country_name": "Demó Ország",
+    "tier": 1,
+    "priority": 10
+  },
+  "season": {
+    "id": "20000000-0000-7000-8000-000000000002",
+    "label": "2026/27"
+  },
+  "teams": [
+    {
+      "id": "20000000-0000-7000-8000-000000000011",
+      "source_entity_id": "DEMO-FC",
+      "name": "Demó FC",
+      "country_code": "XX",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    },
+    {
+      "id": "20000000-0000-7000-8000-000000000012",
+      "source_entity_id": "DEMO-VSC",
+      "name": "Vendég SC",
+      "country_code": "XX",
+      "gender": "male",
+      "age_group": "senior",
+      "branch": "senior"
+    }
+  ],
+  "matches": []
+}
