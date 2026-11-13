@@ -22,15 +22,18 @@ use std::time::{Duration as StdDuration, Instant};
 use anyhow::{Context, Result};
 use chrono::{DateTime, NaiveDate, Utc};
 use football_domain::error::FetchError;
+use football_domain::identity::{IdentityContext, Resolution};
 use football_domain::policy::{
     CoverageState, FetchJob, FetchOutcome, JobStatus, SourceMode, SourcePolicy,
 };
+use football_identity::linker;
 use football_ingest::adapter::{ParseCtx, SourceAdapter};
 use football_ingest::canonicalize::Canonicalizer;
 use football_ingest::fetch::{FetchLimits, FetchRequest, Fetcher};
 use football_ingest::fixture::FixtureSource;
 use football_ingest::observe::insert_observation;
 use football_storage::object_store::ObjectStore;
+use football_storage::repositories::identity as identity_repo;
 use football_storage::repositories::worker::{self as repo, LedgerEntry, RawCapture};
 use football_verification::conflict::load_material_values;
 use football_verification::engine::{VerificationContext, VerificationEngine};
@@ -461,12 +464,33 @@ fn raw_display_name(bytes: &[u8], source_slug: &str) -> String {
 }
 
 /// Kanonikus materializálás + meccsenkénti verification és publish gate.
-/// Az egzakt identitás a DemoAdapter egzakt forrás-ID-i miatt true;
-/// S2b-ben ez fail-closed linkerre cserélődik.
+/// Az identitás-flagjei a fail-closed linker feloldásából jönnek (S2b-1):
+/// egzakt feloldás → true, minden más (Candidates/NotFound/hiba) → false,
+/// így a meccs withheld marad, amíg a review-döntés meg nem születik.
 async fn verify_and_publish(pool: &PgPool, fixture: &FixtureSource) -> Result<()> {
     let day = Canonicalizer::materialize(pool, fixture).await?;
     let rules = default_rules();
+    // Koherens forrás-pár: a crosswalk a slugot, a ref az uuid-t használja.
+    let source_id = identity_repo::source_id_by_code(pool, &fixture.source_code)
+        .await?
+        .context("forrás-azonosító az identitáshoz")?;
     for materialized in &day.matches {
+        let home_identity_exact = resolve_team_identity(
+            pool,
+            source_id,
+            &fixture.source_code,
+            fixture,
+            materialized.home_team_id,
+        )
+        .await;
+        let away_identity_exact = resolve_team_identity(
+            pool,
+            source_id,
+            &fixture.source_code,
+            fixture,
+            materialized.away_team_id,
+        )
+        .await;
         let source_values = load_material_values(pool, materialized.match_id).await?;
         let duplicate_match_count = repo::count_duplicate_matches(
             pool,
@@ -478,8 +502,8 @@ async fn verify_and_publish(pool: &PgPool, fixture: &FixtureSource) -> Result<()
         .await?;
         let context = VerificationContext {
             snapshot: &materialized.snapshot,
-            home_identity_exact: true,
-            away_identity_exact: true,
+            home_identity_exact,
+            away_identity_exact,
             duplicate_match_count,
             source_values: &source_values,
         };
@@ -490,4 +514,52 @@ async fn verify_and_publish(pool: &PgPool, fixture: &FixtureSource) -> Result<()
             .await?;
     }
     Ok(())
+}
+
+/// Egy csapat fail-closed identitás-feloldása a tick live ágában.
+///
+/// A linker `Exact` kimenete true; `Candidates`/`NotFound` esetén a linker
+/// pending review-sort nyitott, a flag false (a meccs withheld). DB-hibán
+/// a hiba naplózódik és a flag false marad (fail-closed).
+///
+/// Szándékosan nyilvános: az E2E tesztek a withheld → review → approve
+/// ciklust közvetlenül is bizonyítják. Teljes tick újrafutásnál a
+/// canonicalize lépés újraélesztené a fixture_seed refet (ON CONFLICT
+/// DO UPDATE status='active'), ezért a ciklus resolve-szinten bizonyított;
+/// tick-szintű withheld állapot nem-fixture forrásoknál jelentkezik (S3).
+pub async fn resolve_team_identity(
+    pool: &PgPool,
+    source_id: Uuid,
+    source_slug: &str,
+    fixture: &FixtureSource,
+    team_id: Uuid,
+) -> bool {
+    let Some(team) = fixture.teams.iter().find(|t| t.id == team_id) else {
+        return false;
+    };
+    let ctx = IdentityContext {
+        country_code: Some(team.country_code.clone()),
+        gender: Some(team.gender.clone()),
+        age_group: Some(team.age_group.clone()),
+        branch: Some(team.branch.clone()),
+    };
+    match linker::resolve(
+        pool,
+        source_id,
+        source_slug,
+        "team",
+        &team.source_entity_id,
+        &team.name,
+        &ctx,
+    )
+    .await
+    {
+        Ok(Resolution::Exact { .. }) => true,
+        // Candidates/NotFound: a pending review-sort a linker létrehozta.
+        Ok(_) => false,
+        Err(err) => {
+            tracing::error!(error = %err, "identitás-feloldás hiba (fail-closed)");
+            false
+        }
+    }
 }

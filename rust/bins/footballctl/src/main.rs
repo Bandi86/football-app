@@ -11,6 +11,7 @@ use football_ingest::fetch::FixtureFetcher;
 use football_ingest::fixture::{FixtureAdapter, FixtureSource};
 use football_storage::object_store::ObjectStore;
 use football_storage::repositories::day::{DayFilter, fetch_day};
+use football_storage::repositories::identity as identity_repo;
 use football_storage::repositories::worker as worker_repo;
 use football_verification::engine::{VerificationContext, VerificationEngine};
 use football_verification::gate::evaluate_and_persist_gate;
@@ -19,6 +20,7 @@ use football_verification::rules::default_rules;
 use football_worker::{scheduler, tick};
 use sqlx::postgres::PgPoolOptions;
 use tracing_subscriber::EnvFilter;
+use uuid::Uuid;
 
 #[derive(Parser)]
 #[command(name = "footballctl")]
@@ -45,12 +47,40 @@ enum Command {
         #[command(subcommand)]
         action: WorkerAction,
     },
+    Identity {
+        #[command(subcommand)]
+        action: IdentityAction,
+    },
 }
 
 #[derive(Subcommand)]
 enum WorkerAction {
     Status,
     Tick,
+}
+
+#[derive(Subcommand)]
+enum IdentityAction {
+    Review {
+        #[arg(long)]
+        status: Option<String>,
+    },
+    Approve {
+        id: Uuid,
+        #[arg(long)]
+        entity: Uuid,
+        #[arg(long)]
+        note: Option<String>,
+    },
+    Reject {
+        id: Uuid,
+        #[arg(long)]
+        note: String,
+    },
+    ListAliases {
+        #[arg(long)]
+        entity: Option<Uuid>,
+    },
 }
 
 #[tokio::main]
@@ -158,6 +188,7 @@ async fn main() -> Result<()> {
             WorkerAction::Status => worker_status(&pool).await?,
             WorkerAction::Tick => worker_tick(&pool, &store, &data_dir).await?,
         },
+        Command::Identity { action } => identity_command(&pool, action).await?,
     }
 
     Ok(())
@@ -220,6 +251,73 @@ async fn worker_tick(pool: &sqlx::PgPool, store: &ObjectStore, data_dir: &str) -
         "generált={generated} feldolgozott={} blokkolt={} sikertelen={}",
         outcome.processed, outcome.blocked, outcome.failed
     );
+    Ok(())
+}
+
+/// Identitás review-életciklus: lista, jóváhagyás, elutasítás, alias-lista.
+/// A döntéseket a football-identity review modulja hajtja végre tranzakcióban,
+/// auditálva; a CLI döntője "cli". A hibaüzenetek magyar nyelvűek.
+async fn identity_command(pool: &sqlx::PgPool, action: IdentityAction) -> Result<()> {
+    match action {
+        IdentityAction::Review { status } => {
+            if let Some(s) = &status
+                && !matches!(s.as_str(), "pending" | "approved" | "rejected")
+            {
+                anyhow::bail!("Érvénytelen státusz: {s} (lehetséges: pending, approved, rejected)");
+            }
+            let rows = identity_repo::list_reviews(pool, status.as_deref()).await?;
+            let sources: Vec<(Uuid, String)> = sqlx::query_as("SELECT id, code FROM ops.source")
+                .fetch_all(pool)
+                .await?;
+            let source_codes: HashMap<Uuid, String> = sources.into_iter().collect();
+            println!("id | forrás | external ID | név | ok | jelöltek száma | létrehozva");
+            if rows.is_empty() {
+                println!("(nincs felülvizsgálati sor)");
+            }
+            for r in rows {
+                let source = r
+                    .source_id
+                    .and_then(|id| source_codes.get(&id).cloned())
+                    .unwrap_or_else(|| "-".into());
+                let candidates = r.candidate_entity_ids.as_array().map_or(0, |a| a.len());
+                println!(
+                    "{} | {} | {} | {} | {} | {} | {}",
+                    r.id,
+                    source,
+                    r.source_entity_id,
+                    r.proposed_name,
+                    r.reason,
+                    candidates,
+                    r.created_at.format("%Y-%m-%d %H:%M:%S UTC")
+                );
+            }
+        }
+        IdentityAction::Approve { id, entity, note } => {
+            football_identity::review::approve(pool, id, entity, "cli", note.as_deref()).await?;
+            println!("jóváhagyva: {id} → {entity}");
+        }
+        IdentityAction::Reject { id, note } => {
+            football_identity::review::reject(pool, id, "cli", &note).await?;
+            println!("elutasítva: {id}");
+        }
+        IdentityAction::ListAliases { entity } => {
+            let rows = identity_repo::list_aliases(pool, entity).await?;
+            println!("entitás | alias | nyelv | ország | státusz");
+            if rows.is_empty() {
+                println!("(nincs alias)");
+            }
+            for a in rows {
+                println!(
+                    "{} | {} | {} | {} | {}",
+                    a.entity_id,
+                    a.alias,
+                    a.lang,
+                    a.country_code.as_deref().unwrap_or("-"),
+                    a.status
+                );
+            }
+        }
+    }
     Ok(())
 }
 

@@ -1,0 +1,17 @@
+[package]
+name = "football-identity"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+football-domain = { path = "../domain" }
+football-storage = { path = "../storage" }
+serde_json.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

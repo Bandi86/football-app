@@ -12,10 +12,10 @@ fi
 
 for name in DATABASE_URL TEST_DATABASE_URL; do
   url="${!name}"
-  # Elvárt táblaszám DB-nként: a dev és a tesztDB is a 0001–0004 migrációk
-  # után 29 táblát vár (28 terméktábla + _sqlx_migrations); a dev 0004
-  # migrációja a Task 11 engedélyezett kézi körében futott le.
-  expected_tables=29
+  # Elvárt táblaszám mindkét DB-n: a 0001–0005 migrációk után 32 tábla
+  # (31 terméktábla + _sqlx_migrations). A dev 0005 migrációja a záró task
+  # engedélyezett kézi körében futott le (2026-11-13).
+  expected_tables=32
   identity="$(psql "$url" -v ON_ERROR_STOP=1 -tA -F '|' -c 'SELECT current_database(), current_user;')"
   tables="$(psql "$url" -v ON_ERROR_STOP=1 -tAc "SELECT count(*) FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema');")"
   rules="$(psql "$url" -v ON_ERROR_STOP=1 -tAc "SELECT count(*) FROM ops.validation_rule;")"

@@ -1,4 +1,5 @@
 pub mod error;
+pub mod identity;
 pub mod match_state;
 pub mod policy;
 pub mod verification;

@@ -17,6 +17,7 @@ pub async fn test_pool() -> PgPool {
     sqlx::query(
         "TRUNCATE fact.odds_snapshot, core.standing,
          ops.publish_gate, fact.verification, fact.conflict, fact.provenance,
+         identity.review_queue, identity.alias, identity.crosswalk,
          identity.source_entity_ref, core.match_result, core.match, core.team,
          core.season, core.competition, core.country, core.entity,
          stage.observation, raw.capture, raw.artifact, ops.source,

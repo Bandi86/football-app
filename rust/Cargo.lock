@@ -654,6 +654,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "football-identity"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "football-domain",
+ "football-storage",
+ "serde_json",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "football-ingest"
 version = "0.1.0"
 dependencies = [
@@ -719,6 +733,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "football-domain",
+ "football-identity",
  "football-ingest",
  "football-storage",
  "football-verification",
@@ -740,6 +755,7 @@ dependencies = [
  "chrono",
  "clap",
  "football-domain",
+ "football-identity",
  "football-ingest",
  "football-storage",
  "football-verification",

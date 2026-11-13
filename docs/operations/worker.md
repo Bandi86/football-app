@@ -27,7 +27,7 @@ set -a; . ./.env; set +a
   (`MissedTickBehavior::Delay`, lassú tick nem okoz burstöt). Tick-hiba nem
   állítja le a daemont: naplózódik, a ciklus folytatódik.
 - A `footballd` induláskor automatikusan futtatja a migrációkat
-  (`sqlx::migrate!`) — a dev DB jelenleg a 0004-nél tart (29 tábla).
+  (`sqlx::migrate!`) — a dev DB a 0005-nél tart (32 tábla).
 - Leállítás: Ctrl-C (SIGINT) → graceful shutdown: a serve leáll, a worker
   shutdown-jelet kap, a futó kör befejeződik, majd a saját lease-ek `pending`
   állapotba kerülnek (`worker leállt, a lease-ek elengedve` napló, released

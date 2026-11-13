@@ -8,6 +8,7 @@ version.workspace = true
 football-domain = { path = "../domain" }
 football-storage = { path = "../storage" }
 football-ingest = { path = "../ingest" }
+football-identity = { path = "../identity" }
 football-verification = { path = "../verification" }
 anyhow.workspace = true
 async-trait.workspace = true

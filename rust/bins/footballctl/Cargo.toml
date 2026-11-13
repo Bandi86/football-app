@@ -9,6 +9,7 @@ anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true
 football-domain = { path = "../../crates/domain" }
+football-identity = { path = "../../crates/identity" }
 football-ingest = { path = "../../crates/ingest" }
 football-storage = { path = "../../crates/storage" }
 football-verification = { path = "../../crates/verification" }
