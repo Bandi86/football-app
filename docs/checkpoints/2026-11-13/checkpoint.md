@@ -202,3 +202,35 @@ a Task 7-re jelölt hármas javítás fent elvégezve).
       entitás kind-ját a queue-sor `entity_kind`-jével szemben.
 - [ ] Crosswalk-uniqueness validáció importkor: az importáló ellenőrizze a
       crosswalk-kötések egyértelműségét (nem ütköző/ellentmondó kötések).
+
+## S2b-2 — bizalmi szintes gate: brainstorming + spec (2026-11-13)
+
+- [x] Kontextus: verification engine/gate (6 szabály, SINGLE_SOURCE warning),
+      fact.odds_snapshot PK=match_id (egy sor/meccs), jóváhagyott bizalmi mátrix.
+- [x] Tisztázó kérdések (egyesével, jóváhagyva): új ops.source_trust tábla
+      (provider-csoportosítással); teljes odds-szabály MOST (0006 composite PK
+      + trust_state); trust default medium; odds tolerancia paraméter default 0.0.
+- [x] Megközelítés: A — TRUST_LEVEL a meglévő motorban + külön
+      evaluate_odds_trust (mezőszintű, NEM Finding); B (pre-gate) és
+      C (field_trust mátrix) elvetve.
+- [x] Design 5 szekció egyenként jóváhagyva.
+- [x] Spec: `docs/superpowers/specs/2026-11-13-s2b2-trust-gate-design.md`
+      — önreview: CJK-injektálás javítva (idegen „same” jelentésű szó → „ugyanazon”), csoport-képviselő
+      definíció pontosítva; glyph-scan tiszta, magyar visszaolvasás kész.
+- [x] Demo odds-kockázat ellenőrizve: mind a 20 pár egzakt egyező (0 eltérés,
+      canonical id join) — a default toleranciával verified odds zöld.
+- [ ] Felhasználói spec-review: FÜGGŐBEN.
+- [ ] writing-plans + implementáció: NEM indult.
+
+## S2b-2 — megvalósítási terv elkészült (writing-plans)
+
+- [x] Terv: `docs/superpowers/plans/2026-11-13-s2b2-trust-gate.md` — 7 task
+      (domain trust típusok → 0006 migráció → storage trust/odds/LATERAL →
+      verification TRUST_LEVEL + evaluate_odds_trust → hívók + E2E →
+      API + Swift → zárás), TDD, valódi kód, commit nélkül.
+- [x] Önreview: spec-lefedettség teljes, placeholder nincs, típus-konzisztens;
+      javítások: display_only-only domain nem ad warningot, unused változó,
+      load_match_odds unwrap-mentes (ok_or_else).
+- [x] Magyar visszaolvasás + glyph-scan: terv tiszta, záró újsor megvan.
+- [ ] Végrehajtás: NEM indult — a felhasználó a végrehajtási módról és a
+      `feat/s2b2-trust-gate` branch létrehozásáról még nem döntött.
