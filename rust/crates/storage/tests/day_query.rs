@@ -132,6 +132,70 @@ async fn day_row_includes_display_fields() {
     assert_eq!(row.odds_source.as_deref(), Some("Demó"));
     assert_eq!(row.odds.as_ref().unwrap()["home"], 2.2);
     assert!(row.odds_captured_at.is_some());
+    // Friss odds sor alapértelmezett állapota a napi nézetben is látszik.
+    assert_eq!(row.odds_trust_state.as_deref(), Some("provisional"));
+}
+
+#[tokio::test]
+async fn day_picks_verified_odds_row() {
+    let pool = test_pool().await;
+    let base = seed_match_base(&pool).await;
+    let match_id = seed_match(
+        &pool,
+        &base,
+        "verified_publish",
+        Utc.with_ymd_and_hms(2026, 11, 9, 18, 0, 0).unwrap(),
+    )
+    .await;
+
+    // Két odds sor ugyanazon a meccsen (composite PK). A provisional forrás
+    // uuid-ja szándékosan kisebb: a verified-előnynek a source_id rendezés
+    // ellenére is érvényesülnie kell.
+    let provisional_source = Uuid::from_u128(1);
+    let verified_source = Uuid::from_u128(2);
+    for (source_id, code, name) in [
+        (provisional_source, "prov-src", "Provisional forrás"),
+        (verified_source, "ver-src", "Verified forrás"),
+    ] {
+        sqlx::query("INSERT INTO ops.source (id, code, display_name) VALUES ($1,$2,$3)")
+            .bind(source_id)
+            .bind(code)
+            .bind(name)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    sqlx::query(
+        "INSERT INTO fact.odds_snapshot
+         (match_id, source_id, captured_at, market_count, odds, trust_state)
+         VALUES ($1,$2,now(),18,'{\"home\":9.9,\"draw\":3.3,\"away\":3.2}'::jsonb,'provisional'),
+                ($1,$3,now(),18,'{\"home\":1.5,\"draw\":3.3,\"away\":3.2}'::jsonb,'verified')",
+    )
+    .bind(match_id)
+    .bind(provisional_source)
+    .bind(verified_source)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let rows = fetch_day(
+        &pool,
+        &DayFilter {
+            date: NaiveDate::from_ymd_opt(2026, 11, 9).unwrap(),
+            timezone: "Europe/Budapest".into(),
+            include_all: false,
+        },
+    )
+    .await
+    .unwrap();
+
+    // A LATERAL join miatt a meccs NEM duplikálódik, és a verified sor nyer.
+    assert_eq!(rows.len(), 1);
+    let row = &rows[0];
+    assert_eq!(row.match_id, match_id);
+    assert_eq!(row.odds_trust_state.as_deref(), Some("verified"));
+    assert_eq!(row.odds_source.as_deref(), Some("Verified forrás"));
+    assert_eq!(row.odds.as_ref().unwrap()["home"], 1.5);
 }
 
 async fn seed_match_base(pool: &PgPool) -> MatchBase {

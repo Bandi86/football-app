@@ -181,14 +181,16 @@ impl Canonicalizer {
             let market_count = fixture_match
                 .market_count
                 .with_context(|| format!("hiányzó piacszám az odds mellé: {}", fixture_match.id))?;
+            // Új vagy frissülő odds sor mindig provisional: a verified
+            // állapotot a gate utáni odds-kiértékelés állítja be (S2b-2).
             sqlx::query(
                 "INSERT INTO fact.odds_snapshot (match_id, source_id, captured_at, market_count, odds)
                  VALUES ($1,$2,$3,$4,$5)
-                 ON CONFLICT (match_id) DO UPDATE SET
-                   source_id = EXCLUDED.source_id,
+                 ON CONFLICT (match_id, source_id) DO UPDATE SET
                    captured_at = EXCLUDED.captured_at,
                    market_count = EXCLUDED.market_count,
-                   odds = EXCLUDED.odds",
+                   odds = EXCLUDED.odds,
+                   trust_state = 'provisional'",
             )
             .bind(fixture_match.id)
             .bind(source_id)

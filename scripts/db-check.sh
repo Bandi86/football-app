@@ -10,12 +10,12 @@ fi
 : "${DATABASE_URL:?DATABASE_URL hiányzik}"
 : "${TEST_DATABASE_URL:?TEST_DATABASE_URL hiányzik}"
 
+# Elvárt táblaszám: mindkét DB a 0001–0006 migrációk után 33 tábla
+# (32 terméktábla + _sqlx_migrations); a 0006 a dev DB-n is lefutott.
+expected_tables=33
+
 for name in DATABASE_URL TEST_DATABASE_URL; do
   url="${!name}"
-  # Elvárt táblaszám mindkét DB-n: a 0001–0005 migrációk után 32 tábla
-  # (31 terméktábla + _sqlx_migrations). A dev 0005 migrációja a záró task
-  # engedélyezett kézi körében futott le (2026-11-13).
-  expected_tables=32
   identity="$(psql "$url" -v ON_ERROR_STOP=1 -tA -F '|' -c 'SELECT current_database(), current_user;')"
   tables="$(psql "$url" -v ON_ERROR_STOP=1 -tAc "SELECT count(*) FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema');")"
   rules="$(psql "$url" -v ON_ERROR_STOP=1 -tAc "SELECT count(*) FROM ops.validation_rule;")"
@@ -30,7 +30,8 @@ for name in DATABASE_URL TEST_DATABASE_URL; do
     (SELECT count(*) FROM identity.source_entity_ref) + (SELECT count(*) FROM fact.provenance) +
     (SELECT count(*) FROM fact.conflict) + (SELECT count(*) FROM fact.verification) +
     (SELECT count(*) FROM ops.publish_gate) +
-    (SELECT count(*) FROM core.standing) + (SELECT count(*) FROM fact.odds_snapshot);")"
+    (SELECT count(*) FROM core.standing) + (SELECT count(*) FROM fact.odds_snapshot) +
+    (SELECT count(*) FROM ops.source_trust);")"
 
   if [ "$tables" -ne "$expected_tables" ] || [ "$rules" -ne 6 ]; then
     printf 'HIBA: %s nincs az elvárt migrációs állapotban (elvárt táblák: %s, táblák: %s, szabályok: %s, üzleti sorok: %s)\n' "$identity" "$expected_tables" "$tables" "$rules" "$business" >&2

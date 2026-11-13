@@ -11,7 +11,7 @@
 //! Nincs élő hálózat: minden fetch a FixtureFetcher-en megy; a golden
 //! fixture dátumát a helper a mai UTC napra írja át (az S2a tick_e2e
 //! mintáján). A verified_publish-hez megerősítő második forrás is kell
-//! (SINGLE_SOURCE szabály).
+//! (TRUST_LEVEL szabály).
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -112,7 +112,7 @@ async fn count(pool: &PgPool, sql: &str) -> i64 {
     sqlx::query_scalar(sql).fetch_one(pool).await.unwrap()
 }
 
-/// Megerősítő második forrás a SINGLE_SOURCE szabályhoz (az S2a tick_e2e
+/// Megerősítő második forrás a TRUST_LEVEL szabályhoz (az S2a tick_e2e
 /// mintáján): az observationök anyagi mezői egyeznek a DemoAdapter
 /// kimenetével, így a MATERIAL_SOURCE_CONFLICT sem talál eltérést.
 async fn seed_corroborating_source(

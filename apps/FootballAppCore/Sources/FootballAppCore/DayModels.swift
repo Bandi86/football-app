@@ -72,6 +72,7 @@ public struct DayMatch: Decodable, Equatable, Identifiable, Sendable {
     public let marketCount: Int?
     public let oddsSource: String?
     public let oddsCapturedAt: Date?
+    public let oddsTrustState: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -100,6 +101,7 @@ public struct DayMatch: Decodable, Equatable, Identifiable, Sendable {
         case marketCount = "market_count"
         case oddsSource = "odds_source"
         case oddsCapturedAt = "odds_captured_at"
+        case oddsTrustState = "odds_trust_state"
     }
 }
 

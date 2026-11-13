@@ -7,7 +7,7 @@
 //! Budapesten már a következő nap 00:30-a lenne, és a dátum-guard bukna.
 //! A tick `now` paramétere a mai nap 12:00 UTC-je: determinisztikus, és a
 //! Budapestre átszámított publish-dátum is a mai nap marad. A verified_publish
-//! E2E ághoz megerősítő második forrás is kell (SINGLE_SOURCE szabály).
+//! E2E ághoz megerősítő második forrás is kell (TRUST_LEVEL szabály).
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -108,7 +108,7 @@ async fn count(pool: &PgPool, sql: &str) -> i64 {
     sqlx::query_scalar(sql).fetch_one(pool).await.unwrap()
 }
 
-/// Megerősítő második forrás: a SINGLE_SOURCE szabály miatt egyetlen forrásból
+/// Megerősítő második forrás: a TRUST_LEVEL szabály miatt egyetlen forrásból
 /// csak provisional_publish születik; a verified_publish-hez egyező második
 /// forrás-megfigyelés kell (a dev demó pipeline is két fixture forrással fut).
 /// Az observationök anyagi mezői megegyeznek a DemoAdapter kimenetével, így

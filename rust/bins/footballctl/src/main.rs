@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use chrono::{NaiveDate, Utc};
 use clap::{Parser, Subcommand};
+use football_domain::trust::{ODDS_TOLERANCE_DEFAULT, OddsTrustState};
 use football_ingest::adapter::SourceAdapter;
 use football_ingest::canonicalize::Canonicalizer;
 use football_ingest::demo::DemoAdapter;
@@ -12,15 +13,20 @@ use football_ingest::fixture::{FixtureAdapter, FixtureSource};
 use football_storage::object_store::ObjectStore;
 use football_storage::repositories::day::{DayFilter, fetch_day};
 use football_storage::repositories::identity as identity_repo;
+use football_storage::repositories::trust;
 use football_storage::repositories::worker as worker_repo;
 use football_verification::engine::{VerificationContext, VerificationEngine};
 use football_verification::gate::evaluate_and_persist_gate;
+use football_verification::odds::evaluate_odds_trust;
 use football_verification::persist::persist_report;
 use football_verification::rules::default_rules;
 use football_worker::{scheduler, tick};
 use sqlx::postgres::PgPoolOptions;
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
+
+/// S2b-2: a TRUST_LEVEL + odds trust szabálykészlet verziója (a tickével azonos).
+const RULE_SET_VERSION: &str = "verification-1.1";
 
 #[derive(Parser)]
 #[command(name = "footballctl")]
@@ -108,23 +114,40 @@ async fn main() -> Result<()> {
             let day = Canonicalizer::materialize(&pool, &fixture).await?;
             let rules = default_rules();
 
-            for materialized in day.matches {
-                let source_values = football_verification::conflict::load_material_values(
+            // S2b-2: trust sorok egyszer, az ÖSSZES hozzájáruló forrásra
+            // (a meccsek source_values forráskódjai + a fixture forrása).
+            let mut material_values = Vec::with_capacity(day.matches.len());
+            let mut source_codes = vec![fixture.source_code.clone()];
+            for materialized in &day.matches {
+                let values = football_verification::conflict::load_material_values(
                     &pool,
                     materialized.match_id,
                 )
                 .await?;
+                for value in &values {
+                    if !source_codes.contains(&value.source_code) {
+                        source_codes.push(value.source_code.clone());
+                    }
+                }
+                material_values.push(values);
+            }
+            let source_trust = trust::trust_for_sources(&pool, &source_codes).await?;
+
+            for (materialized, source_values) in day.matches.iter().zip(&material_values) {
+                let odds_values = trust::load_match_odds(&pool, materialized.match_id).await?;
                 let context = VerificationContext {
                     snapshot: &materialized.snapshot,
                     home_identity_exact: true,
                     away_identity_exact: true,
-                    duplicate_match_count: duplicate_count(&pool, &materialized).await?,
-                    source_values: &source_values,
+                    duplicate_match_count: duplicate_count(&pool, materialized).await?,
+                    source_values,
+                    source_trust: &source_trust,
+                    odds_values: &odds_values,
+                    odds_tolerance: ODDS_TOLERANCE_DEFAULT,
                 };
                 let report = VerificationEngine::run(&rules, &context);
                 let run_id =
-                    persist_report(&pool, materialized.match_id, &report, "verification-1.0")
-                        .await?;
+                    persist_report(&pool, materialized.match_id, &report, RULE_SET_VERSION).await?;
                 let date = football_verification::gate::local_publish_date(
                     materialized.snapshot.kickoff_at,
                     "Europe/Budapest",
@@ -134,9 +157,15 @@ async fn main() -> Result<()> {
                     materialized.match_id,
                     date,
                     &report,
-                    "verification-1.0",
+                    RULE_SET_VERSION,
                 )
                 .await?;
+                // Odds trust_state a gate után; üres odds listán nincs frissítés.
+                let odds_state = evaluate_odds_trust(&odds_values, ODDS_TOLERANCE_DEFAULT);
+                if odds_state != OddsTrustState::NoOdds {
+                    trust::update_odds_trust_state(&pool, materialized.match_id, odds_state)
+                        .await?;
+                }
                 println!(
                     "match={} run={} state={}",
                     materialized.match_id,

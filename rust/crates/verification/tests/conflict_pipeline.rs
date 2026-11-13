@@ -40,6 +40,9 @@ async fn conflicting_sources_produce_blocker_and_withheld_gate() {
         away_identity_exact: true,
         duplicate_match_count: 0,
         source_values: &values,
+        source_trust: &[],
+        odds_values: &[],
+        odds_tolerance: 0.0,
     };
     let report = VerificationEngine::run(&default_rules(), &context);
 

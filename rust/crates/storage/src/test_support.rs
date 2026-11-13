@@ -20,7 +20,7 @@ pub async fn test_pool() -> PgPool {
          identity.review_queue, identity.alias, identity.crosswalk,
          identity.source_entity_ref, core.match_result, core.match, core.team,
          core.season, core.competition, core.country, core.entity,
-         stage.observation, raw.capture, raw.artifact, ops.source,
+         stage.observation, raw.capture, raw.artifact, ops.source_trust, ops.source,
          ops.validation_finding, ops.validation_run, ops.validation_rule,
          ops.robots_cache, ops.coverage_slot, ops.job, ops.breaker_state,
          ops.fetch_ledger, ops.source_policy,
@@ -34,7 +34,7 @@ pub async fn test_pool() -> PgPool {
         "INSERT INTO ops.validation_rule
          (id, rule_key, version, default_severity, active, description)
          VALUES
-         (gen_random_uuid(), 'SINGLE_SOURCE', '1.0', 'warning', true, 'Egy forrás'),
+         (gen_random_uuid(), 'TRUST_LEVEL', '1.0', 'warning', true, 'Bizalmi szint'),
          (gen_random_uuid(), 'KICKOFF_VALID', '1.0', 'blocker', true, 'Kickoff'),
          (gen_random_uuid(), 'EXACT_IDENTITY', '1.0', 'blocker', true, 'Identitás'),
          (gen_random_uuid(), 'DUPLICATE_NATURAL_KEY', '1.0', 'blocker', true, 'Duplikátum'),

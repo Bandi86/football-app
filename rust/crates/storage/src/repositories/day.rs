@@ -39,6 +39,7 @@ pub struct DayMatchRow {
     pub market_count: Option<i32>,
     pub odds_source: Option<String>,
     pub odds_captured_at: Option<DateTime<Utc>>,
+    pub odds_trust_state: Option<String>,
 }
 
 pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatchRow>> {
@@ -65,7 +66,8 @@ pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatch
             o.odds,
             o.market_count,
             os.display_name AS odds_source,
-            o.captured_at AS odds_captured_at
+            o.captured_at AS odds_captured_at,
+            o.trust_state AS odds_trust_state
          FROM core.match m
          JOIN core.team home ON home.id = m.home_team_id
          JOIN core.team away ON away.id = m.away_team_id
@@ -74,7 +76,13 @@ pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatch
          LEFT JOIN core.match_result r ON r.match_id = m.id
          LEFT JOIN core.standing sh ON sh.season_id = m.season_id AND sh.team_id = m.home_team_id
          LEFT JOIN core.standing sa ON sa.season_id = m.season_id AND sa.team_id = m.away_team_id
-         LEFT JOIN fact.odds_snapshot o ON o.match_id = m.id
+         LEFT JOIN LATERAL (
+             SELECT o.odds, o.market_count, o.source_id, o.captured_at, o.trust_state
+             FROM fact.odds_snapshot o
+             WHERE o.match_id = m.id
+             ORDER BY (o.trust_state = 'verified') DESC, o.source_id
+             LIMIT 1
+         ) o ON true
          LEFT JOIN ops.source os ON os.id = o.source_id
          JOIN ops.publish_gate g ON g.match_id = m.id AND g.publish_date = $1
          WHERE (m.kickoff_at AT TIME ZONE $2)::date = $1

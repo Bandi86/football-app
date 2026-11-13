@@ -50,6 +50,7 @@ pub struct DayMatch {
     pub market_count: Option<i32>,
     pub odds_source: Option<String>,
     pub odds_captured_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub odds_trust_state: Option<String>,
 }
 
 pub async fn day(
@@ -109,6 +110,7 @@ pub async fn day(
                 market_count: row.market_count,
                 odds_source: row.odds_source,
                 odds_captured_at: row.odds_captured_at,
+                odds_trust_state: row.odds_trust_state,
             })
             .collect(),
     }))

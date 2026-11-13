@@ -61,7 +61,7 @@ fn blocker_report_withholds_publication() {
 fn warning_only_report_is_provisional() {
     let report = VerificationReport {
         findings: vec![Finding::warning(
-            "SINGLE_SOURCE",
+            "TRUST_LEVEL",
             "status",
             "A meccsállapot csak egy forrásból származik.",
         )],

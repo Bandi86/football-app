@@ -246,3 +246,12 @@ trust_state, Swift Core teszt.
 A spec felhasználói review-ja után a writing-plans skill következik
 (megvalósítási terv: `docs/superpowers/plans/2026-11-13-s2b2-trust-gate.md`).
 Implementáció csak a terv jóváhagyása után, szeletenkénti stop-pontokkal.
+
+## Terv-jegyzet (2026-11-13, Task 1 ruling)
+
+Az `OddsValues::matches_within` mikro-epszilont használ: `(a-b).abs() <=
+tolerance + 1e-9`. Indok: a valós odds-értékek (2 tizedes) f64-reprezentációs
+zaja a decimális határokon (pl. abs(1.85−1.86) = 0.010000000000000009) a
+matematikai „±tolerance-on belül” értelmet sértené epszilon nélkül. Az 1e-9
+a odds-pontosság mellett elhanyagolható; a Task 4 odds-kiértékelés ugyanezt
+a függvényt használja.

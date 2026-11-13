@@ -1,3 +1,4 @@
+use football_domain::trust::{SourceOdds, SourceTrust};
 use football_domain::{Finding, MatchSnapshot, VerificationReport};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,6 +18,9 @@ pub struct VerificationContext<'a> {
     pub away_identity_exact: bool,
     pub duplicate_match_count: i64,
     pub source_values: &'a [SourceMaterialValues],
+    pub source_trust: &'a [SourceTrust],
+    pub odds_values: &'a [SourceOdds],
+    pub odds_tolerance: f64,
 }
 
 pub trait VerificationRule: Send + Sync {

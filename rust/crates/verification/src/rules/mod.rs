@@ -1,5 +1,6 @@
 use chrono::{Datelike, Utc};
-use football_domain::{Finding, Severity, result_consistency_findings};
+use football_domain::trust::TrustClass;
+use football_domain::{Finding, result_consistency_findings};
 
 use crate::engine::{VerificationContext, VerificationRule};
 
@@ -111,22 +112,70 @@ impl VerificationRule for MaterialConflictRule {
     }
 }
 
-pub struct SingleSourceWarningRule;
-impl VerificationRule for SingleSourceWarningRule {
+pub struct TrustLevelRule;
+impl VerificationRule for TrustLevelRule {
     fn key(&self) -> &'static str {
-        "SINGLE_SOURCE"
+        "TRUST_LEVEL"
     }
     fn evaluate(&self, c: &VerificationContext<'_>) -> Vec<Finding> {
-        if c.source_values.len() == 1 {
-            vec![Finding {
-                rule_key: "SINGLE_SOURCE",
-                severity: Severity::Warning,
-                field: "match",
-                message: "A meccs csak egy forrásból megerősített.".into(),
-            }]
-        } else {
-            vec![]
+        let mut findings = vec![];
+        for domain in ["fixture/kickoff", "result"] {
+            let contributors: Vec<&str> = c
+                .source_values
+                .iter()
+                .map(|s| s.source_code.as_str())
+                .collect();
+            if contributors.is_empty() {
+                continue;
+            }
+            let mut has_high = false;
+            let mut mediums: Vec<(&str, Option<&str>)> = vec![];
+            for code in &contributors {
+                let trust_row = c
+                    .source_trust
+                    .iter()
+                    .find(|t| t.source_code == *code && t.domain == domain);
+                let class = trust_row
+                    .map(|t| t.trust_class)
+                    .unwrap_or(TrustClass::Medium);
+                match class {
+                    TrustClass::High => has_high = true,
+                    TrustClass::Medium => {
+                        let provider = trust_row.and_then(|t| t.provider.as_deref());
+                        mediums.push((code, provider));
+                    }
+                    TrustClass::DisplayOnly => {} // nem számít hozzájárulónak
+                }
+            }
+            if has_high {
+                continue;
+            }
+            // Csak display_only hozzájárulók → nem ront (spec §3.1/6).
+            if mediums.is_empty() {
+                continue;
+            }
+            // Provider-csoportok: None → önálló, Some(p) → azonos p egy csoport.
+            let mut named: std::collections::HashSet<&str> = Default::default();
+            let mut independent_count = 0usize;
+            for (_, provider) in &mediums {
+                match provider {
+                    None => independent_count += 1,
+                    Some(p) => {
+                        if named.insert(p) {
+                            independent_count += 1;
+                        }
+                    }
+                }
+            }
+            if independent_count < 2 {
+                findings.push(Finding::warning(
+                    "TRUST_LEVEL",
+                    domain,
+                    "Egy független forrás (közepes bizalom) — provisional.",
+                ));
+            }
         }
+        findings
     }
 }
 
@@ -137,6 +186,6 @@ pub fn default_rules() -> Vec<Box<dyn VerificationRule>> {
         Box::new(KickoffValidRule),
         Box::new(ResultConsistencyRule),
         Box::new(MaterialConflictRule),
-        Box::new(SingleSourceWarningRule),
+        Box::new(TrustLevelRule),
     ]
 }

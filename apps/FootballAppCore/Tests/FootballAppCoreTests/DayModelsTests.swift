@@ -128,4 +128,46 @@ import Testing
         #expect(match.homePosition == nil)
         #expect(match.marketCount == nil)
     }
+
+    @Test func decodesOddsTrustState() throws {
+        let json = """
+        {"date":"2026-11-13","timezone":"Europe/Budapest","matches":[
+          {"id":"00000000-0000-0000-0000-000000000301","kickoff_at":"2026-11-13T18:00:00Z",
+           "status":"scheduled","home":"Újpest","away":"Győr","home_score":null,"away_score":null,
+           "publish_state":"verified_publish","blockers":[],
+           "odds":{"home":2.2,"draw":3.3,"away":3.2,"btts_yes":1.85,"btts_no":1.95,"over25":2.15,"under25":1.7},
+           "market_count":18,"odds_source":"Demó","odds_captured_at":"2026-11-13T09:00:00Z",
+           "odds_trust_state":"verified"}
+        ]}
+        """.data(using: .utf8)!
+        let match = try APIDecoding.makeDecoder().decode(DayResponse.self, from: json).matches[0]
+        #expect(match.oddsTrustState == "verified")
+        #expect(match.odds?.home == 2.2)
+    }
+
+    @Test func missingOddsTrustStateIsNil() throws {
+        // Régi API válasz odds_trust_state nélkül: a dekódolás nem bukhat, a mező nil.
+        let json = """
+        {"date":"2026-11-09","timezone":"Europe/Budapest","matches":[
+          {"id":"00000000-0000-0000-0000-000000000302","kickoff_at":"2026-11-09T18:00:00Z",
+           "status":"scheduled","home":"Újpest","away":"Győr","home_score":null,"away_score":null,
+           "publish_state":"verified_publish","blockers":[]}
+        ]}
+        """.data(using: .utf8)!
+        let match = try APIDecoding.makeDecoder().decode(DayResponse.self, from: json).matches[0]
+        #expect(match.oddsTrustState == nil)
+    }
+
+    @Test func nullOddsTrustStateIsNil() throws {
+        // Odds nélküli meccsnél az API explicit null-t küld.
+        let json = """
+        {"date":"2026-11-13","timezone":"Europe/Budapest","matches":[
+          {"id":"00000000-0000-0000-0000-000000000303","kickoff_at":"2026-11-13T19:00:00Z",
+           "status":"scheduled","home":"A","away":"B","home_score":null,"away_score":null,
+           "publish_state":"verified_publish","blockers":[],"odds_trust_state":null}
+        ]}
+        """.data(using: .utf8)!
+        let match = try APIDecoding.makeDecoder().decode(DayResponse.self, from: json).matches[0]
+        #expect(match.oddsTrustState == nil)
+    }
 }

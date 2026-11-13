@@ -26,6 +26,7 @@ use football_domain::identity::{IdentityContext, Resolution};
 use football_domain::policy::{
     CoverageState, FetchJob, FetchOutcome, JobStatus, SourceMode, SourcePolicy,
 };
+use football_domain::trust::{ODDS_TOLERANCE_DEFAULT, OddsTrustState};
 use football_identity::linker;
 use football_ingest::adapter::{ParseCtx, SourceAdapter};
 use football_ingest::canonicalize::Canonicalizer;
@@ -34,10 +35,12 @@ use football_ingest::fixture::FixtureSource;
 use football_ingest::observe::insert_observation;
 use football_storage::object_store::ObjectStore;
 use football_storage::repositories::identity as identity_repo;
+use football_storage::repositories::trust;
 use football_storage::repositories::worker::{self as repo, LedgerEntry, RawCapture};
 use football_verification::conflict::load_material_values;
 use football_verification::engine::{VerificationContext, VerificationEngine};
 use football_verification::gate::{evaluate_and_persist_gate, local_publish_date};
+use football_verification::odds::evaluate_odds_trust;
 use football_verification::persist::persist_report;
 use football_verification::rules::default_rules;
 use sqlx::PgPool;
@@ -48,7 +51,7 @@ use crate::{breaker, coverage, quota, robots, scheduler};
 const LEASE_SECS: i64 = 60;
 const CLAIM_LIMIT: i64 = 10;
 const FETCH_TIMEOUT_SECS: u64 = 30;
-const RULE_SET_VERSION: &str = "verification-1.0";
+const RULE_SET_VERSION: &str = "verification-1.1";
 const PUBLISH_TIMEZONE: &str = "Europe/Budapest";
 
 /// Egy tick kör összesítése: feldolgozott (done), blokkolt (kapuk/cancelled)
@@ -467,6 +470,10 @@ fn raw_display_name(bytes: &[u8], source_slug: &str) -> String {
 /// Az identitás-flagjei a fail-closed linker feloldásából jönnek (S2b-1):
 /// egzakt feloldás → true, minden más (Candidates/NotFound/hiba) → false,
 /// így a meccs withheld marad, amíg a review-döntés meg nem születik.
+///
+/// S2b-2: a trust sorok egyszer töltődnek be az ÖSSZES hozzájáruló forrásra
+/// (a meccsek source_values forráskódjai + a fixture forrása), az odds
+/// meccsenként; a gate után az odds trust_state frissül (NoOdds esetén nem).
 async fn verify_and_publish(pool: &PgPool, fixture: &FixtureSource) -> Result<()> {
     let day = Canonicalizer::materialize(pool, fixture).await?;
     let rules = default_rules();
@@ -474,7 +481,23 @@ async fn verify_and_publish(pool: &PgPool, fixture: &FixtureSource) -> Result<()
     let source_id = identity_repo::source_id_by_code(pool, &fixture.source_code)
         .await?
         .context("forrás-azonosító az identitáshoz")?;
+
+    // Anyagi forrásértékek előrebetöltése, hogy a trust lista a meccs-loop
+    // előtt egyszer álljon elő minden hozzájáruló forráskódra.
+    let mut material_values = Vec::with_capacity(day.matches.len());
+    let mut source_codes = vec![fixture.source_code.clone()];
     for materialized in &day.matches {
+        let values = load_material_values(pool, materialized.match_id).await?;
+        for value in &values {
+            if !source_codes.contains(&value.source_code) {
+                source_codes.push(value.source_code.clone());
+            }
+        }
+        material_values.push(values);
+    }
+    let source_trust = trust::trust_for_sources(pool, &source_codes).await?;
+
+    for (materialized, source_values) in day.matches.iter().zip(&material_values) {
         let home_identity_exact = resolve_team_identity(
             pool,
             source_id,
@@ -491,7 +514,6 @@ async fn verify_and_publish(pool: &PgPool, fixture: &FixtureSource) -> Result<()
             materialized.away_team_id,
         )
         .await;
-        let source_values = load_material_values(pool, materialized.match_id).await?;
         let duplicate_match_count = repo::count_duplicate_matches(
             pool,
             materialized.match_id,
@@ -500,18 +522,27 @@ async fn verify_and_publish(pool: &PgPool, fixture: &FixtureSource) -> Result<()
             materialized.snapshot.kickoff_at,
         )
         .await?;
+        let odds_values = trust::load_match_odds(pool, materialized.match_id).await?;
         let context = VerificationContext {
             snapshot: &materialized.snapshot,
             home_identity_exact,
             away_identity_exact,
             duplicate_match_count,
-            source_values: &source_values,
+            source_values,
+            source_trust: &source_trust,
+            odds_values: &odds_values,
+            odds_tolerance: ODDS_TOLERANCE_DEFAULT,
         };
         let report = VerificationEngine::run(&rules, &context);
         persist_report(pool, materialized.match_id, &report, RULE_SET_VERSION).await?;
         let date = local_publish_date(materialized.snapshot.kickoff_at, PUBLISH_TIMEZONE)?;
         evaluate_and_persist_gate(pool, materialized.match_id, date, &report, RULE_SET_VERSION)
             .await?;
+        // Odds trust_state a gate után; üres odds listán nincs frissítés.
+        let odds_state = evaluate_odds_trust(&odds_values, ODDS_TOLERANCE_DEFAULT);
+        if odds_state != OddsTrustState::NoOdds {
+            trust::update_odds_trust_state(pool, materialized.match_id, odds_state).await?;
+        }
     }
     Ok(())
 }

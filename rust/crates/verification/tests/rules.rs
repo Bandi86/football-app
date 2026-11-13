@@ -33,6 +33,9 @@ fn valid_match_has_no_blockers() {
         away_identity_exact: true,
         duplicate_match_count: 0,
         source_values: &[],
+        source_trust: &[],
+        odds_values: &[],
+        odds_tolerance: 0.0,
     };
     let report = VerificationEngine::run(&default_rules(), &context);
     assert!(report.findings.is_empty());
@@ -47,6 +50,9 @@ fn unresolved_team_identity_is_blocker() {
         away_identity_exact: true,
         duplicate_match_count: 0,
         source_values: &[],
+        source_trust: &[],
+        odds_values: &[],
+        odds_tolerance: 0.0,
     };
     let report = VerificationEngine::run(&default_rules(), &context);
     assert!(
@@ -58,6 +64,13 @@ fn unresolved_team_identity_is_blocker() {
 }
 
 #[test]
+fn default_rules_use_trust_level_not_single_source() {
+    let keys: Vec<&str> = default_rules().iter().map(|r| r.key()).collect();
+    assert!(keys.contains(&"TRUST_LEVEL"));
+    assert!(!keys.contains(&"SINGLE_SOURCE"));
+}
+
+#[test]
 fn duplicate_natural_key_is_blocker() {
     let snapshot = valid_snapshot();
     let context = VerificationContext {
@@ -66,6 +79,9 @@ fn duplicate_natural_key_is_blocker() {
         away_identity_exact: true,
         duplicate_match_count: 1,
         source_values: &[],
+        source_trust: &[],
+        odds_values: &[],
+        odds_tolerance: 0.0,
     };
     let report = VerificationEngine::run(&default_rules(), &context);
     assert!(

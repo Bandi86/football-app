@@ -2,6 +2,7 @@ pub mod error;
 pub mod identity;
 pub mod match_state;
 pub mod policy;
+pub mod trust;
 pub mod verification;
 
 pub use match_state::{

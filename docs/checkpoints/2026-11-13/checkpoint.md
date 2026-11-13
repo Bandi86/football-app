@@ -234,3 +234,103 @@ a Task 7-re jelölt hármas javítás fent elvégezve).
 - [x] Magyar visszaolvasás + glyph-scan: terv tiszta, záró újsor megvan.
 - [ ] Végrehajtás: NEM indult — a felhasználó a végrehajtási módról és a
       `feat/s2b2-trust-gate` branch létrehozásáról még nem döntött.
+
+## S2b-2 — záró checkpoint
+
+**Dátum:** 2026-11-13 (Task 7, a szelet zárása)
+**Branch:** `feat/s2b2-trust-gate`, minden változás a munkafán, commit NEM
+történt (csak kifejezett felhasználói kérésre).
+
+### A 7 task eredménye (bizonyítékkal)
+
+1. **Domain trust típusok** — `TrustClass`/`SourceTrust`/`OddsValues`/
+   `SourceOdds`/`OddsTrustState` + `ODDS_TOLERANCE_DEFAULT`; mikro-epszilon
+   ruling (1e-9). Bizonyíték: trust_types 3/3, domain suite 15/15 zöld.
+2. **0006 migráció** — `ops.source_trust`, composite odds PK
+   `(match_id, source_id)`, `trust_state` CHECK/default. Bizonyíték:
+   trust_schema séma-tesztek (23514 CHECK, PK exact-equality), tesztDB 33
+   tábla, db-check 33/6/0/0.
+3. **Storage trust repo + LATERAL day join** — upsert/trust_for_sources/
+   load_match_odds/update_odds_trust_state; a day repo LATERAL joinja nem
+   duplikál a composite PK-val. Bizonyíték: storage suite zöld (0 FAILED).
+4. **TRUST_LEVEL + evaluate_odds_trust** — a SINGLE_SOURCE szemantikáját
+   átvevő szabály (provider-csoportosítás, domainenként) + mezőszintű
+   odds-kiértékelés. Bizonyíték: verification suite 18/18 zöld.
+5. **Hívók + E2E** — tick + footballctl trust/odds betöltés, gate utáni
+   trust_state UPDATE; `RULE_SET_VERSION = verification-1.1`. Bizonyíték:
+   worker suite 38/38 zöld (0 failed), demo E2E 20/20 verified + verified odds.
+6. **API + Swift** — `/v1/day` top-level `odds_trust_state` (additív),
+   Swift `DayMatch.oddsTrustState` decode. Bizonyíték: api suite 3/3 zöld,
+   Swift Core decode tesztek zöldek.
+7. **Zárás (ez a task)** — `docs/operations/trust.md` (upsert, demo +
+   katalógus seed, provider/odds szabály, 0006 rollback); dev migráció
+   felhasználói engedéllyel; db-check dev 32→33 + `ops.source_trust` az
+   üzleti összegben; routes.rs null-assert `contains_key` erősítés;
+   záró ellenőrzések lent.
+
+### Dev DB változások (felhasználói engedéllyel)
+
+- `cargo run -q -p footballctl -- migrate` → `migráció kész`; dev 33 tábla,
+  a 20 demo odds sor megmaradt (trust_state default provisional), composite
+  PK éles, `_sqlx_migrations` 1–6.
+- Takarítás: a stale `SINGLE_SOURCE` validation_rule sor `TRUST_LEVEL`-re
+  átnevezve (UPDATE 1, description „Bizalmi szint” — a tesztDB-vel azonos).
+- Trust seed: 15 sor (5 demo forrás × 3 domain: fixture/kickoff, result,
+  odds; medium, NULL provider) az operations doc 2. szekciójának SQL-jével.
+- Demo újratöltés (a dokumentált, visszajátszható `ingest-fixture` út, 26
+  fájl): a composite PK miatt mindkét forrás odds sora megmarad (2×20),
+  a gate + odds trust újraszámolva. Eredmény: 40 odds sor mind verified,
+  21 publish_gate verified_publish. Ez a lépés a runtime bizonyíték
+  előfeltétele volt (a régi PK csak egyforrású odds sorokat hagyott).
+
+### Záró ellenőrzések (futtatott parancsok + pontos kimenetek)
+
+1. `./scripts/check.sh` → reset + fmt + clippy + workspace tesztek zöld.
+   Összesen **152 passed / 0 failed** (50 test bináris, mind ok). Megjegyzés:
+   az első futás a routes.rs új assertjének formázásán bukott (fmt),
+   javítás után a második futás zöld.
+2. `./scripts/db-reset.sh && ./scripts/db-check.sh` →
+   `OK: football_v2_dev|football_v2, táblák: 33, szabályok: 6, üzleti sorok: 1061, worker sorok: 6`
+   `OK: football_v2_test|football_v2, táblák: 33, szabályok: 6, üzleti sorok: 0, worker sorok: 0`
+   Próba: 1 source + 1 source_trust sor a tesztDB-n → a zero-row gate
+   HIBA-t ad (üzleti: 2), db-reset után ismét 0/0.
+3. `cd rust && cargo run -q -p footballctl -- day --date 2026-11-11` →
+   20 meccs, mind `publish_state: verified_publish` és
+   `odds_trust_state: verified` (20/20, Counter-rel mérve).
+4. `cd apps/FootballAppCore && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test`
+   → `Test run with 18 tests in 4 suites passed` (0 hiba).
+
+### Ami ellenőrizetlen maradt
+
+- `footballctl IngestFixture` identity_exact=true hardcode (pre-existing,
+  a tick linkerével szemben) — szándékosan NEM változott; S3 consistency
+  tétel (a linker élesben a tickben fut).
+- Valódi crosswalk/odds import: nincs (S3 fázis, 13 belépési kapu).
+- SwiftUI app-szintű teszt ebben a taskban nem futott (a brief Core-t
+  ír elő); a 2026-11-09-i fixture meccs gate-e a régi szabálykészlettel
+  marad (nem része a runtime bizonyítéknak).
+
+### Deferred minorok
+
+A szelet deferred minorjait az SDD ledger tartja nyilván:
+`.superpowers/sdd/2026-11-13-s2b2-trust-gate/progress.md` (Task 1
+epszilon/from_db_str, Task 3 created_at/diagnosztika/day-teszt, Task 4
+odds teszthézag, Task 6 seed-duplikáció). Task 7-ben pótolva: db-check
+`ops.source_trust` üzleti összeg, dev SINGLE_SOURCE takarítás, routes.rs
+`contains_key` erősítés.
+
+### Visszaállítási út
+
+- Kód: a változások commitolatlanok a `feat/s2b2-trust-gate` ágon;
+  elvetés `git restore` csak kifejezett engedéllyel.
+- Dev DB: 0006 rollback az operations doc 7. szekciója szerint (odds
+  dedup + PK visszaállítás match_id-re, trust_state drop, source_trust
+  drop, `_sqlx_migrations` 6 törlése); a demo adat visszajátszható
+  `ingest-fixture`-rel. TesztDB: `./scripts/db-reset.sh` bármikor 33/6/0/0.
+- Gate: TRUST_LEVEL → SINGLE_SOURCE git revert + a validation_rule sor
+  visszanevezése (operations doc 7. szekció).
+
+### Következő döntési pont
+
+1. Commit a felhasználó kifejezett kérésére (munkafa-review után).
+2. S3 belépési kapuk + a deferred minorok ütemezése.
