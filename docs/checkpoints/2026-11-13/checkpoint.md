@@ -176,3 +176,29 @@ a Task 7-re jelölt hármas javítás fent elvégezve).
 
 1. Commit a felhasználó kifejezett kérésére (munkafa-review után).
 2. S2b-2 (bizalmi szintes gate) külön brainstorming ciklusban.
+
+## Final review ratifikációk + S3 kapuk
+
+**Ratifikált eltérések (a controller döntése, viselkedés változatlan):**
+
+- §3.3 rendezés: S2b-1 FIFO (`created_at DESC`); a prioritás-rendezés
+  (kickoff-közelség + verseny) S3/S8-ra halasztva, queue→meccs kontextus-kapcsolattal.
+- §2.2/§4.1 DB-hiba: Db-hibánál a queue-írás best-effort (teljes DB-kiesésnél
+  lehetetlen); a fail-closed withheld érvényesül, a következő tick gyógyítja a queue-t.
+
+**Final fix-hullám (3 kódjavítás, a munkafán, commit nélkül):**
+
+- [x] SQL a binből a storage-ba (AGENTS §5): `footballctl` review-listájának
+      forrás-lekérdezése új `identity::list_sources` repository-függvénybe
+      került, storage-teszttel.
+- [x] Linker hibalánc: a `db` helper `format!("{e:#}")`-ra váltva
+      (a review.rs-sel azonos formátum, a sqlx gyökérok megmarad).
+- [x] Audit detail spec-sync (spec §3.2): approve és reject detail JSON-ja
+      kiegészült az `ok` mezővel (a queue-sor reason-je); tesztek frissítve.
+
+**Új S3-belépési kapuk (a tegnapi 11 tétel mellé):**
+
+- [ ] Cross-kind approve-validáció: az approve ellenőrizze a választott
+      entitás kind-ját a queue-sor `entity_kind`-jével szemben.
+- [ ] Crosswalk-uniqueness validáció importkor: az importáló ellenőrizze a
+      crosswalk-kötések egyértelműségét (nem ütköző/ellentmondó kötések).

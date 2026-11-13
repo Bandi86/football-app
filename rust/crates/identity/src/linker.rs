@@ -36,7 +36,9 @@ pub async fn resolve(
     proposed_name: &str,
     ctx: &IdentityContext,
 ) -> Result<Resolution, IdentityError> {
-    let db = |e: anyhow::Error| IdentityError::Db(e.to_string());
+    // A `{:#}` alternate form megőrzi a sqlx gyökérokot is a hibaláncban
+    // (a review.rs db_err-jével azonos formátum).
+    let db = |e: anyhow::Error| IdentityError::Db(format!("{e:#}"));
 
     // 1. egzakt külső ID
     if let Some((entity_id, method)) =

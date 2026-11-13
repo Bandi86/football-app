@@ -197,6 +197,7 @@ async fn approve_writes_ref_and_audit_then_resolves_exact() {
     assert_eq!(subject_kind, "review_queue");
     assert_eq!(detail["queue_id"], json!(queue_id));
     assert_eq!(detail["entity_id"], json!(entity_id));
+    assert_eq!(detail["ok"], json!("no_exact_match")); // a queue reason-je (spec §3.2)
     assert_eq!(detail["note"], json!("Kézi egyezés megerősítve"));
 
     // A linker most már Exact(ManualReview)-t ad, új pending sor nélkül.
@@ -354,6 +355,7 @@ async fn reject_is_final_and_audited() {
             .unwrap();
     assert_eq!(action, "identity_reject");
     assert_eq!(detail["queue_id"], json!(queue_id));
+    assert_eq!(detail["ok"], json!("no_exact_match")); // a queue reason-je (spec §3.2)
     assert_eq!(detail["note"], json!("Nem egyező klub"));
 
     // Újra reject → AlreadyDecided, nem ír második auditot.

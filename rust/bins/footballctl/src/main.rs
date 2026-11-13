@@ -266,9 +266,7 @@ async fn identity_command(pool: &sqlx::PgPool, action: IdentityAction) -> Result
                 anyhow::bail!("Érvénytelen státusz: {s} (lehetséges: pending, approved, rejected)");
             }
             let rows = identity_repo::list_reviews(pool, status.as_deref()).await?;
-            let sources: Vec<(Uuid, String)> = sqlx::query_as("SELECT id, code FROM ops.source")
-                .fetch_all(pool)
-                .await?;
+            let sources = identity_repo::list_sources(pool).await?;
             let source_codes: HashMap<Uuid, String> = sources.into_iter().collect();
             println!("id | forrás | external ID | név | ok | jelöltek száma | létrehozva");
             if rows.is_empty() {

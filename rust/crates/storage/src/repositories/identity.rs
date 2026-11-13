@@ -111,6 +111,15 @@ pub async fn source_id_by_code(pool: &PgPool, code: &str) -> Result<Option<Uuid>
         .context("forrás azonosító lekérés")
 }
 
+/// Összes forrás (id, kód) párokban, kód szerint rendezve — a review-lista
+/// forrás-megjelenítéséhez (a CLI itt kapja a hiteles kódokat).
+pub async fn list_sources(pool: &PgPool) -> Result<Vec<(Uuid, String)>> {
+    sqlx::query_as("SELECT id, code FROM ops.source ORDER BY code")
+        .fetch_all(pool)
+        .await
+        .context("forrás lista")
+}
+
 /// Aktív source→entity ref (entity_id, method). Csak `status='active'` sor;
 /// superseded/rejected ref nem old fel.
 pub async fn active_ref(

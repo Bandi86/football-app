@@ -1,7 +1,7 @@
 //! S2b-1 Task 3 — storage identity repository-k integrációs tesztjei.
 //!
-//! Minden interfészfüggvényt fed: source_id_by_code, active_ref, crosswalk
-//! (mindkét irány), reviewed alias + context(), entity join + context(),
+//! Minden interfészfüggvényt fed: source_id_by_code, list_sources, active_ref,
+//! crosswalk (mindkét irány), reviewed alias + context(), entity join + context(),
 //! all_team_entities, review upsert/get/list, decide, manual ref, entity_exists,
 //! entity_context, audit, list_aliases. A magyar nyelvű szövegeket visszaolvassuk.
 
@@ -321,7 +321,7 @@ async fn decide_review_writes_decision_fields_and_hungarian_note() {
 }
 
 // ---------------------------------------------------------------------------
-// source_id_by_code / active_ref
+// source_id_by_code / list_sources / active_ref
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -337,6 +337,21 @@ async fn source_id_by_code_found_and_missing() {
     assert_eq!(
         repo::source_id_by_code(&pool, "nincs-ilyen").await.unwrap(),
         None
+    );
+}
+
+#[tokio::test]
+async fn list_sources_returns_id_code_pairs_ordered_by_code() {
+    let pool = test_pool().await;
+    // Üres tábla → üres lista.
+    assert!(repo::list_sources(&pool).await.unwrap().is_empty());
+
+    let b = seed_source(&pool, "masik").await;
+    let a = seed_source(&pool, "elso").await;
+    let rows = repo::list_sources(&pool).await.unwrap();
+    assert_eq!(
+        rows,
+        vec![(a, "elso".to_string()), (b, "masik".to_string())]
     );
 }
 

@@ -287,3 +287,16 @@ A spec felhasználói review-ja után a writing-plans skill következik
 (megvalósítási terv: `docs/superpowers/plans/2026-11-13-s2b1-identity-layer.md`).
 Implementáció csak a terv jóváhagyása után, szeletenkénti stop-pontokkal.
 Az S2b-2 (bizalmi gate) külön brainstorming ciklusban indul ez után.
+
+## Terv-jegyzetek (2026-11-13, final review ratifikációk)
+
+A final review két eltérést ratifikált a megvalósítás javára (a viselkedés
+változatlan, a spec eredeti szövege érintetlen):
+
+- **§3.3 rendezés:** az S2b-1 a review-listát `created_at DESC` szerint
+  rendezi (FIFO); a queue-sorok nem hordoznak kickoff-/verseny-kontextust,
+  ezért a kickoff-közelség + verseny-prioritás szerinti rendezés az S3/S8
+  fázisra halasztva, egy queue→meccs kontextus-kapcsolattal együtt.
+- **§2.2/§4.1 DB-hiba:** Db-hiba esetén a review-sor írása best-effort
+  (teljes DB-kiesésnél lehetetlen); a fail-closed withheld ettől függetlenül
+  érvényesül, és a következő tick a queue-sort helyreállítja (upsert).

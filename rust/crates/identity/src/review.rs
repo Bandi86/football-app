@@ -105,7 +105,7 @@ pub async fn approve(
         decided_by,
         "identity_approve",
         queue_id,
-        json!({"queue_id": queue_id, "entity_id": entity_id, "note": note}),
+        json!({"queue_id": queue_id, "entity_id": entity_id, "ok": row.reason, "note": note}),
     )
     .await
     .map_err(db_err)?;
@@ -129,7 +129,7 @@ pub async fn reject(
             "A jegyzet nem lehet üres.".into(),
         ));
     }
-    load_pending(pool, queue_id).await?;
+    let row = load_pending(pool, queue_id).await?;
 
     let mut tx = pool
         .begin()
@@ -146,7 +146,7 @@ pub async fn reject(
         decided_by,
         "identity_reject",
         queue_id,
-        json!({"queue_id": queue_id, "note": note}),
+        json!({"queue_id": queue_id, "ok": row.reason, "note": note}),
     )
     .await
     .map_err(db_err)?;

@@ -57,6 +57,11 @@ marad. Bizonytalan állapotban soha nem enged át.
 A review-felület kizárólag CLI (`footballctl identity`); API/kliens felület
 az S8 hatóköre. A CLI döntője minden döntésnél `cli`.
 
+**Sorrend (ratifikált, 2026-11-13):** a review-lista S2b-1-ben FIFO
+(`created_at DESC`); a queue-sorok nem hordoznak kickoff-/verseny-kontextust.
+A kickoff-közelség + verseny-prioritás szerinti rendezés az S3/S8 fázisban
+érkezik, a queue→meccs kontextus-kapcsolattal együtt.
+
 ### `footballctl identity review [--status pending|approved|rejected]`
 
 Kilistázza a review-sorokat (alapértelmezés: mind). Üres lista esetén:
@@ -125,7 +130,8 @@ entitás | alias | nyelv | ország | státusz
 
 - Minden döntés az `ops.audit_event` táblába kerül: actor (`cli`),
   action (`identity_approve` / `identity_reject`), detail (queue_id,
-  entity_id, note). A napló **append-only**: törlés és módosítás nélkül.
+  entity_id, ok, note); az `ok` a queue-sor reason-je (spec §3.2), rejectnél
+  entity_id nincs. A napló **append-only**: törlés és módosítás nélkül.
 - A `review_queue` sor státusza változik (pending → approved/rejected),
   a döntési napló megmarad.
 - **Visszavonás csak új döntéssel:** rossz jóváhagyás esetén a kézi ref
