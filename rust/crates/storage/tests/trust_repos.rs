@@ -320,3 +320,66 @@ async fn seed_match(pool: &PgPool) -> Uuid {
 
     match_id
 }
+
+#[tokio::test]
+async fn load_match_odds_uses_bookmaker_chain() {
+    let pool = test_pool().await;
+    let match_id = seed_match(&pool).await;
+    let b365 = seed_source(&pool, "b365-src", "B365 forrás").await;
+    let avg = seed_source(&pool, "avg-src", "Avg forrás").await;
+    let max = seed_source(&pool, "max-src", "Max forrás").await;
+
+    // B365 forrás: B365 + Avg; az Avg forrás: csak Avg; a Max forrás: csak Max.
+    insert_bookmaker_quotes(&pool, match_id, b365, "B365", 1.75).await;
+    insert_bookmaker_quotes(&pool, match_id, b365, "Avg", 1.80).await;
+    insert_bookmaker_quotes(&pool, match_id, avg, "Avg", 1.90).await;
+    insert_bookmaker_quotes(&pool, match_id, max, "Max", 2.05).await;
+
+    let odds = load_match_odds(&pool, match_id).await.unwrap();
+    let home_of = |code: &str| {
+        odds.iter()
+            .find(|o| o.source_code == code)
+            .map(|o| o.odds.home)
+            .unwrap()
+    };
+    assert_eq!(home_of("b365-src"), 1.75, "B365 elsődleges");
+    assert_eq!(home_of("avg-src"), 1.90, "B365 hiányában Avg");
+    assert_eq!(home_of("max-src"), 2.05, "csak Max");
+}
+
+async fn insert_bookmaker_quotes(
+    pool: &PgPool,
+    match_id: Uuid,
+    source_id: Uuid,
+    bookmaker: &str,
+    home: f64,
+) {
+    sqlx::query(
+        "INSERT INTO fact.odds_snapshot (match_id, source_id, captured_at, market_count)
+         VALUES ($1,$2,now(),3)
+         ON CONFLICT (match_id, source_id) DO NOTHING",
+    )
+    .bind(match_id)
+    .bind(source_id)
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO fact.odds_quote
+         (match_id, source_id, bookmaker, market, outcome, line, phase, price)
+         VALUES ($1,$2,$3,'1x2','home',0,'closing',$4),
+                ($1,$2,$3,'1x2','draw',0,'closing',3.3),
+                ($1,$2,$3,'1x2','away',0,'closing',4.0),
+                ($1,$2,$3,'btts','yes',0,'closing',1.8),
+                ($1,$2,$3,'btts','no',0,'closing',1.95),
+                ($1,$2,$3,'ou','over',2.5,'closing',1.9),
+                ($1,$2,$3,'ou','under',2.5,'closing',1.85)",
+    )
+    .bind(match_id)
+    .bind(source_id)
+    .bind(bookmaker)
+    .bind(home)
+    .execute(pool)
+    .await
+    .unwrap();
+}

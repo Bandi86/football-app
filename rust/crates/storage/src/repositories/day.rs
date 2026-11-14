@@ -78,19 +78,19 @@ pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatch
          LEFT JOIN core.standing sa ON sa.season_id = m.season_id AND sa.team_id = m.away_team_id
          LEFT JOIN LATERAL (
              SELECT jsonb_build_object(
-                        'home', max(q.price) FILTER (WHERE q.market='1x2' AND q.outcome='home'),
-                        'draw', max(q.price) FILTER (WHERE q.market='1x2' AND q.outcome='draw'),
-                        'away', max(q.price) FILTER (WHERE q.market='1x2' AND q.outcome='away'),
-                        'btts_yes', max(q.price) FILTER (WHERE q.market='btts' AND q.outcome='yes'),
-                        'btts_no', max(q.price) FILTER (WHERE q.market='btts' AND q.outcome='no'),
-                        'over25', max(q.price) FILTER (WHERE q.market='ou' AND q.outcome='over' AND q.line=2.5),
-                        'under25', max(q.price) FILTER (WHERE q.market='ou' AND q.outcome='under' AND q.line=2.5)
+                        'home', COALESCE(max(q.price) FILTER (WHERE q.bookmaker='default' AND q.market='1x2' AND q.outcome='home'), max(q.price) FILTER (WHERE q.bookmaker='B365' AND q.market='1x2' AND q.outcome='home'), max(q.price) FILTER (WHERE q.bookmaker='Avg' AND q.market='1x2' AND q.outcome='home'), max(q.price) FILTER (WHERE q.bookmaker='Max' AND q.market='1x2' AND q.outcome='home')),
+                        'draw', COALESCE(max(q.price) FILTER (WHERE q.bookmaker='default' AND q.market='1x2' AND q.outcome='draw'), max(q.price) FILTER (WHERE q.bookmaker='B365' AND q.market='1x2' AND q.outcome='draw'), max(q.price) FILTER (WHERE q.bookmaker='Avg' AND q.market='1x2' AND q.outcome='draw'), max(q.price) FILTER (WHERE q.bookmaker='Max' AND q.market='1x2' AND q.outcome='draw')),
+                        'away', COALESCE(max(q.price) FILTER (WHERE q.bookmaker='default' AND q.market='1x2' AND q.outcome='away'), max(q.price) FILTER (WHERE q.bookmaker='B365' AND q.market='1x2' AND q.outcome='away'), max(q.price) FILTER (WHERE q.bookmaker='Avg' AND q.market='1x2' AND q.outcome='away'), max(q.price) FILTER (WHERE q.bookmaker='Max' AND q.market='1x2' AND q.outcome='away')),
+                        'btts_yes', COALESCE(max(q.price) FILTER (WHERE q.bookmaker='default' AND q.market='btts' AND q.outcome='yes'), max(q.price) FILTER (WHERE q.bookmaker='B365' AND q.market='btts' AND q.outcome='yes'), max(q.price) FILTER (WHERE q.bookmaker='Avg' AND q.market='btts' AND q.outcome='yes'), max(q.price) FILTER (WHERE q.bookmaker='Max' AND q.market='btts' AND q.outcome='yes')),
+                        'btts_no', COALESCE(max(q.price) FILTER (WHERE q.bookmaker='default' AND q.market='btts' AND q.outcome='no'), max(q.price) FILTER (WHERE q.bookmaker='B365' AND q.market='btts' AND q.outcome='no'), max(q.price) FILTER (WHERE q.bookmaker='Avg' AND q.market='btts' AND q.outcome='no'), max(q.price) FILTER (WHERE q.bookmaker='Max' AND q.market='btts' AND q.outcome='no')),
+                        'over25', COALESCE(max(q.price) FILTER (WHERE q.bookmaker='default' AND q.market='ou' AND q.outcome='over' AND q.line=2.5), max(q.price) FILTER (WHERE q.bookmaker='B365' AND q.market='ou' AND q.outcome='over' AND q.line=2.5), max(q.price) FILTER (WHERE q.bookmaker='Avg' AND q.market='ou' AND q.outcome='over' AND q.line=2.5), max(q.price) FILTER (WHERE q.bookmaker='Max' AND q.market='ou' AND q.outcome='over' AND q.line=2.5)),
+                        'under25', COALESCE(max(q.price) FILTER (WHERE q.bookmaker='default' AND q.market='ou' AND q.outcome='under' AND q.line=2.5), max(q.price) FILTER (WHERE q.bookmaker='B365' AND q.market='ou' AND q.outcome='under' AND q.line=2.5), max(q.price) FILTER (WHERE q.bookmaker='Avg' AND q.market='ou' AND q.outcome='under' AND q.line=2.5), max(q.price) FILTER (WHERE q.bookmaker='Max' AND q.market='ou' AND q.outcome='under' AND q.line=2.5))
                     ) AS odds,
                     o.market_count, o.source_id, o.captured_at, o.trust_state
              FROM fact.odds_snapshot o
              JOIN fact.odds_quote q
                ON q.match_id = o.match_id AND q.source_id = o.source_id
-              AND q.bookmaker = 'default' AND q.phase = 'closing'
+              AND q.phase = 'closing'
              WHERE o.match_id = m.id
              GROUP BY o.market_count, o.source_id, o.captured_at, o.trust_state
              ORDER BY (o.trust_state = 'verified') DESC, o.source_id

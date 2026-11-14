@@ -74,20 +74,55 @@ pub async fn trust_for_sources(pool: &PgPool, source_codes: &[String]) -> Result
 pub async fn load_match_odds(pool: &PgPool, match_id: Uuid) -> Result<Vec<SourceOdds>> {
     let rows = sqlx::query(
         "SELECT s.code AS source_code, t.provider,
-                (max(q.price) FILTER (WHERE q.market='1x2' AND q.outcome='home'))::float8 AS home,
-                (max(q.price) FILTER (WHERE q.market='1x2' AND q.outcome='draw'))::float8 AS draw,
-                (max(q.price) FILTER (WHERE q.market='1x2' AND q.outcome='away'))::float8 AS away,
-                (max(q.price) FILTER (WHERE q.market='btts' AND q.outcome='yes'))::float8 AS btts_yes,
-                (max(q.price) FILTER (WHERE q.market='btts' AND q.outcome='no'))::float8 AS btts_no,
-                (max(q.price) FILTER (WHERE q.market='ou' AND q.outcome='over' AND q.line=2.5))::float8 AS over25,
-                (max(q.price) FILTER (WHERE q.market='ou' AND q.outcome='under' AND q.line=2.5))::float8 AS under25
+                COALESCE(
+                    (max(q.price) FILTER (WHERE q.bookmaker='default' AND q.market='1x2' AND q.outcome='home')),
+                    (max(q.price) FILTER (WHERE q.bookmaker='B365' AND q.market='1x2' AND q.outcome='home')),
+                    (max(q.price) FILTER (WHERE q.bookmaker='Avg' AND q.market='1x2' AND q.outcome='home')),
+                    (max(q.price) FILTER (WHERE q.bookmaker='Max' AND q.market='1x2' AND q.outcome='home'))
+                )::float8 AS home,
+                COALESCE(
+                    (max(q.price) FILTER (WHERE q.bookmaker='default' AND q.market='1x2' AND q.outcome='draw')),
+                    (max(q.price) FILTER (WHERE q.bookmaker='B365' AND q.market='1x2' AND q.outcome='draw')),
+                    (max(q.price) FILTER (WHERE q.bookmaker='Avg' AND q.market='1x2' AND q.outcome='draw')),
+                    (max(q.price) FILTER (WHERE q.bookmaker='Max' AND q.market='1x2' AND q.outcome='draw'))
+                )::float8 AS draw,
+                COALESCE(
+                    (max(q.price) FILTER (WHERE q.bookmaker='default' AND q.market='1x2' AND q.outcome='away')),
+                    (max(q.price) FILTER (WHERE q.bookmaker='B365' AND q.market='1x2' AND q.outcome='away')),
+                    (max(q.price) FILTER (WHERE q.bookmaker='Avg' AND q.market='1x2' AND q.outcome='away')),
+                    (max(q.price) FILTER (WHERE q.bookmaker='Max' AND q.market='1x2' AND q.outcome='away'))
+                )::float8 AS away,
+                COALESCE(
+                    (max(q.price) FILTER (WHERE q.bookmaker='default' AND q.market='btts' AND q.outcome='yes')),
+                    (max(q.price) FILTER (WHERE q.bookmaker='B365' AND q.market='btts' AND q.outcome='yes')),
+                    (max(q.price) FILTER (WHERE q.bookmaker='Avg' AND q.market='btts' AND q.outcome='yes')),
+                    (max(q.price) FILTER (WHERE q.bookmaker='Max' AND q.market='btts' AND q.outcome='yes'))
+                )::float8 AS btts_yes,
+                COALESCE(
+                    (max(q.price) FILTER (WHERE q.bookmaker='default' AND q.market='btts' AND q.outcome='no')),
+                    (max(q.price) FILTER (WHERE q.bookmaker='B365' AND q.market='btts' AND q.outcome='no')),
+                    (max(q.price) FILTER (WHERE q.bookmaker='Avg' AND q.market='btts' AND q.outcome='no')),
+                    (max(q.price) FILTER (WHERE q.bookmaker='Max' AND q.market='btts' AND q.outcome='no'))
+                )::float8 AS btts_no,
+                COALESCE(
+                    (max(q.price) FILTER (WHERE q.bookmaker='default' AND q.market='ou' AND q.outcome='over' AND q.line=2.5)),
+                    (max(q.price) FILTER (WHERE q.bookmaker='B365' AND q.market='ou' AND q.outcome='over' AND q.line=2.5)),
+                    (max(q.price) FILTER (WHERE q.bookmaker='Avg' AND q.market='ou' AND q.outcome='over' AND q.line=2.5)),
+                    (max(q.price) FILTER (WHERE q.bookmaker='Max' AND q.market='ou' AND q.outcome='over' AND q.line=2.5))
+                )::float8 AS over25,
+                COALESCE(
+                    (max(q.price) FILTER (WHERE q.bookmaker='default' AND q.market='ou' AND q.outcome='under' AND q.line=2.5)),
+                    (max(q.price) FILTER (WHERE q.bookmaker='B365' AND q.market='ou' AND q.outcome='under' AND q.line=2.5)),
+                    (max(q.price) FILTER (WHERE q.bookmaker='Avg' AND q.market='ou' AND q.outcome='under' AND q.line=2.5)),
+                    (max(q.price) FILTER (WHERE q.bookmaker='Max' AND q.market='ou' AND q.outcome='under' AND q.line=2.5))
+                )::float8 AS under25
          FROM fact.odds_snapshot o
          JOIN ops.source s ON s.id = o.source_id
          LEFT JOIN ops.source_trust t
            ON t.source_id = o.source_id AND t.domain = 'odds'
          JOIN fact.odds_quote q
            ON q.match_id = o.match_id AND q.source_id = o.source_id
-          AND q.bookmaker = 'default' AND q.phase = 'closing'
+          AND q.phase = 'closing'
          WHERE o.match_id = $1
          GROUP BY o.source_id, s.code, t.provider
          ORDER BY s.code",

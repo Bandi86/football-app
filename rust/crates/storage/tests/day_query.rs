@@ -331,3 +331,56 @@ async fn seed_match(
 
     match_id
 }
+
+#[tokio::test]
+async fn day_json_uses_bookmaker_chain() {
+    let pool = test_pool().await;
+    let base = seed_match_base(&pool).await;
+    let match_id = seed_match(
+        &pool,
+        &base,
+        "verified_publish",
+        Utc.with_ymd_and_hms(2026, 11, 9, 18, 0, 0).unwrap(),
+    )
+    .await;
+    let source_id = Uuid::now_v7();
+    sqlx::query("INSERT INTO ops.source (id, code, display_name) VALUES ($1,'b365','B365')")
+        .bind(source_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO fact.odds_snapshot (match_id, source_id, captured_at, market_count)
+         VALUES ($1,$2,now(),3)",
+    )
+    .bind(match_id)
+    .bind(source_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    // B365 + Avg ugyanarra a kulcsra: a lánc B365-öt választ.
+    sqlx::query(
+        "INSERT INTO fact.odds_quote
+         (match_id, source_id, bookmaker, market, outcome, line, phase, price)
+         VALUES ($1,$2,'B365','1x2','home',0,'closing',1.75),
+                ($1,$2,'Avg','1x2','home',0,'closing',1.85)",
+    )
+    .bind(match_id)
+    .bind(source_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let rows = fetch_day(
+        &pool,
+        &DayFilter {
+            date: NaiveDate::from_ymd_opt(2026, 11, 9).unwrap(),
+            timezone: "Europe/Budapest".into(),
+            include_all: false,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].odds.as_ref().unwrap()["home"], 1.75);
+}
