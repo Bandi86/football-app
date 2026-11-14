@@ -294,6 +294,7 @@ async fn process_job(
                 adapter_version: &policy.adapter_version,
                 parser_version: &policy.parser_version,
             },
+            &raw.content_type,
         )
         .await?;
 

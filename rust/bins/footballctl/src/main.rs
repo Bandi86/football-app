@@ -193,25 +193,14 @@ async fn main() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&rows)?);
         }
         Command::Doctor => {
-            let ok: i32 = sqlx::query_scalar("SELECT 1").fetch_one(&pool).await?;
-            let gates: i64 = sqlx::query_scalar("SELECT count(*) FROM ops.publish_gate")
-                .fetch_one(&pool)
-                .await?;
-            let jobs_pending: i64 =
-                sqlx::query_scalar("SELECT count(*) FROM ops.job WHERE status='pending'")
-                    .fetch_one(&pool)
-                    .await?;
-            let breakers_open: i64 =
-                sqlx::query_scalar("SELECT count(*) FROM ops.breaker_state WHERE state='open'")
-                    .fetch_one(&pool)
-                    .await?;
-            let quarantined: i64 = sqlx::query_scalar(
-                "SELECT count(*) FROM ops.coverage_slot WHERE state='quarantined'",
-            )
-            .fetch_one(&pool)
-            .await?;
+            let counts = worker_repo::doctor_counts(&pool).await?;
             println!(
-                "db={ok} gates={gates} jobs_pending={jobs_pending} breakers_open={breakers_open} quarantined={quarantined}"
+                "db={} gates={} jobs_pending={} breakers_open={} quarantined={}",
+                counts.reachable,
+                counts.publish_gates,
+                counts.jobs_pending,
+                counts.breakers_open,
+                counts.quarantined
             );
         }
         Command::Worker { action } => match action {
@@ -249,19 +238,12 @@ async fn worker_status(pool: &sqlx::PgPool) -> Result<()> {
             "  {slug} mód={mode} engedélyezve={enabled_text} ma={attempts}/{budget} breaker={breaker}"
         );
     }
-    let jobs_pending: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM ops.job WHERE status='pending'")
-            .fetch_one(pool)
-            .await?;
-    let jobs_leased: i64 = sqlx::query_scalar("SELECT count(*) FROM ops.job WHERE status='leased'")
-        .fetch_one(pool)
-        .await?;
-    let quarantined: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM ops.coverage_slot WHERE state='quarantined'")
-            .fetch_one(pool)
-            .await?;
-    println!("függő jobok: {jobs_pending} (leased: {jobs_leased})");
-    println!("karanténban: {quarantined}");
+    let counts = worker_repo::worker_status_counts(pool).await?;
+    println!(
+        "függő jobok: {} (leased: {})",
+        counts.jobs_pending, counts.jobs_leased
+    );
+    println!("karanténban: {}", counts.quarantined);
     Ok(())
 }
 

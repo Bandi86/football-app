@@ -150,6 +150,7 @@ async fn seed_corroborating_source(
             adapter_version: "1.0",
             parser_version: "1.0",
         },
+        "application/json",
     )
     .await
     .unwrap();

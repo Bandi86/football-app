@@ -177,6 +177,77 @@ pub async fn requeue_with_delay(pool: &PgPool, job_id: Uuid, due_at: DateTime<Ut
     Ok(())
 }
 
+/// Worker-állapot számlálók (CLI `worker status`).
+pub struct WorkerStatusCounts {
+    pub jobs_pending: i64,
+    pub jobs_leased: i64,
+    pub quarantined: i64,
+}
+
+pub async fn worker_status_counts(pool: &PgPool) -> Result<WorkerStatusCounts> {
+    let jobs_pending: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM ops.job WHERE status='pending'")
+            .fetch_one(pool)
+            .await
+            .context("függő jobok száma")?;
+    let jobs_leased: i64 = sqlx::query_scalar("SELECT count(*) FROM ops.job WHERE status='leased'")
+        .fetch_one(pool)
+        .await
+        .context("lease-elt jobok száma")?;
+    let quarantined: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM ops.coverage_slot WHERE state='quarantined'")
+            .fetch_one(pool)
+            .await
+            .context("karanténos slotok száma")?;
+    Ok(WorkerStatusCounts {
+        jobs_pending,
+        jobs_leased,
+        quarantined,
+    })
+}
+
+/// Doctor-számlálók (CLI `doctor`).
+pub struct DoctorCounts {
+    pub reachable: bool,
+    pub publish_gates: i64,
+    pub jobs_pending: i64,
+    pub breakers_open: i64,
+    pub quarantined: i64,
+}
+
+pub async fn doctor_counts(pool: &PgPool) -> Result<DoctorCounts> {
+    let reachable: bool = sqlx::query_scalar("SELECT true")
+        .fetch_one(pool)
+        .await
+        .map_err(|_| anyhow::anyhow!("az adatbázis nem válaszol"))?;
+    let publish_gates: i64 = sqlx::query_scalar("SELECT count(*) FROM ops.publish_gate")
+        .fetch_one(pool)
+        .await
+        .context("gate-szám")?;
+    let jobs_pending: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM ops.job WHERE status='pending'")
+            .fetch_one(pool)
+            .await
+            .context("függő jobok száma")?;
+    let breakers_open: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM ops.breaker_state WHERE state='open'")
+            .fetch_one(pool)
+            .await
+            .context("nyitott breakerek száma")?;
+    let quarantined: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM ops.coverage_slot WHERE state='quarantined'")
+            .fetch_one(pool)
+            .await
+            .context("karanténos slotok száma")?;
+    Ok(DoctorCounts {
+        reachable,
+        publish_gates,
+        jobs_pending,
+        breakers_open,
+        quarantined,
+    })
+}
+
 /// Van-e engedélyezett policy az adott transzporttal? A footballd ezzel
 /// dönti el, hogy lazy elindítsa-e az Obscura szervert (S2c).
 pub async fn has_enabled_transport(pool: &PgPool, transport: &str) -> Result<bool> {
@@ -624,6 +695,7 @@ pub async fn persist_raw(
     source_display_name: &str,
     artifact: &StoredArtifact,
     capture: &RawCapture<'_>,
+    media_type: &str,
 ) -> Result<(Uuid, Uuid)> {
     let mut tx = pool
         .begin()
@@ -646,7 +718,7 @@ pub async fn persist_raw(
     let artifact_id: Uuid = sqlx::query_scalar(
         "INSERT INTO raw.artifact
          (id, content_sha256, compression, byte_size, storage_key, media_type)
-         VALUES ($1, $2, $3, $4, $5, 'application/json')
+         VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (content_sha256) DO UPDATE SET content_sha256 = EXCLUDED.content_sha256
          RETURNING id",
     )
@@ -655,6 +727,7 @@ pub async fn persist_raw(
     .bind(artifact.compression)
     .bind(artifact.byte_size as i64)
     .bind(&artifact.storage_key)
+    .bind(media_type)
     .fetch_one(&mut *tx)
     .await
     .context("artifact upsert")?;

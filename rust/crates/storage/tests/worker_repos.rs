@@ -726,10 +726,16 @@ async fn persist_raw_upserts_source_artifact_capture_idempotently() {
     let artifact = stored_artifact('a');
     let capture = raw_capture("demo-synthetic:match:2026-11-12");
 
-    let (source_id, capture_id) =
-        repo::persist_raw(&pool, "demo-synthetic", "Demó forrás", &artifact, &capture)
-            .await
-            .unwrap();
+    let (source_id, capture_id) = repo::persist_raw(
+        &pool,
+        "demo-synthetic",
+        "Demó forrás",
+        &artifact,
+        &capture,
+        "application/json",
+    )
+    .await
+    .unwrap();
 
     // Ugyanaz a tartalom + request_key: nem keletkezik új artifact/capture.
     let (source_id2, capture_id2) = repo::persist_raw(
@@ -738,6 +744,7 @@ async fn persist_raw_upserts_source_artifact_capture_idempotently() {
         "Demó forrás v2",
         &artifact,
         &capture,
+        "application/json",
     )
     .await
     .unwrap();
@@ -765,10 +772,16 @@ async fn persist_raw_upserts_source_artifact_capture_idempotently() {
 
     // Új request_key ugyanazzal az artifacttal: új capture, ugyanaz az artifact.
     let other = raw_capture("demo-synthetic:match:2026-11-13");
-    let (_, capture_id3) =
-        repo::persist_raw(&pool, "demo-synthetic", "Demó forrás v2", &artifact, &other)
-            .await
-            .unwrap();
+    let (_, capture_id3) = repo::persist_raw(
+        &pool,
+        "demo-synthetic",
+        "Demó forrás v2",
+        &artifact,
+        &other,
+        "application/json",
+    )
+    .await
+    .unwrap();
     assert_ne!(capture_id, capture_id3);
     let (artifacts, captures): (i64, i64) = sqlx::query_as(
         "SELECT (SELECT count(*) FROM raw.artifact), (SELECT count(*) FROM raw.capture)",

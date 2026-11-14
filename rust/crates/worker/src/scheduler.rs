@@ -72,6 +72,27 @@ pub async fn generate_jobs(
     for policy in enabled {
         for domain in &policy.domains {
             for event in &policy.events {
+                if !matches!(
+                    event.event_type.as_str(),
+                    "discovery" | "refresh" | "canary" | "drift" | "backfill"
+                ) {
+                    tracing::warn!(
+                        source = %policy.source_slug,
+                        event_type = %event.event_type,
+                        "ismeretlen eseménytípus, a sablon kihagyva"
+                    );
+                    continue;
+                }
+                if let Some(interval) = event.interval_minutes {
+                    if interval != 1440 && interval != 10080 {
+                        tracing::warn!(
+                            source = %policy.source_slug,
+                            interval,
+                            "nem engedett interval_minutes (1440/10080), a sablon kihagyva"
+                        );
+                        continue;
+                    }
+                }
                 if let Some(offset) = event.offset_minutes {
                     let Some(matches) = &kickoff_matches else {
                         continue;
