@@ -217,7 +217,6 @@ struct QuotePayload {
 
 #[derive(Deserialize)]
 struct OddsPayload {
-    canonical_match_id: Option<Uuid>,
     odds: Option<FlatOddsPayload>,
     quotes: Option<Vec<QuotePayload>>,
     market_count: Option<i32>,
@@ -234,7 +233,7 @@ impl NormalizedDay {
         let mut teams = Vec::new();
         let mut matches = Vec::new();
         let mut standings = Vec::new();
-        let mut odds_by_match: Vec<(Uuid, NormalizedOdds)> = Vec::new();
+        let mut odds_by_key: Vec<(String, NormalizedOdds)> = Vec::new();
         let mut meta: Option<(
             NormalizedCompetition,
             NormalizedSeason,
@@ -326,15 +325,13 @@ impl NormalizedDay {
                         ),
                         (None, None) => Vec::new(),
                     };
-                    if let Some(match_id) = p.canonical_match_id {
-                        odds_by_match.push((
-                            match_id,
-                            NormalizedOdds {
-                                market_count: p.market_count,
-                                quotes,
-                            },
-                        ));
-                    }
+                    odds_by_key.push((
+                        obs.source_record_key.clone(),
+                        NormalizedOdds {
+                            market_count: p.market_count,
+                            quotes,
+                        },
+                    ));
                 }
                 "standing" => {
                     let p: StandingPayload =
@@ -349,10 +346,11 @@ impl NormalizedDay {
         }
 
         for m in &mut matches {
-            if let Some(id) = m.id {
-                if let Some((_, odds)) = odds_by_match.iter().find(|(mid, _)| *mid == id) {
-                    m.odds = Some(odds.clone());
-                }
+            if let Some((_, odds)) = odds_by_key
+                .iter()
+                .find(|(key, _)| *key == m.source_match_id)
+            {
+                m.odds = Some(odds.clone());
             }
         }
 

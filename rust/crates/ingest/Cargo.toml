@@ -13,6 +13,7 @@ anyhow.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
+csv = "1"
 football-domain = { path = "../domain" }
 football-identity = { path = "../identity" }
 football-storage = { path = "../storage" }
