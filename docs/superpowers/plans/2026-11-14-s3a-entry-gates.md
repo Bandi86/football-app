@@ -815,7 +815,7 @@ ellenőrizendők (a típus az `object_store::put_json` visszatérési értéke).
 **Interfaces:**
 - Produces: `repo::entity_kind(pool, entity_id) -> Result<Option<String>>`; `IdentityError::KindMismatch(String)`; `identity::crosswalk_conflicts(pool) -> Result<Vec<CrosswalkConflict>>`.
 
-- [ ] **Step 1: Bukó tesztek**
+- [x] **Step 1: Bukó tesztek**
 
 `rust/crates/identity/tests/review.rs` végére (a fájl `seed_*` helperjeivel):
 
@@ -881,9 +881,9 @@ async fn conflicting_crosswalk_bindings_are_reported() {
 }
 ```
 
-- [ ] **Step 2: Futtatás — bukás.**
+- [x] **Step 2: Futtatás — bukás.**
 
-- [ ] **Step 3: Implementáció**
+- [x] **Step 3: Implementáció**
 
   - `repo::entity_kind`:
 
@@ -938,15 +938,15 @@ pub async fn crosswalk_conflicts(pool: &sqlx::PgPool) -> anyhow::Result<Vec<Cros
     `football_worker::tick::resolve_team_identity` eredményéből (a hardcode
     törlése).
 
-- [ ] **Step 4: Zöld + teljes kapu.** `./scripts/check.sh` exit 0; demo
+- [x] **Step 4: Zöld + teljes kapu.** `./scripts/check.sh` exit 0; demo
   `cargo run -q -p footballctl -- day --date 2026-11-11` → 20/20 (test DB-n a
   seedekkel, vagy a meglévő ellenőrzéssel).
 
-- [ ] **Step 5: Checkpoint + commitok.** A checkpoint végére az S3a szekció
+- [x] **Step 5: Checkpoint + commitok.** A checkpoint végére az S3a szekció
   (kapuk + bizonyítékok + halasztott #10/#11 + visszaállítás: branch-revert,
   séma érintetlen); commit `docs: close S3a entry gates checkpoint`.
 
-- [ ] **Step 6: STOP — zárójelentés.**
+- [x] **Step 6: STOP — zárójelentés.**
 
 ---
 

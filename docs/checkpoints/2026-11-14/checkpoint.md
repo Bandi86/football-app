@@ -215,3 +215,35 @@ S2c — Obscura browser-fetcher:
 - Visszaállítási út: az öt tábla dropja (0009 inverze); test DB: reset;
       kód: branch-revert.
 - Következő döntési pont: B/E/F/G csoportok vagy S3 (első éles adapter).
+
+## S3a végrehajtás (feat/s3a-entry-gates)
+
+- [x] Task 1 (**a248b7f**): fetch-reziliencia — `RateLimited` + Retry-After
+      parse, ledger-alapú exponenciális backoff (60 s·2^n, 1 h sapka) + jitter,
+      késleltetett requeue (tranziens → pending/blokkolt, végleges → failed),
+      fetch-szintű breaker-siker (half-open nem ragad be). Tesztek:
+      http_fetcher 429 + 4 tick e2e + backoff unit; check.sh 169/169.
+- [x] Task 2 (**a0d7a35**): robots origin cache-kulcs + origin robots-URL,
+      Sitemap-only/BOM engedés, differenciált TTL (átmeneti 1 h), robots-ledger
+      (job_id NULL) + kvóta- és min_delay-kizárás; robots_gate 11/11.
+      A kapu kimutatta a robots-sor min_delay-óra mellékhatását (javítva).
+      check.sh 173/173.
+- [x] Task 3 (**d37613e**): scheduler event_type/interval validáció
+      (kihagyás + warn), media_type a payload content-type-jából, CLI
+      doctor/worker status repo-függvényeken; scheduler_validation 3/3 +
+      persist_raw_media_type 1/1; check.sh 177/177.
+- [x] Task 4: cross-kind approve (`IdentityError::KindMismatch`),
+      `identity::crosswalk_conflicts` + CLI `identity crosswalk-check`,
+      közös fail-closed linkeres feloldás a footballctl IngestFixture-ban
+      (a hardcode törölve). Tesztek: review 4/4, crosswalk_check 1/1;
+      check.sh 179/179.
+- [x] Demo/ellenőrzés (dev, read-only): `day --date 2026-11-11` → 20/20
+      verified_publish + verified odds; `identity crosswalk-check` → nincs
+      konfliktus.
+- [ ] Halasztva: #10 OpenFoot havi számláló (OpenFoot-szelet), #11 többworker
+      fencing + half-open atomitás (többworker bevezetésekor).
+- Visszaállítási út: branch-revert; séma érintetlen (nincs migráció); a
+  robots-cache új origin-sorai a TTL-lel kifutnak; a ledger-sorok auditként
+  megmaradnak.
+- Következő döntési pont: **S3b — footballdata-adapter** (élő forrás, külön
+  ciklus: brainstorming → spec → terv → taskonkénti STOP).
