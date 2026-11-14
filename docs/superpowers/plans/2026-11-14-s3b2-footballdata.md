@@ -58,7 +58,7 @@
 
 ### Task 4: Policy/trust seed + operations doc + zárás
 
-- [ ] **Step 1:** `docs/operations/footballdata.md` — policy/trust seed SQL, kétfázisú bootstrap, canary→live, rollback.
-- [ ] **Step 2:** Teljes kapu + demo-regresszió; **checkpoint** S3b-2 szekció.
-- [ ] **Step 3:** Commit (`docs: close S3b-2 checkpoint`); **élő kör külön engedéllyel** (nem része a tasknak).
-- [ ] **Step 4: STOP — zárójelentés.**
+- [x] **Step 1:** `docs/operations/footballdata.md` — policy/trust seed SQL, kétfázisú bootstrap, canary→live, rollback.
+- [x] **Step 2:** Teljes kapu + demo-regresszió; **checkpoint** S3b-2 szekció.
+- [x] **Step 3:** Commit (`docs: close S3b-2 checkpoint`); **élő kör külön engedéllyel** (nem része a tasknak).
+- [x] **Step 4: STOP — zárójelentés.**

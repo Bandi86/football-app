@@ -9,6 +9,7 @@ use football_domain::policy::Transport;
 use football_ingest::adapter::SourceAdapter;
 use football_ingest::demo::DemoAdapter;
 use football_ingest::fetch::{Fetchers, FixtureFetcher};
+use football_ingest::footballdata::FootballdataAdapter;
 use football_ingest::http::RustHttpFetcher;
 use football_storage::object_store::ObjectStore;
 #[cfg(feature = "obscura")]
@@ -67,6 +68,7 @@ async fn main() -> Result<()> {
         };
         let mut adapters: HashMap<String, Box<dyn SourceAdapter>> = HashMap::new();
         adapters.insert("demo-synthetic".into(), Box::new(DemoAdapter));
+        adapters.insert("footballdata".into(), Box::new(FootballdataAdapter));
         let tick_secs = worker_tick_secs(std::env::var("WORKER_TICK_SECS").ok().as_deref());
         let worker_id = uuid::Uuid::now_v7();
         tracing::info!(worker_id = %worker_id, tick_secs, "worker elindult");

@@ -273,3 +273,29 @@ S2c — Obscura browser-fetcher:
 - Következő: **S3b-2** — footballdata CSV-adapter (5 liga), B365→Avg→Max
   odds-lánc (load_match_odds + day), policy/trust seed, élő kör külön
   engedéllyel; utána a maradék S2d-csoportok (B/E/F/G).
+
+## S3b-2 végrehajtás (feat/s3b2-footballdata)
+
+- [x] Task 1 (**fc21f7e**): élő módú materializálás — competition/season/match
+      natural-key find-or-create (NULL-safe round_label), linkeres
+      csapatfeloldás (nem egzakt → a meccs kimarad + review-sor), provenance
+      a `source_record_key` alapján; `live_materialize` 2/2.
+- [x] Task 2 (**2f24a42**): odds-lánc `default` → `B365` → `Avg` → `Max` a
+      `load_match_odds`-ban és a day-LATERAL-ban; trust_repos + day_query
+      lánc-tesztek.
+- [x] Task 3 (**ea5b016**): `FootballdataAdapter` — 5 liga, BOM/CRLF,
+      header-alapú séma-drift hiba, ±7 napos ablak, Europe/London → UTC
+      (date_only 12:00 UTC), B365/Avg/Max 1x2 + O/U 2.5 opening/closing
+      quote-ok; valós formátumú CSV-fixture; adapter 2/2.
+- [x] Adapter-regisztráció a footballd és a footballctl worker tick
+      adapters-mapjében; `docs/operations/footballdata.md` (policy/trust
+      seed, kétfázisú bootstrap, canary→live, rollback).
+- [ ] Élő kör: **FÜGGŐBEN — külön felhasználói engedéllyel** (5 CSV + robots,
+      canary, kétfázisú review-bootstrap).
+- Eltérések (dokumentálva): a stats/referee observation-aspketek emissionje
+  elhalasztva (S3b-3 jelölt); a wiremock-os tick-e2e helyett az élő kör a
+  végponttól végpontig bizonyíték (a tick-út a demón bizonyított);
+  `csv` = 1.x.
+- Visszaállítás: branch-revert; séma érintetlen; policy/trust sorok törlése.
+- Következő döntési pont: élő kör engedélyezése, majd S3b-3 (stats/referee +
+  e2e) vagy a maradék S2d-csoportok (B/E/F/G).

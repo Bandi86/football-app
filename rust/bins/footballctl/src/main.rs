@@ -10,6 +10,7 @@ use football_ingest::canonicalize::Canonicalizer;
 use football_ingest::demo::DemoAdapter;
 use football_ingest::fetch::{Fetchers, FixtureFetcher};
 use football_ingest::fixture::{FixtureAdapter, FixtureSource};
+use football_ingest::footballdata::FootballdataAdapter;
 use football_ingest::http::RustHttpFetcher;
 use football_storage::object_store::ObjectStore;
 use football_storage::repositories::day::{DayFilter, fetch_day};
@@ -287,6 +288,7 @@ async fn worker_tick(pool: &sqlx::PgPool, store: &ObjectStore, data_dir: &str) -
     let fetchers = Fetchers::new(RustHttpFetcher::new("football-app-v2")?, fixture);
     let mut adapters: HashMap<String, Box<dyn SourceAdapter>> = HashMap::new();
     adapters.insert("demo-synthetic".into(), Box::new(DemoAdapter));
+    adapters.insert("footballdata".into(), Box::new(FootballdataAdapter));
     let now = Utc::now();
     let policies = worker_repo::list_enabled_policies(pool).await?;
     let generated = scheduler::generate_jobs(pool, &policies, now).await?;
