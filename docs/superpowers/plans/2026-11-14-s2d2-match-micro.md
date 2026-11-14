@@ -477,15 +477,15 @@ dimensions and open text taxonomies; db-check expected tables now 40."
 - Consumes: Task 1 migráció; a dev DB 35 táblája (S2d-1 után).
 - Produces: dev 40 tábla; checkpoint-zárás; commit.
 
-- [ ] **Step 1: Engedélykérés.** A dev DB migráció **csak felhasználói engedéllyel**; ha nincs, STOP, a task függőben marad.
+- [x] **Step 1: Engedélykérés.** A dev DB migráció **csak felhasználói engedéllyel**; ha nincs, STOP, a task függőben marad.
 
-- [ ] **Step 2: Dev migráció.** `cd rust && set -a; source ../.env; set +a; cargo run -q -p footballctl -- migrate` → „migráció kész"; 40 tábla ellenőrzés.
+- [x] **Step 2: Dev migráció.** `cd rust && set -a; source ../.env; set +a; cargo run -q -p footballctl -- migrate` → „migráció kész"; 40 tábla ellenőrzés.
 
-- [ ] **Step 3: DB-kapu.** A test DB resetje (a felhasználó nevezze meg; csak `TEST_DATABASE_URL`), majd `cd .. && ./scripts/db-check.sh` → dev 40, test 40/0/0.
+- [x] **Step 3: DB-kapu.** A test DB resetje (a felhasználó nevezze meg; csak `TEST_DATABASE_URL`), majd `cd .. && ./scripts/db-check.sh` → dev 40, test 40/0/0.
 
-- [ ] **Step 4: Checkpoint (append-only).** S2d-2 taskok + parancsok/kimenetek, deferred minorok, visszaállítási út (öt tábla drop), következő döntési pont (B/E/F/G csoportok vagy S3).
+- [x] **Step 4: Checkpoint (append-only).** S2d-2 taskok + parancsok/kimenetek, deferred minorok, visszaállítási út (öt tábla drop), következő döntési pont (B/E/F/G csoportok vagy S3).
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add docs/checkpoints/2026-11-14/checkpoint.md
@@ -493,7 +493,7 @@ git -c user.name='Bandi86' -c user.email='Bandi86@users.noreply.github.com' \
   commit -m "docs: close S2d-2 checkpoint (match micro schema)"
 ```
 
-- [ ] **Step 6: STOP — zárójelentés.**
+- [x] **Step 6: STOP — zárójelentés.**
 
 ---
 

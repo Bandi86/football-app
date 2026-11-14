@@ -197,3 +197,21 @@ S2c — Obscura browser-fetcher:
   dry-run engedéllyel); test DB: reset; kód: branch-revert.
 - Következő döntési pont: A-csoport (match_team_stats, lineups, incidents,
   shots, player-stats) vagy S3 (első éles adapter).
+
+## S2d-2 végrehajtás (feat/s2d2-match-micro)
+
+- [x] Task 1: 0009 migráció (öt meccs-mikro tábla: match_team_stats,
+      match_player_stats, match_lineups, match_shots, match_incidents;
+      per-source minta, dupla játékos-hivatkozás, CHECK-elt zárt dimenziók),
+      constraint- és kaszkád-tesztek (s2d2_match_micro_schema 4/4),
+      test_support TRUNCATE +5, connection 40, db-check 40; check.sh exit 0,
+      165/165; commit **e904860**. Gotcha: az új migrációs fájlt a
+      `sqlx::migrate!` rebuild nélkül nem vette észre (touch a storage lib-re).
+- [x] Task 2: dev migráció („migráció kész"); dev 40 tábla / 1101 üzleti /
+      6 worker; test DB reset után 40 / 0 / 0; checkpoint-commit külön.
+- Deferred: a mikro-adatok writer/API/trust rétege (S3); a maradék
+      S2d-csoportok — B (szezon/elérhetőség), E (ET/pens + kickoff
+      konvenciók), F (identitás/assets), G (Elo).
+- Visszaállítási út: az öt tábla dropja (0009 inverze); test DB: reset;
+      kód: branch-revert.
+- Következő döntési pont: B/E/F/G csoportok vagy S3 (első éles adapter).
