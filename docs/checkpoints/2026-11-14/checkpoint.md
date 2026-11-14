@@ -157,3 +157,43 @@ S2c — Obscura browser-fetcher:
   visszaállítása ('rust_http','fixture') — csak ha nincs obscura sor.
 - Feature: default build (obscura KI); a policy transport visszaállítása
   rust_http-ra; forrás-váltás nem történik.
+
+## S2d-1 indul (2026-11-14, S2c zárása után)
+
+- [x] Szelet-választás: S2d első ciklusa = S3-előkészítő minimum (D: odds,
+      C: referee/venue, A1: match_stats); a többi S2d-csoport külön ciklus.
+- [x] Brainstorming (szekciónként jóváhagyva): normalizált `fact.odds_quote`
+      a fejléc megtartásával; match_stats per-source fix oszlopokkal;
+      referee/venue entitás-FK.
+- [x] Spec: `docs/superpowers/specs/2026-11-14-s2d1-schema-gaps-design.md`
+      — felhasználói review jóváhagyva.
+- [x] Terv: `docs/superpowers/plans/2026-11-14-s2d1-schema-gaps.md`
+      — önreview: spec-lefedettség, típus-konzisztencia, glyph-scan tiszta.
+- [x] Implementáció: Task 1 + Task 2 kész (lásd lent). Spec és terv
+      commitolatlan (commit csak kifejezett kérésre).
+
+## S2d-1 végrehajtás (feat/s2d1-schema-gaps)
+
+- [x] Task 1: 0008 migráció + atomi odds-vágás — fakt.odds_quote
+      (7 dimenziós PK, price/line/phase CHECK, FK-cascade) + backfill +
+      odds-oszlop drop; fact.match_stats (per-source, fix nullable oszlopok);
+      core.match referee/venue entitás-FK; canonicalize (fejléc + quote-blokk
+      csere), load_match_odds (7 kulcs, fail-closed), day-LATERAL (JSON a
+      quote-okból); test_support seed_min_match + TRUNCATE; db-check 35.
+      Tesztek: s2d1_schema 3/3, canonicalize 3/3, trust 4/4, day 3/3;
+      check.sh exit 0, 161/161; a tervből kimaradt két seed-hely
+      (connection 33→35 táblaszám, api/routes odds-insert) a kapu kimutatta,
+      javítva.
+- [x] Task 2: dev migráció („migráció kész"); backfill-ellenőrzés:
+      40 fejléc → 280 quote (40×7 csoport); demo újratöltés (26 fájl, 0 hiba),
+      day 2026-11-11: 20/20 verified_publish + verified odds; db-check:
+      dev 35 tábla / 1101 üzleti sor (+40 historikus verify/gate sor a
+      újratöltésből) / 6 worker, test 35 / 0 / 0 (reset után).
+- Deferred minorok: policy-szintű fetch-timeout (S2c-ből), multi-bookmaker
+  trust + multi-market display (S3), a maradék S2d-csoportok (A teljes, B,
+  E, F, G Elo).
+- Visszaállítási út: a 0008 inverz SQL a migráció fejlécében (odds jsonb
+  visszaépítés a default/closing quote-okból; új táblák/mezők drop; dev-en
+  dry-run engedéllyel); test DB: reset; kód: branch-revert.
+- Következő döntési pont: A-csoport (match_team_stats, lineups, incidents,
+  shots, player-stats) vagy S3 (első éles adapter).

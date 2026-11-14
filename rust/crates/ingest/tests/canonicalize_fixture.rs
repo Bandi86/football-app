@@ -98,3 +98,55 @@ async fn reingest_resets_odds_trust_state_to_provisional() {
         .unwrap();
     assert_eq!(rows, 1);
 }
+
+#[tokio::test]
+async fn ingest_writes_odds_quotes_with_default_bookmaker() {
+    let pool = test_pool().await;
+    let fixture_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../tests/fixtures/fixture_a_day.json");
+    let temp = tempfile::tempdir().unwrap();
+    let store = ObjectStore::new(temp.path()).unwrap();
+    let mut fixture: FixtureSource =
+        serde_json::from_slice(&std::fs::read(&fixture_path).unwrap()).unwrap();
+    fixture.matches[0].odds = Some(FixtureOdds {
+        home: 2.0,
+        draw: 3.2,
+        away: 3.5,
+        btts_yes: 1.8,
+        btts_no: 1.95,
+        over25: 1.9,
+        under25: 1.85,
+    });
+    fixture.matches[0].market_count = Some(7);
+    let odds_fixture_path = temp.path().join("fixture_a_odds.json");
+    std::fs::write(&odds_fixture_path, serde_json::to_vec(&fixture).unwrap()).unwrap();
+    FixtureAdapter::ingest(&pool, &store, &odds_fixture_path)
+        .await
+        .unwrap();
+    Canonicalizer::materialize(&pool, &fixture).await.unwrap();
+
+    let quotes: Vec<(String, String, f64, f64)> = sqlx::query_as(
+        "SELECT market, outcome, line::float8, price::float8
+         FROM fact.odds_quote
+         WHERE match_id=$1 AND bookmaker='default' AND phase='closing'
+         ORDER BY market, outcome",
+    )
+    .bind(fixture.matches[0].id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(quotes.len(), 7, "hét kanonikus quote íródik");
+    assert_eq!(quotes[0], ("1x2".into(), "away".into(), 0.0, 3.5));
+    assert_eq!(quotes[1], ("1x2".into(), "draw".into(), 0.0, 3.2));
+    assert_eq!(quotes[2], ("1x2".into(), "home".into(), 0.0, 2.0));
+    assert_eq!(quotes[5], ("ou".into(), "over".into(), 2.5, 1.9));
+    assert_eq!(quotes[6], ("ou".into(), "under".into(), 2.5, 1.85));
+
+    // Re-materializálás: a blokk cserélődik, nem duplikálódik.
+    Canonicalizer::materialize(&pool, &fixture).await.unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM fact.odds_quote")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 7);
+}

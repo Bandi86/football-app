@@ -12,10 +12,25 @@ use football_storage::test_support::test_pool;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-const FULL_ODDS_A: &str = r#"{"home":1.85,"draw":3.4,"away":4.2,
-    "btts_yes":1.7,"btts_no":2.1,"over25":1.9,"under25":1.9}"#;
-const FULL_ODDS_B: &str = r#"{"home":1.9,"draw":3.3,"away":4.0,
-    "btts_yes":1.75,"btts_no":2.05,"over25":1.95,"under25":1.85}"#;
+// (market, outcome, line, price) — a default/closing quote-blokk.
+const FULL_ODDS_A: &[(&str, &str, f64, f64)] = &[
+    ("1x2", "home", 0.0, 1.85),
+    ("1x2", "draw", 0.0, 3.4),
+    ("1x2", "away", 0.0, 4.2),
+    ("btts", "yes", 0.0, 1.7),
+    ("btts", "no", 0.0, 2.1),
+    ("ou", "over", 2.5, 1.9),
+    ("ou", "under", 2.5, 1.9),
+];
+const FULL_ODDS_B: &[(&str, &str, f64, f64)] = &[
+    ("1x2", "home", 0.0, 1.9),
+    ("1x2", "draw", 0.0, 3.3),
+    ("1x2", "away", 0.0, 4.0),
+    ("btts", "yes", 0.0, 1.75),
+    ("btts", "no", 0.0, 2.05),
+    ("ou", "over", 2.5, 1.95),
+    ("ou", "under", 2.5, 1.85),
+];
 
 #[tokio::test]
 async fn upsert_trust_and_trust_for_sources_per_domain() {
@@ -127,15 +142,15 @@ async fn load_match_odds_missing_field_is_error() {
     let match_id = seed_match(&pool).await;
     let source = seed_source(&pool, "alpha", "Alpha").await;
     // Hiányzó under25: fail-closed, nem nulla és nem unwrap_or.
-    insert_odds(
-        &pool,
-        match_id,
-        source,
-        r#"{"home":1.85,"draw":3.4,"away":4.2,
-            "btts_yes":1.7,"btts_no":2.1,"over25":1.9}"#,
-        "provisional",
-    )
-    .await;
+    let missing_under25: &[(&str, &str, f64, f64)] = &[
+        ("1x2", "home", 0.0, 1.85),
+        ("1x2", "draw", 0.0, 3.4),
+        ("1x2", "away", 0.0, 4.2),
+        ("btts", "yes", 0.0, 1.7),
+        ("btts", "no", 0.0, 2.1),
+        ("ou", "over", 2.5, 1.9),
+    ];
+    insert_odds(&pool, match_id, source, missing_under25, "provisional").await;
 
     let err = load_match_odds(&pool, match_id)
         .await
@@ -188,19 +203,39 @@ async fn seed_source(pool: &PgPool, code: &str, display_name: &str) -> Uuid {
     .unwrap()
 }
 
-async fn insert_odds(pool: &PgPool, match_id: Uuid, source_id: Uuid, odds: &str, state: &str) {
+async fn insert_odds(
+    pool: &PgPool,
+    match_id: Uuid,
+    source_id: Uuid,
+    quotes: &[(&str, &str, f64, f64)],
+    state: &str,
+) {
     sqlx::query(
-        "INSERT INTO fact.odds_snapshot
-         (match_id, source_id, captured_at, market_count, odds, trust_state)
-         VALUES ($1,$2,now(),18,$3::jsonb,$4)",
+        "INSERT INTO fact.odds_snapshot (match_id, source_id, captured_at, market_count, trust_state)
+         VALUES ($1,$2,now(),18,$3)",
     )
     .bind(match_id)
     .bind(source_id)
-    .bind(odds)
     .bind(state)
     .execute(pool)
     .await
     .unwrap();
+    for (market, outcome, line, price) in quotes {
+        sqlx::query(
+            "INSERT INTO fact.odds_quote
+             (match_id, source_id, bookmaker, market, outcome, line, phase, price)
+             VALUES ($1,$2,'default',$3,$4,$5,'closing',$6)",
+        )
+        .bind(match_id)
+        .bind(source_id)
+        .bind(market)
+        .bind(outcome)
+        .bind(line)
+        .bind(price)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
 }
 
 // Minimális kanonikus lánc egy meccshez: country → competition → season →

@@ -35,8 +35,13 @@ async fn display_facts_materialize_idempotently() {
     assert_eq!(odds_count, 1, "ismételt materializálás nem duplikál");
 
     let (home, market_count): (String, i32) = sqlx::query_as(
-        "SELECT odds->>'home', market_count FROM fact.odds_snapshot
-         WHERE match_id='30000000-0000-7000-8000-000000000101'",
+        "SELECT (max(price) FILTER (WHERE market='1x2' AND outcome='home'))::float8::text,
+                o.market_count
+         FROM fact.odds_snapshot o
+         JOIN fact.odds_quote q ON q.match_id=o.match_id AND q.source_id=o.source_id
+          AND q.bookmaker='default' AND q.phase='closing'
+         WHERE o.match_id='30000000-0000-7000-8000-000000000101'
+         GROUP BY o.market_count",
     )
     .fetch_one(&pool)
     .await

@@ -4,7 +4,7 @@ use football_domain::{MatchResultSnapshot, MatchSnapshot, MatchStatus};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::fixture::{FixtureSource, FixtureTeam};
+use crate::fixture::{FixtureOdds, FixtureSource, FixtureTeam};
 
 pub struct Canonicalizer;
 
@@ -184,21 +184,40 @@ impl Canonicalizer {
             // Új vagy frissülő odds sor mindig provisional: a verified
             // állapotot a gate utáni odds-kiértékelés állítja be (S2b-2).
             sqlx::query(
-                "INSERT INTO fact.odds_snapshot (match_id, source_id, captured_at, market_count, odds)
-                 VALUES ($1,$2,$3,$4,$5)
+                "INSERT INTO fact.odds_snapshot (match_id, source_id, captured_at, market_count)
+                 VALUES ($1,$2,$3,$4)
                  ON CONFLICT (match_id, source_id) DO UPDATE SET
                    captured_at = EXCLUDED.captured_at,
                    market_count = EXCLUDED.market_count,
-                   odds = EXCLUDED.odds,
                    trust_state = 'provisional'",
             )
             .bind(fixture_match.id)
             .bind(source_id)
             .bind(fixture.captured_at)
             .bind(market_count)
-            .bind(serde_json::to_value(odds)?)
             .execute(&mut *tx)
             .await?;
+            // A forrás quote-blokkja teljesen cserélődik (eltűnt kulcs nem marad).
+            sqlx::query("DELETE FROM fact.odds_quote WHERE match_id = $1 AND source_id = $2")
+                .bind(fixture_match.id)
+                .bind(source_id)
+                .execute(&mut *tx)
+                .await?;
+            for (market, outcome, line, price) in odds_quotes(odds) {
+                sqlx::query(
+                    "INSERT INTO fact.odds_quote
+                     (match_id, source_id, bookmaker, market, outcome, line, phase, price)
+                     VALUES ($1,$2,'default',$3,$4,$5,'closing',$6)",
+                )
+                .bind(fixture_match.id)
+                .bind(source_id)
+                .bind(market)
+                .bind(outcome)
+                .bind(line)
+                .bind(price)
+                .execute(&mut *tx)
+                .await?;
+            }
         }
 
         if let Some(standings) = &fixture.standings {
@@ -414,4 +433,18 @@ fn status_db(status: MatchStatus) -> &'static str {
         MatchStatus::Abandoned => "abandoned",
         MatchStatus::Awarded => "awarded",
     }
+}
+
+/// A fixture flat odds → kanonikus quote-sorok: (market, outcome, line, price).
+/// `default` bookmaker + `closing` fázis: a demo egyetlen pillanatképe.
+fn odds_quotes(odds: &FixtureOdds) -> [(&'static str, &'static str, f64, f64); 7] {
+    [
+        ("1x2", "home", 0.0, odds.home),
+        ("1x2", "draw", 0.0, odds.draw),
+        ("1x2", "away", 0.0, odds.away),
+        ("btts", "yes", 0.0, odds.btts_yes),
+        ("btts", "no", 0.0, odds.btts_no),
+        ("ou", "over", 2.5, odds.over25),
+        ("ou", "under", 2.5, odds.under25),
+    ]
 }

@@ -77,9 +77,22 @@ pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatch
          LEFT JOIN core.standing sh ON sh.season_id = m.season_id AND sh.team_id = m.home_team_id
          LEFT JOIN core.standing sa ON sa.season_id = m.season_id AND sa.team_id = m.away_team_id
          LEFT JOIN LATERAL (
-             SELECT o.odds, o.market_count, o.source_id, o.captured_at, o.trust_state
+             SELECT jsonb_build_object(
+                        'home', max(q.price) FILTER (WHERE q.market='1x2' AND q.outcome='home'),
+                        'draw', max(q.price) FILTER (WHERE q.market='1x2' AND q.outcome='draw'),
+                        'away', max(q.price) FILTER (WHERE q.market='1x2' AND q.outcome='away'),
+                        'btts_yes', max(q.price) FILTER (WHERE q.market='btts' AND q.outcome='yes'),
+                        'btts_no', max(q.price) FILTER (WHERE q.market='btts' AND q.outcome='no'),
+                        'over25', max(q.price) FILTER (WHERE q.market='ou' AND q.outcome='over' AND q.line=2.5),
+                        'under25', max(q.price) FILTER (WHERE q.market='ou' AND q.outcome='under' AND q.line=2.5)
+                    ) AS odds,
+                    o.market_count, o.source_id, o.captured_at, o.trust_state
              FROM fact.odds_snapshot o
+             JOIN fact.odds_quote q
+               ON q.match_id = o.match_id AND q.source_id = o.source_id
+              AND q.bookmaker = 'default' AND q.phase = 'closing'
              WHERE o.match_id = m.id
+             GROUP BY o.market_count, o.source_id, o.captured_at, o.trust_state
              ORDER BY (o.trust_state = 'verified') DESC, o.source_id
              LIMIT 1
          ) o ON true

@@ -79,8 +79,20 @@ async fn day_response_includes_odds_trust_state() {
         .unwrap();
     sqlx::query(
         "INSERT INTO fact.odds_snapshot
-         (match_id, source_id, captured_at, market_count, odds, trust_state)
-         VALUES ($1,$2,now(),18,'{\"home\":2.2,\"draw\":3.3,\"away\":3.2}'::jsonb,'verified')",
+         (match_id, source_id, captured_at, market_count, trust_state)
+         VALUES ($1,$2,now(),18,'verified')",
+    )
+    .bind(verified_match)
+    .bind(source_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO fact.odds_quote
+         (match_id, source_id, bookmaker, market, outcome, line, phase, price)
+         VALUES ($1,$2,'default','1x2','home',0,'closing',2.2),
+                ($1,$2,'default','1x2','draw',0,'closing',3.3),
+                ($1,$2,'default','1x2','away',0,'closing',3.2)",
     )
     .bind(verified_match)
     .bind(source_id)

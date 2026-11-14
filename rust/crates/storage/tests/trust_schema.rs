@@ -165,8 +165,8 @@ async fn seed_odds_row(pool: &PgPool) -> (Uuid, Uuid) {
     .await
     .unwrap();
     sqlx::query(
-        "INSERT INTO fact.odds_snapshot (match_id, source_id, captured_at, market_count, odds)
-         VALUES ($1,$2,now(),18,'{\"home\":2.2,\"draw\":3.3,\"away\":3.2}'::jsonb)",
+        "INSERT INTO fact.odds_snapshot (match_id, source_id, captured_at, market_count)
+         VALUES ($1,$2,now(),18)",
     )
     .bind(match_id)
     .bind(source_id)

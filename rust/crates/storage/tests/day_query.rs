@@ -90,8 +90,20 @@ async fn day_row_includes_display_fields() {
         .await
         .unwrap();
     sqlx::query(
-        "INSERT INTO fact.odds_snapshot (match_id, source_id, captured_at, market_count, odds)
-         VALUES ($1,$2,now(),18,'{\"home\":2.2,\"draw\":3.3,\"away\":3.2}'::jsonb)",
+        "INSERT INTO fact.odds_snapshot (match_id, source_id, captured_at, market_count)
+         VALUES ($1,$2,now(),18)",
+    )
+    .bind(match_id)
+    .bind(source_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO fact.odds_quote
+         (match_id, source_id, bookmaker, market, outcome, line, phase, price)
+         VALUES ($1,$2,'default','1x2','home',0,'closing',2.2),
+                ($1,$2,'default','1x2','draw',0,'closing',3.3),
+                ($1,$2,'default','1x2','away',0,'closing',3.2)",
     )
     .bind(match_id)
     .bind(source_id)
@@ -166,10 +178,8 @@ async fn day_picks_verified_odds_row() {
             .unwrap();
     }
     sqlx::query(
-        "INSERT INTO fact.odds_snapshot
-         (match_id, source_id, captured_at, market_count, odds, trust_state)
-         VALUES ($1,$2,now(),18,'{\"home\":9.9,\"draw\":3.3,\"away\":3.2}'::jsonb,'provisional'),
-                ($1,$3,now(),18,'{\"home\":1.5,\"draw\":3.3,\"away\":3.2}'::jsonb,'verified')",
+        "INSERT INTO fact.odds_snapshot (match_id, source_id, captured_at, market_count, trust_state)
+         VALUES ($1,$2,now(),18,'provisional'), ($1,$3,now(),18,'verified')",
     )
     .bind(match_id)
     .bind(provisional_source)
@@ -177,6 +187,21 @@ async fn day_picks_verified_odds_row() {
     .execute(&pool)
     .await
     .unwrap();
+    for (source_id, home) in [(provisional_source, 9.9), (verified_source, 1.5)] {
+        sqlx::query(
+            "INSERT INTO fact.odds_quote
+             (match_id, source_id, bookmaker, market, outcome, line, phase, price)
+             VALUES ($1,$2,'default','1x2','home',0,'closing',$3),
+                    ($1,$2,'default','1x2','draw',0,'closing',3.3),
+                    ($1,$2,'default','1x2','away',0,'closing',3.2)",
+        )
+        .bind(match_id)
+        .bind(source_id)
+        .bind(home)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
 
     let rows = fetch_day(
         &pool,
