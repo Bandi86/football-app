@@ -500,3 +500,12 @@ where
     .context("identitás döntés audit")?;
     Ok(())
 }
+
+/// Entitás kind-ja (approve cross-kind ellenőrzéshez).
+pub async fn entity_kind(pool: &PgPool, entity_id: Uuid) -> Result<Option<String>> {
+    sqlx::query_scalar("SELECT kind FROM core.entity WHERE id = $1")
+        .bind(entity_id)
+        .fetch_optional(pool)
+        .await
+        .context("entitás kind lekérés")
+}

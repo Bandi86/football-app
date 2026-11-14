@@ -396,3 +396,35 @@ async fn reject_is_final_and_audited() {
     }
     assert_eq!(queue_count(&pool).await, 2);
 }
+
+#[tokio::test]
+async fn approve_with_mismatched_entity_kind_is_rejected() {
+    let pool = test_pool().await;
+    let source_id = seed_source(&pool, "demo-synthetic").await;
+    let queue_id = pending_queue(&pool, source_id, "rev-kind", &ctx_hu()).await;
+    // A queue-sor team kind; a választott entitás player kind.
+    let player_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO core.entity (id, kind, canonical_name) VALUES ($1,'player','Teszt Játékos')",
+    )
+    .bind(player_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let err = review::approve(&pool, queue_id, player_id, "cli", None)
+        .await
+        .expect_err("kind-eltérés hibát kell adjon");
+    assert!(
+        matches!(err, IdentityError::KindMismatch(_)),
+        "ehelyett: {err:?}"
+    );
+    // A queue-sor pending marad, ref nem íródik.
+    let status: String = sqlx::query_scalar("SELECT status FROM identity.review_queue WHERE id=$1")
+        .bind(queue_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "pending", "az elutasított approve nem dönt");
+    assert_eq!(ref_count(&pool, source_id, "rev-kind").await, 0);
+}

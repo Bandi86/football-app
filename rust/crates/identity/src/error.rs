@@ -25,6 +25,9 @@ pub enum IdentityError {
     #[error("Érvénytelen entitásazonosító.")]
     InvalidEntity,
 
+    #[error("Entitás-kind eltérés: {0}")]
+    KindMismatch(String),
+
     /// Bemeneti hiba dinamikus magyar üzenettel (pl. üres jegyzet, forrás
     /// nélküli review-sor); a szöveg pontosan a megjelenítendő üzenet.
     #[error("{0}")]

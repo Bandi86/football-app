@@ -88,6 +88,7 @@ enum IdentityAction {
         #[arg(long)]
         entity: Option<Uuid>,
     },
+    CrosswalkCheck,
 }
 
 #[tokio::main]
@@ -133,13 +134,34 @@ async fn main() -> Result<()> {
                 material_values.push(values);
             }
             let source_trust = trust::trust_for_sources(&pool, &source_codes).await?;
+            let source_id: Uuid = sqlx::query_scalar("SELECT id FROM ops.source WHERE code=$1")
+                .bind(&fixture.source_code)
+                .fetch_one(&pool)
+                .await?;
 
             for (materialized, source_values) in day.matches.iter().zip(&material_values) {
+                // Közös, fail-closed linker-feloldás (a tick live ágával azonos).
+                let home_identity_exact = football_worker::tick::resolve_team_identity(
+                    &pool,
+                    source_id,
+                    &fixture.source_code,
+                    &fixture,
+                    materialized.home_team_id,
+                )
+                .await;
+                let away_identity_exact = football_worker::tick::resolve_team_identity(
+                    &pool,
+                    source_id,
+                    &fixture.source_code,
+                    &fixture,
+                    materialized.away_team_id,
+                )
+                .await;
                 let odds_values = trust::load_match_odds(&pool, materialized.match_id).await?;
                 let context = VerificationContext {
                     snapshot: &materialized.snapshot,
-                    home_identity_exact: true,
-                    away_identity_exact: true,
+                    home_identity_exact,
+                    away_identity_exact,
                     duplicate_match_count: duplicate_count(&pool, materialized).await?,
                     source_values,
                     source_trust: &source_trust,
@@ -302,6 +324,26 @@ async fn identity_command(pool: &sqlx::PgPool, action: IdentityAction) -> Result
                     r.reason,
                     candidates,
                     r.created_at.format("%Y-%m-%d %H:%M:%S UTC")
+                );
+            }
+        }
+        IdentityAction::CrosswalkCheck => {
+            let conflicts = football_identity::crosswalk_conflicts(pool).await?;
+            if conflicts.is_empty() {
+                println!("crosswalk: nincs konfliktus");
+            } else {
+                println!("crosswalk konfliktusok:");
+                for c in &conflicts {
+                    println!(
+                        "  {} | {} -> {}",
+                        c.left_source,
+                        c.left_external_id,
+                        c.conflicting_right_external_ids.join(", ")
+                    );
+                }
+                anyhow::bail!(
+                    "{} ambiguous crosswalk-kötés (import előtt javítandó)",
+                    conflicts.len()
                 );
             }
         }

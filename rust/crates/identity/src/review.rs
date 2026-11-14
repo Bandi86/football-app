@@ -66,6 +66,16 @@ pub async fn approve(
     if !repo::entity_exists(pool, entity_id).await.map_err(db_err)? {
         return Err(IdentityError::InvalidEntity);
     }
+    let kind = repo::entity_kind(pool, entity_id)
+        .await
+        .map_err(db_err)?
+        .ok_or(IdentityError::InvalidEntity)?;
+    if kind != row.entity_kind {
+        return Err(IdentityError::KindMismatch(format!(
+            "a választott entitás kind-ja '{kind}', a review-sor elvárt kind-ja '{expected}'",
+            expected = row.entity_kind
+        )));
+    }
     if let Some(entity_ctx) = repo::entity_context(pool, entity_id)
         .await
         .map_err(db_err)?
