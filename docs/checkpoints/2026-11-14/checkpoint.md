@@ -247,3 +247,29 @@ S2c — Obscura browser-fetcher:
   megmaradnak.
 - Következő döntési pont: **S3b — footballdata-adapter** (élő forrás, külön
   ciklus: brainstorming → spec → terv → taskonkénti STOP).
+
+## S3b-1 végrehajtás (feat/s3b1-observer-path)
+
+- [x] Task 1 (**4f117b6**): NormalizedDay + materializer-port — közös,
+      forrás-független kanonikus típus (verseny/szezon/csapat/meccs
+      id-hintekkel a demo id-stabilitáshoz); `Canonicalizer::materialize(
+      &NormalizedDay)`; tick/CLI átállás; teljes demo-regresszió zöld.
+- [x] Task 2 (**2fbe20d**): `NormalizedDay::from_observations` — verziózott
+      observation-séma (a match_core verseny/szezon-meta-t, source_code-ot,
+      captured_at-et is hordozza); a DemoAdapter a közös
+      `fixture::build_observations`-t használja; a tick live ág az
+      observationökből épít (a FixtureSource-újraolvasás törölve);
+      builder ≡ `From<&FixtureSource>` egyenlőség-teszt; check.sh 181/181.
+- [x] Task 3 (**e358e9a**): identity bootstrap — `review::approve_create`
+      (kind-tudatos: team → entity + team, ország a kontextusból; a
+      approve-lánc egy tranzakcióban), CLI `identity approve-create`;
+      check.sh 182/182.
+- [x] Kétfázisú élő bootstrap (dokumentált üzemeltetési minta): 1. élő kör
+      → review-sorok az ismeretlen csapatokra (fail-closed, nincs kanonikus
+      meccs) → `identity approve-create`/`approve` → 2. kör → kanonikus
+      meccsek + gate.
+- Visszaállítási út: branch-revert; **nincs migráció**; a stage/kanonikus
+  adatok forrás-kötöttek.
+- Következő: **S3b-2** — footballdata CSV-adapter (5 liga), B365→Avg→Max
+  odds-lánc (load_match_odds + day), policy/trust seed, élő kör külön
+  engedéllyel; utána a maradék S2d-csoportok (B/E/F/G).

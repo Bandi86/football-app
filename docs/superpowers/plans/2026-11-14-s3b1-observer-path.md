@@ -362,7 +362,7 @@ a teszt nem igényel DB-t).
 - Produces: `review::approve_create(pool, queue_id, decided_by, note) -> Result<Uuid, IdentityError>`; CLI: `identity approve-create <queue_id> [--note]`.
 - Kind-tudatos létrehozás: `team` → `core.entity` (kind, `proposed_name`) **+ `core.team`** (entity_id, country_id a sor kontextusának `country_code`-jából — ismeretlen ország → `InvalidInput`, name, gender/age_group/branch a kontextusból vagy `'male'/'senior'/'senior'` default); `referee` → csak `core.entity` (nincs külön tábla). A kapcsolás/döntés/audit a meglévő approve úton, egy tranzakcióban.
 
-- [ ] **Step 1: Bukó teszt** (review.rs):
+- [x] **Step 1: Bukó teszt** (review.rs):
 
 ```rust
 #[tokio::test]
@@ -385,9 +385,9 @@ async fn approve_create_makes_entity_and_links() {
 }
 ```
 
-- [ ] **Step 2: Futtatás — bukás.**
+- [x] **Step 2: Futtatás — bukás.**
 
-- [ ] **Step 3: Implementáció**
+- [x] **Step 3: Implementáció**
 
   - `review::approve_create(pool, queue_id, decided_by, note) -> Result<Uuid, IdentityError>`:
     - betölti a pending sort (`entity_kind`, `proposed_name`, `context`);
@@ -395,19 +395,19 @@ async fn approve_create_makes_entity_and_links() {
     - a meglévő approve-lánc (kind-ellenőrzés a frissen létrehozott entitással, ref + döntés + audit) ugyanabban a tranzakcióban.
   - CLI: `IdentityAction::ApproveCreate { id, note }` → kiírja az új entity id-t.
 
-- [ ] **Step 4: Zöld + kétfázisú bootstrap dokumentálása** a checkpointban (1. élő kör → review-sorok; `approve-create`/`approve`; 2. kör → kanonikus meccsek).
+- [x] **Step 4: Zöld + kétfázisú bootstrap dokumentálása** a checkpointban (1. élő kör → review-sorok; `approve-create`/`approve`; 2. kör → kanonikus meccsek).
 
-- [ ] **Step 5: Teljes kapu + commit** (`feat: add identity approve-create bootstrap`).
+- [x] **Step 5: Teljes kapu + commit** (`feat: add identity approve-create bootstrap`).
 
-- [ ] **Step 6: STOP — jelentés.**
+- [x] **Step 6: STOP — jelentés.**
 
 ---
 
 ### Task 4: Zárás — checkpoint + S3b-2 előkészítés
 
-- [ ] **Step 1: Teljes kapu** (check.sh, demo 20/20 változatlan, nincs migráció).
-- [ ] **Step 2: Checkpoint** — S3b-1 szekció (refaktor, builder, bootstrap, bizonyítékok; a kétfázisú indulás leírása; S3b-2 következik).
-- [ ] **Step 3: Commit** (`docs: close S3b-1 checkpoint`) + STOP.
+- [x] **Step 1: Teljes kapu** (check.sh, demo 20/20 változatlan, nincs migráció).
+- [x] **Step 2: Checkpoint** — S3b-1 szekció (refaktor, builder, bootstrap, bizonyítékok; a kétfázisú indulás leírása; S3b-2 következik).
+- [x] **Step 3: Commit** (`docs: close S3b-1 checkpoint`) + STOP.
 
 ---
 
