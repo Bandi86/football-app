@@ -174,9 +174,12 @@ async fn ingest_second_source(
     FixtureAdapter::ingest(pool, store, &path)
         .await
         .expect("második forrás ingest");
-    Canonicalizer::materialize(pool, fixture)
-        .await
-        .expect("második forrás materializálás");
+    Canonicalizer::materialize(
+        pool,
+        &football_ingest::normalized::NormalizedDay::from(fixture),
+    )
+    .await
+    .expect("második forrás materializálás");
 }
 
 async fn seed_and_generate(pool: &PgPool, mode: SourceMode, now: DateTime<Utc>) {

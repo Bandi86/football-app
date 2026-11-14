@@ -337,8 +337,14 @@ async fn uncertain_identity_cycle() {
     // DO UPDATE status='active'), ezért a withheld → approve → verified
     // ciklus resolve-szinten bizonyított; a tick-szintű withheld állapot
     // nem-fixture forrásoknál jelentkezik (S3).
-    let resolved =
-        tick::resolve_team_identity(&pool, source_id, "demo-synthetic", &fixture, team.id).await;
+    let resolved = tick::resolve_team_identity(
+        &pool,
+        source_id,
+        "demo-synthetic",
+        &football_ingest::normalized::NormalizedDay::from(&fixture),
+        team.id,
+    )
+    .await;
     assert!(
         !resolved,
         "bizonytalan identitásnál a flag fail-closed false"
@@ -360,8 +366,14 @@ async fn uncertain_identity_cycle() {
     review::approve(&pool, queue_id, team.id, "test", None)
         .await
         .unwrap();
-    let resolved =
-        tick::resolve_team_identity(&pool, source_id, "demo-synthetic", &fixture, team.id).await;
+    let resolved = tick::resolve_team_identity(
+        &pool,
+        source_id,
+        "demo-synthetic",
+        &football_ingest::normalized::NormalizedDay::from(&fixture),
+        team.id,
+    )
+    .await;
     assert!(
         resolved,
         "jóváhagyás után a ManualReview ref egzakt feloldást ad"
@@ -444,9 +456,14 @@ async fn db_error_is_fail_closed() {
     // A lezárt pool minden lekérdezése PoolClosed hibát ad → a linker
     // IdentityError::Db-t kap, a tick-ági hívó naplóz és false-t ad.
     pool.close().await;
-    let resolved =
-        tick::resolve_team_identity(&pool, Uuid::now_v7(), "demo-synthetic", &fixture, team.id)
-            .await;
+    let resolved = tick::resolve_team_identity(
+        &pool,
+        Uuid::now_v7(),
+        "demo-synthetic",
+        &football_ingest::normalized::NormalizedDay::from(&fixture),
+        team.id,
+    )
+    .await;
     assert!(
         !resolved,
         "DB-hibánál a flag fail-closed false, pánik nélkül"

@@ -4,7 +4,7 @@ use football_domain::{MatchResultSnapshot, MatchSnapshot, MatchStatus};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::fixture::{FixtureOdds, FixtureSource, FixtureTeam};
+use crate::normalized::{NormalizedDay, NormalizedTeam};
 
 pub struct Canonicalizer;
 
@@ -23,21 +23,23 @@ pub struct MaterializedDay {
 }
 
 impl Canonicalizer {
-    pub async fn materialize(pool: &PgPool, fixture: &FixtureSource) -> Result<MaterializedDay> {
+    pub async fn materialize(pool: &PgPool, day: &NormalizedDay) -> Result<MaterializedDay> {
         let mut tx = pool.begin().await?;
 
         let country_id = upsert_country(
             &mut tx,
-            &fixture.competition.country_code,
-            &fixture.competition.country_name,
+            &day.competition.country_code,
+            &day.competition.country_name,
         )
         .await?;
+        let competition_id = day.competition.id.unwrap_or_else(Uuid::now_v7);
+        let season_id = day.season.id.unwrap_or_else(Uuid::now_v7);
 
         upsert_entity(
             &mut tx,
-            fixture.competition.id,
+            competition_id,
             "competition",
-            &fixture.competition.name,
+            &day.competition.name,
         )
         .await?;
 
@@ -49,11 +51,11 @@ impl Canonicalizer {
                tier = EXCLUDED.tier,
                priority = EXCLUDED.priority",
         )
-        .bind(fixture.competition.id)
+        .bind(competition_id)
         .bind(country_id)
-        .bind(&fixture.competition.name)
-        .bind(fixture.competition.tier)
-        .bind(fixture.competition.priority)
+        .bind(&day.competition.name)
+        .bind(day.competition.tier)
+        .bind(day.competition.priority)
         .execute(&mut *tx)
         .await?;
 
@@ -62,19 +64,20 @@ impl Canonicalizer {
              VALUES ($1,$2,$3)
              ON CONFLICT (id) DO UPDATE SET label = EXCLUDED.label",
         )
-        .bind(fixture.season.id)
-        .bind(fixture.competition.id)
-        .bind(&fixture.season.label)
+        .bind(season_id)
+        .bind(competition_id)
+        .bind(&day.season.label)
         .execute(&mut *tx)
         .await?;
 
-        for team in &fixture.teams {
-            upsert_team(&mut tx, team, country_id, fixture.source_code.as_str()).await?;
+        for team in &day.teams {
+            upsert_team(&mut tx, team, country_id, day.source_code.as_str()).await?;
         }
 
         let mut matches = Vec::new();
 
-        for fixture_match in &fixture.matches {
+        for fixture_match in &day.matches {
+            let match_id = fixture_match.id.unwrap_or_else(Uuid::now_v7);
             let home = team_by_source_id(&mut tx, &fixture_match.home_source_entity_id).await?;
             let away = team_by_source_id(&mut tx, &fixture_match.away_source_entity_id).await?;
             let status = parse_status(&fixture_match.status)?;
@@ -92,9 +95,9 @@ impl Canonicalizer {
                    status = EXCLUDED.status,
                    updated_at = now()",
             )
-            .bind(fixture_match.id)
-            .bind(fixture.competition.id)
-            .bind(fixture.season.id)
+            .bind(match_id)
+            .bind(competition_id)
+            .bind(season_id)
             .bind(&fixture_match.round_label)
             .bind(home)
             .bind(away)
@@ -115,10 +118,10 @@ impl Canonicalizer {
                 away_pens: r.away_pens,
             });
 
-            persist_result(&mut tx, fixture_match.id, result.as_ref()).await?;
+            persist_result(&mut tx, match_id, result.as_ref()).await?;
 
             let observation_ids =
-                observations_for_match(&mut tx, &fixture.source_code, fixture_match.id).await?;
+                observations_for_match(&mut tx, &day.source_code, match_id).await?;
 
             for field in [
                 "home_team_id",
@@ -144,7 +147,7 @@ impl Canonicalizer {
                          ON CONFLICT (subject_kind, subject_id, field_key, observation_id)
                          DO NOTHING",
                     )
-                    .bind(fixture_match.id)
+                    .bind(match_id)
                     .bind(field)
                     .bind(observation_id)
                     .bind(Utc::now())
@@ -154,11 +157,11 @@ impl Canonicalizer {
             }
 
             matches.push(MaterializedMatch {
-                match_id: fixture_match.id,
+                match_id,
                 home_team_id: home,
                 away_team_id: away,
                 snapshot: MatchSnapshot {
-                    id: fixture_match.id,
+                    id: match_id,
                     home_team_id: home,
                     away_team_id: away,
                     kickoff_at: fixture_match.kickoff_at,
@@ -170,17 +173,18 @@ impl Canonicalizer {
         }
 
         let source_id: Uuid = sqlx::query_scalar("SELECT id FROM ops.source WHERE code=$1")
-            .bind(&fixture.source_code)
+            .bind(&day.source_code)
             .fetch_one(&mut *tx)
             .await?;
 
-        for fixture_match in &fixture.matches {
+        for fixture_match in &day.matches {
             let Some(odds) = &fixture_match.odds else {
                 continue;
             };
-            let market_count = fixture_match
+            let match_id = fixture_match.id.unwrap_or_else(Uuid::now_v7);
+            let market_count = odds
                 .market_count
-                .with_context(|| format!("hiányzó piacszám az odds mellé: {}", fixture_match.id))?;
+                .with_context(|| format!("hiányzó piacszám az odds mellé: {match_id}"))?;
             // Új vagy frissülő odds sor mindig provisional: a verified
             // állapotot a gate utáni odds-kiértékelés állítja be (S2b-2).
             sqlx::query(
@@ -191,36 +195,38 @@ impl Canonicalizer {
                    market_count = EXCLUDED.market_count,
                    trust_state = 'provisional'",
             )
-            .bind(fixture_match.id)
+            .bind(match_id)
             .bind(source_id)
-            .bind(fixture.captured_at)
+            .bind(day.captured_at)
             .bind(market_count)
             .execute(&mut *tx)
             .await?;
             // A forrás quote-blokkja teljesen cserélődik (eltűnt kulcs nem marad).
             sqlx::query("DELETE FROM fact.odds_quote WHERE match_id = $1 AND source_id = $2")
-                .bind(fixture_match.id)
+                .bind(match_id)
                 .bind(source_id)
                 .execute(&mut *tx)
                 .await?;
-            for (market, outcome, line, price) in odds_quotes(odds) {
+            for quote in &odds.quotes {
                 sqlx::query(
                     "INSERT INTO fact.odds_quote
                      (match_id, source_id, bookmaker, market, outcome, line, phase, price)
-                     VALUES ($1,$2,'default',$3,$4,$5,'closing',$6)",
+                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
                 )
-                .bind(fixture_match.id)
+                .bind(match_id)
                 .bind(source_id)
-                .bind(market)
-                .bind(outcome)
-                .bind(line)
-                .bind(price)
+                .bind(&quote.bookmaker)
+                .bind(&quote.market)
+                .bind(&quote.outcome)
+                .bind(quote.line)
+                .bind(&quote.phase)
+                .bind(quote.price)
                 .execute(&mut *tx)
                 .await?;
             }
         }
 
-        if let Some(standings) = &fixture.standings {
+        if let Some(standings) = &day.standings {
             for standing in standings {
                 let team_id = team_by_source_id(&mut tx, &standing.team_source_entity_id).await?;
                 sqlx::query(
@@ -231,11 +237,11 @@ impl Canonicalizer {
                        source_id = EXCLUDED.source_id,
                        captured_at = EXCLUDED.captured_at",
                 )
-                .bind(fixture.season.id)
+                .bind(season_id)
                 .bind(team_id)
                 .bind(standing.position)
                 .bind(source_id)
-                .bind(fixture.captured_at)
+                .bind(day.captured_at)
                 .execute(&mut *tx)
                 .await?;
             }
@@ -286,11 +292,12 @@ async fn upsert_entity(
 
 async fn upsert_team(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    team: &FixtureTeam,
+    team: &NormalizedTeam,
     country_id: Uuid,
     source_code: &str,
 ) -> Result<()> {
-    upsert_entity(tx, team.id, "team", &team.name).await?;
+    let team_id = team.id.unwrap_or_else(Uuid::now_v7);
+    upsert_entity(tx, team_id, "team", &team.name).await?;
 
     sqlx::query(
         "INSERT INTO core.team
@@ -303,7 +310,7 @@ async fn upsert_team(
            age_group = EXCLUDED.age_group,
            branch = EXCLUDED.branch",
     )
-    .bind(team.id)
+    .bind(team_id)
     .bind(country_id)
     .bind(&team.name)
     .bind(&team.gender)
@@ -327,7 +334,7 @@ async fn upsert_team(
     .bind(Uuid::now_v7())
     .bind(source_id)
     .bind(&team.source_entity_id)
-    .bind(team.id)
+    .bind(team_id)
     .execute(&mut **tx)
     .await?;
 
@@ -433,18 +440,4 @@ fn status_db(status: MatchStatus) -> &'static str {
         MatchStatus::Abandoned => "abandoned",
         MatchStatus::Awarded => "awarded",
     }
-}
-
-/// A fixture flat odds → kanonikus quote-sorok: (market, outcome, line, price).
-/// `default` bookmaker + `closing` fázis: a demo egyetlen pillanatképe.
-fn odds_quotes(odds: &FixtureOdds) -> [(&'static str, &'static str, f64, f64); 7] {
-    [
-        ("1x2", "home", 0.0, odds.home),
-        ("1x2", "draw", 0.0, odds.draw),
-        ("1x2", "away", 0.0, odds.away),
-        ("btts", "yes", 0.0, odds.btts_yes),
-        ("btts", "no", 0.0, odds.btts_no),
-        ("ou", "over", 2.5, odds.over25),
-        ("ou", "under", 2.5, odds.under25),
-    ]
 }

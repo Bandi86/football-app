@@ -27,8 +27,18 @@ async fn conflicting_sources_produce_blocker_and_withheld_gate() {
         serde_json::from_slice(&std::fs::read(&fixture_path).unwrap()).unwrap();
     let fixture_c: FixtureSource =
         serde_json::from_slice(&std::fs::read(&conflict_path).unwrap()).unwrap();
-    let day_a = Canonicalizer::materialize(&pool, &fixture_a).await.unwrap();
-    let day_c = Canonicalizer::materialize(&pool, &fixture_c).await.unwrap();
+    let day_a = Canonicalizer::materialize(
+        &pool,
+        &football_ingest::normalized::NormalizedDay::from(&fixture_a),
+    )
+    .await
+    .unwrap();
+    let day_c = Canonicalizer::materialize(
+        &pool,
+        &football_ingest::normalized::NormalizedDay::from(&fixture_c),
+    )
+    .await
+    .unwrap();
     assert_eq!(day_a.matches[0].match_id, day_c.matches[0].match_id);
 
     let values = load_material_values(&pool, day_a.matches[0].match_id)

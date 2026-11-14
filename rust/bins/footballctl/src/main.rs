@@ -113,7 +113,8 @@ async fn main() -> Result<()> {
         Command::IngestFixture { path } => {
             let report = FixtureAdapter::ingest(&pool, &store, &path).await?;
             let fixture: FixtureSource = serde_json::from_slice(&std::fs::read(&path)?)?;
-            let day = Canonicalizer::materialize(&pool, &fixture).await?;
+            let normalized = football_ingest::normalized::NormalizedDay::from(&fixture);
+            let day = Canonicalizer::materialize(&pool, &normalized).await?;
             let rules = default_rules();
 
             // S2b-2: trust sorok egyszer, az ÖSSZES hozzájáruló forrásra
@@ -145,7 +146,7 @@ async fn main() -> Result<()> {
                     &pool,
                     source_id,
                     &fixture.source_code,
-                    &fixture,
+                    &normalized,
                     materialized.home_team_id,
                 )
                 .await;
@@ -153,7 +154,7 @@ async fn main() -> Result<()> {
                     &pool,
                     source_id,
                     &fixture.source_code,
-                    &fixture,
+                    &normalized,
                     materialized.away_team_id,
                 )
                 .await;

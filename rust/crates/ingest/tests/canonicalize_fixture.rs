@@ -17,7 +17,12 @@ async fn fixture_materializes_one_canonical_match_with_exact_identity_and_proven
     let fixture: FixtureSource =
         serde_json::from_slice(&std::fs::read(&fixture_path).unwrap()).unwrap();
 
-    let day = Canonicalizer::materialize(&pool, &fixture).await.unwrap();
+    let day = Canonicalizer::materialize(
+        &pool,
+        &football_ingest::normalized::NormalizedDay::from(&fixture),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(day.matches.len(), 1);
     assert_eq!(
@@ -72,7 +77,12 @@ async fn reingest_resets_odds_trust_state_to_provisional() {
     FixtureAdapter::ingest(&pool, &store, &odds_fixture_path)
         .await
         .unwrap();
-    Canonicalizer::materialize(&pool, &fixture).await.unwrap();
+    Canonicalizer::materialize(
+        &pool,
+        &football_ingest::normalized::NormalizedDay::from(&fixture),
+    )
+    .await
+    .unwrap();
     let state: String = sqlx::query_scalar("SELECT trust_state FROM fact.odds_snapshot")
         .fetch_one(&pool)
         .await
@@ -85,7 +95,12 @@ async fn reingest_resets_odds_trust_state_to_provisional() {
         .execute(&pool)
         .await
         .unwrap();
-    Canonicalizer::materialize(&pool, &fixture).await.unwrap();
+    Canonicalizer::materialize(
+        &pool,
+        &football_ingest::normalized::NormalizedDay::from(&fixture),
+    )
+    .await
+    .unwrap();
 
     let state: String = sqlx::query_scalar("SELECT trust_state FROM fact.odds_snapshot")
         .fetch_one(&pool)
@@ -123,7 +138,12 @@ async fn ingest_writes_odds_quotes_with_default_bookmaker() {
     FixtureAdapter::ingest(&pool, &store, &odds_fixture_path)
         .await
         .unwrap();
-    Canonicalizer::materialize(&pool, &fixture).await.unwrap();
+    Canonicalizer::materialize(
+        &pool,
+        &football_ingest::normalized::NormalizedDay::from(&fixture),
+    )
+    .await
+    .unwrap();
 
     let quotes: Vec<(String, String, f64, f64)> = sqlx::query_as(
         "SELECT market, outcome, line::float8, price::float8
@@ -143,7 +163,12 @@ async fn ingest_writes_odds_quotes_with_default_bookmaker() {
     assert_eq!(quotes[6], ("ou".into(), "under".into(), 2.5, 1.85));
 
     // Re-materializálás: a blokk cserélődik, nem duplikálódik.
-    Canonicalizer::materialize(&pool, &fixture).await.unwrap();
+    Canonicalizer::materialize(
+        &pool,
+        &football_ingest::normalized::NormalizedDay::from(&fixture),
+    )
+    .await
+    .unwrap();
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM fact.odds_quote")
         .fetch_one(&pool)
         .await

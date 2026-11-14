@@ -357,7 +357,8 @@ async fn process_job(
         if policy.mode != SourceMode::Shadow {
             let fixture: FixtureSource = serde_json::from_slice(&raw.bytes)
                 .context("fixture payload újraolvasása a kanonikus ághoz")?;
-            verify_and_publish(pool, &fixture).await?;
+            let normalized = football_ingest::normalized::NormalizedDay::from(&fixture);
+            verify_and_publish(pool, &normalized).await?;
         }
 
         // 10. Tick-zárás: ledger success, coverage done (0 observation → no_data),
@@ -532,18 +533,21 @@ fn raw_display_name(bytes: &[u8], source_slug: &str) -> String {
 /// S2b-2: a trust sorok egyszer töltődnek be az ÖSSZES hozzájáruló forrásra
 /// (a meccsek source_values forráskódjai + a fixture forrása), az odds
 /// meccsenként; a gate után az odds trust_state frissül (NoOdds esetén nem).
-async fn verify_and_publish(pool: &PgPool, fixture: &FixtureSource) -> Result<()> {
-    let day = Canonicalizer::materialize(pool, fixture).await?;
+async fn verify_and_publish(
+    pool: &PgPool,
+    normalized: &football_ingest::normalized::NormalizedDay,
+) -> Result<()> {
+    let day = Canonicalizer::materialize(pool, normalized).await?;
     let rules = default_rules();
     // Koherens forrás-pár: a crosswalk a slugot, a ref az uuid-t használja.
-    let source_id = identity_repo::source_id_by_code(pool, &fixture.source_code)
+    let source_id = identity_repo::source_id_by_code(pool, &normalized.source_code)
         .await?
         .context("forrás-azonosító az identitáshoz")?;
 
     // Anyagi forrásértékek előrebetöltése, hogy a trust lista a meccs-loop
     // előtt egyszer álljon elő minden hozzájáruló forráskódra.
     let mut material_values = Vec::with_capacity(day.matches.len());
-    let mut source_codes = vec![fixture.source_code.clone()];
+    let mut source_codes = vec![normalized.source_code.clone()];
     for materialized in &day.matches {
         let values = load_material_values(pool, materialized.match_id).await?;
         for value in &values {
@@ -559,16 +563,16 @@ async fn verify_and_publish(pool: &PgPool, fixture: &FixtureSource) -> Result<()
         let home_identity_exact = resolve_team_identity(
             pool,
             source_id,
-            &fixture.source_code,
-            fixture,
+            &normalized.source_code,
+            normalized,
             materialized.home_team_id,
         )
         .await;
         let away_identity_exact = resolve_team_identity(
             pool,
             source_id,
-            &fixture.source_code,
-            fixture,
+            &normalized.source_code,
+            normalized,
             materialized.away_team_id,
         )
         .await;
@@ -620,10 +624,10 @@ pub async fn resolve_team_identity(
     pool: &PgPool,
     source_id: Uuid,
     source_slug: &str,
-    fixture: &FixtureSource,
+    day: &football_ingest::normalized::NormalizedDay,
     team_id: Uuid,
 ) -> bool {
-    let Some(team) = fixture.teams.iter().find(|t| t.id == team_id) else {
+    let Some(team) = day.teams.iter().find(|t| t.id == Some(team_id)) else {
         return false;
     };
     let ctx = IdentityContext {

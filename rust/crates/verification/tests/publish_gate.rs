@@ -17,7 +17,12 @@ async fn blocker_report_creates_withheld_gate() {
         .unwrap();
     let fixture: FixtureSource =
         serde_json::from_slice(&std::fs::read(&fixture_path).unwrap()).unwrap();
-    let materialized = Canonicalizer::materialize(&pool, &fixture).await.unwrap();
+    let materialized = Canonicalizer::materialize(
+        &pool,
+        &football_ingest::normalized::NormalizedDay::from(&fixture),
+    )
+    .await
+    .unwrap();
     let match_id = materialized.matches[0].match_id;
 
     let report = VerificationReport {

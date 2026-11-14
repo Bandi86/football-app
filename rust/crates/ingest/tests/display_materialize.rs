@@ -17,8 +17,18 @@ async fn display_facts_materialize_idempotently() {
     let fixture: FixtureSource =
         serde_json::from_slice(&std::fs::read(&fixture_path).unwrap()).unwrap();
 
-    Canonicalizer::materialize(&pool, &fixture).await.unwrap();
-    Canonicalizer::materialize(&pool, &fixture).await.unwrap();
+    Canonicalizer::materialize(
+        &pool,
+        &football_ingest::normalized::NormalizedDay::from(&fixture),
+    )
+    .await
+    .unwrap();
+    Canonicalizer::materialize(
+        &pool,
+        &football_ingest::normalized::NormalizedDay::from(&fixture),
+    )
+    .await
+    .unwrap();
 
     let (tier, priority): (i16, i32) = sqlx::query_as(
         "SELECT tier, priority FROM core.competition WHERE id='30000000-0000-7000-8000-000000000001'",
