@@ -47,6 +47,9 @@ xcuserdata/
 # XcodeGen-generated Info.plist (source of truth: apps/project.yml info.properties)
 apps/FootballApp/Info.plist
 
+# Operator-provided Obscura binary (see docs/operations/obscura.md)
+/tools/obscura/
+
 # Runtime and generated data
 /data/
 /runtime/

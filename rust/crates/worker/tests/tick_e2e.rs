@@ -16,8 +16,9 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use football_domain::policy::{EventTemplate, FetchOutcome, SourceMode, SourcePolicy, Transport};
 use football_ingest::adapter::SourceAdapter;
 use football_ingest::demo::DemoAdapter;
-use football_ingest::fetch::FixtureFetcher;
+use football_ingest::fetch::{Fetchers, FixtureFetcher};
 use football_ingest::fixture::FixtureSource;
+use football_ingest::http::RustHttpFetcher;
 use football_ingest::observe::insert_observation;
 use football_storage::object_store::ObjectStore;
 use football_storage::repositories::day::{DayFilter, fetch_day};
@@ -26,6 +27,14 @@ use football_storage::test_support::test_pool;
 use football_worker::{quota, scheduler, tick};
 use sqlx::PgPool;
 use uuid::Uuid;
+
+/// A tesztek fixture policy-i a fixture fetcheren mennek (nincs hálózat).
+fn as_fetchers(fixture: FixtureFetcher) -> Fetchers {
+    Fetchers::new(
+        RustHttpFetcher::new("football-app-test").expect("rust_http fetcher"),
+        fixture,
+    )
+}
 
 /// Mai nap 12:00 UTC — a fixture dátum-guard és a publish-dátum is erre a napra esik.
 fn today_noon() -> DateTime<Utc> {
@@ -182,14 +191,14 @@ async fn e2e_replay_publishes_verified_match() {
     let store_dir = tempfile::tempdir().unwrap();
     let store = ObjectStore::new(store_dir.path()).unwrap();
     let fetch_dir = tempfile::tempdir().unwrap();
-    let fetcher = fixture_fetcher("demo_day.json", now, fetch_dir.path());
+    let fetchers = as_fetchers(fixture_fetcher("demo_day.json", now, fetch_dir.path()));
     seed_and_generate(&pool, SourceMode::Live, now).await;
     // A verified_publish-hez kell a megerősítő második forrás is.
     let rewritten = std::fs::read_to_string(fetch_dir.path().join("demo_day.json")).unwrap();
     let fixture: FixtureSource = serde_json::from_str(&rewritten).unwrap();
     seed_corroborating_source(&pool, &store, &fixture, now).await;
 
-    let outcome = tick::tick(&pool, &store, &fetcher, &adapters(), Uuid::now_v7(), now)
+    let outcome = tick::tick(&pool, &store, &fetchers, &adapters(), Uuid::now_v7(), now)
         .await
         .unwrap();
     assert_eq!(outcome.processed, 1);
@@ -251,10 +260,10 @@ async fn shadow_mode_writes_no_canonical() {
     let store_dir = tempfile::tempdir().unwrap();
     let store = ObjectStore::new(store_dir.path()).unwrap();
     let fetch_dir = tempfile::tempdir().unwrap();
-    let fetcher = fixture_fetcher("demo_day.json", now, fetch_dir.path());
+    let fetchers = as_fetchers(fixture_fetcher("demo_day.json", now, fetch_dir.path()));
     seed_and_generate(&pool, SourceMode::Shadow, now).await;
 
-    let outcome = tick::tick(&pool, &store, &fetcher, &adapters(), Uuid::now_v7(), now)
+    let outcome = tick::tick(&pool, &store, &fetchers, &adapters(), Uuid::now_v7(), now)
         .await
         .unwrap();
     assert_eq!(outcome.processed, 1);
@@ -289,10 +298,14 @@ async fn decoy_payload_quarantined_raw_kept() {
     let store_dir = tempfile::tempdir().unwrap();
     let store = ObjectStore::new(store_dir.path()).unwrap();
     let fetch_dir = tempfile::tempdir().unwrap();
-    let fetcher = fixture_fetcher("demo_day_decoy.json", now, fetch_dir.path());
+    let fetchers = as_fetchers(fixture_fetcher(
+        "demo_day_decoy.json",
+        now,
+        fetch_dir.path(),
+    ));
     seed_and_generate(&pool, SourceMode::Live, now).await;
 
-    let outcome = tick::tick(&pool, &store, &fetcher, &adapters(), Uuid::now_v7(), now)
+    let outcome = tick::tick(&pool, &store, &fetchers, &adapters(), Uuid::now_v7(), now)
         .await
         .unwrap();
     assert_eq!(outcome.failed, 1);
@@ -393,7 +406,7 @@ async fn payload_source_code_cannot_impersonate_another_source() {
     let store_dir = tempfile::tempdir().unwrap();
     let store = ObjectStore::new(store_dir.path()).unwrap();
     let fetch_dir = tempfile::tempdir().unwrap();
-    let fetcher = fixture_fetcher("demo_day.json", now, fetch_dir.path());
+    let fetchers = as_fetchers(fixture_fetcher("demo_day.json", now, fetch_dir.path()));
 
     // A payload forráskódjának hamisítása (a FixtureFetcher fetch-időben olvas).
     let path = fetch_dir.path().join("demo_day.json");
@@ -411,7 +424,7 @@ async fn payload_source_code_cannot_impersonate_another_source() {
     std::fs::write(&path, tampered).unwrap();
     seed_and_generate(&pool, SourceMode::Shadow, now).await;
 
-    let outcome = tick::tick(&pool, &store, &fetcher, &adapters(), Uuid::now_v7(), now)
+    let outcome = tick::tick(&pool, &store, &fetchers, &adapters(), Uuid::now_v7(), now)
         .await
         .unwrap();
     assert_eq!(outcome.processed, 1);
@@ -471,10 +484,10 @@ async fn unexpected_infra_error_marks_coverage_failed() {
     // Heti (ISO-hét) időablakú job: a fetch sikeres, de a napi dátum parse
     // a persist_raw után bukik el — váratlan hiba a fetch-kapu után.
     let path = write_rewritten_fixture("demo_day.json", now, fetch_dir.path());
-    let fetcher = FixtureFetcher::new(HashMap::from([(
+    let fetchers = as_fetchers(FixtureFetcher::new(HashMap::from([(
         "demo-synthetic:match:2026-W46".to_string(),
         path,
-    )]));
+    )])));
     repo::upsert_policy(&pool, &policy(SourceMode::Shadow))
         .await
         .unwrap();
@@ -493,7 +506,7 @@ async fn unexpected_infra_error_marks_coverage_failed() {
     .await
     .unwrap();
 
-    let outcome = tick::tick(&pool, &store, &fetcher, &adapters(), Uuid::now_v7(), now)
+    let outcome = tick::tick(&pool, &store, &fetchers, &adapters(), Uuid::now_v7(), now)
         .await
         .unwrap();
     assert_eq!(outcome.failed, 1);

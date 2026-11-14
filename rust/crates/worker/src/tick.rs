@@ -24,13 +24,13 @@ use chrono::{DateTime, NaiveDate, Utc};
 use football_domain::error::FetchError;
 use football_domain::identity::{IdentityContext, Resolution};
 use football_domain::policy::{
-    CoverageState, FetchJob, FetchOutcome, JobStatus, SourceMode, SourcePolicy,
+    CoverageState, FetchJob, FetchOutcome, JobStatus, SourceMode, SourcePolicy, Transport,
 };
 use football_domain::trust::{ODDS_TOLERANCE_DEFAULT, OddsTrustState};
 use football_identity::linker;
 use football_ingest::adapter::{ParseCtx, SourceAdapter};
 use football_ingest::canonicalize::Canonicalizer;
-use football_ingest::fetch::{FetchLimits, FetchRequest, Fetcher};
+use football_ingest::fetch::{FetchLimits, FetchRequest, Fetcher, Fetchers};
 use football_ingest::fixture::FixtureSource;
 use football_ingest::observe::insert_observation;
 use football_storage::object_store::ObjectStore;
@@ -72,7 +72,7 @@ enum JobResult {
 pub async fn tick(
     pool: &PgPool,
     store: &ObjectStore,
-    fetcher: &dyn Fetcher,
+    fetchers: &Fetchers,
     adapters: &HashMap<String, Box<dyn SourceAdapter>>,
     worker_id: Uuid,
     now: DateTime<Utc>,
@@ -87,7 +87,7 @@ pub async fn tick(
         failed: 0,
     };
     for job in &jobs {
-        match process_job(pool, store, fetcher, adapters, job, now).await {
+        match process_job(pool, store, fetchers, adapters, job, now).await {
             Ok(JobResult::Processed) => outcome.processed += 1,
             Ok(JobResult::Blocked) => outcome.blocked += 1,
             Ok(JobResult::Failed) => outcome.failed += 1,
@@ -113,7 +113,7 @@ pub async fn tick(
 async fn process_job(
     pool: &PgPool,
     store: &ObjectStore,
-    fetcher: &dyn Fetcher,
+    fetchers: &Fetchers,
     adapters: &HashMap<String, Box<dyn SourceAdapter>>,
     job: &FetchJob,
     now: DateTime<Utc>,
@@ -157,8 +157,24 @@ async fn process_job(
         return Ok(JobResult::Failed);
     };
 
+    // A tartalom-fetch fetcherét a policy transzportja választja (S2c).
+    let fetcher = match fetchers.for_transport(&policy.transport) {
+        Ok(fetcher) => fetcher,
+        Err(err) => {
+            scheduler::complete(pool, job.id, JobStatus::Failed, Some(&err.to_string())).await?;
+            return Ok(JobResult::Failed);
+        }
+    };
+
     // 2. Robots-kapu: fail-closed, nem számláló ledger + coverage blocked.
-    if robots::check(pool, fetcher, &job.source_slug, &req.url).await?
+    // Fixture forrásnál a robots.txt a fixture fetcheren megy (nincs hálózat);
+    // valódi forrásnál plain HTTP-vel (a böngésző itt fölösleges és drága).
+    let robots_fetcher: &dyn Fetcher = if policy.transport == Transport::Fixture {
+        fetcher
+    } else {
+        fetchers.rust_http()
+    };
+    if robots::check(pool, robots_fetcher, &job.source_slug, &req.url).await?
         == robots::RobotsVerdict::Blocked
     {
         block_ledger(pool, job, req, now, FetchOutcome::RobotsBlocked).await?;

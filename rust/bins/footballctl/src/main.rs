@@ -8,8 +8,9 @@ use football_domain::trust::{ODDS_TOLERANCE_DEFAULT, OddsTrustState};
 use football_ingest::adapter::SourceAdapter;
 use football_ingest::canonicalize::Canonicalizer;
 use football_ingest::demo::DemoAdapter;
-use football_ingest::fetch::FixtureFetcher;
+use football_ingest::fetch::{Fetchers, FixtureFetcher};
 use football_ingest::fixture::{FixtureAdapter, FixtureSource};
+use football_ingest::http::RustHttpFetcher;
 use football_storage::object_store::ObjectStore;
 use football_storage::repositories::day::{DayFilter, fetch_day};
 use football_storage::repositories::identity as identity_repo;
@@ -269,13 +270,16 @@ async fn worker_status(pool: &sqlx::PgPool) -> Result<()> {
 /// observationök íródnak, kanonikus adat nem.
 async fn worker_tick(pool: &sqlx::PgPool, store: &ObjectStore, data_dir: &str) -> Result<()> {
     let fixture_dir = std::path::Path::new(data_dir).join("worker-fixtures");
-    let fetcher = FixtureFetcher::from_dir(&fixture_dir)?;
+    let fixture = FixtureFetcher::from_dir(&fixture_dir)?;
+    // CLI ingest-mód: nincs Obscura-szerver; a fixture policy-k fixture
+    // fetcheren mennek, a valódi transzportok a footballd-ben aktiválódnak.
+    let fetchers = Fetchers::new(RustHttpFetcher::new("football-app-v2")?, fixture);
     let mut adapters: HashMap<String, Box<dyn SourceAdapter>> = HashMap::new();
     adapters.insert("demo-synthetic".into(), Box::new(DemoAdapter));
     let now = Utc::now();
     let policies = worker_repo::list_enabled_policies(pool).await?;
     let generated = scheduler::generate_jobs(pool, &policies, now).await?;
-    let outcome = tick::tick(pool, store, &fetcher, &adapters, uuid::Uuid::now_v7(), now).await?;
+    let outcome = tick::tick(pool, store, &fetchers, &adapters, uuid::Uuid::now_v7(), now).await?;
     println!(
         "generált={generated} feldolgozott={} blokkolt={} sikertelen={}",
         outcome.processed, outcome.blocked, outcome.failed

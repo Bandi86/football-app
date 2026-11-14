@@ -6,7 +6,10 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use football_domain::error::FetchError;
+use football_domain::policy::Transport;
 use sha2::Digest;
+
+use crate::http::RustHttpFetcher;
 
 #[derive(Debug, Clone)]
 pub struct FetchRequest {
@@ -104,5 +107,55 @@ impl Fetcher for FixtureFetcher {
             http_status: 200,
             fetched_at: Utc::now(),
         })
+    }
+}
+
+/// Transzport szerinti fetcher-választó (S2c): a worker a
+/// `source_policy.transport` alapján választ fetchert. Az obscura fetcher
+/// csak akkor van jelen, ha az `obscura` feature be van kapcsolva és a
+/// footballd inicializálta (lazy szerverindítás).
+pub struct Fetchers {
+    pub rust_http: RustHttpFetcher,
+    pub fixture: FixtureFetcher,
+    #[cfg(feature = "obscura")]
+    pub obscura: Option<crate::obscura::ObscuraFetcher>,
+}
+
+impl Fetchers {
+    pub fn new(rust_http: RustHttpFetcher, fixture: FixtureFetcher) -> Self {
+        Self {
+            rust_http,
+            fixture,
+            #[cfg(feature = "obscura")]
+            obscura: None,
+        }
+    }
+
+    #[cfg(feature = "obscura")]
+    pub fn with_obscura(mut self, fetcher: crate::obscura::ObscuraFetcher) -> Self {
+        self.obscura = Some(fetcher);
+        self
+    }
+
+    /// A robots.txt kérései valódi forrásnál plain HTTP-vel mennek.
+    pub fn rust_http(&self) -> &dyn Fetcher {
+        &self.rust_http
+    }
+
+    pub fn for_transport(&self, transport: &Transport) -> Result<&dyn Fetcher, FetchError> {
+        match transport {
+            Transport::RustHttp => Ok(&self.rust_http),
+            Transport::Fixture => Ok(&self.fixture),
+            #[cfg(feature = "obscura")]
+            Transport::Obscura => self
+                .obscura
+                .as_ref()
+                .map(|fetcher| fetcher as &dyn Fetcher)
+                .ok_or_else(|| FetchError::Transport("obscura fetcher nincs inicializálva".into())),
+            #[cfg(not(feature = "obscura"))]
+            Transport::Obscura => Err(FetchError::Transport(
+                "obscura feature nincs engedélyezve ebben a buildben".into(),
+            )),
+        }
     }
 }

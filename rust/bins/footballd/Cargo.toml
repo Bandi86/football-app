@@ -4,11 +4,16 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
+[features]
+default = []
+obscura = ["football-ingest/obscura"]
+
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
 dirs.workspace = true
 football-api = { path = "../../crates/api" }
+football-domain = { path = "../../crates/domain" }
 football-ingest = { path = "../../crates/ingest" }
 football-storage = { path = "../../crates/storage" }
 football-worker = { path = "../../crates/worker" }

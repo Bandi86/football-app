@@ -21,8 +21,9 @@ use football_domain::policy::{EventTemplate, SourceMode, SourcePolicy, Transport
 use football_identity::review;
 use football_ingest::adapter::SourceAdapter;
 use football_ingest::demo::DemoAdapter;
-use football_ingest::fetch::FixtureFetcher;
+use football_ingest::fetch::{Fetchers, FixtureFetcher};
 use football_ingest::fixture::FixtureSource;
+use football_ingest::http::RustHttpFetcher;
 use football_ingest::observe::insert_observation;
 use football_storage::object_store::ObjectStore;
 use football_storage::repositories::identity as identity_repo;
@@ -31,6 +32,14 @@ use football_storage::test_support::test_pool;
 use football_worker::{scheduler, tick};
 use sqlx::PgPool;
 use uuid::Uuid;
+
+/// A tesztek fixture policy-i a fixture fetcheren mennek (nincs hálózat).
+fn as_fetchers(fixture: FixtureFetcher) -> Fetchers {
+    Fetchers::new(
+        RustHttpFetcher::new("football-app-test").expect("rust_http fetcher"),
+        fixture,
+    )
+}
 
 /// Mai nap 12:00 UTC — a fixture dátum-guard és a publish-dátum is erre a napra esik.
 fn today_noon() -> DateTime<Utc> {
@@ -206,8 +215,9 @@ async fn exact_fixture_stays_verified() {
     let pool = test_pool().await;
     let now = today_noon();
     let (store, fetcher, _fixture, _store_dir, _fetch_dir) = setup_live(&pool, now).await;
+    let fetchers = as_fetchers(fetcher);
 
-    let outcome = tick::tick(&pool, &store, &fetcher, &adapters(), Uuid::now_v7(), now)
+    let outcome = tick::tick(&pool, &store, &fetchers, &adapters(), Uuid::now_v7(), now)
         .await
         .unwrap();
     assert_eq!(outcome.processed, 1);
@@ -262,9 +272,10 @@ async fn uncertain_identity_cycle() {
     let pool = test_pool().await;
     let now = today_noon();
     let (store, fetcher, fixture, _store_dir, _fetch_dir) = setup_live(&pool, now).await;
+    let fetchers = as_fetchers(fetcher);
 
     // a) Tick → verified (a fixture_seed ref aktív, egzakt feloldás).
-    let outcome = tick::tick(&pool, &store, &fetcher, &adapters(), Uuid::now_v7(), now)
+    let outcome = tick::tick(&pool, &store, &fetchers, &adapters(), Uuid::now_v7(), now)
         .await
         .unwrap();
     assert_eq!(outcome.processed, 1);
@@ -393,10 +404,10 @@ async fn shadow_mode_unchanged() {
     let store_dir = tempfile::tempdir().unwrap();
     let store = ObjectStore::new(store_dir.path()).unwrap();
     let fetch_dir = tempfile::tempdir().unwrap();
-    let fetcher = fixture_fetcher("demo_day.json", now, fetch_dir.path());
+    let fetchers = as_fetchers(fixture_fetcher("demo_day.json", now, fetch_dir.path()));
     seed_and_generate(&pool, SourceMode::Shadow, now).await;
 
-    let outcome = tick::tick(&pool, &store, &fetcher, &adapters(), Uuid::now_v7(), now)
+    let outcome = tick::tick(&pool, &store, &fetchers, &adapters(), Uuid::now_v7(), now)
         .await
         .unwrap();
     assert_eq!(outcome.processed, 1);

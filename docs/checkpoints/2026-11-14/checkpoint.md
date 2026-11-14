@@ -75,3 +75,86 @@ S2c — Obscura browser-fetcher:
 1. A felhasználó review-zza a specet; jóváhagyás után writing-plans
    (terv: docs/superpowers/plans/2026-11-14-s2c-obscura.md).
 2. Implementáció inline execution-nel (executing-plans), taskonkénti STOP.
+
+## S2c végrehajtás (inline execution, feat/s2c-obscura, docs commit b051498)
+
+- [x] Task 1: Alap + 0007 migráció — Transport::Obscura variáns + db_str;
+      0007_obscura_transport.sql (source_policy.transport CHECK bővítés,
+      constraint név ellenőrizve); ingest obscura cargo feature
+      (chromiumoxide 0.9.1 optional rustls+zip8, tokio/futures/thiserror
+      optional); ObscuraError + ObscuraConfig (from_env_with injektálható).
+      Tesztek: domain 3/3, storage 2/2, ingest config 4/4; fmt/clippy
+      (obscura feature) tiszta; default build (feature KI) fordul.
+- [x] Task 2: ObscuraServer lifecycle — server.rs (lazy start: OBSCURA_URL
+      → external health-check; egyébként bináris-ellenőrzés + spawn +
+      /json/version poll ~10 s), cdp_url(), stop() (kill+wait), Drop;
+      BinaryNotFound / ServerStart hiba utak. Tesztek: obscura_server 2/2;
+      teljes ingest suite 24/24 (obscura feature); default build, fmt,
+      clippy tiszta. Terv-eltérés: is_external() accessor (dead_code őr)
+      + Debug derive (unwrap_err miatt).
+- [x] Task 3: ObscuraFetcher CDP fetch — a terv szerinti chromiumoxide-alapú
+      státusz-capture bizonyítottan nem működik (az Obscura
+      Network.responseReceived payloadjából hiányoznak a chromiumoxide
+      kötelező mezői → az egész CDP-üzenet parse-a elbukik; custom event,
+      Fetch-válaszstádium, performance timing, scrape CLI és második
+      kapcsolat is zsákutca — nyers CDP-probe-okkal igazolva). Felhasználói
+      döntéssel (2026-11-14) a chromiumoxide kikerült; helyette saját,
+      lenient mini CDP-kliens (async-tungstenite 0.32): open/attach →
+      Network.enable → navigate → status → outerHTML → closeTarget.
+      Tesztek: obscura_fetch 1/1 (élő lokális serve + wiremock), teljes
+      ingest suite 25/25, default build, fmt, clippy tiszta; a
+      chromiumoxide kikerült a lockból.
+- [x] Task 4: Fetchers szelektor + wiring — fetch.rs `Fetchers`
+      (new/with_obscura/rust_http/for_transport), storage
+      `has_enabled_transport`, tick/runner `&Fetchers`, footballd lazy
+      Obscura-szerver + shutdown stop, footballctl Fetchers. Eltérés a
+      tervtől: (a) a robots-őr fixture transzportnál a fixture fetcheren
+      megy (különben a tesztek élő hálózatra mennének), valódi forrásnál
+      plain HTTP; (b) a transzport-választás hibája nem `?`, hanem
+      graceful Failed a job lezárásában (érthető ok). Tesztek:
+      fetchers_select 1/1 (default + obscura), storage obscura schema 3/3,
+      workspace 157/157, ingest obscura 26/26, clippy/fmt tiszta,
+      `cargo check -p footballd --features obscura` fordul.
+- [x] Task 5: Élő render teszt + operations doc + zárás — új
+      `obscura_live.rs` (opt-in, OBSCURA_LIVE_TEST=1; Soccerway /matches/
+      + reqwest összehasonlítás), `docs/operations/obscura.md` (bináris
+      beszerzés/asset API, env, opt-in, stealth KI,
+      --allow-private-network, rollback, hibaelhárítás), .gitignore
+      (/tools/obscura/), db-check.sh megjegyzés (0001–0007, 33 tábla).
+      Élő bizonyíték: 2136 vs 0 marker (Soccerway, 2026-11-14), korábbi
+      futás 300 vs 0; spike: 2060 vs 0. Megfigyelés: rövid időn belüli
+      ismételt futásoknál a Soccerway/engine elakad (Timeout, fail-closed)
+      — a teszt opt-in, cooldown kell; a fetcher beragadás ellen korlátos
+      (navigate 20 s, ready 20 s, evaluate 15 s, close 5 s).
+      Implementációs tanulságok (a kliensben rögzítve): Page.enable kell a
+      Page.navigate válaszához; a navigate válasza a load-ig késhet; a
+      státuszt a Document-típusú válaszból kell venni (redirect).
+      Záró kapuk: check.sh exit 0, 157/157 workspace, ingest obscura 27/27,
+      clippy (workspace + feature), footballd --features obscura, fmt.
+- [x] Dev migráció: 0007 lefutott a dev DB-n (footballctl migrate:
+      „migráció kész"); db-check: dev 33 tábla OK. A test DB-n a kézi
+      tesztfutások maradék sorai (9 üzleti) miatt db-reset szükséges
+      (a hivatalos check.sh is ezt futtatja; csak a TEST_DATABASE_URL-t
+      érinti).
+- [x] Commit: S2c szelet egy commitban (jóváhagyott kérésre, push nélkül).
+
+## Deferred minorok (S2c)
+
+1. Policy-szintű fetch-timeout: a worker FETCH_TIMEOUT_SECS = 30 s statikus;
+   browser-renderelésnél szűk lehet (a live tesztek 8–45 s tartományban
+   futottak). Ops-döntés a policy bővítéséről (fetch_timeout_ms).
+2. Az ObscuraFetcher nem utasítja el a nem-2xx választ (a RustHttpFetcher
+   igen): a renderelt hiboldal + státusz megy tovább, a parser-szintű
+   őrök/karantén fognak. Szándékos (a decoy-őr a parser rétegben van),
+   de a breaker-viselkedés ettől eltér — dokumentálva.
+3. Upstream chromiumoxide-jegyzet (a strict `Response` mezők miatt) nem
+   készült el — külön feladat, publikus repó-interakció engedéllyel.
+
+## Visszaállítási út (S2c zárás)
+
+- Kód: a `feat/s2c-obscura` branch commitja revertelhető; a main
+  (5644471) érintetlen.
+- DB: a 0007 csak a CHECK-et bővíti; visszaállítás: a constraint
+  visszaállítása ('rust_http','fixture') — csak ha nincs obscura sor.
+- Feature: default build (obscura KI); a policy transport visszaállítása
+  rust_http-ra; forrás-váltás nem történik.

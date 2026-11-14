@@ -10,8 +10,8 @@ fi
 : "${DATABASE_URL:?DATABASE_URL hiányzik}"
 : "${TEST_DATABASE_URL:?TEST_DATABASE_URL hiányzik}"
 
-# Elvárt táblaszám: mindkét DB a 0001–0006 migrációk után 33 tábla
-# (32 terméktábla + _sqlx_migrations); a 0006 a dev DB-n is lefutott.
+# Elvárt táblaszám: mindkét DB a 0001–0007 migrációk után 33 tábla
+# (32 terméktábla + _sqlx_migrations); a 0007 csak a transport CHECK-et bővíti.
 expected_tables=33
 
 for name in DATABASE_URL TEST_DATABASE_URL; do

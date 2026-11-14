@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
+[features]
+default = []
+obscura = ["dep:async-tungstenite", "dep:tokio", "dep:futures", "dep:thiserror"]
+
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
@@ -18,6 +22,10 @@ serde_json.workspace = true
 sha2.workspace = true
 sqlx.workspace = true
 uuid.workspace = true
+tokio = { workspace = true, optional = true }
+futures = { version = "0.3", optional = true }
+thiserror = { workspace = true, optional = true }
+async-tungstenite = { version = "0.32", features = ["tokio-runtime"], optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true

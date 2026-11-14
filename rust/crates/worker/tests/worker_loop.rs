@@ -14,13 +14,22 @@ use chrono::Utc;
 use football_domain::policy::{EventTemplate, SourceMode, SourcePolicy, Transport};
 use football_ingest::adapter::SourceAdapter;
 use football_ingest::demo::DemoAdapter;
-use football_ingest::fetch::FixtureFetcher;
+use football_ingest::fetch::{Fetchers, FixtureFetcher};
+use football_ingest::http::RustHttpFetcher;
 use football_storage::object_store::ObjectStore;
 use football_storage::repositories::worker as repo;
 use football_storage::test_support::test_pool;
 use football_worker::{runner::run_loop, scheduler};
 use sqlx::PgPool;
 use uuid::Uuid;
+
+/// A tesztek fixture policy-i a fixture fetcheren mennek (nincs hálózat).
+fn as_fetchers(fixture: FixtureFetcher) -> Fetchers {
+    Fetchers::new(
+        RustHttpFetcher::new("football-app-test").expect("rust_http fetcher"),
+        fixture,
+    )
+}
 
 fn policy() -> SourcePolicy {
     SourcePolicy {
@@ -95,7 +104,7 @@ async fn loop_stops_on_shutdown_and_releases_leases() {
     let handle = tokio::spawn(run_loop(
         pool.clone(),
         store,
-        Box::new(fetcher),
+        as_fetchers(fetcher),
         adapters(),
         worker_id,
         Duration::from_secs(60),
@@ -177,7 +186,7 @@ async fn loop_exits_without_tick_when_shutdown_preset() {
     run_loop(
         pool.clone(),
         store,
-        Box::new(fetcher),
+        as_fetchers(fetcher),
         adapters(),
         Uuid::now_v7(),
         Duration::from_millis(50),

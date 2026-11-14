@@ -238,3 +238,30 @@ subagent-típusok nem elérhetők ebben a sessionben → inline execution
    (rust_http/fixture/obscura), a tick `run_loop`/`process_job` szignatúrája
    változik, a robots a rust_http fetchert használja. A meglévő worker
    tesztek run_loop hívásai frissülnek.
+
+## Implementációs döntés (2026-11-14, Task 3 — felhasználó által jóváhagyva)
+
+**chromiumoxide → saját mini CDP-kliens.** A terv által előirányzott
+chromiumoxide 0.9.1 + `Network.enable` alapú státusz-capture bizonyítottan
+nem működik az Obscura 0.2.6 payloadjával:
+
+- Az Obscura `Network.responseReceived` eseménye hiányos a chromiumoxide
+  tipizált `Response` kötelező mezőihez képest (charset, connectionReused,
+  connectionId, encodedDataLength, securityState) → az egész
+  `CdpEventMessage` deszerializáció elbukik, az esemény eldobódik. A
+  `CdpEvent::Other` fallback csak ismeretlen metódusnévre él, custom event
+  nem segít.
+- Nyers CDP-probe igazolta: az esemény megérkezik (`"status":200`, helyes
+  sessionId); a `Fetch` domain válasz-stádiuma `responseStatusCode: null`;
+  a `performance` navigation timing nem implementált; a `scrape` CLI nem
+  ad státuszt; második CDP-kapcsolat ugyanahhoz a targethez
+  `Target not found` (a targetek nem osztottak kapcsolatok között).
+
+**Döntés:** az `obscura` feature-ből a chromiumoxide kikerül; helyette
+`async-tungstenite` 0.32-alapú, saját, lenient (serde_json::Value) minimál
+CDP-kliens (`rust/crates/ingest/src/obscura/cdp.rs`) végzi a
+createTarget → attachToTarget (flatten) → Network.enable → Page.navigate →
+státusz (responseReceived) → Runtime.evaluate (outerHTML) → closeTarget
+láncot. A nyers probe minden lépést igazolt; a Fetcher trait, a
+szerver-lifecycle és az őrök változatlanok. A döntés egyben eltávolítja a
+chromiumoxide és tranzitív függőségeit a lockból.

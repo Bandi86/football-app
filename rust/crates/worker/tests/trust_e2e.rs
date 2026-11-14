@@ -24,8 +24,9 @@ use football_domain::trust::TrustClass;
 use football_ingest::adapter::SourceAdapter;
 use football_ingest::canonicalize::Canonicalizer;
 use football_ingest::demo::DemoAdapter;
-use football_ingest::fetch::FixtureFetcher;
+use football_ingest::fetch::{Fetchers, FixtureFetcher};
 use football_ingest::fixture::{FixtureAdapter, FixtureOdds, FixtureSource};
+use football_ingest::http::RustHttpFetcher;
 use football_storage::object_store::ObjectStore;
 use football_storage::repositories::trust as trust_repo;
 use football_storage::repositories::worker as repo;
@@ -33,6 +34,14 @@ use football_storage::test_support::test_pool;
 use football_worker::{scheduler, tick};
 use sqlx::PgPool;
 use uuid::Uuid;
+
+/// A tesztek fixture policy-i a fixture fetcheren mennek (nincs hálózat).
+fn as_fetchers(fixture: FixtureFetcher) -> Fetchers {
+    Fetchers::new(
+        RustHttpFetcher::new("football-app-test").expect("rust_http fetcher"),
+        fixture,
+    )
+}
 
 /// Mai nap 12:00 UTC — a fixture dátum-guard és a publish-dátum is erre a napra esik.
 fn today_noon() -> DateTime<Utc> {
@@ -192,7 +201,7 @@ async fn demo_two_medium_sources_verified_with_verified_odds() {
     let fetch_dir = tempfile::tempdir().unwrap();
     let fixture = base_fixture(now);
     let path = write_fixture(fetch_dir.path(), "demo_day.json", &fixture);
-    let fetcher = fetcher_for(path, now);
+    let fetchers = as_fetchers(fetcher_for(path, now));
     seed_and_generate(&pool, SourceMode::Live, now).await;
 
     // Két medium forrás, NULL provider → 2 független csoport (spec §3.3).
@@ -203,7 +212,7 @@ async fn demo_two_medium_sources_verified_with_verified_odds() {
     let src_b = seed_source(&pool, "demo-corroborating", "Demó megerősítő forrás").await;
     seed_trust(&pool, src_b, TrustClass::Medium, None).await;
 
-    let outcome = tick::tick(&pool, &store, &fetcher, &adapters(), Uuid::now_v7(), now)
+    let outcome = tick::tick(&pool, &store, &fetchers, &adapters(), Uuid::now_v7(), now)
         .await
         .unwrap();
     assert_eq!(outcome.processed, 1);
@@ -255,12 +264,12 @@ async fn single_medium_source_provisional() {
     let fetch_dir = tempfile::tempdir().unwrap();
     let fixture = base_fixture(now);
     let path = write_fixture(fetch_dir.path(), "demo_day.json", &fixture);
-    let fetcher = fetcher_for(path, now);
+    let fetchers = as_fetchers(fetcher_for(path, now));
     seed_and_generate(&pool, SourceMode::Live, now).await;
     let src = seed_source(&pool, "demo-synthetic", "Demó szintetikus forrás").await;
     seed_trust(&pool, src, TrustClass::Medium, None).await;
 
-    let outcome = tick::tick(&pool, &store, &fetcher, &adapters(), Uuid::now_v7(), now)
+    let outcome = tick::tick(&pool, &store, &fetchers, &adapters(), Uuid::now_v7(), now)
         .await
         .unwrap();
     assert_eq!(outcome.processed, 1);
@@ -324,13 +333,13 @@ async fn high_source_alone_verified() {
     let fetch_dir = tempfile::tempdir().unwrap();
     let fixture = base_fixture(now);
     let path = write_fixture(fetch_dir.path(), "demo_day.json", &fixture);
-    let fetcher = fetcher_for(path, now);
+    let fetchers = as_fetchers(fetcher_for(path, now));
     seed_and_generate(&pool, SourceMode::Live, now).await;
     // High trust a result + fixture/kickoff domaineken → egymagában verified.
     let src = seed_source(&pool, "demo-synthetic", "Demó szintetikus forrás").await;
     seed_trust(&pool, src, TrustClass::High, None).await;
 
-    let outcome = tick::tick(&pool, &store, &fetcher, &adapters(), Uuid::now_v7(), now)
+    let outcome = tick::tick(&pool, &store, &fetchers, &adapters(), Uuid::now_v7(), now)
         .await
         .unwrap();
     assert_eq!(outcome.processed, 1);
@@ -371,7 +380,7 @@ async fn differing_odds_provisional_but_match_verified() {
     let fetch_dir = tempfile::tempdir().unwrap();
     let fixture = base_fixture(now);
     let path = write_fixture(fetch_dir.path(), "demo_day.json", &fixture);
-    let fetcher = fetcher_for(path, now);
+    let fetchers = as_fetchers(fetcher_for(path, now));
     seed_and_generate(&pool, SourceMode::Live, now).await;
 
     let src_a = seed_source(&pool, "demo-synthetic", "Demó szintetikus forrás").await;
@@ -391,7 +400,7 @@ async fn differing_odds_provisional_but_match_verified() {
         .await
         .unwrap();
 
-    let outcome = tick::tick(&pool, &store, &fetcher, &adapters(), Uuid::now_v7(), now)
+    let outcome = tick::tick(&pool, &store, &fetchers, &adapters(), Uuid::now_v7(), now)
         .await
         .unwrap();
     assert_eq!(outcome.processed, 1);
@@ -429,12 +438,12 @@ async fn shadow_unchanged() {
     let fetch_dir = tempfile::tempdir().unwrap();
     let fixture = base_fixture(now);
     let path = write_fixture(fetch_dir.path(), "demo_day.json", &fixture);
-    let fetcher = fetcher_for(path, now);
+    let fetchers = as_fetchers(fetcher_for(path, now));
     seed_and_generate(&pool, SourceMode::Shadow, now).await;
     let src = seed_source(&pool, "demo-synthetic", "Demó szintetikus forrás").await;
     seed_trust(&pool, src, TrustClass::Medium, None).await;
 
-    let outcome = tick::tick(&pool, &store, &fetcher, &adapters(), Uuid::now_v7(), now)
+    let outcome = tick::tick(&pool, &store, &fetchers, &adapters(), Uuid::now_v7(), now)
         .await
         .unwrap();
     assert_eq!(outcome.processed, 1);

@@ -86,3 +86,12 @@ fn db_string_roundtrip() {
     assert_eq!(err.0, "ismeretlen");
     assert_eq!(err.to_string(), "ismeretlen db-érték: ismeretlen");
 }
+
+#[test]
+fn transport_obscura_db_string() {
+    assert_eq!(Transport::Obscura.as_db_str(), "obscura");
+    assert_eq!(
+        Transport::from_db_str("obscura").unwrap(),
+        Transport::Obscura
+    );
+}

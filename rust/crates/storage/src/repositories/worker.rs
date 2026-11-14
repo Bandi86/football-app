@@ -149,6 +149,19 @@ pub async fn get_policy(pool: &PgPool, slug: &str) -> Result<Option<SourcePolicy
     row.as_ref().map(policy_from_row).transpose()
 }
 
+/// Van-e engedélyezett policy az adott transzporttal? A footballd ezzel
+/// dönti el, hogy lazy elindítsa-e az Obscura szervert (S2c).
+pub async fn has_enabled_transport(pool: &PgPool, transport: &str) -> Result<bool> {
+    let exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM ops.source_policy WHERE enabled AND transport = $1)",
+    )
+    .bind(transport)
+    .fetch_one(pool)
+    .await
+    .context("source_policy transport ellenőrzése")?;
+    Ok(exists)
+}
+
 pub async fn list_enabled_policies(pool: &PgPool) -> Result<Vec<SourcePolicy>> {
     let sql = format!(
         "SELECT {POLICY_COLUMNS} FROM ops.source_policy WHERE enabled ORDER BY source_slug"

@@ -17,7 +17,7 @@ use std::time::Duration;
 use anyhow::Result;
 use chrono::Utc;
 use football_ingest::adapter::SourceAdapter;
-use football_ingest::fetch::Fetcher;
+use football_ingest::fetch::Fetchers;
 use football_storage::object_store::ObjectStore;
 use football_storage::repositories::worker as repo;
 use sqlx::PgPool;
@@ -32,14 +32,14 @@ use crate::{scheduler, tick};
 async fn run_cycle(
     pool: &PgPool,
     store: &ObjectStore,
-    fetcher: &dyn Fetcher,
+    fetchers: &Fetchers,
     adapters: &HashMap<String, Box<dyn SourceAdapter>>,
     worker_id: Uuid,
 ) -> Result<()> {
     let now = Utc::now();
     let policies = repo::list_enabled_policies(pool).await?;
     let generated = scheduler::generate_jobs(pool, &policies, now).await?;
-    let outcome = tick::tick(pool, store, fetcher, adapters, worker_id, now).await?;
+    let outcome = tick::tick(pool, store, fetchers, adapters, worker_id, now).await?;
     tracing::info!(
         generated,
         processed = outcome.processed,
@@ -53,7 +53,7 @@ async fn run_cycle(
 pub async fn run_loop(
     pool: PgPool,
     store: ObjectStore,
-    fetcher: Box<dyn Fetcher>,
+    fetchers: Fetchers,
     adapters: HashMap<String, Box<dyn SourceAdapter>>,
     worker_id: Uuid,
     tick_interval: Duration,
@@ -74,7 +74,7 @@ pub async fn run_loop(
                 }
             }
             _ = interval.tick() => {
-                if let Err(err) = run_cycle(&pool, &store, fetcher.as_ref(), &adapters, worker_id).await {
+                if let Err(err) = run_cycle(&pool, &store, &fetchers, &adapters, worker_id).await {
                     tracing::error!(error = %err, "worker tick hiba, a ciklus folytatódik");
                 }
             }

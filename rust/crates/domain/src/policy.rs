@@ -8,6 +8,7 @@ use uuid::Uuid;
 pub enum Transport {
     RustHttp,
     Fixture,
+    Obscura,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -73,7 +74,7 @@ macro_rules! db_str {
     };
 }
 
-db_str!(Transport, RustHttp => "rust_http", Fixture => "fixture");
+db_str!(Transport, RustHttp => "rust_http", Fixture => "fixture", Obscura => "obscura");
 db_str!(SourceMode, Shadow => "shadow", Canary => "canary", Live => "live");
 db_str!(BreakerState, Closed => "closed", Open => "open", HalfOpen => "half_open");
 db_str!(

@@ -4,10 +4,15 @@ use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 use football_api::{AppState, router};
+#[cfg(feature = "obscura")]
+use football_domain::policy::Transport;
 use football_ingest::adapter::SourceAdapter;
 use football_ingest::demo::DemoAdapter;
-use football_ingest::fetch::FixtureFetcher;
+use football_ingest::fetch::{Fetchers, FixtureFetcher};
+use football_ingest::http::RustHttpFetcher;
 use football_storage::object_store::ObjectStore;
+#[cfg(feature = "obscura")]
+use football_storage::repositories::worker as worker_repo;
 use sqlx::postgres::PgPoolOptions;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
@@ -32,11 +37,34 @@ async fn main() -> Result<()> {
         .map(|v| v == "true")
         .unwrap_or(false);
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    #[cfg(feature = "obscura")]
+    let mut obscura_server: Option<football_ingest::obscura::server::ObscuraServer> = None;
     let worker_handle = if worker_enabled {
         let data_dir = std::env::var("DATA_DIR").unwrap_or_else(|_| "./data".into());
         let store = ObjectStore::new(&data_dir)?;
         let fixture_dir = std::path::Path::new(&data_dir).join("worker-fixtures");
-        let fetcher = Box::new(FixtureFetcher::from_dir(&fixture_dir)?);
+        let rust_http = RustHttpFetcher::new("football-app-v2")?;
+        let fixture = FixtureFetcher::from_dir(&fixture_dir)?;
+        let fetchers = Fetchers::new(rust_http, fixture);
+        // Lazy Obscura-szerver: csak engedélyezett obscura policy esetén,
+        // és csak ha az obscura feature be van kapcsolva ebben a buildben.
+        #[cfg(feature = "obscura")]
+        let fetchers = {
+            let mut fetchers = fetchers;
+            if worker_repo::has_enabled_transport(&pool, Transport::Obscura.as_db_str()).await? {
+                let cfg = football_ingest::obscura::ObscuraConfig::from_env();
+                let server = football_ingest::obscura::server::ObscuraServer::start(&cfg).await?;
+                let fetcher = football_ingest::obscura::ObscuraFetcher::connect(
+                    server.cdp_url(),
+                    std::time::Duration::from_millis(cfg.timeout_ms),
+                )
+                .await?;
+                obscura_server = Some(server);
+                fetchers = fetchers.with_obscura(fetcher);
+                tracing::info!("obscura fetcher aktiv (lazy szerverinditas)");
+            }
+            fetchers
+        };
         let mut adapters: HashMap<String, Box<dyn SourceAdapter>> = HashMap::new();
         adapters.insert("demo-synthetic".into(), Box::new(DemoAdapter));
         let tick_secs = worker_tick_secs(std::env::var("WORKER_TICK_SECS").ok().as_deref());
@@ -45,7 +73,7 @@ async fn main() -> Result<()> {
         Some(tokio::spawn(football_worker::runner::run_loop(
             pool.clone(),
             store,
-            fetcher,
+            fetchers,
             adapters,
             worker_id,
             std::time::Duration::from_secs(tick_secs),
@@ -89,6 +117,11 @@ async fn main() -> Result<()> {
             .and_then(|r| r),
         None => Ok(()),
     };
+    #[cfg(feature = "obscura")]
+    if let Some(mut server) = obscura_server {
+        server.stop();
+        tracing::info!("obscura szerver leállítva");
+    }
     tracing::info!("footballd leállt");
     serve_result?;
     worker_result
