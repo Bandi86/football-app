@@ -33,7 +33,6 @@ use football_ingest::canonicalize::Canonicalizer;
 use football_ingest::fetch::{FetchLimits, FetchRequest, Fetcher, Fetchers};
 use football_ingest::observe::insert_observation;
 use football_storage::object_store::ObjectStore;
-use football_storage::repositories::identity as identity_repo;
 use football_storage::repositories::trust;
 use football_storage::repositories::worker::{self as repo, LedgerEntry, RawCapture};
 use football_verification::conflict::load_material_values;
@@ -540,11 +539,6 @@ async fn verify_and_publish(
 ) -> Result<()> {
     let day = Canonicalizer::materialize(pool, normalized).await?;
     let rules = default_rules();
-    // Koherens forrás-pár: a crosswalk a slugot, a ref az uuid-t használja.
-    let source_id = identity_repo::source_id_by_code(pool, &normalized.source_code)
-        .await?
-        .context("forrás-azonosító az identitáshoz")?;
-
     // Anyagi forrásértékek előrebetöltése, hogy a trust lista a meccs-loop
     // előtt egyszer álljon elő minden hozzájáruló forráskódra.
     let mut material_values = Vec::with_capacity(day.matches.len());
@@ -561,22 +555,8 @@ async fn verify_and_publish(
     let source_trust = trust::trust_for_sources(pool, &source_codes).await?;
 
     for (materialized, source_values) in day.matches.iter().zip(&material_values) {
-        let home_identity_exact = resolve_team_identity(
-            pool,
-            source_id,
-            &normalized.source_code,
-            normalized,
-            materialized.home_team_id,
-        )
-        .await;
-        let away_identity_exact = resolve_team_identity(
-            pool,
-            source_id,
-            &normalized.source_code,
-            normalized,
-            materialized.away_team_id,
-        )
-        .await;
+        let home_identity_exact = materialized.identity_exact;
+        let away_identity_exact = materialized.identity_exact;
         let duplicate_match_count = repo::count_duplicate_matches(
             pool,
             materialized.match_id,

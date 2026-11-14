@@ -144,29 +144,10 @@ async fn main() -> Result<()> {
                 material_values.push(values);
             }
             let source_trust = trust::trust_for_sources(&pool, &source_codes).await?;
-            let source_id: Uuid = sqlx::query_scalar("SELECT id FROM ops.source WHERE code=$1")
-                .bind(&fixture.source_code)
-                .fetch_one(&pool)
-                .await?;
 
             for (materialized, source_values) in day.matches.iter().zip(&material_values) {
-                // Közös, fail-closed linker-feloldás (a tick live ágával azonos).
-                let home_identity_exact = football_worker::tick::resolve_team_identity(
-                    &pool,
-                    source_id,
-                    &fixture.source_code,
-                    &normalized,
-                    materialized.home_team_id,
-                )
-                .await;
-                let away_identity_exact = football_worker::tick::resolve_team_identity(
-                    &pool,
-                    source_id,
-                    &fixture.source_code,
-                    &normalized,
-                    materialized.away_team_id,
-                )
-                .await;
+                let home_identity_exact = materialized.identity_exact;
+                let away_identity_exact = materialized.identity_exact;
                 let odds_values = trust::load_match_odds(&pool, materialized.match_id).await?;
                 let context = VerificationContext {
                     snapshot: &materialized.snapshot,

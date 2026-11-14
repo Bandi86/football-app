@@ -11,6 +11,9 @@ pub struct Canonicalizer;
 #[derive(Debug, Clone)]
 pub struct MaterializedMatch {
     pub match_id: Uuid,
+    /// A materializált meccshez mindkét csapat feloldott (fixture-seed ref
+    /// vagy linker Exact) — konstrukció szerint igaz.
+    pub identity_exact: bool,
     pub home_team_id: Uuid,
     pub away_team_id: Uuid,
     pub snapshot: MatchSnapshot,
@@ -258,6 +261,7 @@ impl Canonicalizer {
 
             matches.push(MaterializedMatch {
                 match_id,
+                identity_exact: true,
                 home_team_id: home,
                 away_team_id: away,
                 snapshot: MatchSnapshot {
