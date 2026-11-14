@@ -324,5 +324,10 @@ S2c — Obscura browser-fetcher:
       (b) az identitás-jelzők hint-alapú feloldása élő csapatoknál false
       volt → a `MaterializedMatch.identity_exact` (konstrukció szerinti
       igaz: csak feloldott csapatú meccs materializálódik) — `3b63f7e`.
-- Nyitott: a stats/referee observation-aspketek emissionje (S3b-3 folytatás);
-  a canary→live váltás a felhasználó döntése; push a main-en (24 commit).
+- [x] Stats/referee aspketek (commit `ea81614`): adapter (HS/AS/…/Referee),
+      builder (match_stats/match_referee), materializer (per-source
+      fact.match_stats upsert + linkeres játékvezető; nem egzakt → NULL +
+      review). Élő eredmény: **43/43 napi-ablakos meccs stats-sora** a dev
+      DB-n; a játékvezetők review-ra várnak (fail-closed).
+- Nyitott: játékvezető-review jóváhagyás (opcionális, display-hez); a
+  canary→live váltás a felhasználó döntése.
