@@ -178,3 +178,43 @@ async fn unresolved_team_skips_the_match() {
         "a linker review-sort nyitott"
     );
 }
+
+#[tokio::test]
+async fn unresolved_match_odds_are_not_written() {
+    let pool = test_pool().await;
+    let source_id = seed_source(&pool).await;
+    let country_id = seed_country(&pool).await;
+    seed_linked_team(&pool, source_id, country_id, "ujpest", "Újpest").await;
+
+    let mut day = live_day(
+        &[("ujpest", "Újpest"), ("ismeretlen", "Ismeretlen SE")],
+        "ujpest",
+        "ismeretlen",
+    );
+    let quotes = (0..7)
+        .map(|i| football_ingest::normalized::NormalizedQuote {
+            bookmaker: "B365".into(),
+            market: "1x2".into(),
+            outcome: format!("o{i}"),
+            line: 0.0,
+            phase: "closing".into(),
+            price: 2.0,
+        })
+        .collect();
+    day.matches[0].odds = Some(football_ingest::normalized::NormalizedOdds {
+        market_count: Some(1),
+        quotes,
+    });
+
+    let materialized = Canonicalizer::materialize(&pool, &day).await.unwrap();
+    assert_eq!(materialized.matches.len(), 0);
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM fact.odds_snapshot").await,
+        0,
+        "kimaradt meccshez nincs odds-fejléc (FK-biztos)"
+    );
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM fact.odds_quote").await,
+        0
+    );
+}

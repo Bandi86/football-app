@@ -270,54 +270,11 @@ impl Canonicalizer {
                 },
                 observation_ids,
             });
-        }
 
-        for fixture_match in &day.matches {
-            let Some(odds) = &fixture_match.odds else {
-                continue;
-            };
-            let match_id = fixture_match.id.unwrap_or_else(Uuid::now_v7);
-            let market_count = odds
-                .market_count
-                .with_context(|| format!("hiányzó piacszám az odds mellé: {match_id}"))?;
-            // Új vagy frissülő odds sor mindig provisional: a verified
-            // állapotot a gate utáni odds-kiértékelés állítja be (S2b-2).
-            sqlx::query(
-                "INSERT INTO fact.odds_snapshot (match_id, source_id, captured_at, market_count)
-                 VALUES ($1,$2,$3,$4)
-                 ON CONFLICT (match_id, source_id) DO UPDATE SET
-                   captured_at = EXCLUDED.captured_at,
-                   market_count = EXCLUDED.market_count,
-                   trust_state = 'provisional'",
-            )
-            .bind(match_id)
-            .bind(source_id)
-            .bind(day.captured_at)
-            .bind(market_count)
-            .execute(&mut *tx)
-            .await?;
-            // A forrás quote-blokkja teljesen cserélődik (eltűnt kulcs nem marad).
-            sqlx::query("DELETE FROM fact.odds_quote WHERE match_id = $1 AND source_id = $2")
-                .bind(match_id)
-                .bind(source_id)
-                .execute(&mut *tx)
-                .await?;
-            for quote in &odds.quotes {
-                sqlx::query(
-                    "INSERT INTO fact.odds_quote
-                     (match_id, source_id, bookmaker, market, outcome, line, phase, price)
-                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
-                )
-                .bind(match_id)
-                .bind(source_id)
-                .bind(&quote.bookmaker)
-                .bind(&quote.market)
-                .bind(&quote.outcome)
-                .bind(quote.line)
-                .bind(&quote.phase)
-                .bind(quote.price)
-                .execute(&mut *tx)
-                .await?;
+            // Odds csak a materializált meccshez (a kimaradóknak nincs kanonikus
+            // sora → FK-sértés lenne).
+            if let Some(odds) = &fixture_match.odds {
+                write_odds(&mut tx, match_id, source_id, day.captured_at, odds).await?;
             }
         }
 
@@ -550,6 +507,57 @@ async fn find_or_insert_match_id(
     .fetch_optional(&mut **tx)
     .await?;
     Ok(existing.unwrap_or_else(Uuid::now_v7))
+}
+
+/// Odds-fejléc upsert + a forrás quote-blokkjának teljes cseréje
+/// (a friss/új blokk mindig provisional — a gate utáni kiértékelés zárja).
+async fn write_odds(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    match_id: Uuid,
+    source_id: Uuid,
+    captured_at: chrono::DateTime<Utc>,
+    odds: &crate::normalized::NormalizedOdds,
+) -> Result<()> {
+    let market_count = odds
+        .market_count
+        .with_context(|| format!("hiányzó piacszám az odds mellé: {match_id}"))?;
+    sqlx::query(
+        "INSERT INTO fact.odds_snapshot (match_id, source_id, captured_at, market_count)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (match_id, source_id) DO UPDATE SET
+           captured_at = EXCLUDED.captured_at,
+           market_count = EXCLUDED.market_count,
+           trust_state = 'provisional'",
+    )
+    .bind(match_id)
+    .bind(source_id)
+    .bind(captured_at)
+    .bind(market_count)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query("DELETE FROM fact.odds_quote WHERE match_id = $1 AND source_id = $2")
+        .bind(match_id)
+        .bind(source_id)
+        .execute(&mut **tx)
+        .await?;
+    for quote in &odds.quotes {
+        sqlx::query(
+            "INSERT INTO fact.odds_quote
+             (match_id, source_id, bookmaker, market, outcome, line, phase, price)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+        )
+        .bind(match_id)
+        .bind(source_id)
+        .bind(&quote.bookmaker)
+        .bind(&quote.market)
+        .bind(&quote.outcome)
+        .bind(quote.line)
+        .bind(&quote.phase)
+        .bind(quote.price)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
 }
 
 fn parse_status(value: &str) -> Result<MatchStatus> {

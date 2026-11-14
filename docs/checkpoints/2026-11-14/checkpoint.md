@@ -290,8 +290,18 @@ S2c — Obscura browser-fetcher:
 - [x] Adapter-regisztráció a footballd és a footballctl worker tick
       adapters-mapjében; `docs/operations/footballdata.md` (policy/trust
       seed, kétfázisú bootstrap, canary→live, rollback).
-- [ ] Élő kör: **FÜGGŐBEN — külön felhasználói engedéllyel** (5 CSV + robots,
-      canary, kétfázisú review-bootstrap).
+- [x] Élő kör (jóváhagyott engedéllyel, 2026-11-14): policy/trust seed a dev
+      DB-n; 5 CSV **valódi fetch 200-zal** (43–57 KB) + robots (canary,
+      delay-tisztelet: ligánként 1 tick); staging: 51 match_core + 43
+      match_odds + 86 team_identity observation; **86 csapat review-sor
+      (pending)**; a live forrásból **0 kanonikus meccs** (fail-closed,
+      kétfázisú bootstrap — a review-jóváhagyás után jönnek a meccsek);
+      jobs 5/5 done, coverage 5/5 done, ledger success-sorok.
+      A futás közben talált és javított hiba: a kimaradó (feloldatlan)
+      meccshez is írt volna odds-fejlécet (FK-sértés) — a `write_odds` most
+      csak a materializált meccshez fut, regressziós teszttel.
+      Nyitott üzemeltetési igény: a 86 review-sor batch-jóváhagyása
+      (approve-create egyenként) — S3b-3 jelölt.
 - Eltérések (dokumentálva): a stats/referee observation-aspketek emissionje
   elhalasztva (S3b-3 jelölt); a wiremock-os tick-e2e helyett az élő kör a
   végponttól végpontig bizonyíték (a tick-út a demón bizonyított);
