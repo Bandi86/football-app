@@ -1,4 +1,4 @@
-﻿Div,Date,Time,HomeTeam,AwayTeam,FTHG,FTAG,FTR,HTHG,HTAG,HTR,Referee,B365H,B365D,B365A,B365CH,B365CD,B365CA,AvgH,AvgD,AvgA,B365>2.5,B365<2.5,B365C>2.5,B365C<2.5
-E0,21/11/2026,15:00,Arsenal,Chelsea,2,1,H,1,0,H,M. Oliver,1.75,3.80,4.50,1.72,3.90,4.60,1.78,3.85,4.40,1.95,1.87,1.90,1.92
-E0,22/11/2026,16:30,Liverpool,Everton,,, ,,,,A. Taylor,1.40,4.75,7.50,1.38,4.80,8.00,1.42,4.70,7.20,1.60,2.30,1.58,2.35
-E0,05/12/2026,15:00,Manchester City,Tottenham,,, ,,,,C. Pawson,1.30,5.50,9.00,,,,1.32,5.40,8.80,,,,
+﻿Div,Date,Time,HomeTeam,AwayTeam,FTHG,FTAG,FTR,HTHG,HTAG,HTR,Referee,HS,AS,HST,AST,HC,AC,HY,AY,HR,AR,HF,AF,B365H,B365D,B365A,B365CH,B365CD,B365CA,AvgH,AvgD,AvgA,B365>2.5,B365<2.5,B365C>2.5,B365C<2.5
+E0,21/11/2026,15:00,Arsenal,Chelsea,2,1,H,1,0,H,M. Oliver,12,9,5,3,6,4,1,2,0,0,10,11,1.75,3.80,4.50,1.72,3.90,4.60,1.78,3.85,4.40,1.95,1.87,1.90,1.92
+E0,22/11/2026,16:30,Liverpool,Everton,,, ,,,,A. Taylor,10,8,4,2,5,3,0,1,0,0,9,10,1.40,4.75,7.50,1.38,4.80,8.00,1.42,4.70,7.20,1.60,2.30,1.58,2.35
+E0,05/12/2026,15:00,Manchester City,Tottenham,,, ,,,,C. Pawson,,,,,,,,,,,,1.30,5.50,9.00,,,,1.32,5.40,8.80,,,,

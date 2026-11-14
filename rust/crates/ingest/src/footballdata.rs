@@ -193,6 +193,60 @@ impl SourceAdapter for FootballdataAdapter {
                 }),
             });
 
+            // Stats: opcionális oszlopok; ha bármelyik érték jelen van, emittálunk.
+            let stats = |name: &str| -> Option<i32> {
+                headers
+                    .iter()
+                    .position(|h| h.trim() == name)
+                    .and_then(|i| record.get(i))
+                    .and_then(|v| v.trim().parse::<i32>().ok())
+            };
+            let stats_payload = serde_json::json!({
+                "home_shots": stats("HS"),
+                "away_shots": stats("AS"),
+                "home_shots_on_target": stats("HST"),
+                "away_shots_on_target": stats("AST"),
+                "home_corners": stats("HC"),
+                "away_corners": stats("AC"),
+                "home_yellow": stats("HY"),
+                "away_yellow": stats("AY"),
+                "home_red": stats("HR"),
+                "away_red": stats("AR"),
+                "home_fouls": stats("HF"),
+                "away_fouls": stats("AF"),
+                "home_xg": null,
+                "away_xg": null,
+            });
+            if stats_payload
+                .as_object()
+                .is_some_and(|o| o.values().any(|v| !v.is_null()))
+            {
+                observations.push(Observation {
+                    entity_kind: "match".into(),
+                    aspect: "match_stats".into(),
+                    natural_key: source_match_id.clone(),
+                    source_record_key: source_match_id.clone(),
+                    observed_at: captured_at,
+                    payload: stats_payload,
+                });
+            }
+            let referee = headers
+                .iter()
+                .position(|h| h.trim() == "Referee")
+                .and_then(|i| record.get(i))
+                .map(|v| v.trim().to_string())
+                .unwrap_or_default();
+            if !referee.is_empty() {
+                observations.push(Observation {
+                    entity_kind: "match".into(),
+                    aspect: "match_referee".into(),
+                    natural_key: source_match_id.clone(),
+                    source_record_key: source_match_id.clone(),
+                    observed_at: captured_at,
+                    payload: serde_json::json!({ "name": referee }),
+                });
+            }
+
             let quotes = odds_quotes(&record, &headers);
             if !quotes.is_empty() {
                 observations.push(Observation {

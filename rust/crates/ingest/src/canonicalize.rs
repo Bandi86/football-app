@@ -280,6 +280,12 @@ impl Canonicalizer {
             if let Some(odds) = &fixture_match.odds {
                 write_odds(&mut tx, match_id, source_id, day.captured_at, odds).await?;
             }
+            if let Some(stats) = &fixture_match.stats {
+                write_stats(&mut tx, match_id, source_id, day.captured_at, stats).await?;
+            }
+            if let Some(name) = &fixture_match.referee {
+                link_referee(pool, &mut tx, source_id, &day.source_code, match_id, name).await?;
+            }
         }
 
         if let Some(standings) = &day.standings {
@@ -560,6 +566,103 @@ async fn write_odds(
         .bind(quote.price)
         .execute(&mut **tx)
         .await?;
+    }
+    Ok(())
+}
+
+/// Meccs-statisztika upsert (per match+source; hiányzó érték NULL).
+async fn write_stats(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    match_id: Uuid,
+    source_id: Uuid,
+    captured_at: chrono::DateTime<Utc>,
+    stats: &crate::normalized::NormalizedStats,
+) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO fact.match_stats
+         (match_id, source_id, captured_at, home_shots, away_shots,
+          home_shots_on_target, away_shots_on_target, home_corners, away_corners,
+          home_yellow, away_yellow, home_red, away_red, home_fouls, away_fouls,
+          home_xg, away_xg)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+         ON CONFLICT (match_id, source_id) DO UPDATE SET
+           captured_at = EXCLUDED.captured_at,
+           home_shots = EXCLUDED.home_shots, away_shots = EXCLUDED.away_shots,
+           home_shots_on_target = EXCLUDED.home_shots_on_target,
+           away_shots_on_target = EXCLUDED.away_shots_on_target,
+           home_corners = EXCLUDED.home_corners, away_corners = EXCLUDED.away_corners,
+           home_yellow = EXCLUDED.home_yellow, away_yellow = EXCLUDED.away_yellow,
+           home_red = EXCLUDED.home_red, away_red = EXCLUDED.away_red,
+           home_fouls = EXCLUDED.home_fouls, away_fouls = EXCLUDED.away_fouls,
+           home_xg = EXCLUDED.home_xg, away_xg = EXCLUDED.away_xg",
+    )
+    .bind(match_id)
+    .bind(source_id)
+    .bind(captured_at)
+    .bind(stats.home_shots)
+    .bind(stats.away_shots)
+    .bind(stats.home_shots_on_target)
+    .bind(stats.away_shots_on_target)
+    .bind(stats.home_corners)
+    .bind(stats.away_corners)
+    .bind(stats.home_yellow)
+    .bind(stats.away_yellow)
+    .bind(stats.home_red)
+    .bind(stats.away_red)
+    .bind(stats.home_fouls)
+    .bind(stats.away_fouls)
+    .bind(stats.home_xg)
+    .bind(stats.away_xg)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Játékvezető kapcsolása a fail-closed linkeren át; nem egzakt → NULL
+/// (a linker review-sort nyit; a meccs nem blokkol emiatt).
+async fn link_referee(
+    pool: &PgPool,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    source_id: Uuid,
+    source_code: &str,
+    match_id: Uuid,
+    name: &str,
+) -> Result<()> {
+    // Slug: ismétlődő elválasztók összevonva ("M. Oliver" → "m-oliver").
+    let source_entity_id = name
+        .to_ascii_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    let ctx = football_domain::identity::IdentityContext::default();
+    match football_identity::resolve(
+        pool,
+        source_id,
+        source_code,
+        "referee",
+        &source_entity_id,
+        name,
+        &ctx,
+    )
+    .await
+    {
+        Ok(football_domain::identity::Resolution::Exact { entity_id, .. }) => {
+            sqlx::query("UPDATE core.match SET referee_entity_id=$2, updated_at=now() WHERE id=$1")
+                .bind(match_id)
+                .bind(entity_id)
+                .execute(&mut **tx)
+                .await?;
+        }
+        Ok(_) => {
+            tracing::warn!(referee = %name, "ismeretlen játékvezető: review-sor, referee NULL");
+        }
+        Err(err) => {
+            anyhow::bail!("játékvezető-feloldás hiba (fail-closed): {err} — {name}");
+        }
     }
     Ok(())
 }

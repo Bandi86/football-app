@@ -107,6 +107,8 @@ fn live_day(teams: &[(&str, &str)], home: &str, away: &str) -> NormalizedDay {
             status: "scheduled".into(),
             result: None,
             odds: None,
+            stats: None,
+            referee: None,
         }],
         standings: None,
     }
@@ -217,4 +219,59 @@ async fn unresolved_match_odds_are_not_written() {
         count(&pool, "SELECT count(*) FROM fact.odds_quote").await,
         0
     );
+}
+
+#[tokio::test]
+async fn stats_and_referee_are_materialized() {
+    let pool = test_pool().await;
+    let source_id = seed_source(&pool).await;
+    let country_id = seed_country(&pool).await;
+    let home = seed_linked_team(&pool, source_id, country_id, "ujpest", "Újpest").await;
+    let away = seed_linked_team(&pool, source_id, country_id, "gyor", "Győr").await;
+    // Játékvezető-entitás + ref (linkeres Exact).
+    let referee = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO core.entity (id, kind, canonical_name) VALUES ($1,'referee','M. Oliver')",
+    )
+    .bind(referee)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO identity.source_entity_ref
+         (id, source_id, entity_kind, source_entity_id, entity_id, method)
+         VALUES ($1,$2,'referee','m-oliver',$3,'manual_review')",
+    )
+    .bind(Uuid::now_v7())
+    .bind(source_id)
+    .bind(referee)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let _ = (home, away);
+
+    let mut day = live_day(&[("ujpest", "Újpest"), ("gyor", "Győr")], "ujpest", "gyor");
+    day.matches[0].stats = Some(football_ingest::normalized::NormalizedStats {
+        home_shots: Some(12),
+        away_shots: Some(9),
+        ..Default::default()
+    });
+    day.matches[0].referee = Some("M. Oliver".into());
+
+    let materialized = Canonicalizer::materialize(&pool, &day).await.unwrap();
+    assert_eq!(materialized.matches.len(), 1);
+    let (hs, as_): (Option<i32>, Option<i32>) =
+        sqlx::query_as("SELECT home_shots, away_shots FROM fact.match_stats WHERE match_id=$1")
+            .bind(materialized.matches[0].match_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!((hs, as_), (Some(12), Some(9)));
+    let linked: Option<Uuid> =
+        sqlx::query_scalar("SELECT referee_entity_id FROM core.match WHERE id=$1")
+            .bind(materialized.matches[0].match_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(linked, Some(referee));
 }

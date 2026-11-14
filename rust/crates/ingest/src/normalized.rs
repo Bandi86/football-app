@@ -61,6 +61,27 @@ pub struct NormalizedMatch {
     pub status: String,
     pub result: Option<NormalizedResult>,
     pub odds: Option<NormalizedOdds>,
+    pub stats: Option<NormalizedStats>,
+    pub referee: Option<String>,
+}
+
+/// Meccs-statisztika (football-data oszlopok; hiányzó = NULL).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NormalizedStats {
+    pub home_shots: Option<i32>,
+    pub away_shots: Option<i32>,
+    pub home_shots_on_target: Option<i32>,
+    pub away_shots_on_target: Option<i32>,
+    pub home_corners: Option<i32>,
+    pub away_corners: Option<i32>,
+    pub home_yellow: Option<i32>,
+    pub away_yellow: Option<i32>,
+    pub home_red: Option<i32>,
+    pub away_red: Option<i32>,
+    pub home_fouls: Option<i32>,
+    pub away_fouls: Option<i32>,
+    pub home_xg: Option<f64>,
+    pub away_xg: Option<f64>,
 }
 
 #[derive(Debug, Clone)]
@@ -227,6 +248,29 @@ struct StandingPayload {
     position: i16,
 }
 
+#[derive(Deserialize)]
+struct StatsPayload {
+    home_shots: Option<i32>,
+    away_shots: Option<i32>,
+    home_shots_on_target: Option<i32>,
+    away_shots_on_target: Option<i32>,
+    home_corners: Option<i32>,
+    away_corners: Option<i32>,
+    home_yellow: Option<i32>,
+    away_yellow: Option<i32>,
+    home_red: Option<i32>,
+    away_red: Option<i32>,
+    home_fouls: Option<i32>,
+    away_fouls: Option<i32>,
+    home_xg: Option<f64>,
+    away_xg: Option<f64>,
+}
+
+#[derive(Deserialize)]
+struct RefereePayload {
+    name: String,
+}
+
 impl NormalizedDay {
     /// Az observation-aspketekből (verziózott payload-séma) épített nap.
     pub fn from_observations(observations: &[Observation]) -> Result<Self> {
@@ -234,6 +278,8 @@ impl NormalizedDay {
         let mut matches = Vec::new();
         let mut standings = Vec::new();
         let mut odds_by_key: Vec<(String, NormalizedOdds)> = Vec::new();
+        let mut stats_by_key: Vec<(String, NormalizedStats)> = Vec::new();
+        let mut referee_by_key: Vec<(String, String)> = Vec::new();
         let mut meta: Option<(
             NormalizedCompetition,
             NormalizedSeason,
@@ -297,6 +343,8 @@ impl NormalizedDay {
                             away_pens: r.away_pens,
                         }),
                         odds: None,
+                        stats: None,
+                        referee: None,
                     });
                 }
                 "match_odds" => {
@@ -333,6 +381,34 @@ impl NormalizedDay {
                         },
                     ));
                 }
+                "match_stats" => {
+                    let p: StatsPayload = serde_json::from_value(obs.payload.clone())
+                        .context("match_stats payload")?;
+                    stats_by_key.push((
+                        obs.source_record_key.clone(),
+                        NormalizedStats {
+                            home_shots: p.home_shots,
+                            away_shots: p.away_shots,
+                            home_shots_on_target: p.home_shots_on_target,
+                            away_shots_on_target: p.away_shots_on_target,
+                            home_corners: p.home_corners,
+                            away_corners: p.away_corners,
+                            home_yellow: p.home_yellow,
+                            away_yellow: p.away_yellow,
+                            home_red: p.home_red,
+                            away_red: p.away_red,
+                            home_fouls: p.home_fouls,
+                            away_fouls: p.away_fouls,
+                            home_xg: p.home_xg,
+                            away_xg: p.away_xg,
+                        },
+                    ));
+                }
+                "match_referee" => {
+                    let p: RefereePayload = serde_json::from_value(obs.payload.clone())
+                        .context("match_referee payload")?;
+                    referee_by_key.push((obs.source_record_key.clone(), p.name));
+                }
                 "standing" => {
                     let p: StandingPayload =
                         serde_json::from_value(obs.payload.clone()).context("standing payload")?;
@@ -351,6 +427,18 @@ impl NormalizedDay {
                 .find(|(key, _)| *key == m.source_match_id)
             {
                 m.odds = Some(odds.clone());
+            }
+            if let Some((_, stats)) = stats_by_key
+                .iter()
+                .find(|(key, _)| *key == m.source_match_id)
+            {
+                m.stats = Some(stats.clone());
+            }
+            if let Some((_, name)) = referee_by_key
+                .iter()
+                .find(|(key, _)| *key == m.source_match_id)
+            {
+                m.referee = Some(name.clone());
             }
         }
 
@@ -428,6 +516,8 @@ impl From<&FixtureSource> for NormalizedDay {
                         market_count: m.market_count,
                         quotes: default_quotes(odds),
                     }),
+                    stats: None,
+                    referee: None,
                 })
                 .collect(),
             standings: fixture.standings.as_ref().map(|rows| {
