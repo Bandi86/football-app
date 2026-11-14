@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use std::time::{Duration as StdDuration, Instant};
 
 use anyhow::{Context, Result};
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Duration, NaiveDate, Utc};
 use football_domain::error::FetchError;
 use football_domain::identity::{IdentityContext, Resolution};
 use football_domain::policy::{
@@ -43,12 +43,16 @@ use football_verification::gate::{evaluate_and_persist_gate, local_publish_date}
 use football_verification::odds::evaluate_odds_trust;
 use football_verification::persist::persist_report;
 use football_verification::rules::default_rules;
+use rand::Rng;
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{breaker, coverage, quota, robots, scheduler};
 
 const LEASE_SECS: i64 = 60;
+/// Backoff-alap (első próba): 60 s; a sapka 1 óra.
+const BACKOFF_BASE_SECS: i64 = 60;
+const BACKOFF_CAP_SECS: i64 = 3600;
 const CLAIM_LIMIT: i64 = 10;
 const FETCH_TIMEOUT_SECS: u64 = 30;
 const RULE_SET_VERSION: &str = "verification-1.1";
@@ -61,6 +65,19 @@ pub struct TickOutcome {
     pub processed: usize,
     pub blocked: usize,
     pub failed: usize,
+}
+
+/// Exponenciális backoff + jitter: min(60s·2^(n-1), 1h) + [0, jitter_ms).
+fn backoff_delay(attempts: u32, jitter_ms: i64, rng: &mut impl FnMut() -> u32) -> Duration {
+    let exponent = attempts.saturating_sub(1).min(6);
+    let base = BACKOFF_BASE_SECS << exponent;
+    let capped = base.min(BACKOFF_CAP_SECS);
+    let jitter = if jitter_ms <= 0 {
+        0
+    } else {
+        i64::from(rng() % jitter_ms as u32)
+    };
+    Duration::milliseconds(capped * 1000 + jitter)
 }
 
 enum JobResult {
@@ -243,6 +260,9 @@ async fn process_job(
             return fetch_failure(pool, &policy, job, ledger_id, now, latency_ms, &err).await;
         }
     };
+    // A breaker a fetch-egészséget tükrözi: a sikeres fetch azonnal zárja
+    // (half-open probe sem ragadhat be parse-karantén/infra-hiba miatt).
+    breaker::on_success(pool, &job.source_slug).await?;
     // 5–10. Sikeres fetch utáni szakasz. Váratlan infrastruktúra-hibán
     // (objektumtár-írás, nem napi időablak, részleges verify_and_publish)
     // a coverage Failed-re áll, mielőtt a tick a jobot failed-re zárja.
@@ -366,7 +386,6 @@ async fn process_job(
             job.id,
         )
         .await?;
-        breaker::on_success(pool, &job.source_slug).await?;
         scheduler::complete(pool, job.id, JobStatus::Done, None).await?;
         Ok(JobResult::Processed)
     }
@@ -430,7 +449,16 @@ async fn fetch_failure(
     latency_ms: i64,
     err: &FetchError,
 ) -> Result<JobResult> {
+    let retry_after = match err {
+        FetchError::RateLimited(retry_after) => *retry_after,
+        _ => None,
+    };
+    let transient = matches!(
+        err,
+        FetchError::Transport(_) | FetchError::Timeout | FetchError::RateLimited(_)
+    ) || matches!(err, FetchError::HttpStatus(status) if *status >= 500);
     let (outcome, http_status) = match err {
+        FetchError::RateLimited(_) => (FetchOutcome::HttpError, Some(429i16)),
         FetchError::HttpStatus(status) => (FetchOutcome::HttpError, i16::try_from(*status).ok()),
         FetchError::Timeout => (FetchOutcome::Timeout, None),
         FetchError::Oversize(_) => (FetchOutcome::Oversize, None),
@@ -461,6 +489,19 @@ async fn fetch_failure(
         job.id,
     )
     .await?;
+    if transient {
+        let attempts = repo::count_job_fetch_attempts(pool, job.id).await?;
+        let delay = retry_after
+            .and_then(|d| Duration::from_std(d).ok())
+            .unwrap_or_else(|| {
+                let mut rng = rand::rng();
+                backoff_delay(attempts.max(1) as u32, policy.jitter_ms, &mut || {
+                    rng.random()
+                })
+            });
+        repo::requeue_with_delay(pool, job.id, now + delay).await?;
+        return Ok(JobResult::Blocked);
+    }
     scheduler::complete(pool, job.id, JobStatus::Failed, Some(&err.to_string())).await?;
     Ok(JobResult::Failed)
 }

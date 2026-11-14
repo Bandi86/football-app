@@ -13,16 +13,19 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
-use football_domain::policy::{EventTemplate, FetchOutcome, SourceMode, SourcePolicy, Transport};
-use football_ingest::adapter::SourceAdapter;
+use football_domain::error::ParseError;
+use football_domain::policy::{
+    BreakerState, EventTemplate, FetchJob, FetchOutcome, SourceMode, SourcePolicy, Transport,
+};
+use football_ingest::adapter::{AdapterMeta, Observation, ParseCtx, SourceAdapter};
 use football_ingest::demo::DemoAdapter;
-use football_ingest::fetch::{Fetchers, FixtureFetcher};
+use football_ingest::fetch::{FetchRequest, Fetchers, FixtureFetcher, RawPayload};
 use football_ingest::fixture::FixtureSource;
 use football_ingest::http::RustHttpFetcher;
 use football_ingest::observe::insert_observation;
 use football_storage::object_store::ObjectStore;
 use football_storage::repositories::day::{DayFilter, fetch_day};
-use football_storage::repositories::worker as repo;
+use football_storage::repositories::worker::{self as repo, BreakerRow};
 use football_storage::test_support::test_pool;
 use football_worker::{quota, scheduler, tick};
 use sqlx::PgPool;
@@ -531,4 +534,263 @@ async fn unexpected_infra_error_marks_coverage_failed() {
     // A fetch és az L0 megőrzés sikeres volt: a nyers megmaradt.
     assert_eq!(count(&pool, "SELECT count(*) FROM raw.artifact").await, 1);
     assert_eq!(count(&pool, "SELECT count(*) FROM raw.capture").await, 1);
+}
+
+struct TestHttpAdapter {
+    url: String,
+    parse_fails: bool,
+}
+
+impl SourceAdapter for TestHttpAdapter {
+    fn meta(&self) -> AdapterMeta {
+        AdapterMeta {
+            source_slug: "demo-synthetic".into(),
+            adapter_version: "1.0".into(),
+            parser_version: "1.0".into(),
+            domains: vec!["match".into()],
+            transport: Transport::RustHttp,
+        }
+    }
+
+    fn plan(&self, _job: &FetchJob) -> Vec<FetchRequest> {
+        vec![FetchRequest {
+            url: self.url.clone(),
+            request_key: "test:page".into(),
+            endpoint_key: "match".into(),
+        }]
+    }
+
+    fn parse(&self, _raw: &RawPayload, _ctx: &ParseCtx) -> Result<Vec<Observation>, ParseError> {
+        if self.parse_fails {
+            Err(ParseError::DecoyDetected("teszt: parse-karantén".into()))
+        } else {
+            Ok(vec![])
+        }
+    }
+}
+
+fn http_policy(jitter_ms: i64) -> SourcePolicy {
+    SourcePolicy {
+        source_slug: "demo-synthetic".into(),
+        transport: Transport::RustHttp,
+        mode: SourceMode::Shadow,
+        daily_budget: 100,
+        min_delay_ms: 0,
+        jitter_ms,
+        breaker_threshold: 3,
+        breaker_cooldown_secs: 60,
+        adapter_version: "1.0".into(),
+        parser_version: "1.0".into(),
+        domains: vec!["match".into()],
+        events: vec![],
+        enabled: true,
+        max_bytes: 5_242_880,
+    }
+}
+
+fn http_adapters(url: &str, parse_fails: bool) -> HashMap<String, Box<dyn SourceAdapter>> {
+    HashMap::from([(
+        "demo-synthetic".to_string(),
+        Box::new(TestHttpAdapter {
+            url: url.to_string(),
+            parse_fails,
+        }) as Box<dyn SourceAdapter>,
+    )])
+}
+
+async fn seed_http_job(pool: &PgPool, now: DateTime<Utc>) {
+    repo::insert_job(
+        pool,
+        &repo::NewJob {
+            source_slug: "demo-synthetic".into(),
+            domain: "match".into(),
+            entity_key: "all".into(),
+            event_type: "discovery".into(),
+            time_window: now.date_naive().to_string(),
+            due_at: now - Duration::minutes(1),
+            priority: 10,
+        },
+    )
+    .await
+    .unwrap();
+}
+
+/// A robots cache-t közvetlenül seedeljük (allowed) — a robots-fetch út
+/// külön tesztekkel fedett; így a fetch-tesztek nem függnek a robots-URL
+/// formájától. (S3a Task 2 az origin-kulcsra vált: a host oszlop értéke
+/// akkor az origin lesz.)
+async fn seed_robots_allowed(pool: &PgPool, url: &str) {
+    let parsed = url::Url::parse(url).expect("teszt URL");
+    let host = parsed.host_str().expect("host").to_string();
+    let now = Utc::now();
+    sqlx::query(
+        "INSERT INTO ops.robots_cache (host, fetched_at, verdict, rules_text, expires_at)
+         VALUES ($1, $2, 'allowed', 'User-agent: *\nAllow: /\n', $3)",
+    )
+    .bind(&host)
+    .bind(now)
+    .bind(now + Duration::hours(24))
+    .execute(pool)
+    .await
+    .expect("robots cache seed");
+}
+
+#[tokio::test]
+async fn rate_limited_job_is_requeued_with_retry_after_delay() {
+    let pool = test_pool().await;
+    let now = today_noon();
+    let store_dir = tempfile::tempdir().unwrap();
+    let store = ObjectStore::new(store_dir.path()).unwrap();
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/page"))
+        .respond_with(wiremock::ResponseTemplate::new(429).insert_header("retry-after", "300"))
+        .mount(&server)
+        .await;
+    repo::upsert_policy(&pool, &http_policy(0)).await.unwrap();
+    seed_http_job(&pool, now).await;
+    let fetchers = as_fetchers(FixtureFetcher::new(HashMap::new()));
+    seed_robots_allowed(&pool, &server.uri()).await;
+    let adapters = http_adapters(&format!("{}/page", server.uri()), false);
+
+    let outcome = tick::tick(&pool, &store, &fetchers, &adapters, Uuid::now_v7(), now)
+        .await
+        .unwrap();
+    assert_eq!(outcome.failed, 0);
+    assert_eq!(outcome.blocked, 1, "requeue = blokkolt kimenet");
+
+    let (status, due_at): (String, DateTime<Utc>) =
+        sqlx::query_as("SELECT status, due_at FROM ops.job")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(status, "pending");
+    let expected = now + Duration::seconds(300);
+    assert!(
+        (due_at - expected).num_seconds().abs() <= 2,
+        "due_at ~= now+300s: {due_at}"
+    );
+    let (outcome_db, http_status): (String, Option<i16>) = sqlx::query_as(
+        "SELECT outcome, http_status FROM ops.fetch_ledger WHERE job_id IS NOT NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        (outcome_db.as_str(), http_status),
+        ("http_error", Some(429))
+    );
+}
+
+#[tokio::test]
+async fn transient_error_backoff_is_one_minute_on_first_attempt() {
+    let pool = test_pool().await;
+    let now = today_noon();
+    let store_dir = tempfile::tempdir().unwrap();
+    let store = ObjectStore::new(store_dir.path()).unwrap();
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/page"))
+        .respond_with(wiremock::ResponseTemplate::new(503))
+        .mount(&server)
+        .await;
+    repo::upsert_policy(&pool, &http_policy(0)).await.unwrap();
+    seed_http_job(&pool, now).await;
+    let fetchers = as_fetchers(FixtureFetcher::new(HashMap::new()));
+    seed_robots_allowed(&pool, &server.uri()).await;
+    let adapters = http_adapters(&format!("{}/page", server.uri()), false);
+
+    let outcome = tick::tick(&pool, &store, &fetchers, &adapters, Uuid::now_v7(), now)
+        .await
+        .unwrap();
+    assert_eq!(outcome.blocked, 1);
+
+    let (status, due_at): (String, DateTime<Utc>) =
+        sqlx::query_as("SELECT status, due_at FROM ops.job")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(status, "pending");
+    let expected = now + Duration::seconds(60);
+    assert!(
+        (due_at - expected).num_seconds().abs() <= 2,
+        "due_at ~= now+60s: {due_at}"
+    );
+}
+
+#[tokio::test]
+async fn permanent_error_is_not_requeued() {
+    let pool = test_pool().await;
+    let now = today_noon();
+    let store_dir = tempfile::tempdir().unwrap();
+    let store = ObjectStore::new(store_dir.path()).unwrap();
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/page"))
+        .respond_with(wiremock::ResponseTemplate::new(404))
+        .mount(&server)
+        .await;
+    repo::upsert_policy(&pool, &http_policy(0)).await.unwrap();
+    seed_http_job(&pool, now).await;
+    let fetchers = as_fetchers(FixtureFetcher::new(HashMap::new()));
+    seed_robots_allowed(&pool, &server.uri()).await;
+    let adapters = http_adapters(&format!("{}/page", server.uri()), false);
+
+    let outcome = tick::tick(&pool, &store, &fetchers, &adapters, Uuid::now_v7(), now)
+        .await
+        .unwrap();
+    assert_eq!(outcome.failed, 1);
+    let status: String = sqlx::query_scalar("SELECT status FROM ops.job")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "failed", "a 404 végleges, nincs requeue");
+}
+
+#[tokio::test]
+async fn successful_fetch_closes_half_open_breaker_even_on_parse_quarantine() {
+    let pool = test_pool().await;
+    let now = today_noon();
+    let store_dir = tempfile::tempdir().unwrap();
+    let store = ObjectStore::new(store_dir.path()).unwrap();
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/page"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_string("not-json"))
+        .mount(&server)
+        .await;
+    repo::upsert_policy(&pool, &http_policy(0)).await.unwrap();
+    seed_http_job(&pool, now).await;
+    // A breaker párhuzamos próbája: az allow half-openként enged, a fetch után closed.
+    repo::set_breaker(
+        &pool,
+        "demo-synthetic",
+        &BreakerRow {
+            state: BreakerState::Open,
+            failure_count: 3,
+            opened_at: Some(now - Duration::minutes(5)),
+            next_probe_at: Some(now - Duration::seconds(1)),
+        },
+    )
+    .await
+    .unwrap();
+    // A fetch sikeres (parse-karantén követi): a breaker closed kell legyen.
+    let fetchers = as_fetchers(FixtureFetcher::new(HashMap::new()));
+    seed_robots_allowed(&pool, &server.uri()).await;
+    let adapters = http_adapters(&format!("{}/page", server.uri()), true);
+
+    let _ = tick::tick(&pool, &store, &fetchers, &adapters, Uuid::now_v7(), now)
+        .await
+        .unwrap();
+
+    let state: String = sqlx::query_scalar(
+        "SELECT state FROM ops.breaker_state WHERE source_slug='demo-synthetic'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        state, "closed",
+        "a sikeres fetch lezárja a half_open breakert"
+    );
 }

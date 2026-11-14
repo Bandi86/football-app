@@ -149,6 +149,34 @@ pub async fn get_policy(pool: &PgPool, slug: &str) -> Result<Option<SourcePolicy
     row.as_ref().map(policy_from_row).transpose()
 }
 
+/// Egy job fetch-kísérletei (a nem-számláló blocked sorok nélkül).
+pub async fn count_job_fetch_attempts(pool: &PgPool, job_id: Uuid) -> Result<i64> {
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ops.fetch_ledger
+         WHERE job_id = $1
+           AND outcome IN ('success','http_error','timeout','oversize','transport_error','parse_error')",
+    )
+    .bind(job_id)
+    .fetch_one(pool)
+    .await
+    .context("job fetch-kísérletek száma")?;
+    Ok(count)
+}
+
+/// A job visszasorolása pending állapotba késleltetett due_at-tel.
+pub async fn requeue_with_delay(pool: &PgPool, job_id: Uuid, due_at: DateTime<Utc>) -> Result<()> {
+    sqlx::query(
+        "UPDATE ops.job SET status='pending', due_at=$2, worker_id=NULL, leased_until=NULL
+         WHERE id=$1",
+    )
+    .bind(job_id)
+    .bind(due_at)
+    .execute(pool)
+    .await
+    .context("job késleltetett visszasorolása")?;
+    Ok(())
+}
+
 /// Van-e engedélyezett policy az adott transzporttal? A footballd ezzel
 /// dönti el, hogy lazy elindítsa-e az Obscura szervert (S2c).
 pub async fn has_enabled_transport(pool: &PgPool, transport: &str) -> Result<bool> {

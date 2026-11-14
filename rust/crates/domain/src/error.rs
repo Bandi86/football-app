@@ -16,6 +16,8 @@ pub enum FetchError {
     Oversize(u64),
     #[error("HTTP-státusz: {0}")]
     HttpStatus(u16),
+    #[error("a forrás kérte: várakozás {0:?}")]
+    RateLimited(Option<std::time::Duration>),
 }
 
 #[derive(Debug, Error)]

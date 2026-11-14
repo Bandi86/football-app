@@ -22,6 +22,21 @@ impl RustHttpFetcher {
     }
 }
 
+const RETRY_AFTER: reqwest::header::HeaderName =
+    reqwest::header::HeaderName::from_static("retry-after");
+
+/// A Retry-After fejléc parse-olása: másodperc vagy HTTP-date (RFC 2822 formátum).
+fn parse_retry_after(value: Option<&reqwest::header::HeaderValue>) -> Option<std::time::Duration> {
+    let text = value?.to_str().ok()?.trim();
+    if let Ok(secs) = text.parse::<u64>() {
+        return Some(std::time::Duration::from_secs(secs));
+    }
+    let at = chrono::DateTime::parse_from_rfc2822(text).ok()?;
+    (at.with_timezone(&chrono::Utc) - chrono::Utc::now())
+        .to_std()
+        .ok()
+}
+
 fn map_reqwest_error(err: reqwest::Error) -> FetchError {
     if err.is_timeout() {
         FetchError::Timeout
@@ -46,6 +61,11 @@ impl Fetcher for RustHttpFetcher {
             .await
             .map_err(map_reqwest_error)?;
         let status = response.status().as_u16();
+        if status == 429 {
+            return Err(FetchError::RateLimited(parse_retry_after(
+                response.headers().get(&RETRY_AFTER),
+            )));
+        }
         if !(200..300).contains(&status) {
             return Err(FetchError::HttpStatus(status));
         }

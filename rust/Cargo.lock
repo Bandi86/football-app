@@ -763,6 +763,7 @@ dependencies = [
  "football-ingest",
  "football-storage",
  "football-verification",
+ "rand 0.9.5",
  "robotstxt",
  "serde_json",
  "sqlx",
@@ -771,6 +772,7 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
+ "wiremock",
 ]
 
 [[package]]
