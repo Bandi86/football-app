@@ -93,43 +93,8 @@ impl SourceAdapter for DemoAdapter {
             }
         }
 
-        let mut out = Vec::new();
-        for team in &fixture.teams {
-            out.push(Observation {
-                entity_kind: "team".into(),
-                aspect: "team_identity".into(),
-                natural_key: team.id.to_string(),
-                source_record_key: team.source_entity_id.clone(),
-                observed_at: fixture.captured_at,
-                payload: serde_json::to_value(team)
-                    .map_err(|e| ParseError::Parse(e.to_string()))?,
-            });
-        }
-        for m in &fixture.matches {
-            let home = fixture
-                .teams
-                .iter()
-                .find(|t| t.source_entity_id == m.home_source_entity_id)
-                .ok_or_else(|| ParseError::Parse("ismeretlen hazai forrásentitás".into()))?;
-            let away = fixture
-                .teams
-                .iter()
-                .find(|t| t.source_entity_id == m.away_source_entity_id)
-                .ok_or_else(|| ParseError::Parse("ismeretlen vendég forrásentitás".into()))?;
-            out.push(Observation {
-                entity_kind: "match".into(),
-                aspect: "match_core".into(),
-                natural_key: m.id.to_string(),
-                source_record_key: m.source_match_id.clone(),
-                observed_at: fixture.captured_at,
-                payload: serde_json::json!({
-                    "canonical_match_id": m.id, "home_team_id": home.id, "away_team_id": away.id,
-                    "source_home_id": m.home_source_entity_id, "source_away_id": m.away_source_entity_id,
-                    "kickoff_at": m.kickoff_at, "status": m.status, "result": m.result,
-                    "round_label": m.round_label, "competition_timezone": m.competition_timezone,
-                }),
-            });
-        }
-        Ok(out)
+        // Az observation-séma egyetlen forrása a fixture::build_observations
+        // (a match_core a verseny/szezon-meta-t is hordozza).
+        crate::fixture::build_observations(&fixture).map_err(|e| ParseError::Parse(e.to_string()))
     }
 }

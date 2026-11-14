@@ -31,7 +31,6 @@ use football_identity::linker;
 use football_ingest::adapter::{ParseCtx, SourceAdapter};
 use football_ingest::canonicalize::Canonicalizer;
 use football_ingest::fetch::{FetchLimits, FetchRequest, Fetcher, Fetchers};
-use football_ingest::fixture::FixtureSource;
 use football_ingest::observe::insert_observation;
 use football_storage::object_store::ObjectStore;
 use football_storage::repositories::identity as identity_repo;
@@ -355,9 +354,11 @@ async fn process_job(
         // 8–9. Shadow ágban nincs kanonikus írás; live/canary ágban a teljes
         // verification + gate lánc fut (a footballctl IngestFixture mintáján).
         if policy.mode != SourceMode::Shadow {
-            let fixture: FixtureSource = serde_json::from_slice(&raw.bytes)
-                .context("fixture payload újraolvasása a kanonikus ághoz")?;
-            let normalized = football_ingest::normalized::NormalizedDay::from(&fixture);
+            // A kanonikus út az observationökből indul (forrás-független).
+            let normalized = football_ingest::normalized::NormalizedDay::from_observations(
+                &observations,
+            )
+            .context("observationökből normalizált nap")?;
             verify_and_publish(pool, &normalized).await?;
         }
 

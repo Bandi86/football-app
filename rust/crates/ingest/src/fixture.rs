@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::adapter::Observation;
 use crate::observe::insert_observation;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -176,127 +177,22 @@ impl FixtureAdapter {
         .fetch_one(pool)
         .await?;
 
+        let observations = build_observations(&fixture)?;
         let mut observation_ids = Vec::new();
-
-        for team in &fixture.teams {
+        for obs in observations {
             let observation_id = insert_observation(
                 pool,
                 source_id,
                 capture_id,
-                "team",
-                "team_identity",
-                &team.id.to_string(),
-                &team.source_entity_id,
-                fixture.captured_at,
-                serde_json::to_value(team)?,
+                &obs.entity_kind,
+                &obs.aspect,
+                &obs.natural_key,
+                &obs.source_record_key,
+                obs.observed_at,
+                obs.payload,
             )
             .await?;
             observation_ids.push(observation_id);
-        }
-
-        for fixture_match in &fixture.matches {
-            let home = fixture
-                .teams
-                .iter()
-                .find(|team| team.source_entity_id == fixture_match.home_source_entity_id)
-                .with_context(|| {
-                    format!(
-                        "ismeretlen hazai forrásentitás: {}",
-                        fixture_match.home_source_entity_id
-                    )
-                })?;
-            let away = fixture
-                .teams
-                .iter()
-                .find(|team| team.source_entity_id == fixture_match.away_source_entity_id)
-                .with_context(|| {
-                    format!(
-                        "ismeretlen vendég forrásentitás: {}",
-                        fixture_match.away_source_entity_id
-                    )
-                })?;
-
-            let payload = serde_json::json!({
-                "canonical_match_id": fixture_match.id,
-                "home_team_id": home.id,
-                "away_team_id": away.id,
-                "source_home_id": fixture_match.home_source_entity_id,
-                "source_away_id": fixture_match.away_source_entity_id,
-                "kickoff_at": fixture_match.kickoff_at,
-                "status": fixture_match.status,
-                "result": fixture_match.result,
-                "round_label": fixture_match.round_label,
-                "competition_timezone": fixture_match.competition_timezone,
-            });
-            let observation_id = insert_observation(
-                pool,
-                source_id,
-                capture_id,
-                "match",
-                "match_core",
-                &fixture_match.id.to_string(),
-                &fixture_match.source_match_id,
-                fixture.captured_at,
-                payload,
-            )
-            .await?;
-            observation_ids.push(observation_id);
-        }
-
-        for fixture_match in &fixture.matches {
-            if let Some(odds) = &fixture_match.odds {
-                let payload = serde_json::json!({
-                    "canonical_match_id": fixture_match.id,
-                    "odds": odds,
-                    "market_count": fixture_match.market_count,
-                });
-                let observation_id = insert_observation(
-                    pool,
-                    source_id,
-                    capture_id,
-                    "match",
-                    "match_odds",
-                    &fixture_match.id.to_string(),
-                    &fixture_match.source_match_id,
-                    fixture.captured_at,
-                    payload,
-                )
-                .await?;
-                observation_ids.push(observation_id);
-            }
-        }
-
-        if let Some(standings) = &fixture.standings {
-            for standing in standings {
-                let team = fixture
-                    .teams
-                    .iter()
-                    .find(|team| team.source_entity_id == standing.team_source_entity_id)
-                    .with_context(|| {
-                        format!(
-                            "ismeretlen csapatforrás a tabellában: {}",
-                            standing.team_source_entity_id
-                        )
-                    })?;
-                let payload = serde_json::json!({
-                    "team_id": team.id,
-                    "position": standing.position,
-                    "season_id": fixture.season.id,
-                });
-                let observation_id = insert_observation(
-                    pool,
-                    source_id,
-                    capture_id,
-                    "team",
-                    "standing",
-                    &team.id.to_string(),
-                    &team.source_entity_id,
-                    fixture.captured_at,
-                    payload,
-                )
-                .await?;
-                observation_ids.push(observation_id);
-            }
         }
 
         Ok(IngestReport {
@@ -320,4 +216,114 @@ async fn upsert_source(pool: &PgPool, code: &str, name: &str) -> Result<Uuid> {
     .fetch_one(pool)
     .await
     .context("forrás upsert")
+}
+
+/// A fixture → staging observationök (tiszta építés, persist nélkül).
+/// A `match_core` payload a verseny/szezon-meta-t is hordozza, hogy a
+/// kanonikus út (`NormalizedDay::from_observations`) önálló legyen.
+pub fn build_observations(fixture: &FixtureSource) -> Result<Vec<Observation>> {
+    let mut observations = Vec::new();
+
+    for team in &fixture.teams {
+        observations.push(Observation {
+            entity_kind: "team".into(),
+            aspect: "team_identity".into(),
+            natural_key: team.id.to_string(),
+            source_record_key: team.source_entity_id.clone(),
+            observed_at: fixture.captured_at,
+            payload: serde_json::to_value(team)?,
+        });
+    }
+
+    let competition = serde_json::json!({
+        "id": fixture.competition.id,
+        "name": fixture.competition.name,
+        "country_code": fixture.competition.country_code,
+        "country_name": fixture.competition.country_name,
+        "tier": fixture.competition.tier,
+        "priority": fixture.competition.priority,
+    });
+    let season = serde_json::json!({
+        "id": fixture.season.id,
+        "label": fixture.season.label,
+    });
+
+    for fixture_match in &fixture.matches {
+        let payload = serde_json::json!({
+            "canonical_match_id": fixture_match.id,
+            "home_team_id": fixture.teams.iter()
+                .find(|t| t.source_entity_id == fixture_match.home_source_entity_id)
+                .map(|t| t.id),
+            "away_team_id": fixture.teams.iter()
+                .find(|t| t.source_entity_id == fixture_match.away_source_entity_id)
+                .map(|t| t.id),
+            "source_home_id": fixture_match.home_source_entity_id,
+            "source_away_id": fixture_match.away_source_entity_id,
+            "kickoff_at": fixture_match.kickoff_at,
+            "status": fixture_match.status,
+            "result": fixture_match.result,
+            "round_label": fixture_match.round_label,
+            "competition_timezone": fixture_match.competition_timezone,
+            "competition": competition,
+            "season": season,
+            "source_code": fixture.source_code,
+            "captured_at": fixture.captured_at,
+        });
+        observations.push(Observation {
+            entity_kind: "match".into(),
+            aspect: "match_core".into(),
+            natural_key: fixture_match.id.to_string(),
+            source_record_key: fixture_match.source_match_id.clone(),
+            observed_at: fixture.captured_at,
+            payload,
+        });
+    }
+
+    for fixture_match in &fixture.matches {
+        if let Some(odds) = &fixture_match.odds {
+            let payload = serde_json::json!({
+                "canonical_match_id": fixture_match.id,
+                "odds": odds,
+                "market_count": fixture_match.market_count,
+            });
+            observations.push(Observation {
+                entity_kind: "match".into(),
+                aspect: "match_odds".into(),
+                natural_key: fixture_match.id.to_string(),
+                source_record_key: fixture_match.source_match_id.clone(),
+                observed_at: fixture.captured_at,
+                payload,
+            });
+        }
+    }
+
+    if let Some(standings) = &fixture.standings {
+        for standing in standings {
+            let team = fixture
+                .teams
+                .iter()
+                .find(|team| team.source_entity_id == standing.team_source_entity_id)
+                .with_context(|| {
+                    format!(
+                        "ismeretlen csapatforrás a tabellában: {}",
+                        standing.team_source_entity_id
+                    )
+                })?;
+            let payload = serde_json::json!({
+                "team_id": team.id,
+                "position": standing.position,
+                "season_id": fixture.season.id,
+            });
+            observations.push(Observation {
+                entity_kind: "team".into(),
+                aspect: "standing".into(),
+                natural_key: team.id.to_string(),
+                source_record_key: team.source_entity_id.clone(),
+                observed_at: fixture.captured_at,
+                payload,
+            });
+        }
+    }
+
+    Ok(observations)
 }
