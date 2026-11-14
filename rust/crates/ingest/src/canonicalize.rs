@@ -4,7 +4,7 @@ use football_domain::{MatchResultSnapshot, MatchSnapshot, MatchStatus};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::normalized::{NormalizedDay, NormalizedTeam};
+use crate::normalized::{NormalizedDay, NormalizedMatch, NormalizedTeam};
 
 pub struct Canonicalizer;
 
@@ -32,8 +32,35 @@ impl Canonicalizer {
             &day.competition.country_name,
         )
         .await?;
-        let competition_id = day.competition.id.unwrap_or_else(Uuid::now_v7);
-        let season_id = day.season.id.unwrap_or_else(Uuid::now_v7);
+        let source_id: Uuid = sqlx::query_scalar("SELECT id FROM ops.source WHERE code=$1")
+            .bind(&day.source_code)
+            .fetch_one(&mut *tx)
+            .await
+            .with_context(|| format!("ismeretlen forrás: {}", day.source_code))?;
+
+        // Élő módban nincs id-hint: natural-key find-or-create.
+        let competition_id = match day.competition.id {
+            Some(id) => id,
+            None => sqlx::query_scalar(
+                "SELECT id FROM core.competition WHERE country_id=$1 AND name=$2 LIMIT 1",
+            )
+            .bind(country_id)
+            .bind(&day.competition.name)
+            .fetch_optional(&mut *tx)
+            .await?
+            .unwrap_or_else(Uuid::now_v7),
+        };
+        let season_id = match day.season.id {
+            Some(id) => id,
+            None => sqlx::query_scalar(
+                "SELECT id FROM core.season WHERE competition_id=$1 AND label=$2 LIMIT 1",
+            )
+            .bind(competition_id)
+            .bind(&day.season.label)
+            .fetch_optional(&mut *tx)
+            .await?
+            .unwrap_or_else(Uuid::now_v7),
+        };
 
         upsert_entity(
             &mut tx,
@@ -70,16 +97,88 @@ impl Canonicalizer {
         .execute(&mut *tx)
         .await?;
 
+        let mut team_ids: std::collections::HashMap<String, Uuid> =
+            std::collections::HashMap::new();
         for team in &day.teams {
-            upsert_team(&mut tx, team, country_id, day.source_code.as_str()).await?;
+            match team.id {
+                // Fixture-út: az id-hint kanonikus; a seed-ref a demóhoz tartozik.
+                Some(_) => {
+                    upsert_team(&mut tx, team, country_id, day.source_code.as_str()).await?;
+                    team_ids.insert(
+                        team.source_entity_id.clone(),
+                        team.id.expect("hint jelen van"),
+                    );
+                }
+                // Élő út: a fail-closed linker oldja fel; nem egzakt → kimarad.
+                None => {
+                    let ctx = football_domain::identity::IdentityContext {
+                        country_code: Some(team.country_code.clone()),
+                        gender: Some(team.gender.clone()),
+                        age_group: Some(team.age_group.clone()),
+                        branch: Some(team.branch.clone()),
+                    };
+                    match football_identity::resolve(
+                        pool,
+                        source_id,
+                        &day.source_code,
+                        "team",
+                        &team.source_entity_id,
+                        &team.name,
+                        &ctx,
+                    )
+                    .await
+                    {
+                        Ok(football_domain::identity::Resolution::Exact { entity_id, .. }) => {
+                            ensure_live_team(&mut tx, entity_id, &team.name, country_id).await?;
+                            team_ids.insert(team.source_entity_id.clone(), entity_id);
+                        }
+                        Ok(_) => {
+                            tracing::warn!(
+                                source = %day.source_code,
+                                team = %team.name,
+                                "ismeretlen csapat: review-sor nyílt, a meccsek kimaradnak"
+                            );
+                        }
+                        Err(err) => {
+                            anyhow::bail!(
+                                "identitás-feloldás hiba (fail-closed): {err} — {}",
+                                team.name
+                            );
+                        }
+                    }
+                }
+            }
         }
 
         let mut matches = Vec::new();
 
         for fixture_match in &day.matches {
-            let match_id = fixture_match.id.unwrap_or_else(Uuid::now_v7);
-            let home = team_by_source_id(&mut tx, &fixture_match.home_source_entity_id).await?;
-            let away = team_by_source_id(&mut tx, &fixture_match.away_source_entity_id).await?;
+            let (Some(&home), Some(&away)) = (
+                team_ids.get(&fixture_match.home_source_entity_id),
+                team_ids.get(&fixture_match.away_source_entity_id),
+            ) else {
+                tracing::warn!(
+                    source = %day.source_code,
+                    home = %fixture_match.home_source_entity_id,
+                    away = %fixture_match.away_source_entity_id,
+                    "feloldatlan csapat: a meccs kimarad"
+                );
+                continue;
+            };
+            let match_id = match fixture_match.id {
+                Some(id) => id,
+                None => {
+                    find_or_insert_match_id(
+                        &mut tx,
+                        competition_id,
+                        season_id,
+                        fixture_match,
+                        home,
+                        away,
+                    )
+                    .await?
+                }
+            };
             let status = parse_status(&fixture_match.status)?;
 
             sqlx::query(
@@ -121,7 +220,8 @@ impl Canonicalizer {
             persist_result(&mut tx, match_id, result.as_ref()).await?;
 
             let observation_ids =
-                observations_for_match(&mut tx, &day.source_code, match_id).await?;
+                observations_for_match(&mut tx, &day.source_code, &fixture_match.source_match_id)
+                    .await?;
 
             for field in [
                 "home_team_id",
@@ -171,11 +271,6 @@ impl Canonicalizer {
                 observation_ids,
             });
         }
-
-        let source_id: Uuid = sqlx::query_scalar("SELECT id FROM ops.source WHERE code=$1")
-            .bind(&day.source_code)
-            .fetch_one(&mut *tx)
-            .await?;
 
         for fixture_match in &day.matches {
             let Some(odds) = &fixture_match.odds else {
@@ -228,7 +323,9 @@ impl Canonicalizer {
 
         if let Some(standings) = &day.standings {
             for standing in standings {
-                let team_id = team_by_source_id(&mut tx, &standing.team_source_entity_id).await?;
+                let Some(&team_id) = team_ids.get(&standing.team_source_entity_id) else {
+                    continue;
+                };
                 sqlx::query(
                     "INSERT INTO core.standing (season_id, team_id, position, source_id, captured_at)
                      VALUES ($1,$2,$3,$4,$5)
@@ -341,20 +438,6 @@ async fn upsert_team(
     Ok(())
 }
 
-async fn team_by_source_id(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    source_entity_id: &str,
-) -> Result<Uuid> {
-    sqlx::query_scalar(
-        "SELECT entity_id FROM identity.source_entity_ref
-         WHERE entity_kind='team' AND source_entity_id=$1 AND status='active'",
-    )
-    .bind(source_entity_id)
-    .fetch_one(&mut **tx)
-    .await
-    .with_context(|| format!("ismeretlen csapatforrás: {source_entity_id}"))
-}
-
 async fn persist_result(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     match_id: Uuid,
@@ -396,21 +479,77 @@ async fn persist_result(
 async fn observations_for_match(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     source_code: &str,
-    match_id: Uuid,
+    source_match_id: &str,
 ) -> Result<Vec<Uuid>> {
     let rows = sqlx::query_scalar::<_, Uuid>(
         "SELECT o.id
          FROM stage.observation o
          JOIN ops.source s ON s.id = o.source_id
          WHERE s.code = $1 AND o.entity_kind = 'match'
-           AND o.aspect = 'match_core' AND o.natural_key = $2
+           AND o.aspect = 'match_core' AND o.source_record_key = $2
          ORDER BY o.observed_at DESC",
     )
     .bind(source_code)
-    .bind(match_id.to_string())
+    .bind(source_match_id)
     .fetch_all(&mut **tx)
     .await?;
     Ok(rows)
+}
+
+/// Élő csapat: a linkeres Exact entitáshoz létezzen core.team sor
+/// (az invariáns: core.team.id == entity.id); hiányzó sor a forrás nevével
+/// jön létre.
+async fn ensure_live_team(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    entity_id: Uuid,
+    name: &str,
+    country_id: Uuid,
+) -> Result<()> {
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM core.team WHERE id=$1)")
+        .bind(entity_id)
+        .fetch_one(&mut **tx)
+        .await?;
+    if exists {
+        return Ok(());
+    }
+    sqlx::query(
+        "INSERT INTO core.team
+         (id, entity_id, country_id, name, gender, age_group, branch)
+         VALUES ($1,$1,$2,$3,'male','senior','senior')",
+    )
+    .bind(entity_id)
+    .bind(country_id)
+    .bind(name)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Élő meccs natural-key keresése (NULL-safe round_label), különben új id.
+async fn find_or_insert_match_id(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    competition_id: Uuid,
+    season_id: Uuid,
+    m: &NormalizedMatch,
+    home: Uuid,
+    away: Uuid,
+) -> Result<Uuid> {
+    let existing: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM core.match
+         WHERE competition_id=$1 AND season_id=$2
+           AND round_label IS NOT DISTINCT FROM $3
+           AND home_team_id=$4 AND away_team_id=$5 AND kickoff_at=$6
+         LIMIT 1",
+    )
+    .bind(competition_id)
+    .bind(season_id)
+    .bind(&m.round_label)
+    .bind(home)
+    .bind(away)
+    .bind(m.kickoff_at)
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(existing.unwrap_or_else(Uuid::now_v7))
 }
 
 fn parse_status(value: &str) -> Result<MatchStatus> {

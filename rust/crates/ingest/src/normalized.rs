@@ -141,7 +141,7 @@ fn default_quotes(odds: &FixtureOdds) -> Vec<NormalizedQuote> {
 
 #[derive(Deserialize)]
 struct TeamPayload {
-    id: Uuid,
+    id: Option<Uuid>,
     source_entity_id: String,
     name: String,
     country_code: String,
@@ -248,7 +248,7 @@ impl NormalizedDay {
                     let p: TeamPayload = serde_json::from_value(obs.payload.clone())
                         .context("team_identity payload")?;
                     teams.push(NormalizedTeam {
-                        id: Some(p.id),
+                        id: p.id,
                         source_entity_id: p.source_entity_id,
                         name: p.name,
                         country_code: p.country_code,

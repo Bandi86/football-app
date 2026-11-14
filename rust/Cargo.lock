@@ -700,6 +700,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "football-domain",
+ "football-identity",
  "football-storage",
  "futures",
  "hex",
@@ -711,6 +712,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "tracing",
  "uuid",
  "wiremock",
 ]

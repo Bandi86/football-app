@@ -14,6 +14,7 @@ async-trait.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 football-domain = { path = "../domain" }
+football-identity = { path = "../identity" }
 football-storage = { path = "../storage" }
 hex.workspace = true
 reqwest.workspace = true
@@ -25,6 +26,7 @@ uuid.workspace = true
 tokio = { workspace = true, optional = true }
 futures = { version = "0.3", optional = true }
 thiserror = { workspace = true, optional = true }
+tracing.workspace = true
 async-tungstenite = { version = "0.32", features = ["tokio-runtime"], optional = true }
 
 [dev-dependencies]
