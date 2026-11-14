@@ -309,3 +309,20 @@ S2c — Obscura browser-fetcher:
 - Visszaállítás: branch-revert; séma érintetlen; policy/trust sorok törlése.
 - Következő döntési pont: élő kör engedélyezése, majd S3b-3 (stats/referee +
   e2e) vagy a maradék S2d-csoportok (B/E/F/G).
+
+## S3b-3 — élő bootstrap + második élő kör (2026-11-14)
+
+- [x] Batch identity bootstrap: `identity approve-create-all` (86 sor,
+      ország find-or-create) — commit `ae53d2c`.
+- [x] Élő kör második futása (jóváhagyott engedéllyel): 5 CSV újra 200,
+      kanonikus meccsek a ±7 napos ablakban, **1290 élő odds-quote**
+      (B365/Avg/Max), a gate **43/43 verified_publish**.
+- [x] A futás két valós hiányt talált és javított:
+      (a) a trust-olvasó a hiányzó BTTS-t hibaként kezelte → `OddsValues`
+      mezők `Option<f64>` (hiányzó kulcs = NULL, csak a mindkét oldalon
+      jelen lévő kulcsokat hasonlítja) — `ae53d2c`;
+      (b) az identitás-jelzők hint-alapú feloldása élő csapatoknál false
+      volt → a `MaterializedMatch.identity_exact` (konstrukció szerinti
+      igaz: csak feloldott csapatú meccs materializálódik) — `3b63f7e`.
+- Nyitott: a stats/referee observation-aspketek emissionje (S3b-3 folytatás);
+  a canary→live váltás a felhasználó döntése; push a main-en (24 commit).
