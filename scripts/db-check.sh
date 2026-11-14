@@ -10,9 +10,10 @@ fi
 : "${DATABASE_URL:?DATABASE_URL hiányzik}"
 : "${TEST_DATABASE_URL:?TEST_DATABASE_URL hiányzik}"
 
-# Elvárt táblaszám: mindkét DB a 0001–0008 migrációk után 35 tábla
-# (34 terméktábla + _sqlx_migrations); a 0008 két új táblát ad (odds_quote, match_stats).
-expected_tables=35
+# Elvárt táblaszám: mindkét DB a 0001–0009 migrációk után 40 tábla
+# (39 terméktábla + _sqlx_migrations); a 0009 öt új táblát ad (match_team_stats,
+# match_player_stats, match_lineups, match_shots, match_incidents).
+expected_tables=40
 
 for name in DATABASE_URL TEST_DATABASE_URL; do
   url="${!name}"

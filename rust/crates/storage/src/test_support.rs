@@ -16,7 +16,9 @@ pub async fn test_pool() -> PgPool {
         .expect("teszt migrációk");
 
     sqlx::query(
-        "TRUNCATE fact.odds_quote, fact.match_stats, fact.odds_snapshot, core.standing,
+        "TRUNCATE fact.odds_quote, fact.match_stats, fact.odds_snapshot,
+         fact.match_team_stats, fact.match_player_stats, fact.match_lineups,
+         fact.match_shots, fact.match_incidents, core.standing,
          ops.publish_gate, fact.verification, fact.conflict, fact.provenance,
          identity.review_queue, identity.alias, identity.crosswalk,
          identity.source_entity_ref, core.match_result, core.match, core.team,
