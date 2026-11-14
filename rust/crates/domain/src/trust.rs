@@ -33,18 +33,23 @@ pub struct SourceTrust {
     pub provider: Option<String>,
 }
 
+/// A kanonikus 7 odds-mező értékei. A hiányzó piac/kulcs `None` (a hiányzó
+/// adat NULL elve: a forrás nem ad BTTS-t → nincs érték, nem hiba).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct OddsValues {
-    pub home: f64,
-    pub draw: f64,
-    pub away: f64,
-    pub btts_yes: f64,
-    pub btts_no: f64,
-    pub over25: f64,
-    pub under25: f64,
+    pub home: Option<f64>,
+    pub draw: Option<f64>,
+    pub away: Option<f64>,
+    pub btts_yes: Option<f64>,
+    pub btts_no: Option<f64>,
+    pub over25: Option<f64>,
+    pub under25: Option<f64>,
 }
 
 impl OddsValues {
+    /// Kulcsonkénti egyezés: mindkét oldalon hiányzó kulcs kimarad az
+    /// összehasonlításból; ha csak az egyik oldalon van érték, az eltérés
+    /// (nem lehet „verified” két eltérő piackészletű forrás).
     pub fn matches_within(&self, other: &OddsValues, tolerance: f64) -> bool {
         let pairs = [
             (self.home, other.home),
@@ -58,7 +63,11 @@ impl OddsValues {
         // A spec „±tolerance-on belül” matematikai szándékát követjük: az f64
         // ábrázolási zaja a tizedes határokon átcsúszhat (pl. abs(1.85-1.86) =
         // 0.010000000000000009 > 0.01), ezért mikro-epszilonnal engedünk a határon.
-        pairs.iter().all(|(a, b)| (a - b).abs() <= tolerance + 1e-9)
+        pairs.iter().all(|(a, b)| match (a, b) {
+            (None, None) => true,
+            (Some(a), Some(b)) => (a - b).abs() <= tolerance + 1e-9,
+            _ => false,
+        })
     }
 }
 

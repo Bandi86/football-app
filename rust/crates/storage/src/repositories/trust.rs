@@ -133,10 +133,9 @@ pub async fn load_match_odds(pool: &PgPool, match_id: Uuid) -> Result<Vec<Source
     .context("meccs odds lekérés")?;
     rows.iter()
         .map(|row| {
-            let field = |k: &str| -> Result<f64> {
+            let field = |k: &str| -> Result<Option<f64>> {
                 row.try_get::<Option<f64>, _>(k)
-                    .with_context(|| format!("odds mező: {k}"))?
-                    .with_context(|| format!("hiányzó odds mező: {k}"))
+                    .with_context(|| format!("odds mező: {k}"))
             };
             Ok(SourceOdds {
                 source_code: row.try_get("source_code").context("source_code oszlop")?,

@@ -4,13 +4,13 @@ use football_domain::trust::{
 
 fn odds(home: f64) -> OddsValues {
     OddsValues {
-        home,
-        draw: 3.4,
-        away: 4.2,
-        btts_yes: 1.72,
-        btts_no: 2.05,
-        over25: 2.1,
-        under25: 1.75,
+        home: Some(home),
+        draw: Some(3.4),
+        away: Some(4.2),
+        btts_yes: Some(1.72),
+        btts_no: Some(2.05),
+        over25: Some(2.1),
+        under25: Some(1.75),
     }
 }
 

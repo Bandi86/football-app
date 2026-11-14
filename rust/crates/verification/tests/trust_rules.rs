@@ -185,13 +185,13 @@ fn both_domains_evaluated() {
 
 fn odds(home: f64) -> OddsValues {
     OddsValues {
-        home,
-        draw: 3.4,
-        away: 4.2,
-        btts_yes: 1.9,
-        btts_no: 1.9,
-        over25: 2.0,
-        under25: 1.8,
+        home: Some(home),
+        draw: Some(3.4),
+        away: Some(4.2),
+        btts_yes: Some(1.9),
+        btts_no: Some(1.9),
+        over25: Some(2.0),
+        under25: Some(1.8),
     }
 }
 

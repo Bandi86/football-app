@@ -117,18 +117,18 @@ async fn load_match_odds_two_sources_with_provider() {
 
     let a = odds.iter().find(|o| o.source_code == "alpha").unwrap();
     assert_eq!(a.provider.as_deref(), Some("ProviderA"));
-    assert_eq!(a.odds.home, 1.85);
-    assert_eq!(a.odds.draw, 3.4);
-    assert_eq!(a.odds.away, 4.2);
-    assert_eq!(a.odds.btts_yes, 1.7);
-    assert_eq!(a.odds.btts_no, 2.1);
-    assert_eq!(a.odds.over25, 1.9);
-    assert_eq!(a.odds.under25, 1.9);
+    assert_eq!(a.odds.home, Some(1.85));
+    assert_eq!(a.odds.draw, Some(3.4));
+    assert_eq!(a.odds.away, Some(4.2));
+    assert_eq!(a.odds.btts_yes, Some(1.7));
+    assert_eq!(a.odds.btts_no, Some(2.1));
+    assert_eq!(a.odds.over25, Some(1.9));
+    assert_eq!(a.odds.under25, Some(1.9));
 
     let b = odds.iter().find(|o| o.source_code == "beta").unwrap();
     assert_eq!(b.provider, None);
-    assert_eq!(b.odds.home, 1.9);
-    assert_eq!(b.odds.under25, 1.85);
+    assert_eq!(b.odds.home, Some(1.9));
+    assert_eq!(b.odds.under25, Some(1.85));
 
     // Más meccs oddsai nem szivárognak be.
     let other_match = seed_match(&pool).await;
@@ -137,7 +137,7 @@ async fn load_match_odds_two_sources_with_provider() {
 }
 
 #[tokio::test]
-async fn load_match_odds_missing_field_is_error() {
+async fn load_match_odds_missing_market_is_none_not_error() {
     let pool = test_pool().await;
     let match_id = seed_match(&pool).await;
     let source = seed_source(&pool, "alpha", "Alpha").await;
@@ -152,12 +152,11 @@ async fn load_match_odds_missing_field_is_error() {
     ];
     insert_odds(&pool, match_id, source, missing_under25, "provisional").await;
 
-    let err = load_match_odds(&pool, match_id)
-        .await
-        .expect_err("hiányzó odds mező hibát kell adjon");
-    let msg = format!("{err:#}");
-    assert!(msg.contains("hiányzó odds mező"), "hibaüzenet: {msg}");
-    assert!(msg.contains("under25"), "hibaüzenet: {msg}");
+    // Hiányzó kulcs = NULL (a hiányzó adat elve), nem hiba és nem fabrikált érték.
+    let odds = load_match_odds(&pool, match_id).await.unwrap();
+    assert_eq!(odds.len(), 1);
+    assert_eq!(odds[0].odds.under25, None);
+    assert_eq!(odds[0].odds.home, Some(1.85));
 }
 
 #[tokio::test]
@@ -342,9 +341,9 @@ async fn load_match_odds_uses_bookmaker_chain() {
             .map(|o| o.odds.home)
             .unwrap()
     };
-    assert_eq!(home_of("b365-src"), 1.75, "B365 elsődleges");
-    assert_eq!(home_of("avg-src"), 1.90, "B365 hiányában Avg");
-    assert_eq!(home_of("max-src"), 2.05, "csak Max");
+    assert_eq!(home_of("b365-src"), Some(1.75), "B365 elsődleges");
+    assert_eq!(home_of("avg-src"), Some(1.90), "B365 hiányában Avg");
+    assert_eq!(home_of("max-src"), Some(2.05), "csak Max");
 }
 
 async fn insert_bookmaker_quotes(

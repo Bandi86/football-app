@@ -86,6 +86,8 @@ enum IdentityAction {
         #[arg(long)]
         note: Option<String>,
     },
+    /// Minden pending review-sor batch jóváhagyása új entitással (bootstrap).
+    ApproveCreateAll,
     Reject {
         id: Uuid,
         #[arg(long)]
@@ -359,6 +361,21 @@ async fn identity_command(pool: &sqlx::PgPool, action: IdentityAction) -> Result
         IdentityAction::Approve { id, entity, note } => {
             football_identity::review::approve(pool, id, entity, "cli", note.as_deref()).await?;
             println!("jóváhagyva: {id} → {entity}");
+        }
+        IdentityAction::ApproveCreateAll => {
+            let (approved, failed) =
+                football_identity::review::approve_create_pending(pool, "cli").await?;
+            println!(
+                "batch approve-create: {} jóváhagyva, {} hiba",
+                approved.len(),
+                failed.len()
+            );
+            for (queue_id, err) in &failed {
+                println!("  hiba: {queue_id} — {err}");
+            }
+            if !failed.is_empty() {
+                anyhow::bail!("{} sor nem lett jóváhagyva", failed.len());
+            }
         }
         IdentityAction::ApproveCreate { id, note } => {
             let entity =

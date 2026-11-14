@@ -460,3 +460,24 @@ async fn approve_create_makes_entity_and_links() {
     assert_eq!(status, "approved");
     assert_eq!(ref_count(&pool, source_id, "rev-new").await, 1);
 }
+
+#[tokio::test]
+async fn approve_create_pending_batches_all_pending_rows() {
+    let pool = test_pool().await;
+    let source_id = seed_source(&pool, "demo-synthetic").await;
+    let _country = seed_country(&pool, "HU", "Hungary").await;
+    let q1 = pending_queue(&pool, source_id, "rev-b1", &ctx_hu()).await;
+    let q2 = pending_queue(&pool, source_id, "rev-b2", &ctx_hu()).await;
+
+    let (approved, failed) = review::approve_create_pending(&pool, "cli").await.unwrap();
+    assert_eq!(failed.len(), 0, "nincs hibás sor: {failed:?}");
+    assert_eq!(approved.len(), 2);
+    assert!(approved.iter().any(|(id, _)| *id == q1));
+    assert!(approved.iter().any(|(id, _)| *id == q2));
+    let pending: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM identity.review_queue WHERE status='pending'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(pending, 0, "minden pending sor lezárva");
+}
