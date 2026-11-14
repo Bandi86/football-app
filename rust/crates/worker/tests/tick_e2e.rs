@@ -229,11 +229,12 @@ async fn e2e_replay_publishes_verified_match() {
     assert!(!rows.is_empty());
 
     // Reserve → run → log: a ledger-placeholder véglegesítve, hash-szel.
-    let (ledger_outcome, artifact_hash): (String, Option<String>) =
-        sqlx::query_as("SELECT outcome, artifact_hash FROM ops.fetch_ledger")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let (ledger_outcome, artifact_hash): (String, Option<String>) = sqlx::query_as(
+        "SELECT outcome, artifact_hash FROM ops.fetch_ledger WHERE job_id IS NOT NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert_eq!(ledger_outcome, "success");
     assert!(artifact_hash.is_some());
 
@@ -287,10 +288,11 @@ async fn shadow_mode_writes_no_canonical() {
         .await
         .unwrap();
     assert_eq!(job_status, "done");
-    let ledger_outcome: String = sqlx::query_scalar("SELECT outcome FROM ops.fetch_ledger")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let ledger_outcome: String =
+        sqlx::query_scalar("SELECT outcome FROM ops.fetch_ledger WHERE job_id IS NOT NULL")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(ledger_outcome, "success");
 }
 
@@ -327,10 +329,11 @@ async fn decoy_payload_quarantined_raw_kept() {
         0
     );
     assert_eq!(count(&pool, "SELECT count(*) FROM core.match").await, 0);
-    let ledger_outcome: String = sqlx::query_scalar("SELECT outcome FROM ops.fetch_ledger")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let ledger_outcome: String =
+        sqlx::query_scalar("SELECT outcome FROM ops.fetch_ledger WHERE job_id IS NOT NULL")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(ledger_outcome, "parse_error");
     let job_status: String = sqlx::query_scalar("SELECT status FROM ops.job")
         .fetch_one(&pool)
@@ -526,10 +529,11 @@ async fn unexpected_infra_error_marks_coverage_failed() {
         .unwrap();
     assert_eq!(job_status, "failed");
     // A placeholder nem véglegesíthető success-re: transport_error marad.
-    let ledger_outcome: String = sqlx::query_scalar("SELECT outcome FROM ops.fetch_ledger")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let ledger_outcome: String =
+        sqlx::query_scalar("SELECT outcome FROM ops.fetch_ledger WHERE job_id IS NOT NULL")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(ledger_outcome, "transport_error");
     // A fetch és az L0 megőrzés sikeres volt: a nyers megmaradt.
     assert_eq!(count(&pool, "SELECT count(*) FROM raw.artifact").await, 1);
@@ -617,11 +621,10 @@ async fn seed_http_job(pool: &PgPool, now: DateTime<Utc>) {
 
 /// A robots cache-t közvetlenül seedeljük (allowed) — a robots-fetch út
 /// külön tesztekkel fedett; így a fetch-tesztek nem függnek a robots-URL
-/// formájától. (S3a Task 2 az origin-kulcsra vált: a host oszlop értéke
-/// akkor az origin lesz.)
+/// formájától. A cache-kulcs az origin (S3a Task 2).
 async fn seed_robots_allowed(pool: &PgPool, url: &str) {
     let parsed = url::Url::parse(url).expect("teszt URL");
-    let host = parsed.host_str().expect("host").to_string();
+    let host = parsed.origin().ascii_serialization();
     let now = Utc::now();
     sqlx::query(
         "INSERT INTO ops.robots_cache (host, fetched_at, verdict, rules_text, expires_at)

@@ -260,7 +260,8 @@ pub async fn count_fetch_attempts_today(pool: &PgPool, slug: &str, day: NaiveDat
     sqlx::query_scalar(
         "SELECT count(*) FROM ops.fetch_ledger
          WHERE source_slug = $1 AND (attempted_at AT TIME ZONE 'UTC')::date = $2
-           AND outcome IN ('success','http_error','timeout','oversize','transport_error','parse_error')",
+           AND outcome IN ('success','http_error','timeout','oversize','transport_error','parse_error')
+           AND request_key NOT LIKE '%:robots:%'",
     )
     .bind(slug)
     .bind(day)
@@ -279,7 +280,8 @@ pub async fn last_attempt_at(pool: &PgPool, slug: &str) -> Result<Option<DateTim
     sqlx::query_scalar(
         "SELECT max(attempted_at) FROM ops.fetch_ledger
          WHERE source_slug = $1
-           AND outcome IN ('success','http_error','timeout','oversize','transport_error','parse_error')",
+           AND outcome IN ('success','http_error','timeout','oversize','transport_error','parse_error')
+           AND request_key NOT LIKE '%:robots:%'",
     )
     .bind(slug)
     .fetch_one(pool)

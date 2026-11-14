@@ -34,7 +34,9 @@ fn fetcher_with(files: &[(&str, &[u8])]) -> (tempfile::TempDir, FixtureFetcher) 
     let dir = tempfile::tempdir().unwrap();
     let mut map = HashMap::new();
     for (key, content) in files {
-        let path = dir.path().join(format!("{key}.json"));
+        // Az origin-kulcs '/' és ':' karaktereket tartalmaz: fájlnévként sanitizáljuk.
+        let safe = key.replace(|c: char| !c.is_ascii_alphanumeric(), "_");
+        let path = dir.path().join(format!("{safe}.json"));
         // a robots-tartalom NEM json: a FixtureFetcher nyers bájtot ad, a kiterjesztés .json,
         // de a robots-kapu a nyers szöveget parse-olja
         std::fs::write(&path, content).unwrap();
@@ -48,7 +50,7 @@ async fn allowed_path_and_cache_reuse() {
     let pool = test_pool().await;
     seed_policy(&pool).await;
     let (_dir, fetcher) = fetcher_with(&[(
-        "demo-synthetic:robots:example.test",
+        "demo-synthetic:robots:https://example.test",
         b"User-agent: *\nDisallow: /private\n",
     )]);
     let v = robots::check(
@@ -103,7 +105,7 @@ async fn unparseable_robots_fail_closed() {
     // Adaptáció: a brief \xff-es str-literálja nem fordul Rustban (hex escape
     // csak bájtsztringben lehet > 0x7f), ezért a fixture bájtként íródik.
     let (_dir, fetcher) = fetcher_with(&[(
-        "demo-synthetic:robots:example.test",
+        "demo-synthetic:robots:https://example.test",
         b"\x00\x01\xff nem robots",
     )]);
     let v = robots::check(&pool, &fetcher, "demo-synthetic", "https://example.test/x")
@@ -121,7 +123,7 @@ async fn specific_ua_group_blocks_despite_permissive_star() {
     let pool = test_pool().await;
     seed_policy(&pool).await;
     let (_dir, fetcher) = fetcher_with(&[(
-        "demo-synthetic:robots:example.test",
+        "demo-synthetic:robots:https://example.test",
         b"User-agent: football-app\nDisallow: /\n\nUser-agent: *\nDisallow:\n",
     )]);
     let v = robots::check(&pool, &fetcher, "demo-synthetic", "https://example.test/x")
@@ -136,7 +138,7 @@ async fn star_disallow_still_blocks() {
     let pool = test_pool().await;
     seed_policy(&pool).await;
     let (_dir, fetcher) = fetcher_with(&[(
-        "demo-synthetic:robots:example.test",
+        "demo-synthetic:robots:https://example.test",
         b"User-agent: *\nDisallow: /\n",
     )]);
     let v = robots::check(&pool, &fetcher, "demo-synthetic", "https://example.test/x")
@@ -163,7 +165,7 @@ impl Fetcher for TransportFailFetcher {
 #[tokio::test]
 async fn transport_error_fails_closed_and_cached() {
     // Élő fail-closed (RFC 9309): a transport-hiba Blocked verdictet ad,
-    // és a blocked verdict a cache-be kerül (24 órás TTL-lel).
+    // és a blocked verdict a cache-be kerül (átmeneti hibánál rövid TTL-lel).
     let pool = test_pool().await;
     seed_policy(&pool).await;
     let v = robots::check(
@@ -192,11 +194,111 @@ async fn garbage_without_user_agent_fail_closed() {
     let pool = test_pool().await;
     seed_policy(&pool).await;
     let (_dir, fetcher) = fetcher_with(&[(
-        "demo-synthetic:robots:example.test",
+        "demo-synthetic:robots:https://example.test",
         b"ez nem robots direktiva",
     )]);
     let v = robots::check(&pool, &fetcher, "demo-synthetic", "https://example.test/x")
         .await
         .unwrap();
     assert_eq!(v, RobotsVerdict::Blocked);
+}
+
+#[tokio::test]
+async fn sitemap_only_robots_is_allowed() {
+    // Legitim, User-agent szekció nélküli fájl (csak Sitemap): nem tiltás.
+    let pool = test_pool().await;
+    seed_policy(&pool).await;
+    let (_dir, fetcher) = fetcher_with(&[(
+        "demo-synthetic:robots:https://example.test",
+        b"Sitemap: https://example.test/sitemap.xml\n",
+    )]);
+    let v = robots::check(
+        &pool,
+        &fetcher,
+        "demo-synthetic",
+        "https://example.test/page",
+    )
+    .await
+    .unwrap();
+    assert_eq!(v, RobotsVerdict::NoRobots, "a Sitemap-only fájl nem tiltás");
+}
+
+#[tokio::test]
+async fn bom_prefixed_robots_is_parsed() {
+    let pool = test_pool().await;
+    seed_policy(&pool).await;
+    let (_dir, fetcher) = fetcher_with(&[(
+        "demo-synthetic:robots:https://example.test",
+        b"\xef\xbb\xbfUser-agent: *\nAllow: /\n",
+    )]);
+    let v = robots::check(
+        &pool,
+        &fetcher,
+        "demo-synthetic",
+        "https://example.test/page",
+    )
+    .await
+    .unwrap();
+    assert_eq!(v, RobotsVerdict::Allowed, "a BOM nem blokkol");
+}
+
+#[tokio::test]
+async fn transient_error_uses_short_ttl() {
+    let pool = test_pool().await;
+    seed_policy(&pool).await;
+    let v = robots::check(
+        &pool,
+        &TransportFailFetcher,
+        "demo-synthetic",
+        "https://example.test/page",
+    )
+    .await
+    .unwrap();
+    assert_eq!(v, RobotsVerdict::Blocked, "átmeneti hiba = fail-closed");
+    let ttl_hours: f64 = sqlx::query_scalar(
+        "SELECT (EXTRACT(EPOCH FROM (expires_at - fetched_at)) / 3600)::float8 FROM ops.robots_cache",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        (ttl_hours - 1.0).abs() < 0.1,
+        "átmeneti hibánál 1 órás TTL várható, ehelyett: {ttl_hours}"
+    );
+}
+
+#[tokio::test]
+async fn robots_fetch_writes_non_counting_ledger_row() {
+    let pool = test_pool().await;
+    seed_policy(&pool).await;
+    let (_dir, fetcher) = fetcher_with(&[(
+        "demo-synthetic:robots:https://example.test",
+        b"User-agent: *\nAllow: /\n",
+    )]);
+    robots::check(
+        &pool,
+        &fetcher,
+        "demo-synthetic",
+        "https://example.test/page",
+    )
+    .await
+    .unwrap();
+    let (request_key, outcome, job_id): (String, String, Option<uuid::Uuid>) = sqlx::query_as(
+        "SELECT request_key, outcome, job_id FROM ops.fetch_ledger
+         WHERE request_key LIKE 'demo-synthetic:robots:%'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(request_key, "demo-synthetic:robots:https://example.test");
+    assert_eq!(outcome, "success");
+    assert_eq!(job_id, None, "a robots-sor nem jobhoz kötött");
+    let counted = football_storage::repositories::worker::count_fetch_attempts_today(
+        &pool,
+        "demo-synthetic",
+        chrono::Utc::now().date_naive(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(counted, 0, "a robots-fetch nem számít a napi kvótába");
 }
