@@ -334,3 +334,61 @@ odds teszthézag, Task 6 seed-duplikáció). Task 7-ben pótolva: db-check
 
 1. Commit a felhasználó kifejezett kérésére (munkafa-review után).
 2. S3 belépési kapuk + a deferred minorok ütemezése.
+
+## Napzárás (2026-11-13 este) — S2b-1 + S2b-2 merge-elve a main-be
+
+**A mai nap két teljes szeletet zárt le, mindkettő a main-be merge-elve:**
+
+### S2b-1 — fail-closed identitás-réteg (7 task, merge: 304f067)
+- domain::identity (normalizálás, kontextus, Jaccard), 0005 migráció
+  (crosswalk/alias/review_queue, NULLS NOT DISTINCT partial unique),
+  storage identity repo-k (Executor-generikus tx), football-identity crate
+  (6 lépéses fail-closed linker + tranzakciós append-only review),
+  footballctl identity CLI, tick live ág linker-integráció.
+- 121 teszt zöld; demo 20/20 verified; 0 élő kérés.
+- Rulingok: kontextus (None,Some)→true (spec §3.1); NULLS NOT DISTINCT;
+  Executor-generikus írók; InvalidInput hiba-variáns; E2E újratervezés
+  (canonicalize re-seed → resolve-szintű twin-entitás ciklus).
+
+### S2b-2 — bizalmi szintes publish gate (7 task, merge: b63e286)
+- domain::trust (TrustClass, OddsValues ±tolerance mikro-epszilon,
+  provider-csoportosítás), 0006 migráció (ops.source_trust + odds
+  composite PK + trust_state), storage trust repo + LATERAL odds join,
+  TRUST_LEVEL a SINGLE_SOURCE helyébe + evaluate_odds_trust (kétforrásos,
+  mezőszintű), hívók wiring (verification-1.1), API odds_trust_state +
+  Swift oddsTrustState, operations/trust.md.
+- 152 teszt zöld; demo 20/20 verified_publish + 20 verified odds;
+  Swift Core 18/18; 0 élő kérés, 0 nyers payload.
+- Rulingok: mikro-epszilon (1e-9); összes hozzájáruló forrás betöltése;
+  warning→validation_finding; top-level odds_trust_state; demo újratöltés
+  (dev business 986→1061, additív); footballdata odds medium;
+  final fix-wave (rollback atomi, verzióstring, forward rename SQL).
+
+### Záró állapot
+- main: b63e286 (szinkronban originennel), munkafa tiszta.
+- dev DB: 33 tábla, 6 szabály, 1061 üzleti + 6 worker sor; demo pipeline
+  20/20 verified_publish + verified odds.
+- test DB: 33/6/0/0 (db-reset után).
+- SDD workspace-ek törölve; a rulingok a checkpointban és a záró
+  összefoglalókban élnek.
+
+### Következő döntési pont (2026-11-14+)
+1. **S2c** — Obscura-integráció a Fetcher trait mögé (csak spike-igazolt
+   többletnél; stealth tiltott).
+2. **S2d** — séma-rések lezárása (18 tételes lista; a 18. tétel saját
+   Elo-feature).
+3. **S3** — első éles adapter (footballdata), a 13+ belépési kapu
+   zártával: 429/Retry-After, jitter/backoff, half-open breaker átmenet,
+   robots-lazítások (Sitemap/BOM, port/séma, TTL), interval-validáció,
+   media_type, robots-ledger, CLI repo-k, fail-closed linker (S2b),
+   OpenFoot havi számláló, többworker fencing, cross-kind approve,
+   crosswalk-uniqueness, footballctl identity hardcode consistency.
+4. A deferred minorok (persist.rs mezőmátrix, odds teszthézagok, routes
+   seed-duplikáció, NoOdds TryFrom) S3/backlog — nem merge-blokkolók.
+
+### Ellenőrizetlen / nem történt
+- Élő forrásadapter NEM épült (S2c/S2d/S3 külön szeletek).
+- footballctl IngestFixture identity_exact=true hardcode (S3 consistency).
+- Valódi crosswalk/odds import NEM történt (S3).
+- Commit/push/merge a felhasználó kifejezett engedélyével történt
+  (S2b-1: 304f067, S2b-2: b63e286).
