@@ -132,10 +132,9 @@ S2c — Obscura browser-fetcher:
       Záró kapuk: check.sh exit 0, 157/157 workspace, ingest obscura 27/27,
       clippy (workspace + feature), footballd --features obscura, fmt.
 - [x] Dev migráció: 0007 lefutott a dev DB-n (footballctl migrate:
-      „migráció kész"); db-check: dev 33 tábla OK. A test DB-n a kézi
-      tesztfutások maradék sorai (9 üzleti) miatt db-reset szükséges
-      (a hivatalos check.sh is ezt futtatja; csak a TEST_DATABASE_URL-t
-      érinti).
+      „migráció kész"); db-check: dev 33 tábla OK. A test DB a kézi
+      tesztfutások maradékaitól db-reset-tel tisztítva (engedélyezett;
+      csak TEST_DATABASE_URL): test 33 tábla, 0 üzleti sor.
 - [x] Commit: S2c szelet egy commitban (jóváhagyott kérésre, push nélkül).
 
 ## Deferred minorok (S2c)
