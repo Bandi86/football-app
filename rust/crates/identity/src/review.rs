@@ -125,6 +125,99 @@ pub async fn approve(
     Ok(())
 }
 
+/// Pending review-sor jóváhagyása ÚJ kanonikus entitással (élő forrás
+/// bootstrap): kind-tudatos létrehozás — `team` → `core.entity` +
+/// `core.team` (ország a sor kontextusából), más kind → csak `core.entity`
+/// —, majd a meglévő approve-lánc (kézi ref + döntés + audit) egy
+/// tranzakcióban. Visszaadja az új entitás azonosítóját.
+pub async fn approve_create(
+    pool: &PgPool,
+    queue_id: Uuid,
+    decided_by: &str,
+    note: Option<&str>,
+) -> Result<Uuid, IdentityError> {
+    let row = load_pending(pool, queue_id).await?;
+    let source_id = row.source_id.ok_or(IdentityError::InvalidInput(
+        "A review-sorhoz nem tartozik forrás, kézi döntés nem lehetséges.".into(),
+    ))?;
+    let entity_id = Uuid::now_v7();
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| IdentityError::Db(e.to_string()))?;
+
+    sqlx::query("INSERT INTO core.entity (id, kind, canonical_name) VALUES ($1,$2,$3)")
+        .bind(entity_id)
+        .bind(&row.entity_kind)
+        .bind(&row.proposed_name)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| IdentityError::Db(e.to_string()))?;
+
+    if row.entity_kind == "team" {
+        let ctx = context_from_json(&row.context);
+        let country_code = ctx.country_code.as_deref().ok_or_else(|| {
+            IdentityError::InvalidInput(
+                "a review-sor kontextusában nincs ország; a csapat nem hozható létre".into(),
+            )
+        })?;
+        let country_id: Uuid = sqlx::query_scalar("SELECT id FROM core.country WHERE code=$1")
+            .bind(country_code)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| IdentityError::Db(e.to_string()))?
+            .ok_or_else(|| {
+                IdentityError::InvalidInput(format!(
+                    "az ország nem azonosítható a kanonikus táblában: {country_code}"
+                ))
+            })?;
+        sqlx::query(
+            "INSERT INTO core.team
+             (id, entity_id, country_id, name, gender, age_group, branch)
+             VALUES ($1,$1,$2,$3,$4,$5,$6)",
+        )
+        .bind(entity_id)
+        .bind(country_id)
+        .bind(&row.proposed_name)
+        .bind(ctx.gender.as_deref().unwrap_or("male"))
+        .bind(ctx.age_group.as_deref().unwrap_or("senior"))
+        .bind(ctx.branch.as_deref().unwrap_or("senior"))
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| IdentityError::Db(e.to_string()))?;
+    }
+
+    repo::insert_manual_ref(
+        &mut *tx,
+        source_id,
+        &row.entity_kind,
+        &row.source_entity_id,
+        entity_id,
+    )
+    .await
+    .map_err(db_err)?;
+    let decided = repo::decide_review(&mut *tx, queue_id, "approved", decided_by, note)
+        .await
+        .map_err(db_err)?;
+    if decided == 0 {
+        return Err(IdentityError::AlreadyDecided);
+    }
+    repo::record_identity_decision(
+        &mut *tx,
+        decided_by,
+        "identity_approve_create",
+        queue_id,
+        json!({"queue_id": queue_id, "entity_id": entity_id, "ok": row.reason, "note": note}),
+    )
+    .await
+    .map_err(db_err)?;
+    tx.commit()
+        .await
+        .map_err(|e| IdentityError::Db(e.to_string()))?;
+    Ok(entity_id)
+}
+
 /// Pending review-sor elutasítása, kötelező jegyzettel (üres → InvalidInput).
 /// Végleges: a rejected sor megmarad, újra nem dönthető (AlreadyDecided).
 /// Egy tranzakció: rejected döntés + audit; 0 érintett sor → AlreadyDecided.

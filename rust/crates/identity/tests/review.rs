@@ -428,3 +428,35 @@ async fn approve_with_mismatched_entity_kind_is_rejected() {
     assert_eq!(status, "pending", "az elutasított approve nem dönt");
     assert_eq!(ref_count(&pool, source_id, "rev-kind").await, 0);
 }
+
+#[tokio::test]
+async fn approve_create_makes_entity_and_links() {
+    let pool = test_pool().await;
+    let source_id = seed_source(&pool, "demo-synthetic").await;
+    let _country_id = seed_country(&pool, "HU", "Hungary").await;
+    let queue_id = pending_queue(&pool, source_id, "rev-new", &ctx_hu()).await;
+    let entity_id = review::approve_create(&pool, queue_id, "cli", Some("új klub"))
+        .await
+        .unwrap();
+    let (kind, name): (String, String) =
+        sqlx::query_as("SELECT kind, canonical_name FROM core.entity WHERE id=$1")
+            .bind(entity_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(kind, "team");
+    assert_eq!(name, "Ismeretlen Klub");
+    let team_name: String = sqlx::query_scalar("SELECT name FROM core.team WHERE id=$1")
+        .bind(entity_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(team_name, "Ismeretlen Klub");
+    let status: String = sqlx::query_scalar("SELECT status FROM identity.review_queue WHERE id=$1")
+        .bind(queue_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "approved");
+    assert_eq!(ref_count(&pool, source_id, "rev-new").await, 1);
+}

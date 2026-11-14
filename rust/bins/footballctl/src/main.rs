@@ -79,6 +79,12 @@ enum IdentityAction {
         #[arg(long)]
         note: Option<String>,
     },
+    /// Új kanonikus entitás létrehozása a review-sorból (élő forrás bootstrap).
+    ApproveCreate {
+        id: Uuid,
+        #[arg(long)]
+        note: Option<String>,
+    },
     Reject {
         id: Uuid,
         #[arg(long)]
@@ -351,6 +357,11 @@ async fn identity_command(pool: &sqlx::PgPool, action: IdentityAction) -> Result
         IdentityAction::Approve { id, entity, note } => {
             football_identity::review::approve(pool, id, entity, "cli", note.as_deref()).await?;
             println!("jóváhagyva: {id} → {entity}");
+        }
+        IdentityAction::ApproveCreate { id, note } => {
+            let entity =
+                football_identity::review::approve_create(pool, id, "cli", note.as_deref()).await?;
+            println!("létrehozva és jóváhagyva: {id} → {entity}");
         }
         IdentityAction::Reject { id, note } => {
             football_identity::review::reject(pool, id, "cli", &note).await?;
