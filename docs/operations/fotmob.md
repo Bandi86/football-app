@@ -5,8 +5,11 @@ Napi meccs-feed a FotMob nyílt JSON API-jából:
 
 - **Nincs böngésző:** a nap-feed sima JSON → `rust_http` transport (az Obscura
   csak a JS-renderelt oldalakhoz kell, pl. Soccerway).
-- **Robots:** a fotmob.com robots.txt explicit `Allow: /api/*` szabályt ad;
-  a worker robots-kapuja dönt (fail-closed).
+- **Robots — ÉLESBEN TILTOTT:** a fotmob.com robots.txt `Disallow: /api/*`
+  szabályt tartalmaz (mellette ellentmondásos `Allow: /api/*` sorok); a worker
+  robots-kapuja fail-closed módon **blokkolja** az API-utat. Az adapter kódja
+  kész és tesztelt, de a forrás **csak explicit engedéllyel/alternatív
+  hozzáféréssel** használható élesben; a policy alapból `enabled=false`.
 - **Liga-szűrő:** policy-domainenként egy top-5 liga
   (epl/laliga/seriea/bundesliga/ligue1 → liganév+országkód); a feed a
   megadott napot adja, dátum-guard véd.
@@ -28,7 +31,7 @@ INSERT INTO ops.source_policy
 VALUES ('fotmob', 'rust_http', 'canary', 10, 2000, 1000, 3, 60, '1.0', '1.0',
    '["epl","laliga","seriea","bundesliga","ligue1"]'::jsonb,
    '[{"event_type":"discovery","offset_minutes":null,"interval_minutes":1440}]'::jsonb,
-   true, 5242880)
+   false, 5242880)
 ON CONFLICT (source_slug) DO UPDATE SET enabled = EXCLUDED.enabled;
 ```
 

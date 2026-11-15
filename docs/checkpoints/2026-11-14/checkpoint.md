@@ -419,4 +419,10 @@ S2c — Obscura browser-fetcher:
       footballd/CLI regiszterben; teszt 2/2; check.sh 204/204.
 - [x] Megjegyzés: 2026-11-14 válogatott szünet — a top-5 ligáknak nincs
       meccse a feedben (a live tick `no_data`, ez helyes).
+- [x] Élő ellenőrzés: a robots.txt **tiltja az /api/*-ot** (ellentmondásos
+      Allow sorok mellett) → a worker robots-kapuja **blokkol**
+      (`robots_blocked`). Ez a helyes fail-closed viselkedés: a FotMob élesben
+      **nem használható** a robots-megkerülés tilalma miatt. A policy
+      `enabled=false`; az adapter kódja tesztelve marad, dokumentált
+      alternatív hozzáférés esetére.
 - Operations doc: docs/operations/fotmob.md.
