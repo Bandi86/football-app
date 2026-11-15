@@ -54,11 +54,11 @@ INSERT INTO ops.source_policy
    breaker_threshold, breaker_cooldown_secs, adapter_version, parser_version,
    domains, events, enabled, max_bytes)
 VALUES
-  ('soccerway', 'obscura', 'canary', 14, 15000, 5000, 3, 120, '1.0', '1.0',
-   ARRAY['anglia/premier-league','spanyolorszag/laliga','olaszorszag/serie-a',
-         'nemetorszag/bundesliga','franciaorszag/ligue-1',
-         'magyarorszag/nb-i','magyarorszag/nb-ii'],
-   ARRAY['{"event_type":"discovery","offset_minutes":null,"interval_minutes":1440}'::jsonb],
+  ('soccerway', 'obscura', 'canary', 14, 60000, 15000, 3, 120, '1.0', '1.0',
+   '["anglia/premier-league","spanyolorszag/laliga","olaszorszag/serie-a",
+     "nemetorszag/bundesliga","franciaorszag/ligue-1",
+     "magyarorszag/nb-i","magyarorszag/nb-ii"]'::jsonb,
+   '[{"event_type":"discovery","offset_minutes":null,"interval_minutes":1440}]'::jsonb,
    false, 26214400)
 ON CONFLICT (source_slug) DO UPDATE SET
   transport = EXCLUDED.transport, mode = EXCLUDED.mode,
@@ -77,11 +77,18 @@ elérhető `tools/obscura/obscura` bináris (lásd [obscura.md](obscura.md)).
 ## 3. Terhelés és cooldown
 
 - A Soccerway oldal ismételt, gyors renderelésre **elakad vagy 200-as
-  hiboldalt ad** — ezért 15 s + 5 s jitter min_delay, napi 14 kérés
-  (7 liga × 2 napos kör), 120 s breaker-cooldown.
-- A kliens-oldali lista miatt egy render ~10–20 s; a worker
-  fetch-timeoutja (30 s) szűk lehet erős terhelésnél — figyelni kell a
-  ledger `latency_ms` értékét.
+  hiboldalt ad** — ezért 60 s + 15 s jitter min_delay, napi 14 kérés
+  (7 liga), 120 s breaker-cooldown.
+- A kliens-oldali lista miatt egy render 10–45 s; a worker fetch-timeoutja
+  **60 s** (2026-11-15 óta; a 30 s-os plafon élőben levágta a lassú
+  rendereket). Három egymás utáni fetch-hiba (timeout/transport) nyitja a
+  breakert; a nyitott breaker alatt a jobok `failed`-be mennek.
+- Kézi canary kör: `cargo build -p footballctl --features obscura`, majd
+  `OBSCURA_BIN=<obscura> footballctl worker tick` — a CLI ugyanúgy lazy
+  indítja az Obscura-szervert, mint a daemon. A jobok `min_delay` miatt
+  tickenként egyenként mennek; ütemezetten (≥ breaker-cooldown) futtatva.
+- Nulla-nap (nincs meccs a szűrt ligákban) → `no_data` coverage, nem
+  hiba (2026-11-15-i javítás).
 
 ## 4. Kétfázisú bootstrap
 

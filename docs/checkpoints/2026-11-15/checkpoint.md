@@ -95,3 +95,60 @@
 - Policy: `enabled=false` (induló állapot), vagy a policy-sor törlése.
 - A kanonikus Soccerway-sorok forrás-kötöttek; a review-sorok
   visszafordíthatók.
+
+## Élő Soccerway canary + asset-import (2026-11-15, folytatás)
+
+### Policy és első kör
+
+- [x] Policy-seed a dev DB-n (jóváhagyott élő kapcsolás): `transport=obscura`,
+      `mode=canary`, `enabled=true`, 7 domain, napi 14 kérés, 60 s + 15 s
+      jitter min_delay, breaker 3/120 s; trust `result`/medium. Megjegyzés:
+      a `domains`/`events` oszlop **jsonb** (a korábbi ARRAY-es doc-példa
+      javítva).
+- [x] CLI-oldali Obscura-támogatás: a `footballctl` új `obscura` feature-e
+      ugyanúgy lazy indítja a szervert, mint a daemon (canary tick kézből).
+- [x] Első kör tanulságai (valós hibák, javítva):
+      1. **Nulla-nap hiba:** üres observation-lista esetén a normalizálás
+         elbukott `no_data` helyett → javítás + `empty_canary_day_is_no_data_not_failure`
+         e2e teszt (commit `dfeb235`).
+      2. **Fetch-timeout:** a 30 s-os statikus plafon levágta a 10–45 s-os
+         Obscura-rendereket (3 timeout → breaker 120 s-ra) → 60 s
+         (commit `dfeb235`).
+      3. Ismételt gyors kérések után a forrás elakad; a 60 s + jitteres
+         ütem és a breaker fail-closed viselkedése helyes.
+
+### Élő eredmény (2026-11-15)
+
+- [x] Sikeres feldolgozott domainek (canary, fail-closed): Ligue 1,
+      Bundesliga, NB I → `no_data` (válogatott szünet — a szűrt ligáknak
+      nincs meccse); a nap-oldal renderelése, a dátum-guard, a decoy-őr és
+      a liga-szűrő élőben fut.
+- [x] A maradék domainek retry-ja ütemezetten fut (min_delay/breaker
+      tisztelettel); a failed jobok operátori visszaállítása dokumentált
+      (`status='pending'`, breaker-sor törlése).
+- [ ] A 2026-11-16-i napi kör az első teljes (meccses) bizonyíték.
+
+### Asset-import (v1 auditált logók)
+
+- [x] `ObjectStore::put_blob` (tartalom-címzett `assets/<aa>/<bb>/<sha>.<ext>`,
+      tömörítés nélkül) + `ops.asset.storage_key` írása/upsertje; a CLI
+      `asset import` most `file`+`sha256` mezőt is kezel (sha-ellenőrzés,
+      eltérésnél megáll). Tesztek: blob-integráció + storage_key upsert.
+      Commit `6dc8354`.
+- [x] v1-audit mapping (exact név + ország, nincs fuzzy): 86 élő csapatból
+      30 helyi blob, 14 forrás-URL, 20 asset nélkül, 22 név nincs a
+      v1-ben; 4 liga-logó (PL, Bundesliga, Serie A, Ligue 1); La Liga
+      nyitott (nincs v1 tournament-bejegyzés). Összesen **48 asset-sor,
+      34 blob**; egy blob sha256-ja ellenőrizve.
+- [x] Licenc: a v1 források nem dokumentálnak licencet →
+      `licence_status='unknown'` (megjelenítés előtt tudatos `cleared`
+      döntés kell). Ops doc: `docs/operations/assets.md`.
+- [ ] S8: asset/Elo megjelenítés a kliensben (következő szelet).
+
+### Nyitott pontok
+
+1. A retry-kör záró státuszai (jobonkénti) — a következő tickekből.
+2. A 2026-11-16-i első teljes meccses kör (review-bootstrap a lokalizált
+   Soccerway-nevekre).
+3. La Liga logó és a 36 asset nélküli/eltérő nevű csapat pótlása
+   (operátori mapping vagy újabb forrás).
