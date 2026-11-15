@@ -365,3 +365,13 @@ S2c — Obscura browser-fetcher:
   crosswalk-uniqueness validáció + `identity crosswalk-check`.
 - Hátra: G (Elo-pillanatkép, saját feature) + a játékvezető-review /
   canary→live operatív döntések.
+
+## S2d-6 (G csoport) — club_elo pillanatkép (2026-11-14)
+
+- [x] 0013 migráció: `fact.club_elo` (ország+klub+név as-of dátum, elo,
+      **kötelező provenance** observed/provisional, source='clubelo',
+      captured_at; entitás-FK opcionális). Határ-szabály: a 2025-06-01 előtti
+      adat csak `provisional` lehet (jövőbeli információ nem szivároghat).
+      Teszt 1/1 (határ + címke + PK); check.sh 199/199; db-check 45.
+- Ezzel az S2d 18 tételes séma-rés listája teljes (A–G); hátra operatív
+  döntések (játékvezető-review, canary→live) és a következő források.
