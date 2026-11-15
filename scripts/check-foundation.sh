@@ -15,5 +15,7 @@ fi
 
 cd rust
 cargo fmt --all --check
-cargo test -p football-domain -p football-storage
+# A storage-integrációs tesztek közös teszt-DB-t használnak (TRUNCATE a
+# test_pool elején), ezért egy szálon futnak — párhuzamosan versenyhelyzet.
+cargo test -p football-domain -p football-storage -- --test-threads=1
 cargo clippy -p football-domain -p football-storage --all-targets -- -D warnings
