@@ -396,3 +396,15 @@ S2c — Obscura browser-fetcher:
       check.sh 202/202. Operations doc: docs/operations/clubelo.md.
 - [ ] Élő clubelo kör: FÜGGŐBEN — charter-kapu (új élő forrás; a clubelo
       robots.txt/elérés nem mért, a katalógus szerint is verifikálandó).
+
+## FotMob research-kör (2026-11-15, 1 kérés az Obscura-n át)
+
+- [x] Élő minta: fotmob.com kezdőlap, 546 KB renderelt HTML; a
+      `__NEXT_DATA__` **megvan**, de a nap-feed már **nem** benne van:
+      `pageProps` csak `fallback`-et tartalmaz (React Query →
+      `/api/translationmapping?...`), azaz a FotMob **API-alapú** adatútra
+      váltott az S1-katalógus mérése (2026-11-10) óta.
+- Következtetés: a FotMob-adapter **nem** írható meg __NEXT_DATA__-parserkén
+      spekuláció nélkül; külön research-szelet kell (API-végpontok
+      feltérképezése, robots, séma-rögzítés), mielőtt adapter készül.
+- A temporális research-módosítás visszaállítva; a repóban nincs nyers payload.
