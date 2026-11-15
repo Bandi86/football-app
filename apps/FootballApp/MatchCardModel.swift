@@ -36,6 +36,10 @@ struct MatchCardModel: Identifiable {
     let oddsSource: String
     let homePosition: Int?
     let awayPosition: Int?
+    let homeLogo: String?
+    let awayLogo: String?
+    let homeElo: Int?
+    let awayElo: Int?
 
     var winner1x2: Outcome? {
         guard status == "finished", let home = homeScore, let away = awayScore else { return nil }
@@ -85,7 +89,11 @@ struct MatchCardModel: Identifiable {
             markets: match.marketCount ?? 0,
             oddsSource: match.oddsSource ?? "–",
             homePosition: match.homePosition,
-            awayPosition: match.awayPosition
+            awayPosition: match.awayPosition,
+            homeLogo: match.homeLogo,
+            awayLogo: match.awayLogo,
+            homeElo: match.homeElo.map { Int($0.rounded()) },
+            awayElo: match.awayElo.map { Int($0.rounded()) }
         )
     }
 
@@ -97,7 +105,11 @@ struct MatchCardModel: Identifiable {
             homePens: match.homePens, awayPens: match.awayPens, minute: match.minute,
             odds: match.odds, markets: match.markets, oddsSource: SampleData.oddsSource,
             homePosition: SampleData.position(of: match.home),
-            awayPosition: SampleData.position(of: match.away)
+            awayPosition: SampleData.position(of: match.away),
+            homeLogo: nil,
+            awayLogo: nil,
+            homeElo: nil,
+            awayElo: nil
         )
     }
 }

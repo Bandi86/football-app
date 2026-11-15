@@ -30,6 +30,9 @@ targets:
     platform: macOS
     sources:
       - FootballAppTests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
     dependencies:
       - target: FootballApp
 schemes:

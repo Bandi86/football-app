@@ -8,13 +8,14 @@ final class DayModel {
     enum State: Equatable {
         case idle
         case loading
-        case loaded([DayMatch])
+        case loaded(DayFeed)
         case empty
         case error(APIError)
     }
 
     var selectedDate: Date = Date()
     var state: State = .idle
+    let logos = LogoStore()
 
     private let loader: any RuntimeInfoLoading
     private let serviceFactory: (RuntimeInfo) throws -> DayService
@@ -37,10 +38,13 @@ final class DayModel {
         state = .loading
         do {
             let info = try loader.load()
+            if let baseURL = URL(string: "http://127.0.0.1:\(info.port)") {
+                logos.configure(baseURL: baseURL, token: info.readToken)
+            }
             let service = try serviceFactory(info)
-            let matches = try await service.day(for: selectedDate)
+            let feed = try await service.day(for: selectedDate)
             guard currentGeneration == generation else { return }
-            state = matches.isEmpty ? .empty : .loaded(matches)
+            state = feed.matches.isEmpty ? .empty : .loaded(feed)
         } catch is CancellationError {
             // Megszakított betöltés: nem hiba, a frissebb betöltés veszi át.
             return

@@ -51,7 +51,7 @@ struct HTTPDayServiceTests {
         let service = makeService { request in
             captured.store(request)
             let body = """
-            {"date":"2026-11-09","timezone":"Europe/Budapest","matches":[
+            {"date":"2026-11-09","timezone":"Europe/Budapest","refreshed_at":"2026-11-09T20:15:00Z","matches":[
               {"id":"00000000-0000-0000-0000-000000000101","kickoff_at":"2026-11-09T18:00:00Z",
                "status":"scheduled","home":"Újpest","away":"Győr","home_score":null,"away_score":null,
                "publish_state":"verified_publish","blockers":[]}
@@ -59,12 +59,13 @@ struct HTTPDayServiceTests {
             """.data(using: .utf8)!
             return (self.response(request.url, 200), body)
         }
-        let matches = try await service.day(for: sampleDate)
+        let feed = try await service.day(for: sampleDate)
         let request = try #require(captured.value, "A stub nem rögzített kérést")
         #expect(request.url?.path == "/v1/day/2026-11-09")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer test-token")
-        #expect(matches.count == 1)
-        #expect(matches[0].home == "Újpest")
+        #expect(feed.matches.count == 1)
+        #expect(feed.matches[0].home == "Újpest")
+        #expect(feed.refreshedAt != nil, "refreshed_at dekódolva")
     }
 
     @Test func mapsStatusCodesToErrors() async {

@@ -22,6 +22,7 @@ struct HomeView: View {
             HomeHeader(
                 date: $model.selectedDate,
                 count: loadedCount,
+                refreshedAt: loadedRefreshedAt,
                 appeared: appeared,
                 onPrevious: { model.goToPreviousDay() },
                 onToday: { model.goToToday() },
@@ -48,8 +49,8 @@ struct HomeView: View {
             ProgressView()
                 .controlSize(.large)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .loaded(let matches):
-            MatchListView(leagues: filteredLeagues(matches))
+        case .loaded(let feed):
+            MatchListView(leagues: filteredLeagues(feed.matches), logos: model.logos)
         case .empty:
             EmptyStateView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -59,8 +60,13 @@ struct HomeView: View {
         }
     }
 
+    private var loadedRefreshedAt: Date? {
+        if case .loaded(let feed) = model.state { return feed.refreshedAt }
+        return nil
+    }
+
     private var loadedCount: Int? {
-        if case .loaded(let matches) = model.state { return matches.count }
+        if case .loaded(let feed) = model.state { return feed.matches.count }
         return nil
     }
 
@@ -72,12 +78,14 @@ struct HomeView: View {
     }
 
     private var allCountries: [String] {
-        guard case .loaded(let matches) = model.state else { return [] }
+        guard case .loaded(let feed) = model.state else { return [] }
+        let matches = feed.matches
         return Array(Set(LeagueGroup.fromDay(matches).map(\.country))).sorted()
     }
 
     private var filterCounts: [MatchFilter: Int] {
-        guard case .loaded(let matches) = model.state else { return [:] }
+        guard case .loaded(let feed) = model.state else { return [:] }
+        let matches = feed.matches
         let all = baseGroups(matches).flatMap { $0.matches }
         var result: [MatchFilter: Int] = [:]
         for candidate in MatchFilter.allCases {
@@ -145,6 +153,7 @@ private struct TopNavigationBar: View {
 private struct HomeHeader: View {
     @Binding var date: Date
     let count: Int?
+    let refreshedAt: Date?
     let appeared: Bool
     let onPrevious: () -> Void
     let onToday: () -> Void
@@ -190,10 +199,31 @@ private struct HomeHeader: View {
         return nil
     }
 
+    private static let refreshTime: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "hu_HU")
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+    private static let refreshDay: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "hu_HU")
+        formatter.dateFormat = "MMM d. HH:mm"
+        return formatter
+    }()
+
+    private var refreshLabel: String? {
+        guard let refreshedAt else { return nil }
+        let formatter = Calendar.current.isDateInToday(refreshedAt)
+            ? Self.refreshTime : Self.refreshDay
+        return "frissítve \(formatter.string(from: refreshedAt))"
+    }
+
     private var metaText: String {
-        let base = "\(Self.year.string(from: date)) · \(Self.weekday.string(from: date))"
-        if let count { return "\(base) · \(count) meccs" }
-        return base
+        var parts = [Self.year.string(from: date), Self.weekday.string(from: date)]
+        if let count { parts.append("\(count) meccs") }
+        if let refreshLabel { parts.append(refreshLabel) }
+        return parts.joined(separator: " · ")
     }
 
     private func step(_ delay: Double) -> Animation? {

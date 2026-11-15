@@ -73,6 +73,10 @@ public struct DayMatch: Decodable, Equatable, Identifiable, Sendable {
     public let oddsSource: String?
     public let oddsCapturedAt: Date?
     public let oddsTrustState: String?
+    public let homeLogo: String?
+    public let awayLogo: String?
+    public let homeElo: Double?
+    public let awayElo: Double?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -102,11 +106,32 @@ public struct DayMatch: Decodable, Equatable, Identifiable, Sendable {
         case oddsSource = "odds_source"
         case oddsCapturedAt = "odds_captured_at"
         case oddsTrustState = "odds_trust_state"
+        case homeLogo = "home_logo"
+        case awayLogo = "away_logo"
+        case homeElo = "home_elo"
+        case awayElo = "away_elo"
     }
 }
 
 public struct DayResponse: Decodable, Sendable {
     public let date: String
     public let timezone: String
+    public let refreshedAt: Date?
     public let matches: [DayMatch]
+
+    enum CodingKeys: String, CodingKey {
+        case date, timezone, matches
+        case refreshedAt = "refreshed_at"
+    }
+}
+
+/// Egy nap teljes válasza: a batch-frissítés ideje + a meccsek.
+public struct DayFeed: Equatable, Sendable {
+    public let refreshedAt: Date?
+    public let matches: [DayMatch]
+
+    public init(refreshedAt: Date?, matches: [DayMatch]) {
+        self.refreshedAt = refreshedAt
+        self.matches = matches
+    }
 }

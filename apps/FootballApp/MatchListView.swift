@@ -37,6 +37,7 @@ enum MatchFilter: String, CaseIterable, Identifiable {
 /// Liga szerint csoportosított, prioritás szerint rendezett napi lista.
 struct MatchListView: View {
     let leagues: [LeagueGroup]
+    let logos: LogoStore
 
     var body: some View {
         if leagues.isEmpty {
@@ -52,7 +53,7 @@ struct MatchListView: View {
             ScrollView {
                 LazyVStack(spacing: 16) {
                     ForEach(leagues) { league in
-                        LeagueSectionView(league: league)
+                        LeagueSectionView(league: league, logos: logos)
                     }
                 }
                 .padding(.horizontal, 48)
@@ -64,6 +65,7 @@ struct MatchListView: View {
 
 private struct LeagueSectionView: View {
     let league: LeagueGroup
+    let logos: LogoStore
 
     private var sortedMatches: [MatchCardModel] {
         league.matches.sorted { $0.time < $1.time }
@@ -96,7 +98,7 @@ private struct LeagueSectionView: View {
 
             VStack(spacing: 0) {
                 ForEach(Array(sortedMatches.enumerated()), id: \.element.id) { index, match in
-                    MatchItemRow(match: match, showPositions: league.tier != 0)
+                    MatchItemRow(match: match, showPositions: league.tier != 0, logos: logos)
                     if index < sortedMatches.count - 1 {
                         Rectangle().fill(AppTheme.hairline).frame(height: 1).padding(.leading, 18)
                     }
@@ -115,6 +117,7 @@ private struct LeagueSectionView: View {
 private struct MatchItemRow: View {
     let match: MatchCardModel
     let showPositions: Bool
+    let logos: LogoStore
     @State private var hover = false
 
     private var group: MatchFilter? { MatchFilter.group(of: match.status) }
@@ -160,8 +163,10 @@ private struct MatchItemRow: View {
                 statusColumn
 
                 VStack(alignment: .leading, spacing: 9) {
-                    teamLine(match.home, position: match.homePosition)
-                    teamLine(match.away, position: match.awayPosition)
+                    teamLine(match.home, position: match.homePosition,
+                             logo: match.homeLogo, elo: match.homeElo)
+                    teamLine(match.away, position: match.awayPosition,
+                             logo: match.awayLogo, elo: match.awayElo)
                 }
 
                 Spacer(minLength: 12)
@@ -196,12 +201,9 @@ private struct MatchItemRow: View {
         .frame(width: 56, alignment: .leading)
     }
 
-    private func teamLine(_ name: String, position: Int?) -> some View {
+    private func teamLine(_ name: String, position: Int?, logo: String?, elo: Int?) -> some View {
         HStack(spacing: 8) {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(AppTheme.surface)
-                .frame(width: 24, height: 24)
-                .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(AppTheme.hairline))
+            TeamLogo(path: logo, store: logos)
 
             Text(name)
                 .font(.system(size: 15, weight: .medium))
@@ -212,6 +214,15 @@ private struct MatchItemRow: View {
                 Text("(\(position))")
                     .font(.system(size: 11, weight: .medium).monospacedDigit())
                     .foregroundStyle(AppTheme.secondaryText)
+            }
+
+            if let elo {
+                Text("ELO \(elo)")
+                    .font(.system(size: 9.5, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(AppTheme.surface, in: Capsule())
             }
         }
     }
@@ -311,5 +322,37 @@ private struct LiveDot: View {
                     on = true
                 }
             }
+    }
+}
+
+/// Csapat-logó: a helyi API-ból (tokenes) vagy külső URL-ről; betöltés alatt
+/// és hiba esetén a korábbi semleges helyőrző látszik.
+private struct TeamLogo: View {
+    let path: String?
+    let store: LogoStore
+    @State private var image: NSImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .padding(1.5)
+            } else {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(AppTheme.surface)
+            }
+        }
+        .frame(width: 24, height: 24)
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(AppTheme.hairline)
+        )
+        .task(id: path) {
+            guard let path else { return }
+            image = await store.image(for: path)
+        }
     }
 }

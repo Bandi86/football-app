@@ -170,4 +170,24 @@ import Testing
         let match = try APIDecoding.makeDecoder().decode(DayResponse.self, from: json).matches[0]
         #expect(match.oddsTrustState == nil)
     }
+
+    @Test func decodesRefreshTimeLogosAndElo() throws {
+        let json = """
+        {"date":"2026-11-13","timezone":"Europe/Budapest","refreshed_at":"2026-11-13T20:15:00Z","matches":[
+          {"id":"00000000-0000-0000-0000-000000000304","kickoff_at":"2026-11-13T19:00:00Z",
+           "status":"scheduled","home":"A","away":"B","home_score":null,"away_score":null,
+           "publish_state":"verified_publish","blockers":[],
+           "home_logo":"/v1/asset/assets/ab/cd/x.webp",
+           "away_logo":"https://example.test/logo.png",
+           "home_elo":1783.5,"away_elo":null}
+        ]}
+        """.data(using: .utf8)!
+        let response = try APIDecoding.makeDecoder().decode(DayResponse.self, from: json)
+        #expect(response.refreshedAt != nil)
+        let match = response.matches[0]
+        #expect(match.homeLogo == "/v1/asset/assets/ab/cd/x.webp")
+        #expect(match.awayLogo == "https://example.test/logo.png")
+        #expect(match.homeElo == 1783.5)
+        #expect(match.awayElo == nil)
+    }
 }

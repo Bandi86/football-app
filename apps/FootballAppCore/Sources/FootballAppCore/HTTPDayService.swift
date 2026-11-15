@@ -18,7 +18,7 @@ public struct HTTPDayService: DayService {
         self.calendar = calendar
     }
 
-    public func day(for date: Date) async throws -> [DayMatch] {
+    public func day(for date: Date) async throws -> DayFeed {
         let dateString = Self.formatDate(date, calendar: calendar)
         let request = makeRequest(dateString: dateString)
 
@@ -40,7 +40,8 @@ public struct HTTPDayService: DayService {
         switch http.statusCode {
         case 200...299:
             do {
-                return try APIDecoding.makeDecoder().decode(DayResponse.self, from: data).matches
+                let response = try APIDecoding.makeDecoder().decode(DayResponse.self, from: data)
+                return DayFeed(refreshedAt: response.refreshedAt, matches: response.matches)
             } catch {
                 throw APIError.decoding
             }

@@ -10,21 +10,21 @@ final class DayModelTests: XCTestCase {
     }
 
     private struct StubService: DayService {
-        let result: Result<[DayMatch], APIError>
-        func day(for date: Date) async throws -> [DayMatch] { try result.get() }
+        let result: Result<DayFeed, APIError>
+        func day(for date: Date) async throws -> DayFeed { try result.get() }
     }
 
     private struct DelayService: DayService {
-        let matches: [DayMatch]
+        let feed: DayFeed
         let delay: Duration
-        func day(for date: Date) async throws -> [DayMatch] {
+        func day(for date: Date) async throws -> DayFeed {
             try await Task.sleep(for: delay)
-            return matches
+            return feed
         }
     }
 
     private struct CancellingService: DayService {
-        func day(for date: Date) async throws -> [DayMatch] { throw CancellationError() }
+        func day(for date: Date) async throws -> DayFeed { throw CancellationError() }
     }
 
     /// Hívás szerinti szolgáltatásváltást tesz lehetővé anélkül, hogy a
@@ -39,7 +39,7 @@ final class DayModelTests: XCTestCase {
         }
     }
 
-    private func matches(home: String) throws -> [DayMatch] {
+    private func matches(home: String) throws -> DayFeed {
         let json = """
         {"date":"2026-11-09","timezone":"Europe/Budapest","matches":[
           {"id":"00000000-0000-0000-0000-000000000101","kickoff_at":"2026-11-09T18:00:00Z",
@@ -47,7 +47,8 @@ final class DayModelTests: XCTestCase {
            "publish_state":"verified_publish","blockers":[]}
         ]}
         """.data(using: .utf8)!
-        return try APIDecoding.makeDecoder().decode(DayResponse.self, from: json).matches
+        let response = try APIDecoding.makeDecoder().decode(DayResponse.self, from: json)
+        return DayFeed(refreshedAt: response.refreshedAt, matches: response.matches)
     }
 
     private let info = RuntimeInfo(port: 56782, readToken: "t")
@@ -55,7 +56,7 @@ final class DayModelTests: XCTestCase {
     func testEmptyState() async {
         let model = DayModel(
             loader: StubLoader(result: .success(info)),
-            serviceFactory: { _ in StubService(result: .success([])) }
+            serviceFactory: { _ in StubService(result: .success(DayFeed(refreshedAt: nil, matches: []))) }
         )
         await model.load()
         XCTAssertEqual(model.state, .empty)
@@ -64,7 +65,7 @@ final class DayModelTests: XCTestCase {
     func testErrorWhenRuntimeMissing() async {
         let model = DayModel(
             loader: StubLoader(result: .failure(.runtimeMissing)),
-            serviceFactory: { _ in StubService(result: .success([])) }
+            serviceFactory: { _ in StubService(result: .success(DayFeed(refreshedAt: nil, matches: []))) }
         )
         await model.load()
         XCTAssertEqual(model.state, .error(.runtimeMissing))
@@ -87,13 +88,14 @@ final class DayModelTests: XCTestCase {
            "publish_state":"verified_publish","blockers":[]}
         ]}
         """.data(using: .utf8)!
-        let matches = try APIDecoding.makeDecoder().decode(DayResponse.self, from: json).matches
+        let response = try APIDecoding.makeDecoder().decode(DayResponse.self, from: json)
+        let feed = DayFeed(refreshedAt: response.refreshedAt, matches: response.matches)
         let model = DayModel(
             loader: StubLoader(result: .success(info)),
-            serviceFactory: { _ in StubService(result: .success(matches)) }
+            serviceFactory: { _ in StubService(result: .success(feed)) }
         )
         await model.load()
-        XCTAssertEqual(model.state, .loaded(matches))
+        XCTAssertEqual(model.state, .loaded(feed))
     }
 
     /// Az `.task` és az `.onChange` indíthat egymást átfedő betöltést; a korábbi
@@ -102,8 +104,8 @@ final class DayModelTests: XCTestCase {
         let stale = try matches(home: "Régi")
         let fresh = try matches(home: "Friss")
         let sequence = ServiceSequence([
-            DelayService(matches: stale, delay: .milliseconds(300)),
-            DelayService(matches: fresh, delay: .zero),
+            DelayService(feed: stale, delay: .milliseconds(300)),
+            DelayService(feed: fresh, delay: .zero),
         ])
         let model = DayModel(
             loader: StubLoader(result: .success(info)),
@@ -133,7 +135,7 @@ final class DayModelTests: XCTestCase {
     private func makeModel() -> DayModel {
         DayModel(
             loader: StubLoader(result: .failure(.runtimeMissing)),
-            serviceFactory: { _ in StubService(result: .success([])) }
+            serviceFactory: { _ in StubService(result: .success(DayFeed(refreshedAt: nil, matches: []))) }
         )
     }
 

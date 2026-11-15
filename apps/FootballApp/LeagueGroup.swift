@@ -3,6 +3,13 @@ import FootballAppCore
 
 enum CountryDisplay {
     private static let table: [String: (flag: String, name: String)] = [
+        "GB": ("🏴󠁧󠁢󠁥󠁮󠁧󠁿", "Anglia"),
+        "ES": ("🇪🇸", "Spanyolország"),
+        "IT": ("🇮🇹", "Olaszország"),
+        "DE": ("🇩🇪", "Németország"),
+        "FR": ("🇫🇷", "Franciaország"),
+        "HU": ("🇭🇺", "Magyarország"),
+        // Régi/demó kódok kompatibilitása.
         "ENG": ("🏴󠁧󠁢󠁥󠁮󠁧󠁿", "Anglia"),
         "ESP": ("🇪🇸", "Spanyolország"),
         "ITA": ("🇮🇹", "Olaszország"),
