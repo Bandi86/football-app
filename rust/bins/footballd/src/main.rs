@@ -12,6 +12,7 @@ use football_ingest::fetch::{Fetchers, FixtureFetcher};
 use football_ingest::footballdata::FootballdataAdapter;
 use football_ingest::fotmob::FotMobAdapter;
 use football_ingest::http::RustHttpFetcher;
+use football_ingest::soccerway::SoccerwayAdapter;
 use football_storage::object_store::ObjectStore;
 #[cfg(feature = "obscura")]
 use football_storage::repositories::worker as worker_repo;
@@ -71,6 +72,7 @@ async fn main() -> Result<()> {
         adapters.insert("demo-synthetic".into(), Box::new(DemoAdapter));
         adapters.insert("footballdata".into(), Box::new(FootballdataAdapter));
         adapters.insert("fotmob".into(), Box::new(FotMobAdapter::default()));
+        adapters.insert("soccerway".into(), Box::new(SoccerwayAdapter::default()));
         let tick_secs = worker_tick_secs(std::env::var("WORKER_TICK_SECS").ok().as_deref());
         let worker_id = uuid::Uuid::now_v7();
         tracing::info!(worker_id = %worker_id, tick_secs, "worker elindult");

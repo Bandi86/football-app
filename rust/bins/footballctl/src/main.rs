@@ -13,6 +13,7 @@ use football_ingest::fixture::{FixtureAdapter, FixtureSource};
 use football_ingest::footballdata::FootballdataAdapter;
 use football_ingest::fotmob::FotMobAdapter;
 use football_ingest::http::RustHttpFetcher;
+use football_ingest::soccerway::SoccerwayAdapter;
 use football_storage::object_store::ObjectStore;
 use football_storage::repositories::day::{DayFilter, fetch_day};
 use football_storage::repositories::identity as identity_repo;
@@ -317,6 +318,7 @@ async fn worker_tick(pool: &sqlx::PgPool, store: &ObjectStore, data_dir: &str) -
     adapters.insert("demo-synthetic".into(), Box::new(DemoAdapter));
     adapters.insert("footballdata".into(), Box::new(FootballdataAdapter));
     adapters.insert("fotmob".into(), Box::new(FotMobAdapter::default()));
+    adapters.insert("soccerway".into(), Box::new(SoccerwayAdapter::default()));
     let now = Utc::now();
     let policies = worker_repo::list_enabled_policies(pool).await?;
     let generated = scheduler::generate_jobs(pool, &policies, now).await?;

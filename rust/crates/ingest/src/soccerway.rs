@@ -213,14 +213,14 @@ fn result_for(decided_by: Option<&str>, scores: Option<&RowScores>) -> Option<se
 }
 
 /// Decoy-200 hiboldal (mért minta): valódi státusz nélkül, tartalmi őrrel.
-fn is_decoy(html: &str) -> bool {
+pub fn is_decoy(html: &str) -> bool {
     html.contains("404_page")
         || html.contains("The requested page can&apos;t be displayed")
         || html.contains("The requested page can't be displayed")
 }
 
 /// A naptár-gomb angol aria-labelje a nap dátuma (locale-független guard).
-fn page_date(html: &str) -> Option<NaiveDate> {
+pub fn page_date(html: &str) -> Option<NaiveDate> {
     let document = Html::parse_document(html);
     let selector = Selector::parse("[data-testid=wcl-dayPickerButton]").ok()?;
     let label = document
