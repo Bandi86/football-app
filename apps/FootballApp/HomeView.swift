@@ -3,11 +3,17 @@ import FootballAppCore
 
 /// A főoldal: felső navigáció → változó HEADER → szűrő → liga szerint csoportosított
 /// napi lista, a footballd API valós válaszából.
+enum AppTab: Equatable {
+    case day
+    case ops
+}
+
 struct HomeView: View {
     @State private var model = DayModel()
     @State private var filter: MatchFilter = .all
     @State private var country: String? = nil
     @State private var division: Int? = nil
+    @State private var tab: AppTab = .day
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
@@ -15,10 +21,27 @@ struct HomeView: View {
     var body: some View {
         @Bindable var model = model
         VStack(spacing: 0) {
-            TopNavigationBar()
+            TopNavigationBar(selected: tab) { tab = $0 }
 
             Rectangle().fill(AppTheme.hairline).frame(height: 1)
 
+            if tab == .ops {
+                OperationsView()
+            } else {
+                dayContent(model: model)
+            }
+        }
+        .background(AppTheme.background)
+        .onAppear {
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.4)) { appeared = true }
+        }
+        .task(id: model.selectedDate) { await model.load() }
+    }
+
+    @ViewBuilder
+    private func dayContent(model: DayModel) -> some View {
+        @Bindable var model = model
+        VStack(spacing: 0) {
             HomeHeader(
                 date: $model.selectedDate,
                 count: loadedCount,
@@ -35,11 +58,6 @@ struct HomeView: View {
 
             content
         }
-        .background(AppTheme.background)
-        .onAppear {
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.4)) { appeared = true }
-        }
-        .task(id: model.selectedDate) { await model.load() }
     }
 
     @ViewBuilder
@@ -100,6 +118,8 @@ struct HomeView: View {
 }
 
 private struct TopNavigationBar: View {
+    let selected: AppTab
+    let onSelect: (AppTab) -> Void
     private static let clock: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "hu_HU")
@@ -120,8 +140,8 @@ private struct TopNavigationBar: View {
             Spacer()
 
             HStack(spacing: 8) {
-                pill("Ma", active: true)
-                pill("Meccsek")
+                pill("Ma", active: selected == .day) { onSelect(.day) }
+                pill("Üzemeltetés", active: selected == .ops) { onSelect(.ops) }
                 pill("Csapatok")
                 pill("Versenyek")
             }
@@ -140,13 +160,28 @@ private struct TopNavigationBar: View {
         .frame(height: 54)
     }
 
+    @ViewBuilder
     private func pill(_ title: String, active: Bool = false) -> some View {
-        Text(title)
-            .font(.system(size: 12.5, weight: .medium))
-            .foregroundStyle(active ? AppTheme.primaryText : AppTheme.secondaryText.opacity(0.45))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(active ? AppTheme.surface : Color.clear, in: Capsule())
+        pill(title, active: active, action: nil)
+    }
+
+    private func pill(
+        _ title: String,
+        active: Bool,
+        action: (() -> Void)?
+    ) -> some View {
+        Button {
+            action?()
+        } label: {
+            Text(title)
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(active ? AppTheme.primaryText : AppTheme.secondaryText.opacity(0.45))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(active ? AppTheme.surface : Color.clear, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(action == nil)
     }
 }
 

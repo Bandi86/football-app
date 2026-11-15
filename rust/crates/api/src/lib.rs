@@ -25,5 +25,6 @@ pub fn router(state: AppState) -> Router {
             "/v1/ops/verification/gates",
             get(routes::verification::gates),
         )
+        .route("/v1/ops/status", get(routes::ops::status))
         .with_state(state)
 }

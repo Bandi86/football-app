@@ -369,3 +369,78 @@ async fn asset_route_serves_blob_and_rejects_bad_keys() {
         .unwrap();
     assert_eq!(missing.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn ops_status_returns_counts_and_sources() {
+    let pool = test_pool().await;
+    sqlx::query(
+        "INSERT INTO ops.source_policy
+         (source_slug, transport, mode, daily_budget, min_delay_ms, jitter_ms,
+          breaker_threshold, breaker_cooldown_secs, adapter_version, parser_version,
+          domains, events, enabled, max_bytes)
+         VALUES ('teszt-forras','rust_http','canary',10,0,0,3,60,'1.0','1.0',
+                 '[\"x\"]'::jsonb,'[]'::jsonb,true,1048576)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO ops.job (id, source_slug, domain, entity_key, event_type,
+                              time_window, due_at, priority, status)
+         VALUES ($1,'teszt-forras','x','all','discovery','2026-11-15',now(),10,'pending')",
+    )
+    .bind(Uuid::now_v7())
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO identity.review_queue
+         (id, source_id, entity_kind, source_entity_id, reason, proposed_name, context)
+         VALUES ($1, NULL, 'team', 'x', 'no_exact_match', 'X', '{}'::jsonb)",
+    )
+    .bind(Uuid::now_v7())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let app = router(AppState {
+        pool,
+        read_token: "read-test".into(),
+        ops_token: "ops-test".into(),
+        data_dir: std::env::temp_dir(),
+    });
+    let unauthorized = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/ops/status")
+                .header("authorization", "Bearer read-test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/ops/status")
+                .header("authorization", "Bearer ops-test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(value["pending_jobs"], 1);
+    assert_eq!(value["pending_reviews"], 1);
+    let sources = value["sources"].as_array().unwrap();
+    assert_eq!(sources.len(), 1);
+    assert_eq!(sources[0]["source_slug"], "teszt-forras");
+    assert_eq!(sources[0]["mode"], "canary");
+    assert_eq!(sources[0]["enabled"], true);
+    assert_eq!(sources[0]["breaker_state"], "closed");
+}

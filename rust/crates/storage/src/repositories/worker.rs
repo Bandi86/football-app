@@ -269,6 +269,16 @@ pub async fn has_enabled_transport(pool: &PgPool, transport: &str) -> Result<boo
     Ok(exists)
 }
 
+/// Minden policy (engedélyezett és tiltott) — az üzemeltetési nézethez.
+pub async fn list_policies(pool: &PgPool) -> Result<Vec<SourcePolicy>> {
+    let sql = format!("SELECT {POLICY_COLUMNS} FROM ops.source_policy ORDER BY source_slug");
+    let rows = sqlx::query(&sql)
+        .fetch_all(pool)
+        .await
+        .context("policy-k listája")?;
+    rows.iter().map(policy_from_row).collect()
+}
+
 pub async fn list_enabled_policies(pool: &PgPool) -> Result<Vec<SourcePolicy>> {
     let sql = format!(
         "SELECT {POLICY_COLUMNS} FROM ops.source_policy WHERE enabled ORDER BY source_slug"
