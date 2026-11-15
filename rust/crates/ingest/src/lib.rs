@@ -5,6 +5,7 @@ pub mod demo;
 pub mod fetch;
 pub mod fixture;
 pub mod footballdata;
+pub mod fotmob;
 pub mod http;
 pub mod normalized;
 #[cfg(feature = "obscura")]

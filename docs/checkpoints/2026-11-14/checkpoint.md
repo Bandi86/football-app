@@ -408,3 +408,15 @@ S2c — Obscura browser-fetcher:
       spekuláció nélkül; külön research-szelet kell (API-végpontok
       feltérképezése, robots, séma-rögzítés), mielőtt adapter készül.
 - A temporális research-módosítás visszaállítva; a repóban nincs nyers payload.
+
+## S4b — FotMob nap-feed adapter (2026-11-15)
+
+- [x] Research: a nap-feed **nyílt JSON API** („/api/data/matches?..."), a
+      robots.txt explicit `Allow: /api/*`; a `status.utcTime` UTC, a
+      csapatok stabil FotMob-id-k — **rust_http** elég, Obscura nem kell.
+- [x] `FotMobAdapter` (liga-szűrő top-5, dátum-guard, status/eredmény
+      mapping) → közös observation-séma → NormalizedDay; adapter a
+      footballd/CLI regiszterben; teszt 2/2; check.sh 204/204.
+- [x] Megjegyzés: 2026-11-14 válogatott szünet — a top-5 ligáknak nincs
+      meccse a feedben (a live tick `no_data`, ez helyes).
+- Operations doc: docs/operations/fotmob.md.

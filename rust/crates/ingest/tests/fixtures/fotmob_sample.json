@@ -1,0 +1,58 @@
+{
+ "date": "20261114",
+ "leagues": [
+  {
+   "id": 920742,
+   "name": "UEFA Nations League A Grp. 4",
+   "ccode": "INT",
+   "matches": [
+    {
+     "id": 5181869,
+     "time": "14.11.2026 18:00",
+     "home": {
+      "id": 8492,
+      "name": "Norway",
+      "score": 3
+     },
+     "away": {
+      "id": 5790,
+      "name": "Wales",
+      "score": 1
+     },
+     "status": {
+      "utcTime": "2026-11-14T17:00:00.000Z",
+      "finished": true,
+      "started": true,
+      "cancelled": false,
+      "reason": {
+       "short": "FT"
+      }
+     }
+    },
+    {
+     "id": 5181870,
+     "time": "14.11.2026 20:45",
+     "home": {
+      "id": 8361,
+      "name": "Portugal",
+      "score": 1
+     },
+     "away": {
+      "id": 8238,
+      "name": "Denmark",
+      "score": 4
+     },
+     "status": {
+      "utcTime": "2026-11-14T19:45:00.000Z",
+      "finished": true,
+      "started": true,
+      "cancelled": false,
+      "reason": {
+       "short": "FT"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}
