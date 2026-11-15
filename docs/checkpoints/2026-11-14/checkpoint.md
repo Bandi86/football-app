@@ -375,3 +375,14 @@ S2c — Obscura browser-fetcher:
       Teszt 1/1 (határ + címke + PK); check.sh 199/199; db-check 45.
 - Ezzel az S2d 18 tételes séma-rés listája teljes (A–G); hátra operatív
   döntések (játékvezető-review, canary→live) és a következő források.
+
+## Operatív zárás (2026-11-14, este)
+
+- [x] Játékvezető-review: `identity approve-create-all` → 9 sor jóváhagyva;
+      az újra-futtatott tickek a játékvezetőket **9/9 kanonikus entitáshoz**
+      kötötték (E0 referee-link élőben).
+- [x] **Canary → live**: a footballdata policy módja `live`; ellenőrző
+      tickek zöldek (delay/kvóta szerint szétosztva), a napi-ablakos meccsek
+      gate-je változatlanul **43/43 verified_publish**.
+- Megjegyzés: az éjszakai/ismételt tickek a 25-ös napi büdzsét és a 2 s-os
+  delay-t tiszteletben tartják (blokkolt sorok = ütemezett várakozás).
