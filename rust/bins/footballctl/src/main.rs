@@ -60,6 +60,10 @@ enum Command {
         #[command(subcommand)]
         action: IdentityAction,
     },
+    Asset {
+        #[command(subcommand)]
+        action: AssetAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -99,6 +103,16 @@ enum IdentityAction {
         entity: Option<Uuid>,
     },
     CrosswalkCheck,
+}
+
+#[derive(Subcommand)]
+enum AssetAction {
+    /// Asset-JSON importálása (tömb: entity_kind, entity_id?, kind, url,
+    /// source, licence?, licence_status, attribution?, captured_at?).
+    Import {
+        #[arg(long)]
+        file: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -222,6 +236,34 @@ async fn main() -> Result<()> {
             WorkerAction::Tick => worker_tick(&pool, &store, &data_dir).await?,
         },
         Command::Identity { action } => identity_command(&pool, action).await?,
+        Command::Asset { action } => match action {
+            AssetAction::Import { file } => {
+                let rows: Vec<serde_json::Value> = serde_json::from_slice(&std::fs::read(&file)?)?;
+                let now = Utc::now();
+                let mut written = 0usize;
+                for row in &rows {
+                    let field = |k: &str| row.get(k).and_then(|v| v.as_str());
+                    let input = worker_repo::AssetRowInput {
+                        entity_kind: field("entity_kind")
+                            .ok_or_else(|| anyhow::anyhow!("hiányzó entity_kind"))?,
+                        entity_id: field("entity_id").and_then(|v| v.parse::<Uuid>().ok()),
+                        kind: field("kind").ok_or_else(|| anyhow::anyhow!("hiányzó kind"))?,
+                        url: field("url").ok_or_else(|| anyhow::anyhow!("hiányzó url"))?,
+                        source: field("source").ok_or_else(|| anyhow::anyhow!("hiányzó source"))?,
+                        licence: field("licence"),
+                        licence_status: field("licence_status").unwrap_or("unknown"),
+                        attribution: field("attribution"),
+                        captured_at: field("captured_at")
+                            .and_then(|v| chrono::DateTime::parse_from_rfc3339(v).ok())
+                            .map(|d| d.with_timezone(&Utc))
+                            .unwrap_or(now),
+                    };
+                    worker_repo::upsert_asset(&pool, &input).await?;
+                    written += 1;
+                }
+                println!("asset import: {written} sor feldolgozva");
+            }
+        },
     }
 
     Ok(())
@@ -258,6 +300,7 @@ async fn worker_status(pool: &sqlx::PgPool) -> Result<()> {
         counts.jobs_pending, counts.jobs_leased
     );
     println!("karanténban: {}", counts.quarantined);
+    println!("függő identitás-review: {}", counts.reviews_pending);
     Ok(())
 }
 

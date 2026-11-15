@@ -426,3 +426,18 @@ S2c — Obscura browser-fetcher:
       `enabled=false`; az adapter kódja tesztelve marad, dokumentált
       alternatív hozzáférés esetére.
 - Operations doc: docs/operations/fotmob.md.
+
+## S4c — Soccerway research + asset-import + review-láthatóság (2026-11-15)
+
+- [x] Soccerway research (1 Obscura-kérés): 1328 `wcl-tableScore` marker,
+      Flashscore-szerű minified DOM (`data-testid`, `data-side`), meccs-href
+      id-k; a kickoff-formátum a nyers HTML-ből nem evidens → a Soccerway
+      parser **elhalasztva**, célzott research szükséges (nincs spekulatív
+      parser).
+- [x] `footballctl asset import --file <json>` + `repo::upsert_asset`
+      (natural-key upsert, licence-státusz); teszt 1/1.
+- [x] `worker status` kiírja a **függő identitás-review** számot (operatív
+      láthatóság, item 4 egy szelete); teszt 1/1.
+- [x] check.sh 206/206.
+- Következő: Soccerway célzott research (kickoff/AET markup), asset-adatok
+  operátori feltöltése, S8 kliens-integráció.

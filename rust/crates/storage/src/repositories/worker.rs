@@ -182,6 +182,8 @@ pub struct WorkerStatusCounts {
     pub jobs_pending: i64,
     pub jobs_leased: i64,
     pub quarantined: i64,
+    /// Nyitott identitás-review sorok (operatív figyelmeztetés).
+    pub reviews_pending: i64,
 }
 
 pub async fn worker_status_counts(pool: &PgPool) -> Result<WorkerStatusCounts> {
@@ -199,10 +201,16 @@ pub async fn worker_status_counts(pool: &PgPool) -> Result<WorkerStatusCounts> {
             .fetch_one(pool)
             .await
             .context("karanténos slotok száma")?;
+    let reviews_pending: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM identity.review_queue WHERE status='pending'")
+            .fetch_one(pool)
+            .await
+            .context("pending review-szám")?;
     Ok(WorkerStatusCounts {
         jobs_pending,
         jobs_leased,
         quarantined,
+        reviews_pending,
     })
 }
 
@@ -792,4 +800,46 @@ pub async fn count_duplicate_matches(
     .fetch_one(pool)
     .await
     .context("duplikátum-számláló")
+}
+
+/// Asset upsert (ops.asset) — az egyediség (entity_kind, entity_id, kind, url).
+pub struct AssetRowInput<'a> {
+    pub entity_kind: &'a str,
+    pub entity_id: Option<Uuid>,
+    pub kind: &'a str,
+    pub url: &'a str,
+    pub source: &'a str,
+    pub licence: Option<&'a str>,
+    pub licence_status: &'a str,
+    pub attribution: Option<&'a str>,
+    pub captured_at: DateTime<Utc>,
+}
+
+pub async fn upsert_asset(pool: &PgPool, row: &AssetRowInput<'_>) -> Result<Uuid> {
+    sqlx::query_scalar(
+        "INSERT INTO ops.asset
+         (id, entity_kind, entity_id, kind, url, source, licence, licence_status,
+          attribution, captured_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         ON CONFLICT (entity_kind, entity_id, kind, url) DO UPDATE SET
+           source = EXCLUDED.source,
+           licence = EXCLUDED.licence,
+           licence_status = EXCLUDED.licence_status,
+           attribution = EXCLUDED.attribution,
+           captured_at = EXCLUDED.captured_at
+         RETURNING id",
+    )
+    .bind(Uuid::now_v7())
+    .bind(row.entity_kind)
+    .bind(row.entity_id)
+    .bind(row.kind)
+    .bind(row.url)
+    .bind(row.source)
+    .bind(row.licence)
+    .bind(row.licence_status)
+    .bind(row.attribution)
+    .bind(row.captured_at)
+    .fetch_one(pool)
+    .await
+    .context("asset upsert")
 }
