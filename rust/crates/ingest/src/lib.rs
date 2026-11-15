@@ -11,3 +11,4 @@ pub mod normalized;
 #[cfg(feature = "obscura")]
 pub mod obscura;
 pub mod observe;
+pub mod soccerway;

@@ -1,0 +1,530 @@
+//! Soccerway nap-feed adapter — S4d (Obscura-út).
+//!
+//! A Soccerway JS-renderelt nap-oldala (Flashscore-stílusú, minified DOM):
+//! a nap a localizált útvonalon érhető el (`/` = ma, `/tegnap/` = tegnap);
+//! a sorok kliens-oldalon renderelődnek → a fetcher markerre vár. A lista
+//! lokalizált (hu) stage-szöveget ad, ezért a lezárt állapotot a pontszám-
+//! jelenlét is erősíti, a decoy-200 hiboldalt pedig tartalmi őr fogja.
+//!
+//! Egy job = egy liga: a napi oldalon minden verseny szerepel, a parser a
+//! `request_key` domainje (liga-slug) szerint szűr, mert a `NormalizedDay`
+//! egy verseny-meta-t hordoz.
+
+use chrono::{Datelike, Local, NaiveDate, NaiveTime, TimeZone, Timelike, Utc};
+use football_domain::error::ParseError;
+use football_domain::policy::{FetchJob, Transport};
+use scraper::{ElementRef, Html, Selector};
+
+use crate::adapter::{AdapterMeta, Observation, ParseCtx, SourceAdapter};
+use crate::fetch::{FetchRequest, RawPayload};
+
+pub const SOURCE_SLUG: &str = "soccerway";
+
+/// A lista-markert a fetcher pollozza (kliens-oldali renderelés).
+const READY_MARKER: &str = "div.event__match[data-event-row]";
+
+/// A napi lista idő-bélyegzői a bepinnelt UTC render miatt UTC-ben vannak.
+const COMPETITION_TIMEZONE: &str = "UTC";
+
+#[derive(Debug, Clone)]
+pub struct SoccerwayLeague {
+    /// Stabil, lokalizált URL-slug (pl. `anglia/premier-league`).
+    pub slug: String,
+    pub country_code: String,
+    pub country_name: String,
+    pub name: String,
+    pub tier: i16,
+    pub priority: i32,
+}
+
+/// (slug, ország-kód, ország-név, verseny-név, tier, priority)
+const LEAGUES: [(&str, &str, &str, &str, i16, i32); 7] = [
+    (
+        "anglia/premier-league",
+        "GB",
+        "England",
+        "Premier League",
+        1,
+        6,
+    ),
+    ("spanyolorszag/laliga", "ES", "Spain", "La Liga", 1, 6),
+    ("olaszorszag/serie-a", "IT", "Italy", "Serie A", 1, 6),
+    (
+        "nemetorszag/bundesliga",
+        "DE",
+        "Germany",
+        "Bundesliga",
+        1,
+        6,
+    ),
+    ("franciaorszag/ligue-1", "FR", "France", "Ligue 1", 1, 6),
+    ("magyarorszag/nb-i", "HU", "Hungary", "NB I", 1, 8),
+    ("magyarorszag/nb-ii", "HU", "Hungary", "NB II", 2, 10),
+];
+
+pub struct SoccerwayAdapter {
+    pub leagues: Vec<SoccerwayLeague>,
+}
+
+impl Default for SoccerwayAdapter {
+    fn default() -> Self {
+        Self {
+            leagues: LEAGUES
+                .iter()
+                .map(|(slug, cc, cn, name, tier, priority)| SoccerwayLeague {
+                    slug: (*slug).to_string(),
+                    country_code: (*cc).to_string(),
+                    country_name: (*cn).to_string(),
+                    name: (*name).to_string(),
+                    tier: *tier,
+                    priority: *priority,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// Nap-útvonal: ma `/`, tegnap `/tegnap/`; más dátum (backfill) egyelőre
+/// nincs (a naptár-popup útvonala nincs mérve) → üres terv.
+pub fn route_for(today: NaiveDate, requested: NaiveDate) -> Option<&'static str> {
+    match (requested - today).num_days() {
+        0 => Some("/"),
+        -1 => Some("/tegnap/"),
+        _ => None,
+    }
+}
+
+/// Szezon-címke a dátumból (júliustól induló idény): 2026-11 → 2026/27.
+fn season_label(date: NaiveDate) -> String {
+    let year = if date.month() >= 7 {
+        date.year()
+    } else {
+        date.year() - 1
+    };
+    format!("{year}/{:02}", (year + 1) % 100)
+}
+
+fn text_of(element: &ElementRef) -> String {
+    element.text().collect::<String>().trim().to_string()
+}
+
+/// A csapathivatkozás utolsó két szegmense `<slug>-<Code>`; a kód a stabil
+/// forrás-azonosító. A lokalizált útvonal-szó (pl. `merkozes`) nem számít.
+fn team_codes(href: &str) -> Option<(String, String)> {
+    let path = href.split('?').next().unwrap_or(href);
+    let mut segments = path
+        .trim_end_matches('/')
+        .rsplit('/')
+        .filter(|segment| !segment.is_empty());
+    let away = segments.next()?;
+    let home = segments.next()?;
+    let code = |segment: &str| -> Option<String> {
+        segment
+            .rsplit('-')
+            .next()
+            .filter(|code| code.len() >= 4)
+            .map(str::to_string)
+    };
+    Some((code(home)?, code(away)?))
+}
+
+#[derive(Debug, Default)]
+struct RowScores {
+    home: Option<i16>,
+    away: Option<i16>,
+    home_pens: Option<i16>,
+    away_pens: Option<i16>,
+}
+
+fn parse_i16(text: &str) -> Option<i16> {
+    let digits: String = text
+        .trim()
+        .chars()
+        .take_while(|c| *c != '(' && c.is_ascii_digit())
+        .collect();
+    digits.parse::<i16>().ok()
+}
+
+/// Büntető-sup szövege zárójelben: `(4)`.
+fn parse_i16_pens(text: &str) -> Option<i16> {
+    text.trim()
+        .trim_matches(|c| c == '(' || c == ')')
+        .parse::<i16>()
+        .ok()
+}
+
+fn parse_scores(row: &ElementRef) -> Option<RowScores> {
+    let span_selector = Selector::parse("span[data-testid=wcl-tableScore]").ok()?;
+    let pen_selector = Selector::parse("sup.wcl-penaltyScore").ok()?;
+    let mut scores = RowScores::default();
+    for span in row.select(&span_selector) {
+        let side = span.value().attr("data-side");
+        let main = parse_i16(&text_of(&span));
+        let pens = span
+            .select(&pen_selector)
+            .next()
+            .and_then(|sup| parse_i16_pens(&text_of(&sup)));
+        match side {
+            Some("1") => {
+                scores.home = main;
+                scores.home_pens = pens;
+            }
+            Some("2") => {
+                scores.away = main;
+                scores.away_pens = pens;
+            }
+            _ => {}
+        }
+    }
+    if scores.home.is_some() || scores.away.is_some() {
+        Some(scores)
+    } else {
+        None
+    }
+}
+
+/// A lezárt sor eredmény-mappingje: a 90 perces FT-konvenció szerint a
+/// hosszabbítás/párharc idején mért fő pontszám nem FT.
+fn result_for(decided_by: Option<&str>, scores: Option<&RowScores>) -> Option<serde_json::Value> {
+    let scores = scores?;
+    let (home_ft, away_ft, home_et, away_et, home_pens, away_pens) = match decided_by {
+        Some("et") => (None, None, scores.home, scores.away, None, None),
+        Some("pens") => (
+            None,
+            None,
+            scores.home,
+            scores.away,
+            scores.home_pens,
+            scores.away_pens,
+        ),
+        _ => (scores.home, scores.away, None, None, None, None),
+    };
+    Some(serde_json::json!({
+        "home_ft": home_ft,
+        "away_ft": away_ft,
+        "home_ht": null,
+        "away_ht": null,
+        "home_et": home_et,
+        "away_et": away_et,
+        "home_pens": home_pens,
+        "away_pens": away_pens,
+        "decided_by": decided_by,
+    }))
+}
+
+/// Decoy-200 hiboldal (mért minta): valódi státusz nélkül, tartalmi őrrel.
+fn is_decoy(html: &str) -> bool {
+    html.contains("404_page")
+        || html.contains("The requested page can&apos;t be displayed")
+        || html.contains("The requested page can't be displayed")
+}
+
+/// A naptár-gomb angol aria-labelje a nap dátuma (locale-független guard).
+fn page_date(html: &str) -> Option<NaiveDate> {
+    let document = Html::parse_document(html);
+    let selector = Selector::parse("[data-testid=wcl-dayPickerButton]").ok()?;
+    let label = document
+        .select(&selector)
+        .next()
+        .and_then(|button| button.value().attr("aria-label"))?;
+    NaiveDate::parse_from_str(label.trim(), "%A, %B %d, %Y").ok()
+}
+
+pub struct GroupHeader {
+    slug: String,
+}
+
+impl SourceAdapter for SoccerwayAdapter {
+    fn meta(&self) -> AdapterMeta {
+        AdapterMeta {
+            source_slug: SOURCE_SLUG.into(),
+            adapter_version: "1.0".into(),
+            parser_version: "1.0".into(),
+            domains: self.leagues.iter().map(|l| l.slug.clone()).collect(),
+            transport: Transport::Obscura,
+        }
+    }
+
+    fn plan(&self, job: &FetchJob) -> Vec<FetchRequest> {
+        let Ok(requested) = NaiveDate::parse_from_str(&job.time_window, "%Y-%m-%d") else {
+            return vec![];
+        };
+        let Some(path) = route_for(Local::now().date_naive(), requested) else {
+            return vec![];
+        };
+        vec![FetchRequest {
+            url: format!("https://www.soccerway.com{path}"),
+            request_key: format!("{SOURCE_SLUG}:{}:{}", job.domain, job.time_window),
+            endpoint_key: job.domain.clone(),
+            ready_marker: Some(READY_MARKER.into()),
+        }]
+    }
+
+    fn parse(&self, raw: &RawPayload, ctx: &ParseCtx) -> Result<Vec<Observation>, ParseError> {
+        let html = String::from_utf8_lossy(&raw.bytes);
+        if is_decoy(&html) {
+            return Err(ParseError::DecoyDetected(
+                "Soccerway hiboldal (200-zal)".into(),
+            ));
+        }
+        let got = page_date(&html)
+            .ok_or_else(|| ParseError::SchemaDrift("hiányzó nap-címke (aria-label)".into()))?;
+        if got != ctx.requested_date {
+            return Err(ParseError::DateGuardMismatch {
+                requested: ctx.requested_date.to_string(),
+                got: got.to_string(),
+            });
+        }
+        let domain = ctx
+            .request_key
+            .split(':')
+            .nth(1)
+            .ok_or_else(|| ParseError::Parse("a request_key-ből nem derül ki a liga".into()))?;
+        let league = self
+            .leagues
+            .iter()
+            .find(|l| l.slug == domain)
+            .ok_or_else(|| {
+                ParseError::SchemaDrift(format!("ismeretlen soccerway liga: {domain}"))
+            })?;
+
+        let document = Html::parse_document(&html);
+        let combined =
+            Selector::parse("div[data-testid=wcl-headerLeague], div.event__match[data-event-row]")
+                .map_err(|e| ParseError::Parse(format!("szelektor: {e}")))?;
+        let header_link = Selector::parse("a.headerLeague__title")
+            .map_err(|e| ParseError::Parse(format!("szelektor: {e}")))?;
+        let row_link = Selector::parse("a.eventRowLink")
+            .map_err(|e| ParseError::Parse(format!("szelektor: {e}")))?;
+        let name_selector = Selector::parse("span[data-testid=wcl-simple-text-01]")
+            .map_err(|e| ParseError::Parse(format!("szelektor: {e}")))?;
+        let stage_selector = Selector::parse("div.event__stage--block")
+            .map_err(|e| ParseError::Parse(format!("szelektor: {e}")))?;
+        let time_selector = Selector::parse("div.event__time")
+            .map_err(|e| ParseError::Parse(format!("szelektor: {e}")))?;
+        let participant = |row: &ElementRef, class: &str| -> Option<String> {
+            let selector = Selector::parse(&format!("div.{class}")).ok()?;
+            let side = row.select(&selector).next()?;
+            side.select(&name_selector)
+                .next()
+                .map(|span| text_of(&span))
+                .filter(|name| !name.is_empty())
+        };
+
+        let captured_at = Utc::now();
+        let mut current: Option<GroupHeader> = None;
+        let mut teams: std::collections::BTreeMap<String, String> = Default::default();
+        let mut observations = Vec::new();
+
+        for element in document.select(&combined) {
+            if element.value().attr("data-testid") == Some("wcl-headerLeague") {
+                let slug = element
+                    .select(&header_link)
+                    .next()
+                    .and_then(|a| a.value().attr("href").map(str::to_string))
+                    .map(|href| href.trim_matches('/').to_string());
+                current = slug.map(|slug| GroupHeader { slug });
+                continue;
+            }
+
+            let Some(header) = current.as_ref() else {
+                continue;
+            };
+            if header.slug != league.slug {
+                continue;
+            }
+
+            let row = element;
+            let Some(href) = row
+                .select(&row_link)
+                .next()
+                .and_then(|a| a.value().attr("href").map(str::to_string))
+            else {
+                return Err(ParseError::SchemaDrift(
+                    "meccssor a meccs-hivatkozás nélkül".into(),
+                ));
+            };
+            let mid = row
+                .value()
+                .attr("id")
+                .and_then(|id| id.strip_prefix("g_1_"))
+                .or_else(|| {
+                    href.split("mid=")
+                        .nth(1)
+                        .map(|rest| rest.split('&').next().unwrap_or(rest))
+                })
+                .ok_or_else(|| ParseError::SchemaDrift("meccssor mid nélkül".into()))?;
+            let (home_code, away_code) = team_codes(&href)
+                .ok_or_else(|| ParseError::SchemaDrift("csapatkód a hivatkozásból".into()))?;
+            let home_name = participant(&row, "event__homeParticipant")
+                .ok_or_else(|| ParseError::SchemaDrift("hazai csapatnév hiányzik".into()))?;
+            let away_name = participant(&row, "event__awayParticipant")
+                .ok_or_else(|| ParseError::SchemaDrift("vendég csapatnév hiányzik".into()))?;
+            teams.insert(home_code.clone(), home_name.clone());
+            teams.insert(away_code.clone(), away_name.clone());
+
+            let classes: Vec<&str> = row.value().classes().collect();
+            let is_live = classes.contains(&"event__match--live");
+            let is_scheduled = classes.contains(&"event__match--scheduled");
+            let stage = row.select(&stage_selector).next().map(|e| text_of(&e));
+            let scores = parse_scores(&row);
+
+            let (status, decided_by) = if is_live {
+                ("live", None)
+            } else if is_scheduled {
+                ("scheduled", None)
+            } else {
+                match stage.as_deref() {
+                    Some("Vége") => ("finished", Some("ft")),
+                    Some("Hossz. után") => ("finished", Some("et")),
+                    Some("Büntetők után") => ("finished", Some("pens")),
+                    Some("Elhalasztva") => ("postponed", None),
+                    Some("Törölve") => ("canceled", None),
+                    Some("Elmarad") => ("abandoned", None),
+                    Some(_) if scores.is_some() => ("finished", None),
+                    Some(other) => {
+                        tracing::warn!(
+                            source = SOURCE_SLUG,
+                            mid,
+                            stage = other,
+                            "ismeretlen stage-szöveg pontszám nélkül: a sor kimarad"
+                        );
+                        continue;
+                    }
+                    None if scores.is_some() => ("finished", None),
+                    None => ("scheduled", None),
+                }
+            };
+
+            // Pontos kezdés csak ütemezett sornál van (HH:MM); máskor a nap
+            // déli helyőrzője marad, `date_only` precízióval.
+            let kickoff_time = row
+                .select(&time_selector)
+                .next()
+                .and_then(|e| NaiveTime::parse_from_str(&text_of(&e), "%H:%M").ok());
+            let (kickoff_at, kickoff_precision) = match kickoff_time {
+                Some(time) => {
+                    let naive = ctx
+                        .requested_date
+                        .and_hms_opt(time.hour(), time.minute(), 0)
+                        .ok_or_else(|| ParseError::Parse("érvénytelen kezdés".into()))?;
+                    (Utc.from_utc_datetime(&naive), "exact")
+                }
+                None => {
+                    let naive = ctx
+                        .requested_date
+                        .and_hms_opt(12, 0, 0)
+                        .ok_or_else(|| ParseError::Parse("érvénytelen kezdés".into()))?;
+                    (Utc.from_utc_datetime(&naive), "date_only")
+                }
+            };
+
+            let result = if status == "finished" {
+                result_for(decided_by, scores.as_ref())
+            } else {
+                None
+            };
+
+            observations.push(Observation {
+                entity_kind: "match".into(),
+                aspect: "match_core".into(),
+                natural_key: format!("soccerway-{mid}"),
+                source_record_key: format!("soccerway-{mid}"),
+                observed_at: captured_at,
+                payload: serde_json::json!({
+                    "canonical_match_id": null,
+                    "source_home_id": home_code,
+                    "source_away_id": away_code,
+                    "kickoff_at": kickoff_at,
+                    "kickoff_precision": kickoff_precision,
+                    "status": status,
+                    "result": result,
+                    "round_label": null,
+                    "competition_timezone": COMPETITION_TIMEZONE,
+                    "competition": {
+                        "id": null,
+                        "name": league.name,
+                        "country_code": league.country_code,
+                        "country_name": league.country_name,
+                        "tier": league.tier,
+                        "priority": league.priority,
+                    },
+                    "season": { "id": null, "label": season_label(ctx.requested_date) },
+                    "source_code": SOURCE_SLUG,
+                    "captured_at": captured_at,
+                }),
+            });
+        }
+
+        let mut team_obs = Vec::new();
+        for (code, name) in &teams {
+            team_obs.push(Observation {
+                entity_kind: "team".into(),
+                aspect: "team_identity".into(),
+                natural_key: code.clone(),
+                source_record_key: code.clone(),
+                observed_at: captured_at,
+                payload: serde_json::json!({
+                    "id": null,
+                    "source_entity_id": code,
+                    "name": name,
+                    "country_code": league.country_code,
+                    "gender": "male",
+                    "age_group": "senior",
+                    "branch": "senior",
+                }),
+            });
+        }
+        team_obs.extend(observations);
+        Ok(team_obs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn routes_cover_today_and_yesterday_only() {
+        let today = NaiveDate::from_ymd_opt(2026, 11, 15).unwrap();
+        assert_eq!(route_for(today, today), Some("/"));
+        assert_eq!(
+            route_for(today, NaiveDate::from_ymd_opt(2026, 11, 14).unwrap()),
+            Some("/tegnap/")
+        );
+        assert_eq!(
+            route_for(today, NaiveDate::from_ymd_opt(2026, 11, 13).unwrap()),
+            None
+        );
+        assert_eq!(
+            route_for(today, NaiveDate::from_ymd_opt(2026, 11, 16).unwrap()),
+            None
+        );
+    }
+
+    #[test]
+    fn season_label_spans_july_boundary() {
+        assert_eq!(
+            season_label(NaiveDate::from_ymd_opt(2026, 11, 15).unwrap()),
+            "2026/27"
+        );
+        assert_eq!(
+            season_label(NaiveDate::from_ymd_opt(2027, 3, 1).unwrap()),
+            "2026/27"
+        );
+        assert_eq!(
+            season_label(NaiveDate::from_ymd_opt(2027, 8, 1).unwrap()),
+            "2027/28"
+        );
+    }
+
+    #[test]
+    fn team_codes_take_the_trailing_code() {
+        let href =
+            "https://hu.soccerway.com/merkozes/belgium-GbB957na/olaszorszag-hlKvieGH/?mid=4YNzMsxg";
+        assert_eq!(
+            team_codes(href),
+            Some(("GbB957na".into(), "hlKvieGH".into()))
+        );
+    }
+}
