@@ -342,3 +342,14 @@ S2c — Obscura browser-fetcher:
 - Író nélkül (mint a korábbi séma-szeletek); a FotMob/Transfermarkt
   adapterek töltik később.
 - Következő: E (ET/pens + kickoff konvenciók), F (identitás/assets), G (Elo).
+
+## S2d-4 (E csoport) — ET/pens + kickoff-precízió (2026-11-14)
+
+- [x] 0011 migráció: `core.match_result.decided_by` (NULL = ismeretlen;
+      CHECK ft/et/pens — a 90 perces FT/HT konvenció sérthetetlen, az ET/pens
+      megfigyelt érték) + `core.match.kickoff_precision` (default `exact`,
+      CHECK exact/date_only — a date_only déli helyőrző explicit jelölése).
+      Constraint-tesztek 2/2; check.sh 196/196; táblaszám változatlan (43).
+- A kickoff UTC-konverzió adapter-szintű (Europe/London → UTC, date_only
+  12:00 UTC) — a footballdata adapterben már él.
+- Hátra: F (identitás-kiegészítés/assets), G (Elo).
