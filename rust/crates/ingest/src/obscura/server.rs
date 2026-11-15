@@ -45,6 +45,9 @@ impl ObscuraServer {
                     ])
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())
+                    // Determinisztikus renderelés: a lap idő-bélyegzői UTC-ben
+                    // jelennek meg (a site egyébként a gép zónáját használja).
+                    .env("TZ", "UTC")
                     .spawn()
                     .map_err(|e| ObscuraError::ServerStart(e.to_string()))?;
                 (Some(child), false, format!("http://127.0.0.1:{}", cfg.port))

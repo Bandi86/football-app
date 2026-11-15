@@ -47,6 +47,7 @@ async fn live_soccerway_render_surplus() {
         url: TARGET.into(),
         request_key: "live".into(),
         endpoint_key: "matches".into(),
+        ready_marker: None,
     };
     let limits = FetchLimits {
         max_bytes: 20_000_000,

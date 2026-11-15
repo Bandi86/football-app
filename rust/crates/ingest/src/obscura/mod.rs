@@ -128,6 +128,26 @@ impl ObscuraFetcher {
             // (előtte "Cannot find context" hibák).
             tokio::time::sleep(Duration::from_millis(1500)).await;
 
+            // Kliens-oldali lista (pl. Soccerway nap-feed): a settle kevés,
+            // a marker megjelenéséig pollozunk; túllépésnél a meglévő HTML
+            // megy tovább, és a parser tartalmi őre dönt (fail-closed).
+            if let Some(marker) = &req.ready_marker {
+                let selector = serde_json::to_string(marker)
+                    .map_err(|e| FetchError::Transport(format!("marker-szelektor: {e}")))?;
+                let check =
+                    format!("document.querySelector({selector}) !== null ? 'true' : 'false'");
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+                loop {
+                    match self.client.evaluate_string(&page, &check).await {
+                        Ok(value) if value == "true" => break,
+                        Ok(_) | Err(_) if tokio::time::Instant::now() < deadline => {
+                            tokio::time::sleep(Duration::from_millis(500)).await;
+                        }
+                        _ => break,
+                    }
+                }
+            }
+
             let expression = "document.documentElement.outerHTML";
             let mut result = self.client.evaluate_string(&page, expression).await;
             for _ in 0..3 {

@@ -35,6 +35,7 @@ impl SourceAdapter for ClubEloAdapter {
             url: format!("http://api.clubelo.com/{}", job.time_window),
             request_key: format!("{SOURCE_SLUG}:elo:{}", job.time_window),
             endpoint_key: "elo".into(),
+            ready_marker: None,
         }]
     }
 

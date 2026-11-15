@@ -17,6 +17,7 @@ fn req(key: &str) -> FetchRequest {
         url: format!("fixture://{key}"),
         request_key: key.into(),
         endpoint_key: "match".into(),
+        ready_marker: None,
     }
 }
 

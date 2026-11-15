@@ -562,6 +562,7 @@ impl SourceAdapter for TestHttpAdapter {
             url: self.url.clone(),
             request_key: "test:page".into(),
             endpoint_key: "match".into(),
+            ready_marker: None,
         }]
     }
 

@@ -80,6 +80,7 @@ impl SourceAdapter for FootballdataAdapter {
             url: format!("https://www.football-data.co.uk/mmz4281/2627/{league}.csv"),
             request_key: format!("{SOURCE_SLUG}:{}:{}", job.domain, job.time_window),
             endpoint_key: job.domain.clone(),
+            ready_marker: None,
         }]
     }
 

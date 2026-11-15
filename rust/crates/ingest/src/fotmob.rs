@@ -68,6 +68,7 @@ impl SourceAdapter for FotMobAdapter {
             ),
             request_key: format!("{SOURCE_SLUG}:{}:{}", job.domain, job.time_window),
             endpoint_key: job.domain.clone(),
+            ready_marker: None,
         }]
     }
 

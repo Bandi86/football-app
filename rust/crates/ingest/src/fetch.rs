@@ -16,6 +16,10 @@ pub struct FetchRequest {
     pub url: String,
     pub request_key: String,
     pub endpoint_key: String,
+    /// Opcionális CSS-szelektor: a böngésző-fetcher addig polloz, amíg a
+    /// renderelt DOM-ban meg nem jelenik (kliens-oldali lista-várakozás).
+    /// A HTTP-fetcher figyelmen kívül hagyja.
+    pub ready_marker: Option<String>,
 }
 
 #[derive(Debug, Clone)]
