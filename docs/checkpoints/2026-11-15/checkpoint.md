@@ -152,3 +152,39 @@
    Soccerway-nevekre).
 3. La Liga logó és a 36 asset nélküli/eltérő nevű csapat pótlása
    (operátori mapping vagy újabb forrás).
+
+## S8a/S8b — kliens-integráció első köre (2026-11-15)
+
+- [x] **API (S8a, `870be07`):** a napi válasz `refreshed_at`-tel (a nap
+      legutóbbi gate-kiértékelése), meccsenként `home_logo`/`away_logo`
+      (blob → `/v1/asset/<storage_key>`, egyébként forrás-URL) és
+      `home_elo`/`away_elo` (club_elo as-of; a dev DB-ben még üres, mert a
+      clubelo élő kör nem futott). Új `/v1/asset/{*key}` végpont a helyi
+      objektumtárból, szigorú kulcs-validációval (path-traversal tiltva),
+      read-tokenes auth, cache-header. Tesztek: day payload + asset
+      200/401/400/404.
+- [x] **Kliens (S8b, `b9f395e`):** `DayFeed` (refreshed_at + meccsek) a
+      core csomagban; a fejléc `frissítve <idő>` jelzést mutat; a
+      sorokban valódi logó (helyi API blob tokennel, külső URL token
+      nélkül, memória-cache; betöltés/hiba alatt semleges helyőrző);
+      ELO-chip, ha van adat. **Javított hiba:** a country-kód tábla nem
+      ismerte a v2 kódokat (GB/ES/IT/DE/FR/HU) → a zászlók helyőrzők
+      voltak; a régi kódok kompatibilitásként megmaradtak.
+- [x] Tesztek: core 19 (Swift Testing), app 14 (XCTest), e2e UI-ellenőrzés
+      valódi API-val: a 2026-11-11-i napon a fejléc
+      „2026 · szerda · 20 meccs · frissítve nov. 14. 10:57", a Chelsea
+      logója renderelődik (v1-audit asset), a blob-végpont
+      `200 image/webp` 5,5 KB.
+- Megjegyzés: a dev DB-ben ezen a napon csak a demó meccsek élnek (a
+  korábbi élő footballdata-sorok ebben a DB-állapotban nincsenek, árva
+  provenance nélkül — nem a mai futások törölték). Az élő SDK-teszthez
+  a 2026-11-16-i teljes kör adja a bizonyítékot.
+- Következő: Üzemeltetés nézet (worker/review), asset-licence döntés
+  (`unknown` → `cleared`), La Liga logó pótlása, élő adat visszatöltése.
+
+### Soccerway canary nap végeredménye
+
+- [x] 6/7 domain `no_data` (Ligue 1, Bundesliga, Serie A, NB I, NB II,
+      Premier League), 1 domain (La Liga) **pending: napi kvóta kimerült**
+      → a következő napon fut. Az angliai `failed` coverage az első,
+      javítás előtti futás maradéka (a job done).
