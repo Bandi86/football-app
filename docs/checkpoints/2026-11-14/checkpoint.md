@@ -331,3 +331,14 @@ S2c — Obscura browser-fetcher:
       DB-n; a játékvezetők review-ra várnak (fail-closed).
 - Nyitott: játékvezető-review jóváhagyás (opcionális, display-hez); a
   canary→live váltás a felhasználó döntése.
+
+## S2d-3 (B csoport) — szezon-statisztikák + elérhetőség (2026-11-14)
+
+- [x] 0010 migráció: `fact.season_team_stats` (keyed, season+team+source),
+      `fact.season_player_stats` (keyed, source_player_id + opcionális
+      entitás-FK), `fact.player_availability` (kind CHECK, expected_return
+      dátum, PK source+player+kind); constraint-tesztek 3/3; db-check 43;
+      connection 43; check.sh 194/194.
+- Író nélkül (mint a korábbi séma-szeletek); a FotMob/Transfermarkt
+  adapterek töltik később.
+- Következő: E (ET/pens + kickoff konvenciók), F (identitás/assets), G (Elo).
