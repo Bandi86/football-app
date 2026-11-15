@@ -52,7 +52,9 @@ const LEASE_SECS: i64 = 60;
 const BACKOFF_BASE_SECS: i64 = 60;
 const BACKOFF_CAP_SECS: i64 = 3600;
 const CLAIM_LIMIT: i64 = 10;
-const FETCH_TIMEOUT_SECS: u64 = 30;
+// Browser-render (Obscura) 10–45 s között fut; a HTTP-források ennél jóval
+// gyorsabbak. A hosszabb plafon a renderelt forrásokat nem vágja le.
+const FETCH_TIMEOUT_SECS: u64 = 60;
 const RULE_SET_VERSION: &str = "verification-1.1";
 const PUBLISH_TIMEZONE: &str = "Europe/Budapest";
 
@@ -352,7 +354,9 @@ async fn process_job(
 
         // 8–9. Shadow ágban nincs kanonikus írás; live/canary ágban a teljes
         // verification + gate lánc fut (a footballctl IngestFixture mintáján).
-        if policy.mode != SourceMode::Shadow {
+        // Üres observation-lista legitím nulla-nap (pl. válogatott szünet,
+        // nincs meccs a szűrt ligákban) → no_data, nem hiba.
+        if policy.mode != SourceMode::Shadow && !observations.is_empty() {
             // Elo-feed: nem meccs-scoped; külön materializálás.
             if observations.iter().any(|o| o.aspect == "club_elo") {
                 let elo = football_ingest::normalized::ClubEloDay::from_observations(

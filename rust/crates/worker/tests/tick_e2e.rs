@@ -799,3 +799,52 @@ async fn successful_fetch_closes_half_open_breaker_even_on_parse_quarantine() {
         "a sikeres fetch lezárja a half_open breakert"
     );
 }
+
+/// Canary/live ág üres parsolással: nulla-nap → no_data, nem failed job.
+#[tokio::test]
+async fn empty_canary_day_is_no_data_not_failure() {
+    let pool = test_pool().await;
+    let now = today_noon();
+    let store_dir = tempfile::tempdir().unwrap();
+    let store = ObjectStore::new(store_dir.path()).unwrap();
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/page"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_raw("<html></html>", "text/html"),
+        )
+        .mount(&server)
+        .await;
+    let mut policy = http_policy(0);
+    policy.mode = SourceMode::Canary;
+    repo::upsert_policy(&pool, &policy).await.unwrap();
+    seed_http_job(&pool, now).await;
+    let fetchers = as_fetchers(FixtureFetcher::new(HashMap::new()));
+    seed_robots_allowed(&pool, &server.uri()).await;
+    let adapters = http_adapters(&format!("{}/page", server.uri()), false);
+
+    let outcome = tick::tick(&pool, &store, &fetchers, &adapters, Uuid::now_v7(), now)
+        .await
+        .unwrap();
+    assert_eq!(outcome.processed, 1, "üres nap feldolgozva");
+    assert_eq!(outcome.failed, 0, "üres nap nem hiba");
+    assert_eq!(outcome.blocked, 0);
+
+    let status: String = sqlx::query_scalar("SELECT status FROM ops.job")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "done");
+    let coverage: String = sqlx::query_scalar("SELECT state FROM ops.coverage_slot")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(coverage, "no_data");
+    let ledger: String =
+        sqlx::query_scalar("SELECT outcome FROM ops.fetch_ledger WHERE job_id IS NOT NULL")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(ledger, "success");
+    assert_eq!(count(&pool, "SELECT count(*) FROM core.match").await, 0);
+}
