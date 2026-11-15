@@ -15,6 +15,7 @@ async fn health_is_public() {
         pool,
         read_token: "read-test".into(),
         ops_token: "ops-test".into(),
+        data_dir: std::env::temp_dir(),
     });
 
     let response = app
@@ -37,6 +38,7 @@ async fn day_requires_read_token() {
         pool,
         read_token: "read-test".into(),
         ops_token: "ops-test".into(),
+        data_dir: std::env::temp_dir(),
     });
 
     let unauthorized = app
@@ -104,6 +106,7 @@ async fn day_response_includes_odds_trust_state() {
         pool,
         read_token: "read-test".into(),
         ops_token: "ops-test".into(),
+        data_dir: std::env::temp_dir(),
     });
     let response = app
         .oneshot(
@@ -245,4 +248,124 @@ async fn seed_day_match(pool: &PgPool, base: &DayBase, hour: u32) -> Uuid {
     .unwrap();
 
     match_id
+}
+
+#[tokio::test]
+async fn day_response_includes_refreshed_at_and_asset_urls() {
+    let pool = test_pool().await;
+    let base = seed_day_base(&pool).await;
+    seed_day_match(&pool, &base, 21).await;
+    let sha = "a".repeat(64);
+    let key = format!("assets/ab/cd/{sha}.webp");
+    sqlx::query(
+        "INSERT INTO ops.asset
+         (id, entity_kind, entity_id, kind, url, storage_key, source, licence_status, captured_at)
+         VALUES ($1,'team',$2,'logo','file://x',$3,'test','unknown',now())",
+    )
+    .bind(Uuid::now_v7())
+    .bind(base.home_team_id)
+    .bind(&key)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let app = router(AppState {
+        pool,
+        read_token: "read-test".into(),
+        ops_token: "ops-test".into(),
+        data_dir: std::env::temp_dir(),
+    });
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/day/2026-11-09")
+                .header("authorization", "Bearer read-test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert!(value["refreshed_at"].is_string(), "refreshed_at: {value}");
+    let m = &value["matches"][0];
+    assert_eq!(m["home_logo"], format!("/v1/asset/{key}"));
+    assert!(m["away_logo"].is_null());
+    assert!(m["home_elo"].is_null());
+}
+
+#[tokio::test]
+async fn asset_route_serves_blob_and_rejects_bad_keys() {
+    let pool = test_pool().await;
+    let dir = tempfile::tempdir().unwrap();
+    let sha = "b".repeat(64);
+    let key = format!("assets/12/34/{sha}.webp");
+    let path = dir.path().join("raw").join(&key);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, b"webp-bytes").unwrap();
+
+    let app = router(AppState {
+        pool,
+        read_token: "read-test".into(),
+        ops_token: "ops-test".into(),
+        data_dir: dir.path().to_path_buf(),
+    });
+
+    let ok = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/asset/{key}"))
+                .header("authorization", "Bearer read-test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), StatusCode::OK);
+    assert_eq!(
+        ok.headers().get("content-type").unwrap().to_str().unwrap(),
+        "image/webp"
+    );
+    let body = ok.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(&body[..], b"webp-bytes");
+
+    let unauthorized = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/asset/{key}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+    let bad = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/asset/assets/12/34/../../etc/passwd")
+                .header("authorization", "Bearer read-test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(bad.status(), StatusCode::BAD_REQUEST);
+
+    let missing_key = format!("assets/12/34/{}.webp", "c".repeat(64));
+    let missing = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/asset/{missing_key}"))
+                .header("authorization", "Bearer read-test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
 }

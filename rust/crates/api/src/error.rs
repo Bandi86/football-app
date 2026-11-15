@@ -35,6 +35,14 @@ impl AppError {
         }
     }
 
+    pub fn not_found(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            code: "NOT_FOUND",
+            message: message.into(),
+        }
+    }
+
     pub fn internal(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,

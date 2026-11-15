@@ -40,10 +40,10 @@ async fn main() -> Result<()> {
         .map(|v| v == "true")
         .unwrap_or(false);
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let data_dir = std::env::var("DATA_DIR").unwrap_or_else(|_| "./data".into());
     #[cfg(feature = "obscura")]
     let mut obscura_server: Option<football_ingest::obscura::server::ObscuraServer> = None;
     let worker_handle = if worker_enabled {
-        let data_dir = std::env::var("DATA_DIR").unwrap_or_else(|_| "./data".into());
         let store = ObjectStore::new(&data_dir)?;
         let fixture_dir = std::path::Path::new(&data_dir).join("worker-fixtures");
         let rust_http = RustHttpFetcher::new("football-app-v2")?;
@@ -101,6 +101,7 @@ async fn main() -> Result<()> {
             pool,
             read_token: runtime.read_token,
             ops_token: runtime.ops_token,
+            data_dir: data_dir.clone().into(),
         });
 
         tracing::info!(port, "footballd elindult");

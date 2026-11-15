@@ -40,6 +40,10 @@ pub struct DayMatchRow {
     pub odds_source: Option<String>,
     pub odds_captured_at: Option<DateTime<Utc>>,
     pub odds_trust_state: Option<String>,
+    pub home_logo: Option<String>,
+    pub away_logo: Option<String>,
+    pub home_elo: Option<f64>,
+    pub away_elo: Option<f64>,
 }
 
 pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatchRow>> {
@@ -67,7 +71,11 @@ pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatch
             o.market_count,
             os.display_name AS odds_source,
             o.captured_at AS odds_captured_at,
-            o.trust_state AS odds_trust_state
+            o.trust_state AS odds_trust_state,
+            hl.logo AS home_logo,
+            al.logo AS away_logo,
+            he.elo AS home_elo,
+            ae.elo AS away_elo
          FROM core.match m
          JOIN core.team home ON home.id = m.home_team_id
          JOIN core.team away ON away.id = m.away_team_id
@@ -97,6 +105,40 @@ pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatch
              LIMIT 1
          ) o ON true
          LEFT JOIN ops.source os ON os.id = o.source_id
+         LEFT JOIN LATERAL (
+             SELECT CASE WHEN a.storage_key IS NOT NULL
+                         THEN '/v1/asset/' || a.storage_key
+                         ELSE a.url END AS logo
+             FROM ops.asset a
+             WHERE a.entity_kind = 'team' AND a.kind = 'logo'
+               AND a.entity_id = m.home_team_id
+             ORDER BY (a.storage_key IS NULL), a.captured_at DESC
+             LIMIT 1
+         ) hl ON true
+         LEFT JOIN LATERAL (
+             SELECT CASE WHEN a.storage_key IS NOT NULL
+                         THEN '/v1/asset/' || a.storage_key
+                         ELSE a.url END AS logo
+             FROM ops.asset a
+             WHERE a.entity_kind = 'team' AND a.kind = 'logo'
+               AND a.entity_id = m.away_team_id
+             ORDER BY (a.storage_key IS NULL), a.captured_at DESC
+             LIMIT 1
+         ) al ON true
+         LEFT JOIN LATERAL (
+             SELECT e.elo::double precision AS elo
+             FROM fact.club_elo e
+             WHERE e.club_entity_id = m.home_team_id AND e.as_of <= $1
+             ORDER BY e.as_of DESC
+             LIMIT 1
+         ) he ON true
+         LEFT JOIN LATERAL (
+             SELECT e.elo::double precision AS elo
+             FROM fact.club_elo e
+             WHERE e.club_entity_id = m.away_team_id AND e.as_of <= $1
+             ORDER BY e.as_of DESC
+             LIMIT 1
+         ) ae ON true
          JOIN ops.publish_gate g ON g.match_id = m.id AND g.publish_date = $1
          WHERE (m.kickoff_at AT TIME ZONE $2)::date = $1
            AND ($3::boolean OR g.state = 'verified_publish')
@@ -108,4 +150,18 @@ pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatch
     .fetch_all(pool)
     .await?;
     Ok(rows)
+}
+
+/// A nap legutóbbi gate-kiértékelésének ideje (batch/frissítés jelzés).
+pub async fn fetch_day_refreshed_at(
+    pool: &PgPool,
+    date: NaiveDate,
+) -> Result<Option<DateTime<Utc>>> {
+    let value: Option<DateTime<Utc>> = sqlx::query_scalar(
+        "SELECT max(evaluated_at) FROM ops.publish_gate WHERE publish_date = $1",
+    )
+    .bind(date)
+    .fetch_one(pool)
+    .await?;
+    Ok(value)
 }

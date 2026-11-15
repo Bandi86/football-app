@@ -2,7 +2,7 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use chrono::NaiveDate;
-use football_storage::repositories::day::{DayFilter, fetch_day};
+use football_storage::repositories::day::{DayFilter, fetch_day, fetch_day_refreshed_at};
 use serde::{Deserialize, Serialize};
 
 use crate::AppState;
@@ -18,6 +18,8 @@ pub struct DayQuery {
 pub struct DayResponse {
     pub date: NaiveDate,
     pub timezone: &'static str,
+    /// A nap legutóbbi gate-kiértékelésének ideje (batch-frissítés jelzés).
+    pub refreshed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub matches: Vec<DayMatch>,
 }
 
@@ -49,6 +51,10 @@ pub struct DayMatch {
     pub odds: Option<serde_json::Value>,
     pub market_count: Option<i32>,
     pub odds_source: Option<String>,
+    pub home_logo: Option<String>,
+    pub away_logo: Option<String>,
+    pub home_elo: Option<f64>,
+    pub away_elo: Option<f64>,
     pub odds_captured_at: Option<chrono::DateTime<chrono::Utc>>,
     pub odds_trust_state: Option<String>,
 }
@@ -77,9 +83,17 @@ pub async fn day(
         AppError::internal("A napi lista lekérdezése sikertelen.")
     })?;
 
+    let refreshed_at = fetch_day_refreshed_at(&state.pool, date)
+        .await
+        .map_err(|e| {
+            tracing::error!(error=%e, "napi frissítés-idő lekérdezés");
+            AppError::internal("A napi frissítés-idő lekérdezése sikertelen.")
+        })?;
+
     Ok(Json(DayResponse {
         date,
         timezone: "Europe/Budapest",
+        refreshed_at,
         matches: rows
             .into_iter()
             .map(|row| DayMatch {
@@ -111,6 +125,10 @@ pub async fn day(
                 odds_source: row.odds_source,
                 odds_captured_at: row.odds_captured_at,
                 odds_trust_state: row.odds_trust_state,
+                home_logo: row.home_logo,
+                away_logo: row.away_logo,
+                home_elo: row.home_elo,
+                away_elo: row.away_elo,
             })
             .collect(),
     }))
