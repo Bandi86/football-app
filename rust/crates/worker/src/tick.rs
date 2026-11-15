@@ -353,12 +353,22 @@ async fn process_job(
         // 8–9. Shadow ágban nincs kanonikus írás; live/canary ágban a teljes
         // verification + gate lánc fut (a footballctl IngestFixture mintáján).
         if policy.mode != SourceMode::Shadow {
-            // A kanonikus út az observationökből indul (forrás-független).
-            let normalized = football_ingest::normalized::NormalizedDay::from_observations(
-                &observations,
-            )
-            .context("observationökből normalizált nap")?;
-            verify_and_publish(pool, &normalized).await?;
+            // Elo-feed: nem meccs-scoped; külön materializálás.
+            if observations.iter().any(|o| o.aspect == "club_elo") {
+                let elo = football_ingest::normalized::ClubEloDay::from_observations(
+                    &observations,
+                )
+                .context("observationökből club_elo nap")?;
+                let written = Canonicalizer::materialize_elo(pool, &elo).await?;
+                tracing::info!(written, "club_elo pillanatkép materializálva");
+            } else {
+                // A kanonikus út az observationökből indul (forrás-független).
+                let normalized = football_ingest::normalized::NormalizedDay::from_observations(
+                    &observations,
+                )
+                .context("observationökből normalizált nap")?;
+                verify_and_publish(pool, &normalized).await?;
+            }
         }
 
         // 10. Tick-zárás: ledger success, coverage done (0 observation → no_data),

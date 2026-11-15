@@ -1,5 +1,6 @@
 pub mod adapter;
 pub mod canonicalize;
+pub mod clubelo;
 pub mod demo;
 pub mod fetch;
 pub mod fixture;

@@ -386,3 +386,13 @@ S2c — Obscura browser-fetcher:
       gate-je változatlanul **43/43 verified_publish**.
 - Megjegyzés: az éjszakai/ismételt tickek a 25-ös napi büdzsét és a 2 s-os
   delay-t tiszteletben tartják (blokkolt sorok = ütemezett várakozás).
+
+## S4a — clubelo Elo-adapter (2026-11-14, új session)
+
+- [x] `ClubEloAdapter` (clubelo API CSV) → `club_elo` observation-aspket →
+      `ClubEloDay` builder → `Canonicalizer::materialize_elo` (as-of upsert,
+      kötelező provenance, 2025-06-01 határ-szabály); tick-ág az elo-feedre.
+      Tesztek: adapter 2/2 (BOM/CRLF, határ), materializer 1/1 (idempotens);
+      check.sh 202/202. Operations doc: docs/operations/clubelo.md.
+- [ ] Élő clubelo kör: FÜGGŐBEN — charter-kapu (új élő forrás; a clubelo
+      robots.txt/elérés nem mért, a katalógus szerint is verifikálandó).

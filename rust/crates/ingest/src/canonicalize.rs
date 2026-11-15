@@ -26,6 +26,40 @@ pub struct MaterializedDay {
 }
 
 impl Canonicalizer {
+    /// clubelo-pillanatkép upsertje `fact.club_elo`-ba (as-of + kötelező
+    /// provenance; a klub-entitás kapcsolás a crosswalk későbbi lépése).
+    pub async fn materialize_elo(
+        pool: &PgPool,
+        day: &crate::normalized::ClubEloDay,
+    ) -> Result<usize> {
+        let mut tx = pool.begin().await?;
+        let mut written = 0usize;
+        for row in &day.rows {
+            sqlx::query(
+                "INSERT INTO fact.club_elo
+                 (country_code, club_name, as_of, elo, provenance, source, captured_at)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7)
+                 ON CONFLICT (country_code, club_name, as_of) DO UPDATE SET
+                   elo = EXCLUDED.elo,
+                   provenance = EXCLUDED.provenance,
+                   source = EXCLUDED.source,
+                   captured_at = EXCLUDED.captured_at",
+            )
+            .bind(&row.country_code)
+            .bind(&row.club_name)
+            .bind(day.as_of)
+            .bind(row.elo)
+            .bind(&row.provenance)
+            .bind(&day.source_code)
+            .bind(day.captured_at)
+            .execute(&mut *tx)
+            .await?;
+            written += 1;
+        }
+        tx.commit().await?;
+        Ok(written)
+    }
+
     pub async fn materialize(pool: &PgPool, day: &NormalizedDay) -> Result<MaterializedDay> {
         let mut tx = pool.begin().await?;
 

@@ -4,7 +4,7 @@
 //! források `None`-t adnak, és a kanonikus id-k natural-key upserttel képződnek.
 
 use anyhow::{Context, Result};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -529,5 +529,66 @@ impl From<&FixtureSource> for NormalizedDay {
                     .collect()
             }),
         }
+    }
+}
+
+/// clubelo-pillanatkép nap (nem meccs-scoped feed).
+#[derive(Debug, Clone)]
+pub struct ClubEloDay {
+    pub source_code: String,
+    pub captured_at: DateTime<Utc>,
+    pub as_of: NaiveDate,
+    pub rows: Vec<EloRow>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EloRow {
+    pub country_code: String,
+    pub club_name: String,
+    pub elo: f64,
+    pub provenance: String,
+}
+
+#[derive(Deserialize)]
+struct EloPayload {
+    country: String,
+    club: String,
+    elo: f64,
+    as_of: NaiveDate,
+    provenance: String,
+}
+
+impl ClubEloDay {
+    /// Az `club_elo` aspketekből épített nap; a meta az első sorból.
+    pub fn from_observations(observations: &[Observation]) -> Result<Self> {
+        let mut rows = Vec::new();
+        let mut as_of: Option<NaiveDate> = None;
+        let mut captured_at: Option<DateTime<Utc>> = None;
+        let mut source_code: Option<String> = None;
+        for obs in observations {
+            if obs.aspect != "club_elo" {
+                continue;
+            }
+            let p: EloPayload =
+                serde_json::from_value(obs.payload.clone()).context("club_elo payload")?;
+            as_of.get_or_insert(p.as_of);
+            captured_at.get_or_insert(obs.observed_at);
+            source_code.get_or_insert_with(|| "clubelo".to_string());
+            rows.push(EloRow {
+                country_code: p.country,
+                club_name: p.club,
+                elo: p.elo,
+                provenance: p.provenance,
+            });
+        }
+        if rows.is_empty() {
+            anyhow::bail!("nincs club_elo observation");
+        }
+        Ok(Self {
+            source_code: source_code.expect("nem üres"),
+            captured_at: captured_at.expect("nem üres"),
+            as_of: as_of.expect("nem üres"),
+            rows,
+        })
     }
 }
