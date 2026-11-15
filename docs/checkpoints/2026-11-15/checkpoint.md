@@ -188,3 +188,27 @@
       Premier League), 1 domain (La Liga) **pending: napi kvóta kimerült**
       → a következő napon fut. Az angliai `failed` coverage az első,
       javítás előtti futás maradéka (a job done).
+
+## Üzemeltetés nézet + licence + első meccses nap előkészítés (2026-11-15, 2. folytatás)
+
+- [x] **Ops API:** `GET /v1/ops/status` (ops-token): worker-számlálók
+      (pending/leased/quarantine/review) + forrásonkénti policy (mode,
+      enabled, mai kísérletek/büdzsé, breaker). `worker_repo::list_policies`.
+      Teszt: számlálók + forrás + read-token elutasítás. (commit lent)
+- [x] **Üzemeltetés nézet:** tabváltás a felső sávban (Ma / Üzemeltetés);
+      4 stat-kártya; forráslista mód-pillel, enabled-jelzővel,
+      kvóta-sávval és breaker-chippel; 30 s automatikus frissítés;
+      `OpsModel` + core `OpsService`/`OpsStatus`. Tesztek: core 20, app 17.
+      Élő kép: 1 függő job, demo 1/10, footballdata 16/25 (LIVE), fotmob
+      0/10 (tiltott), soccerway 14/14 (CANARY, teljes sáv).
+- [x] **Asset-licence döntés:** a v1-audited 53 sor
+      `licence_status='cleared'` (a 2026-11-15-i újrahasznosítási döntés
+      alapján, belső használat; licence-szöveg rögzítve). Rollback:
+      vissza `unknown`-ra.
+- [ ] **La Liga liga-logó:** nincs auditált forrás (v1 `Primera División`
+      tournament nincs a logó-manifestben; a külső gyűjtemény csak
+      klub-logókat ad) → operátori forrásra vár; a kliens liga-fejlécben
+      zászlót mutat.
+- [x] **Első teljes meccses nap runbookja** a Soccerway ops docban
+      (daemon worker + review-bootstrap + második kör + ellenőrzés);
+      a 2026-11-16-i futás a napi discovery-vel indul.

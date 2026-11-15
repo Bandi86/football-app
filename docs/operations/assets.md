@@ -37,13 +37,17 @@ készült (nincs fuzzy egyeztetés):
   (v1 `teams.logo_url`, luukhopman/football-logos GitHub),
   **20**-nak nincs elérhető assetje, **22** név nincs a v1-ben
   (eltérő rövidítések, pl. `Ath Madrid`, `Bayern Munich`).
-- Ligák: Premier League, Bundesliga, Serie A, Ligue 1 (4) — a v1-ben
-  nincs top spanyol liga tournament-bejegyzés, ezért a La Liga logó
-  nyitott.
+- Ligák: Premier League, Bundesliga, Serie A, Ligue 1 (4). A spanyol
+  top liga v1-tornamentje (`Primera División`, id 110) **nem** szerepel
+  a liga-logó manifestben, és a külső GitHub-gyűjtemény csak klub-logókat
+  tartalmaz → a La Liga liga-logó **operátori forrásra vár** (a kliens
+  a liga-fejlécben egyelőre zászlót mutat, nem logót).
 - **Licenc:** a v1 logók forrásai (sofascore/megapack/GitHub-gyűjtemény)
-  nem adnak dokumentált licencet → `licence_status = 'unknown'`.
-  Megjelenítés előtt a licenc-státuszt tudatosan `cleared`-re kell
-  állítani (vagy cserélni a forrást).
+  nem adnak dokumentált licencet. A felhasználói döntés (2026-11-15,
+  a v1-audit újrahasznosítás jóváhagyása) alapján a v1-audited sorok
+  `licence_status = 'cleared'`, licence-szöveg:
+  „v1 audit 2026-11-03 újrahasznosítás (belső használat)".
+  Új forrás felvételekor a licencet ismét ellenőrizni kell.
 
 ## 3. Ellenőrzés
 

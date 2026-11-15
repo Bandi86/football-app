@@ -115,3 +115,24 @@ entitás a helyes döntés).
 - Kód: branch-revert; séma-változás nincs. A stage-observationök és a
   kanonikus sorok forrás-kötöttek; a Soccerway-hivatkozású
   `identity.source_entity_ref` sorok a review-queue-ban visszafordíthatók.
+
+## 6. Első teljes meccses nap (runbook, 2026-11-16)
+
+A 2026-11-15-i canary nap válogatott szünet miatt 6/7 domainre `no_data`
+volt (1 domain napi kvóta miatt a következő napra maradt). Az első teljes
+meccses nap menete:
+
+1. **Daemon workerrel** (ajánlott): `WORKER_ENABLED=true DATA_DIR=./data
+   OBSCURA_BIN=<obscura> cargo run -p footballd --features obscura` — a
+   napi `discovery` esemény 7 jobot generál (napi kvóta 14, 60 s + jitter).
+   Kézi ellenőrzéshez ugyanez tickkel: `footballctl worker tick`
+   (60–70 s ütemmel, a breaker/cooldown tiszteletével).
+2. **Review-bootstrap:** a lokalizált Soccerway-csapatnevek az első körben
+   review-sorokat nyitnak; `footballctl identity review` →
+   `identity approve <id> --entity <uuid>` (meglévő klub) vagy
+   `identity approve-create <id>` (új NB I/NB II csapat). Fuzzy egyeztetés
+   tilos; kétség esetén a sor pending marad.
+3. **Második kör:** a feloldott csapatokkal kanonikus meccsek születnek; a
+   napi lista a trust-gate szerint publikál (`verified_publish`).
+4. **Ellenőrzés:** `footballctl worker status` (függő review, kvóta,
+   breaker), `identity crosswalk-check`, a kliens Üzemeltetés nézete.
