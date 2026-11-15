@@ -4,6 +4,8 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use chrono::{NaiveDate, Utc};
 use clap::{Parser, Subcommand};
+#[cfg(feature = "obscura")]
+use football_domain::policy::Transport;
 use football_domain::trust::{ODDS_TOLERANCE_DEFAULT, OddsTrustState};
 use football_ingest::adapter::SourceAdapter;
 use football_ingest::canonicalize::Canonicalizer;
@@ -244,12 +246,36 @@ async fn main() -> Result<()> {
                 let mut written = 0usize;
                 for row in &rows {
                     let field = |k: &str| row.get(k).and_then(|v| v.as_str());
+                    // Helyi fájl (v1-audit logó) → tartalom-címzett blob a
+                    // nyers objektumtárba; a storage_key kerül az asset-sorba.
+                    let storage_key = match field("file") {
+                        Some(file) => {
+                            let bytes = std::fs::read(file).map_err(|e| {
+                                anyhow::anyhow!("asset fájl olvasása ({file}): {e}")
+                            })?;
+                            let ext = std::path::Path::new(file)
+                                .extension()
+                                .and_then(|e| e.to_str())
+                                .unwrap_or("bin");
+                            let stored = store.put_blob(&bytes, ext)?;
+                            if let Some(expected) = field("sha256") {
+                                anyhow::ensure!(
+                                    expected.eq_ignore_ascii_case(&stored.sha256),
+                                    "sha256 eltérés: {file} (várt {expected}, kapott {})",
+                                    stored.sha256
+                                );
+                            }
+                            Some(stored.storage_key)
+                        }
+                        None => field("storage_key").map(str::to_string),
+                    };
                     let input = worker_repo::AssetRowInput {
                         entity_kind: field("entity_kind")
                             .ok_or_else(|| anyhow::anyhow!("hiányzó entity_kind"))?,
                         entity_id: field("entity_id").and_then(|v| v.parse::<Uuid>().ok()),
                         kind: field("kind").ok_or_else(|| anyhow::anyhow!("hiányzó kind"))?,
                         url: field("url").ok_or_else(|| anyhow::anyhow!("hiányzó url"))?,
+                        storage_key: storage_key.as_deref(),
                         source: field("source").ok_or_else(|| anyhow::anyhow!("hiányzó source"))?,
                         licence: field("licence"),
                         licence_status: field("licence_status").unwrap_or("unknown"),
@@ -311,9 +337,27 @@ async fn worker_status(pool: &sqlx::PgPool) -> Result<()> {
 async fn worker_tick(pool: &sqlx::PgPool, store: &ObjectStore, data_dir: &str) -> Result<()> {
     let fixture_dir = std::path::Path::new(data_dir).join("worker-fixtures");
     let fixture = FixtureFetcher::from_dir(&fixture_dir)?;
-    // CLI ingest-mód: nincs Obscura-szerver; a fixture policy-k fixture
-    // fetcheren mennek, a valódi transzportok a footballd-ben aktiválódnak.
     let fetchers = Fetchers::new(RustHttpFetcher::new("football-app-v2")?, fixture);
+    // Canary/élő Soccerway-körhöz a CLI is indíthat Obscura-szervert
+    // (csak engedélyezett obscura policy esetén; a feature mögött).
+    #[cfg(feature = "obscura")]
+    let (fetchers, obscura_server) = {
+        let mut fetchers = fetchers;
+        let mut server = None;
+        if worker_repo::has_enabled_transport(pool, Transport::Obscura.as_db_str()).await? {
+            let cfg = football_ingest::obscura::ObscuraConfig::from_env();
+            let started = football_ingest::obscura::server::ObscuraServer::start(&cfg).await?;
+            let fetcher = football_ingest::obscura::ObscuraFetcher::connect(
+                started.cdp_url(),
+                std::time::Duration::from_millis(cfg.timeout_ms),
+            )
+            .await?;
+            fetchers = fetchers.with_obscura(fetcher);
+            server = Some(started);
+            println!("obscura fetcher aktív (CLI mód)");
+        }
+        (fetchers, server)
+    };
     let mut adapters: HashMap<String, Box<dyn SourceAdapter>> = HashMap::new();
     adapters.insert("demo-synthetic".into(), Box::new(DemoAdapter));
     adapters.insert("footballdata".into(), Box::new(FootballdataAdapter));
@@ -327,6 +371,10 @@ async fn worker_tick(pool: &sqlx::PgPool, store: &ObjectStore, data_dir: &str) -
         "generált={generated} feldolgozott={} blokkolt={} sikertelen={}",
         outcome.processed, outcome.blocked, outcome.failed
     );
+    #[cfg(feature = "obscura")]
+    if let Some(mut server) = obscura_server {
+        server.stop();
+    }
     Ok(())
 }
 

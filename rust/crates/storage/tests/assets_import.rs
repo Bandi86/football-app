@@ -10,6 +10,7 @@ async fn upsert_asset_is_idempotent_on_natural_key() {
         entity_id: Some(Uuid::now_v7()),
         kind: "logo",
         url: "https://example.test/logo.png",
+        storage_key: None,
         source: "logos-github",
         licence: Some("CC0"),
         licence_status: "cleared",
@@ -18,6 +19,19 @@ async fn upsert_asset_is_idempotent_on_natural_key() {
     };
     let id1 = repo::upsert_asset(&pool, &row).await.unwrap();
     let id2 = repo::upsert_asset(&pool, &row).await.unwrap();
+    // Későbbi import storage_key-jel nem veszíti el a korábbi blob-hivatkozást.
+    let with_blob = AssetRowInput {
+        storage_key: Some("assets/aa/bb/hash.webp"),
+        ..row
+    };
+    let id3 = repo::upsert_asset(&pool, &with_blob).await.unwrap();
+    assert_eq!(id1, id3);
+    let key: Option<String> = sqlx::query_scalar("SELECT storage_key FROM ops.asset WHERE id=$1")
+        .bind(id1)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(key.as_deref(), Some("assets/aa/bb/hash.webp"));
     assert_eq!(id1, id2, "egyediség: upsert, nem duplikál");
     let status: String = sqlx::query_scalar("SELECT licence_status FROM ops.asset WHERE id=$1")
         .bind(id1)

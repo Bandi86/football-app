@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
+[features]
+default = []
+obscura = ["football-ingest/obscura"]
+
 [dependencies]
 anyhow.workspace = true
 chrono.workspace = true

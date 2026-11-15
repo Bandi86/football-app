@@ -808,6 +808,7 @@ pub struct AssetRowInput<'a> {
     pub entity_id: Option<Uuid>,
     pub kind: &'a str,
     pub url: &'a str,
+    pub storage_key: Option<&'a str>,
     pub source: &'a str,
     pub licence: Option<&'a str>,
     pub licence_status: &'a str,
@@ -818,10 +819,11 @@ pub struct AssetRowInput<'a> {
 pub async fn upsert_asset(pool: &PgPool, row: &AssetRowInput<'_>) -> Result<Uuid> {
     sqlx::query_scalar(
         "INSERT INTO ops.asset
-         (id, entity_kind, entity_id, kind, url, source, licence, licence_status,
-          attribution, captured_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         (id, entity_kind, entity_id, kind, url, storage_key, source, licence,
+          licence_status, attribution, captured_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
          ON CONFLICT (entity_kind, entity_id, kind, url) DO UPDATE SET
+           storage_key = COALESCE(EXCLUDED.storage_key, ops.asset.storage_key),
            source = EXCLUDED.source,
            licence = EXCLUDED.licence,
            licence_status = EXCLUDED.licence_status,
@@ -834,6 +836,7 @@ pub async fn upsert_asset(pool: &PgPool, row: &AssetRowInput<'_>) -> Result<Uuid
     .bind(row.entity_id)
     .bind(row.kind)
     .bind(row.url)
+    .bind(row.storage_key)
     .bind(row.source)
     .bind(row.licence)
     .bind(row.licence_status)
