@@ -353,3 +353,15 @@ S2c — Obscura browser-fetcher:
 - A kickoff UTC-konverzió adapter-szintű (Europe/London → UTC, date_only
   12:00 UTC) — a footballdata adapterben már él.
 - Hátra: F (identitás-kiegészítés/assets), G (Elo).
+
+## S2d-5 (F csoport) — asset-nyilvántartás (2026-11-14)
+
+- [x] 0012 migráció: `ops.asset` (entity_kind/entity_id, kind logo/flag/other,
+      url, storage_key, source, licence, licence_status unknown/cleared/
+      rejected, attribution, captured_at; egyediség entitás+kind+url).
+      Constraint-tesztek 2/2; check.sh 198/198; db-check 44.
+- A 16. tétel (identitás-crosswalk) már lefedett: S2b-1 táblák
+  (source_entity_ref, alias, crosswalk, review_queue) + S3b-3
+  crosswalk-uniqueness validáció + `identity crosswalk-check`.
+- Hátra: G (Elo-pillanatkép, saját feature) + a játékvezető-review /
+  canary→live operatív döntések.
