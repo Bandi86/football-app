@@ -57,6 +57,8 @@ pub struct NormalizedMatch {
     pub away_source_entity_id: String,
     pub round_label: Option<String>,
     pub kickoff_at: DateTime<Utc>,
+    /// `exact` vagy `date_only` (a listán nincs kezdési idő → 12:00 UTC helyőrző).
+    pub kickoff_precision: String,
     pub competition_timezone: String,
     pub status: String,
     pub result: Option<NormalizedResult>,
@@ -94,6 +96,8 @@ pub struct NormalizedResult {
     pub away_et: Option<i16>,
     pub home_pens: Option<i16>,
     pub away_pens: Option<i16>,
+    /// `ft` / `et` / `pens`; NULL = ismeretlen (S2d-4 séma).
+    pub decided_by: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -197,6 +201,8 @@ struct ResultPayload {
     away_et: Option<i16>,
     home_pens: Option<i16>,
     away_pens: Option<i16>,
+    #[serde(default)]
+    decided_by: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -205,6 +211,8 @@ struct MatchCorePayload {
     source_home_id: String,
     source_away_id: String,
     kickoff_at: DateTime<Utc>,
+    #[serde(default)]
+    kickoff_precision: Option<String>,
     status: String,
     result: Option<ResultPayload>,
     round_label: Option<String>,
@@ -330,6 +338,7 @@ impl NormalizedDay {
                         away_source_entity_id: p.source_away_id,
                         round_label: p.round_label,
                         kickoff_at: p.kickoff_at,
+                        kickoff_precision: p.kickoff_precision.unwrap_or_else(|| "exact".into()),
                         competition_timezone: p.competition_timezone,
                         status: p.status,
                         result: p.result.map(|r| NormalizedResult {
@@ -341,6 +350,7 @@ impl NormalizedDay {
                             away_et: r.away_et,
                             home_pens: r.home_pens,
                             away_pens: r.away_pens,
+                            decided_by: r.decided_by,
                         }),
                         odds: None,
                         stats: None,
@@ -500,6 +510,7 @@ impl From<&FixtureSource> for NormalizedDay {
                     away_source_entity_id: m.away_source_entity_id.clone(),
                     round_label: m.round_label.clone(),
                     kickoff_at: m.kickoff_at,
+                    kickoff_precision: "exact".into(),
                     competition_timezone: m.competition_timezone.clone(),
                     status: m.status.clone(),
                     result: m.result.as_ref().map(|r| NormalizedResult {
@@ -511,6 +522,7 @@ impl From<&FixtureSource> for NormalizedDay {
                         away_et: r.away_et,
                         home_pens: r.home_pens,
                         away_pens: r.away_pens,
+                        decided_by: None,
                     }),
                     odds: m.odds.as_ref().map(|odds| NormalizedOdds {
                         market_count: m.market_count,

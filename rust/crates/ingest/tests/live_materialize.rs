@@ -1,7 +1,8 @@
 use chrono::{TimeZone, Utc};
 use football_ingest::canonicalize::Canonicalizer;
 use football_ingest::normalized::{
-    NormalizedCompetition, NormalizedDay, NormalizedMatch, NormalizedSeason, NormalizedTeam,
+    NormalizedCompetition, NormalizedDay, NormalizedMatch, NormalizedResult, NormalizedSeason,
+    NormalizedTeam,
 };
 use football_storage::test_support::test_pool;
 use sqlx::PgPool;
@@ -103,6 +104,7 @@ fn live_day(teams: &[(&str, &str)], home: &str, away: &str) -> NormalizedDay {
             away_source_entity_id: away.into(),
             round_label: None,
             kickoff_at: kickoff,
+            kickoff_precision: "exact".into(),
             competition_timezone: "Europe/Budapest".into(),
             status: "scheduled".into(),
             result: None,
@@ -274,4 +276,58 @@ async fn stats_and_referee_are_materialized() {
             .await
             .unwrap();
     assert_eq!(linked, Some(referee));
+}
+
+/// A date_only megfigyelés nem rontja le a pontos kickoffot (nincs
+/// duplikált kanonikus meccs), a decided_by pedig perzisztálódik.
+#[tokio::test]
+async fn date_only_observation_keeps_exact_kickoff_and_persists_decided_by() {
+    use chrono::{DateTime, Utc};
+
+    let pool = test_pool().await;
+    let source_id = seed_source(&pool).await;
+    let country_id = seed_country(&pool).await;
+    seed_linked_team(&pool, source_id, country_id, "ujpest", "Újpest").await;
+    seed_linked_team(&pool, source_id, country_id, "gyor", "Győr").await;
+
+    let teams = [("ujpest", "Újpest"), ("gyor", "Győr")];
+    let day = live_day(&teams, "ujpest", "gyor");
+    Canonicalizer::materialize(&pool, &day).await.unwrap();
+
+    let mut second = live_day(&teams, "ujpest", "gyor");
+    let m = &mut second.matches[0];
+    m.kickoff_at = Utc.with_ymd_and_hms(2026, 11, 21, 12, 0, 0).unwrap();
+    m.kickoff_precision = "date_only".into();
+    m.status = "finished".into();
+    m.result = Some(NormalizedResult {
+        home_ft: None,
+        away_ft: None,
+        home_ht: None,
+        away_ht: None,
+        home_et: Some(1),
+        away_et: Some(1),
+        home_pens: Some(4),
+        away_pens: Some(5),
+        decided_by: Some("pens".into()),
+    });
+    Canonicalizer::materialize(&pool, &second).await.unwrap();
+
+    assert_eq!(count(&pool, "SELECT count(*) FROM core.match").await, 1);
+    let (kickoff, precision): (DateTime<Utc>, String) =
+        sqlx::query_as("SELECT kickoff_at, kickoff_precision FROM core.match")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        kickoff,
+        Utc.with_ymd_and_hms(2026, 11, 21, 15, 0, 0).unwrap()
+    );
+    assert_eq!(precision, "exact");
+    let (hp, ap, decided): (Option<i16>, Option<i16>, Option<String>) =
+        sqlx::query_as("SELECT home_pens, away_pens, decided_by FROM core.match_result")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!((hp, ap), (Some(4), Some(5)));
+    assert_eq!(decided.as_deref(), Some("pens"));
 }

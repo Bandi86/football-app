@@ -221,13 +221,20 @@ impl Canonicalizer {
             sqlx::query(
                 "INSERT INTO core.match
                  (id, competition_id, season_id, round_label, home_team_id, away_team_id,
-                  kickoff_at, competition_timezone, status)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                  kickoff_at, kickoff_precision, competition_timezone, status)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
                  ON CONFLICT (id) DO UPDATE SET
                    round_label = EXCLUDED.round_label,
                    home_team_id = EXCLUDED.home_team_id,
                    away_team_id = EXCLUDED.away_team_id,
-                   kickoff_at = EXCLUDED.kickoff_at,
+                   kickoff_at = CASE
+                     WHEN EXCLUDED.kickoff_precision = 'exact'
+                       OR core.match.kickoff_precision = 'date_only'
+                     THEN EXCLUDED.kickoff_at ELSE core.match.kickoff_at END,
+                   kickoff_precision = CASE
+                     WHEN EXCLUDED.kickoff_precision = 'exact'
+                       OR core.match.kickoff_precision = 'exact'
+                     THEN 'exact' ELSE 'date_only' END,
                    status = EXCLUDED.status,
                    updated_at = now()",
             )
@@ -238,6 +245,7 @@ impl Canonicalizer {
             .bind(home)
             .bind(away)
             .bind(fixture_match.kickoff_at)
+            .bind(&fixture_match.kickoff_precision)
             .bind(&fixture_match.competition_timezone)
             .bind(status_db(status))
             .execute(&mut *tx)
@@ -254,7 +262,16 @@ impl Canonicalizer {
                 away_pens: r.away_pens,
             });
 
-            persist_result(&mut tx, match_id, result.as_ref()).await?;
+            persist_result(
+                &mut tx,
+                match_id,
+                result.as_ref(),
+                fixture_match
+                    .result
+                    .as_ref()
+                    .and_then(|r| r.decided_by.as_deref()),
+            )
+            .await?;
 
             let observation_ids =
                 observations_for_match(&mut tx, &day.source_code, &fixture_match.source_match_id)
@@ -443,6 +460,7 @@ async fn persist_result(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     match_id: Uuid,
     result: Option<&MatchResultSnapshot>,
+    decided_by: Option<&str>,
 ) -> Result<()> {
     let Some(result) = result else {
         sqlx::query("DELETE FROM core.match_result WHERE match_id=$1")
@@ -454,13 +472,15 @@ async fn persist_result(
 
     sqlx::query(
         "INSERT INTO core.match_result
-         (match_id, home_ft, away_ft, home_ht, away_ht, home_et, away_et, home_pens, away_pens)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         (match_id, home_ft, away_ft, home_ht, away_ht, home_et, away_et,
+          home_pens, away_pens, decided_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
          ON CONFLICT (match_id) DO UPDATE SET
            home_ft=EXCLUDED.home_ft, away_ft=EXCLUDED.away_ft,
            home_ht=EXCLUDED.home_ht, away_ht=EXCLUDED.away_ht,
            home_et=EXCLUDED.home_et, away_et=EXCLUDED.away_et,
-           home_pens=EXCLUDED.home_pens, away_pens=EXCLUDED.away_pens",
+           home_pens=EXCLUDED.home_pens, away_pens=EXCLUDED.away_pens,
+           decided_by=EXCLUDED.decided_by",
     )
     .bind(match_id)
     .bind(result.home_ft)
@@ -471,6 +491,7 @@ async fn persist_result(
     .bind(result.away_et)
     .bind(result.home_pens)
     .bind(result.away_pens)
+    .bind(decided_by)
     .execute(&mut **tx)
     .await?;
 
@@ -539,7 +560,9 @@ async fn find_or_insert_match_id(
         "SELECT id FROM core.match
          WHERE competition_id=$1 AND season_id=$2
            AND round_label IS NOT DISTINCT FROM $3
-           AND home_team_id=$4 AND away_team_id=$5 AND kickoff_at=$6
+           AND home_team_id=$4 AND away_team_id=$5
+           AND (($7 = 'date_only' AND kickoff_at::date = $6::date)
+             OR ($7 = 'exact' AND kickoff_at = $6))
          LIMIT 1",
     )
     .bind(competition_id)
@@ -548,6 +571,7 @@ async fn find_or_insert_match_id(
     .bind(home)
     .bind(away)
     .bind(m.kickoff_at)
+    .bind(&m.kickoff_precision)
     .fetch_optional(&mut **tx)
     .await?;
     Ok(existing.unwrap_or_else(Uuid::now_v7))
