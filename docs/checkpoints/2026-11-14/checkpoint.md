@@ -439,5 +439,16 @@ S2c — Obscura browser-fetcher:
 - [x] `worker status` kiírja a **függő identitás-review** számot (operatív
       láthatóság, item 4 egy szelete); teszt 1/1.
 - [x] check.sh 206/206.
-- Következő: Soccerway célzott research (kickoff/AET markup), asset-adatok
-  operátori feltöltése, S8 kliens-integráció.
+- [x] Soccerway célzott research (offline, a mentett 2 MB-ból — 0 új kérés):
+      sor-wrapper `div.event__match[data-event-row=true]` (`id="g_1_<mid>"`,
+      status-modifier: `event__match--scheduled`), kickoff `div.event__time`
+      (HH:MM), csapatok `event__homeParticipant`/`event__awayParticipant`
+      (`data-testid="wcl-simple-text-01"` a névhez), gólok
+      `data-testid="wcl-tableScore"` span-ek `data-side=1/2`-vel; stabil
+      azonosítók: `?mid=<id>` az href-ben + forrás-csapatkód a slug végén
+      (`/merkozes/<home-slug>-<Code1>/<away-slug>-<Code2>/`). Dátum: nincs
+      sor-szintű dátum-attribútum (napi csoportosítás, „Ma"); a dátum-specifikus
+      URL (`?date=YYYY-MM-DD`) verifikálandó. AET/pens markup ebben a mintában
+      nem volt (nincs ilyen lezárt meccs) — célzott minta kell hozzá.
+- Következő: Soccerway-parser e spec alapján (dátum-URL verifikáció + AET-
+  minta), asset-adatok operátori feltöltése, S8 kliens-integráció.
