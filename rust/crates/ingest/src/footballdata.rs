@@ -66,22 +66,26 @@ impl SourceAdapter for FootballdataAdapter {
             source_slug: SOURCE_SLUG.into(),
             adapter_version: "1.0".into(),
             parser_version: "1.0".into(),
-            domains: LEAGUES
-                .iter()
-                .map(|(code, ..)| (*code).to_string())
-                .collect(),
+            domains: vec!["day".into()],
             transport: Transport::RustHttp,
         }
     }
 
     fn plan(&self, job: &FetchJob) -> Vec<FetchRequest> {
-        let league = job.domain.to_ascii_uppercase();
-        vec![FetchRequest {
-            url: format!("https://www.football-data.co.uk/mmz4281/2627/{league}.csv"),
-            request_key: format!("{SOURCE_SLUG}:{}:{}", job.domain, job.time_window),
-            endpoint_key: job.domain.clone(),
-            ready_marker: None,
-        }]
+        // S9: egy napi job, ligánként egy CSV-kérés; a liga a kérés
+        // request_key-ében utazik (a parse onnan oldja fel).
+        LEAGUES
+            .iter()
+            .map(|(code, ..)| {
+                let league = code.to_ascii_uppercase();
+                FetchRequest {
+                    url: format!("https://www.football-data.co.uk/mmz4281/2627/{league}.csv"),
+                    request_key: format!("{SOURCE_SLUG}:{code}:{}", job.time_window),
+                    endpoint_key: (*code).to_string(),
+                    ready_marker: None,
+                }
+            })
+            .collect()
     }
 
     fn parse(&self, raw: &RawPayload, ctx: &ParseCtx) -> Result<Vec<Observation>, ParseError> {

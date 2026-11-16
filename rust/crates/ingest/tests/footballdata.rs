@@ -1,4 +1,5 @@
-use chrono::TimeZone;
+use chrono::{TimeZone, Utc};
+use football_domain::policy::FetchJob;
 use football_ingest::adapter::{ParseCtx, SourceAdapter};
 use football_ingest::fetch::RawPayload;
 use football_ingest::footballdata::FootballdataAdapter;
@@ -121,4 +122,24 @@ fn observation_keys_are_independent_of_the_time_window() {
             .iter()
             .all(|k| k.starts_with("footballdata-2026-11-2"))
     );
+}
+
+/// S9: egy napi job, ligánként egy kérés; a liga a kérés-kulcsban utazik.
+#[test]
+fn plan_lists_one_request_per_league() {
+    let adapter = FootballdataAdapter;
+    let job = FetchJob {
+        id: uuid::Uuid::now_v7(),
+        source_slug: "footballdata".into(),
+        domain: "day".into(),
+        entity_key: "all".into(),
+        event_type: "discovery".into(),
+        time_window: "2026-11-16".into(),
+        due_at: Utc::now(),
+        priority: 10,
+    };
+    let plan = adapter.plan(&job);
+    assert_eq!(plan.len(), 5, "öt liga → öt kérés");
+    assert_eq!(plan[0].request_key, "footballdata:e0:2026-11-16");
+    assert!(plan.iter().all(|r| r.url.ends_with(".csv")));
 }

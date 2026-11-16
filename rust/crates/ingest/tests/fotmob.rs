@@ -13,15 +13,12 @@ fn parse(date: &str) -> Vec<football_ingest::adapter::Observation> {
         fetched_at: Utc::now(),
         sha256: String::new(),
     };
-    let adapter = FotMobAdapter {
-        leagues: vec![("UEFA Nations League A Grp. 4".into(), "INT".into())],
-    };
-    adapter
+    FotMobAdapter::default()
         .parse(
             &raw,
             &ParseCtx {
                 requested_date: NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap(),
-                request_key: format!("fotmob:nations:{date}"),
+                request_key: format!("fotmob:day:{date}"),
             },
         )
         .unwrap()
@@ -33,7 +30,11 @@ fn parses_selected_league_with_utc_kickoff_and_result() {
     let day = NormalizedDay::from_observations(&observations).unwrap();
     assert_eq!(day.matches.len(), 2);
     assert_eq!(day.competition.name, "UEFA Nations League A Grp. 4");
-    assert_eq!(day.competition.country_code, "INT");
+    assert_eq!(
+        day.competition.country_code, "",
+        "ismeretlen/int országkód → ismeretlen ország"
+    );
+    assert_eq!(day.competition.priority, 50);
     let first = &day.matches[0];
     assert_eq!(
         first.kickoff_at,
@@ -59,7 +60,7 @@ fn date_guard_rejects_wrong_day() {
             &raw,
             &ParseCtx {
                 requested_date: NaiveDate::from_ymd_opt(2026, 11, 13).unwrap(),
-                request_key: "fotmob:epl:2026-11-13".into(),
+                request_key: "fotmob:day:2026-11-13".into(),
             },
         )
         .expect_err("dátum-guard");

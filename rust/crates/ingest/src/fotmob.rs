@@ -48,6 +48,122 @@ fn slug(value: &str) -> String {
         .collect::<String>()
 }
 
+struct LeagueMeta {
+    country_code: String,
+    country_name: String,
+    tier: i16,
+    priority: i32,
+    team_country: String,
+    gender: &'static str,
+    branch: &'static str,
+}
+
+fn ccode_iso(ccode: &str) -> Option<(&'static str, &'static str)> {
+    match ccode {
+        "ENG" => Some(("GB", "England")),
+        "ESP" => Some(("ES", "Spain")),
+        "ITA" => Some(("IT", "Italy")),
+        "GER" => Some(("DE", "Germany")),
+        "FRA" => Some(("FR", "France")),
+        "NED" => Some(("NL", "Netherlands")),
+        "POR" => Some(("PT", "Portugal")),
+        "BEL" => Some(("BE", "Belgium")),
+        "TUR" => Some(("TR", "Turkey")),
+        "GRE" => Some(("GR", "Greece")),
+        "SCO" => Some(("GB", "Scotland")),
+        "WAL" => Some(("GB", "Wales")),
+        "IRL" => Some(("IE", "Ireland")),
+        "AUT" => Some(("AT", "Austria")),
+        "SUI" => Some(("CH", "Switzerland")),
+        "DEN" => Some(("DK", "Denmark")),
+        "SWE" => Some(("SE", "Sweden")),
+        "NOR" => Some(("NO", "Norway")),
+        "FIN" => Some(("FI", "Finland")),
+        "POL" => Some(("PL", "Poland")),
+        "CZE" => Some(("CZ", "Czech Republic")),
+        "CRO" => Some(("HR", "Croatia")),
+        "SRB" => Some(("RS", "Serbia")),
+        "RUS" => Some(("RU", "Russia")),
+        "UKR" => Some(("UA", "Ukraine")),
+        "BRA" => Some(("BR", "Brazil")),
+        "ARG" => Some(("AR", "Argentina")),
+        "USA" => Some(("US", "United States")),
+        "MEX" => Some(("MX", "Mexico")),
+        "JPN" => Some(("JP", "Japan")),
+        "KOR" => Some(("KR", "South Korea")),
+        "AUS" => Some(("AU", "Australia")),
+        "EGY" => Some(("EG", "Egypt")),
+        "MAR" => Some(("MA", "Morocco")),
+        "ALG" => Some(("DZ", "Algeria")),
+        "TUN" => Some(("TN", "Tunisia")),
+        "RSA" => Some(("ZA", "South Africa")),
+        _ => None,
+    }
+}
+
+fn is_cup(text: &str) -> bool {
+    ["kupa", "cup", "copa", "coupe", "pokal", "supercup"]
+        .iter()
+        .any(|needle| text.contains(needle))
+}
+
+fn is_women(text: &str) -> bool {
+    ["women", "női", "feminine", "femenina", "femminile"]
+        .iter()
+        .any(|needle| text.contains(needle))
+}
+
+fn is_youth(text: &str) -> bool {
+    ["u17", "u18", "u19", "u20", "u21", "u23", "youth", "junior"]
+        .iter()
+        .any(|needle| text.contains(needle))
+}
+
+impl FotMobAdapter {
+    /// Liga-osztályozás: a top-5 ismert (priority 6), a többi 50; kupa 40,
+    /// női 60, utánpótlás 70; ismeretlen országkód → ismeretlen ország.
+    fn league_meta(&self, name: &str, ccode: &str) -> LeagueMeta {
+        let haystack = format!("{name} {ccode}").to_lowercase();
+        let (gender, branch) = if is_women(&haystack) {
+            ("female", "women")
+        } else if is_youth(&haystack) {
+            ("male", "youth")
+        } else {
+            ("male", "senior")
+        };
+        let cup = is_cup(&haystack);
+        let known = self
+            .leagues
+            .iter()
+            .any(|(ln, lc)| ln == name && lc == ccode);
+        let (country_code, country_name) = ccode_iso(ccode).unwrap_or(("", ""));
+        let priority = if known {
+            6
+        } else if gender == "female" {
+            60
+        } else if branch == "youth" {
+            70
+        } else if cup {
+            40
+        } else {
+            50
+        };
+        LeagueMeta {
+            country_code: country_code.to_string(),
+            country_name: country_name.to_string(),
+            tier: if cup { 0 } else { 1 },
+            priority,
+            team_country: if cup || country_code.is_empty() {
+                String::new()
+            } else {
+                country_code.to_string()
+            },
+            gender,
+            branch,
+        }
+    }
+}
+
 impl SourceAdapter for FotMobAdapter {
     fn meta(&self) -> AdapterMeta {
         AdapterMeta {
@@ -60,14 +176,14 @@ impl SourceAdapter for FotMobAdapter {
     }
 
     fn plan(&self, job: &FetchJob) -> Vec<FetchRequest> {
-        // time_window = YYYY-MM-DD → a feed YYYYMMDD tanggal vár.
+        // S9: egy napi kérés, minden liga (a nap-feed természetes egysége).
         let compact = job.time_window.replace('-', "");
         vec![FetchRequest {
             url: format!(
                 "https://www.fotmob.com/api/data/matches?date={compact}&timezone=UTC&locale=en"
             ),
-            request_key: format!("{SOURCE_SLUG}:{}:{}", job.domain, job.time_window),
-            endpoint_key: job.domain.clone(),
+            request_key: format!("{SOURCE_SLUG}:day:{}", job.time_window),
+            endpoint_key: "day".into(),
             ready_marker: None,
         }]
     }
@@ -95,19 +211,15 @@ impl SourceAdapter for FotMobAdapter {
             .ok_or_else(|| ParseError::SchemaDrift("hiányzó leagues tömb".into()))?;
         let captured_at = Utc::now();
         let mut observations = Vec::new();
-        let mut seen_teams: std::collections::BTreeMap<String, (String, String)> =
-            Default::default();
+        let mut seen_teams: std::collections::BTreeMap<
+            String,
+            (String, String, &'static str, &'static str),
+        > = Default::default();
 
         for league in leagues {
             let name = league.get("name").and_then(|v| v.as_str()).unwrap_or("");
             let ccode = league.get("ccode").and_then(|v| v.as_str()).unwrap_or("");
-            let Some((_, _)) = self
-                .leagues
-                .iter()
-                .find(|(ln, lc)| ln == name && lc == ccode)
-            else {
-                continue;
-            };
+            let meta = self.league_meta(name, ccode);
             let matches = league
                 .get("matches")
                 .and_then(|m| m.as_array())
@@ -134,8 +246,24 @@ impl SourceAdapter for FotMobAdapter {
                 };
                 let (home_id, home_name, home_score) = side("home")?;
                 let (away_id, away_name, _away_score) = side("away")?;
-                seen_teams.insert(home_id.clone(), (home_name.clone(), ccode.to_string()));
-                seen_teams.insert(away_id.clone(), (away_name.clone(), ccode.to_string()));
+                seen_teams.insert(
+                    home_id.clone(),
+                    (
+                        home_name.clone(),
+                        meta.team_country.clone(),
+                        meta.gender,
+                        meta.branch,
+                    ),
+                );
+                seen_teams.insert(
+                    away_id.clone(),
+                    (
+                        away_name.clone(),
+                        meta.team_country.clone(),
+                        meta.gender,
+                        meta.branch,
+                    ),
+                );
 
                 let status = m
                     .get("status")
@@ -194,10 +322,10 @@ impl SourceAdapter for FotMobAdapter {
                         "competition": {
                             "id": null,
                             "name": name,
-                            "country_code": ccode,
-                            "country_name": ccode,
-                            "tier": 1,
-                            "priority": 6,
+                            "country_code": meta.country_code,
+                            "country_name": meta.country_name,
+                            "tier": meta.tier,
+                            "priority": meta.priority,
                         },
                         "season": { "id": null, "label": "2026/27" },
                         "source_code": SOURCE_SLUG,
@@ -209,7 +337,7 @@ impl SourceAdapter for FotMobAdapter {
 
         // Csapat-observationök (a meccsek után, determinisztikus sorrendben).
         let mut team_obs = Vec::new();
-        for (ext, (name, ccode)) in &seen_teams {
+        for (ext, (name, country, gender, branch)) in &seen_teams {
             team_obs.push(Observation {
                 entity_kind: "team".into(),
                 aspect: "team_identity".into(),
@@ -220,10 +348,10 @@ impl SourceAdapter for FotMobAdapter {
                     "id": null,
                     "source_entity_id": ext,
                     "name": name,
-                    "country_code": ccode,
-                    "gender": "male",
-                    "age_group": "senior",
-                    "branch": "senior",
+                    "country_code": country,
+                    "gender": gender,
+                    "age_group": if *branch == "youth" { "youth" } else { "senior" },
+                    "branch": branch,
                 }),
             });
         }
