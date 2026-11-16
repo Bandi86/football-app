@@ -223,6 +223,8 @@ async fn e2e_replay_publishes_verified_match() {
             date: now.date_naive(),
             timezone: "Europe/Budapest".into(),
             include_all: false,
+            competition_id: None,
+            window_days: 0,
         },
     )
     .await

@@ -10,6 +10,7 @@ struct SelectedMatch: Identifiable {
 enum AppTab: Equatable {
     case day
     case ops
+    case competitions
 }
 
 struct HomeView: View {
@@ -31,9 +32,12 @@ struct HomeView: View {
 
             Rectangle().fill(AppTheme.hairline).frame(height: 1)
 
-            if tab == .ops {
+            switch tab {
+            case .ops:
                 OperationsView()
-            } else {
+            case .competitions:
+                CompetitionsView()
+            case .day:
                 dayContent(model: model)
             }
         }
@@ -179,9 +183,9 @@ private struct TopNavigationBar: View {
 
             HStack(spacing: 8) {
                 pill("Ma", active: selected == .day) { onSelect(.day) }
+                pill("Versenyek", active: selected == .competitions) { onSelect(.competitions) }
                 pill("Üzemeltetés", active: selected == .ops) { onSelect(.ops) }
                 pill("Csapatok")
-                pill("Versenyek")
             }
 
             Spacer()

@@ -503,3 +503,90 @@ async fn match_detail_returns_verified_fields_and_gate() {
         .unwrap();
     assert_eq!(missing.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn competitions_list_and_detail_return_gated_matches() {
+    let pool = test_pool().await;
+    let base = seed_day_base(&pool).await;
+    seed_day_match(&pool, &base, 20).await;
+    seed_day_match(&pool, &base, 21).await;
+
+    let app = router(AppState {
+        pool,
+        read_token: "read-test".into(),
+        ops_token: "ops-test".into(),
+        data_dir: std::env::temp_dir(),
+    });
+
+    let unauthorized = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/competitions?date=2026-11-09")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+    let list = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/competitions?date=2026-11-09")
+                .header("authorization", "Bearer read-test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(list.status(), StatusCode::OK);
+    let bytes = list.into_body().collect().await.unwrap().to_bytes();
+    let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let rows = value.as_array().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["name"], "NB I");
+    assert_eq!(rows[0]["matches"], 2);
+
+    let competition_id = rows[0]["competition_id"].as_str().unwrap();
+    let detail = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/v1/competition/{competition_id}?date=2026-11-09&window=7"
+                ))
+                .header("authorization", "Bearer read-test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(detail.status(), StatusCode::OK);
+    let bytes = detail.into_body().collect().await.unwrap().to_bytes();
+    let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(value["detail"]["name"], "NB I");
+    assert_eq!(value["detail"]["season_label"], "2026/27");
+    assert_eq!(value["detail"]["matches"], 2);
+    assert_eq!(value["matches"].as_array().unwrap().len(), 2);
+    assert!(
+        value["teams"].as_array().unwrap().is_empty(),
+        "nincs eredmény → nincs mérleg"
+    );
+
+    let missing = app
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/v1/competition/{}?date=2026-11-09",
+                    Uuid::now_v7()
+                ))
+                .header("authorization", "Bearer read-test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+}

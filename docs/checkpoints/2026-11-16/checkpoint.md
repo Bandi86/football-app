@@ -236,3 +236,28 @@
       A piacok most `Double?`-k, a UI „–"-t mutat; a nap újra 24 meccses.
 - [x] Kapuk: Rust workspace 74 csoport zöld, clippy/fmt tiszta,
       foundation 0; app 20 teszt, core 21 teszt zöld; teszt-DB resetelve.
+
+## S11 — Versenyek oldal + verseny-adatlap (design-reference alapján)
+
+- [x] Design-referenciák: `notes/images/sofascore-design-example/` (liga-
+      és kupa-adatlap). Az adatelrendezést ehhez igazítottuk: fejléc
+      (logó/ország/liga/szezon) + összesítő chipek, majd Meccsek/Csapatok.
+- [x] **Storage:** `competition` repository — napi verseny-lista
+      (ellenőrzött meccsszám, élő/lejárt), verseny-összesítők
+      (meccs/gól/BTTS%/hazai-döntetlen-vendég), csapat-mérlegek
+      (M/GY/D/V/GÓL) a megfigyelt ablakból. `DayFilter` bővítés:
+      verseny-szűrő + ablak-napok (a napi API viselkedése változatlan).
+      Tesztek: 3/3.
+- [x] **API:** `/v1/competitions?date=`, `/v1/competition/{id}?date=&window=`
+      (max 30 nap); a meccsek a napi API azonos alakjában (közös
+      `map_match`); 401/404. Teszt 8/8.
+- [x] **Kliens:** „Versenyek” tab (kereső magyar és angol országnévre is),
+      verseny-sheet: fejléc + összesítők, Meccsek (a napi lista komponense,
+      kattintható meccs-részletezővel) és Csapatok tábla (logók, W/D/L,
+      gólarány). Az ország-tábla ~70 ISO kódra bővült magyar nevekkel;
+      ország nélküli verseny → „NEMZETKÖZI”.
+- [x] Élő ellenőrzés: 32 verseny a mai napon; Africa Cup-selejtező adatlap
+      (6 meccs, NEMZETKÖZI · KUPA); Premier League adatlap ±14 nap:
+      9 meccs, 26 gól, 56% BTTS, 18 csapat mérleggel (logókkal).
+- [x] Kapuk: workspace 75 tesztcsoport zöld, clippy/fmt tiszta,
+      foundation 0; app 22 teszt, core 23 teszt; teszt-DB resetelve.

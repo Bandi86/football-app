@@ -36,6 +36,8 @@ async fn default_day_contains_only_verified_publish_matches() {
             date: NaiveDate::from_ymd_opt(2026, 11, 9).unwrap(),
             timezone: "Europe/Budapest".into(),
             include_all: false,
+            competition_id: None,
+            window_days: 0,
         },
     )
     .await
@@ -51,6 +53,8 @@ async fn default_day_contains_only_verified_publish_matches() {
             date: NaiveDate::from_ymd_opt(2026, 11, 9).unwrap(),
             timezone: "Europe/Budapest".into(),
             include_all: true,
+            competition_id: None,
+            window_days: 0,
         },
     )
     .await
@@ -128,6 +132,8 @@ async fn day_row_includes_display_fields() {
             date: NaiveDate::from_ymd_opt(2026, 11, 9).unwrap(),
             timezone: "Europe/Budapest".into(),
             include_all: false,
+            competition_id: None,
+            window_days: 0,
         },
     )
     .await
@@ -209,6 +215,8 @@ async fn day_picks_verified_odds_row() {
             date: NaiveDate::from_ymd_opt(2026, 11, 9).unwrap(),
             timezone: "Europe/Budapest".into(),
             include_all: false,
+            competition_id: None,
+            window_days: 0,
         },
     )
     .await
@@ -377,6 +385,8 @@ async fn day_json_uses_bookmaker_chain() {
             date: NaiveDate::from_ymd_opt(2026, 11, 9).unwrap(),
             timezone: "Europe/Budapest".into(),
             include_all: false,
+            competition_id: None,
+            window_days: 0,
         },
     )
     .await

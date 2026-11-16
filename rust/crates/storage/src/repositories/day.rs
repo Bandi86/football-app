@@ -8,6 +8,10 @@ pub struct DayFilter {
     pub date: NaiveDate,
     pub timezone: String,
     pub include_all: bool,
+    /// Opcionális verseny-szűrő (verseny-adatlap).
+    pub competition_id: Option<Uuid>,
+    /// A nap körüli ablak napokban (0 = csak az adott nap).
+    pub window_days: i64,
 }
 
 #[derive(Debug, Clone, FromRow, serde::Serialize)]
@@ -139,14 +143,19 @@ pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatch
              ORDER BY e.as_of DESC
              LIMIT 1
          ) ae ON true
-         JOIN ops.publish_gate g ON g.match_id = m.id AND g.publish_date = $1
-         WHERE (m.kickoff_at AT TIME ZONE $2)::date = $1
+         JOIN ops.publish_gate g ON g.match_id = m.id
+           AND g.publish_date = (m.kickoff_at AT TIME ZONE $2)::date
+         WHERE (m.kickoff_at AT TIME ZONE $2)::date
+                 BETWEEN $1 - ($5::int) AND $1 + ($5::int)
+           AND ($4::uuid IS NULL OR m.competition_id = $4)
            AND ($3::boolean OR g.state = 'verified_publish')
          ORDER BY m.kickoff_at, home.name, away.name",
     )
     .bind(filter.date)
     .bind(&filter.timezone)
     .bind(filter.include_all)
+    .bind(filter.competition_id)
+    .bind(filter.window_days)
     .fetch_all(pool)
     .await?;
     Ok(rows)

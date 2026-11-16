@@ -225,6 +225,8 @@ async fn main() -> Result<()> {
                     date,
                     timezone: "Europe/Budapest".into(),
                     include_all,
+                    competition_id: None,
+                    window_days: 0,
                 },
             )
             .await?;
