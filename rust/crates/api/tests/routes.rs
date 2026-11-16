@@ -590,3 +590,70 @@ async fn competitions_list_and_detail_return_gated_matches() {
         .unwrap();
     assert_eq!(missing.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn teams_list_and_detail_return_recent_matches() {
+    let pool = test_pool().await;
+    let base = seed_day_base(&pool).await;
+    seed_day_match(&pool, &base, 20).await;
+    seed_day_match(&pool, &base, 21).await;
+
+    let app = router(AppState {
+        pool,
+        read_token: "read-test".into(),
+        ops_token: "ops-test".into(),
+        data_dir: std::env::temp_dir(),
+    });
+
+    let list = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/teams?query=%C3%9Ajp&date=2026-11-09")
+                .header("authorization", "Bearer read-test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(list.status(), StatusCode::OK);
+    let bytes = list.into_body().collect().await.unwrap().to_bytes();
+    let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let rows = value.as_array().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["name"], "Újpest");
+    assert_eq!(rows[0]["recent_matches"], 2);
+
+    let detail = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/v1/team/{}?date=2026-11-09&window=7",
+                    base.home_team_id
+                ))
+                .header("authorization", "Bearer read-test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(detail.status(), StatusCode::OK);
+    let bytes = detail.into_body().collect().await.unwrap().to_bytes();
+    let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(value["detail"]["name"], "Újpest");
+    assert_eq!(value["detail"]["played"], 0, "nincs eredmény");
+    assert_eq!(value["matches"].as_array().unwrap().len(), 2);
+
+    let missing = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/team/{}?date=2026-11-09", Uuid::now_v7()))
+                .header("authorization", "Bearer read-test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+}

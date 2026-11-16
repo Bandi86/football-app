@@ -261,3 +261,27 @@
       9 meccs, 26 gól, 56% BTTS, 18 csapat mérleggel (logókkal).
 - [x] Kapuk: workspace 75 tesztcsoport zöld, clippy/fmt tiszta,
       foundation 0; app 22 teszt, core 23 teszt; teszt-DB resetelve.
+
+## S12 — Csapatok oldal (lista + csapat-adatlap)
+
+- [x] **Storage:** `team` repository — kereshető csapat-lista (ország,
+      nem/ág, logó, 30 napos ellenőrzött meccsszám), csapat-adatlap
+      (Elo as-of, megfigyelt W/D/L + gólarány a ±30 napos ablakból).
+      `DayFilter` bővítés `team_id` szűrővel. Teszt 1/1.
+- [x] **API:** `/v1/teams` (query, date), `/v1/team/{id}?date=&window=`
+      (max 90 nap) — a meccsek a napi alakban, verseny szerint
+      csoportosíthatók; 401/404. Teszt 9/9 (a teljes API suite).
+- [x] **Kliens:** „Csapatok” tab (kereső csapatra és magyar országnévre),
+      csapat-sheet: fejléc (logó, ország, NŐI/UTÁNPÓTLÁS/TARTALÉK badge,
+      ELO), forma-chipek (M/GY/D/V/GÓL), meccsek verseny szerint
+      (kattintható meccs-részletezővel). Élő ellenőrzés: Liverpool
+      (Anglia, 1/1/0/0, 3–1, PL-meccs odds-szal).
+- [x] Megjegyzés: a listában a demó- és élő entitások név szerint
+      duplikálhatnak (két „Arsenal") — a cross-source entitás-összevonás
+      külön téma; a kereső és a meccsszám segít eligazodni.
+- [x] Kapuk: workspace 76 tesztcsoport zöld, clippy/fmt tiszta,
+      foundation 0; app 24 teszt, core 25 teszt; teszt-DB resetelve.
+- [x] **Későbbi követelmény rögzítve (memória):** az összes forrás
+      bekötése után **teljes utólagos feltöltés** kell minden ligára és
+      országra, a lehető legtöbb meccsre odds-szal (v1 DB vagy más
+      forrás) — a mai adat csak részleges kör.

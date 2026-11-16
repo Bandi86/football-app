@@ -81,6 +81,7 @@ pub async fn competition_detail(
             include_all: false,
             competition_id: Some(competition_id),
             window_days: window,
+            team_id: None,
         },
     )
     .await

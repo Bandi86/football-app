@@ -77,6 +77,7 @@ pub async fn day(
             include_all: query.include.as_deref() == Some("all"),
             competition_id: None,
             window_days: 0,
+            team_id: None,
         },
     )
     .await

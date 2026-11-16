@@ -225,6 +225,7 @@ async fn e2e_replay_publishes_verified_match() {
             include_all: false,
             competition_id: None,
             window_days: 0,
+            team_id: None,
         },
     )
     .await

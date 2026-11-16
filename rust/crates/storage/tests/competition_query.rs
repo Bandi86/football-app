@@ -206,6 +206,7 @@ async fn day_filter_supports_competition_window() {
         include_all: false,
         competition_id: Some(seed.competition_id),
         window_days: window,
+        team_id: None,
     };
     let day = fetch_day(&pool, &base(0)).await.unwrap();
     assert_eq!(day.len(), 2);

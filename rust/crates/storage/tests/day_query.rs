@@ -38,6 +38,7 @@ async fn default_day_contains_only_verified_publish_matches() {
             include_all: false,
             competition_id: None,
             window_days: 0,
+            team_id: None,
         },
     )
     .await
@@ -55,6 +56,7 @@ async fn default_day_contains_only_verified_publish_matches() {
             include_all: true,
             competition_id: None,
             window_days: 0,
+            team_id: None,
         },
     )
     .await
@@ -134,6 +136,7 @@ async fn day_row_includes_display_fields() {
             include_all: false,
             competition_id: None,
             window_days: 0,
+            team_id: None,
         },
     )
     .await
@@ -217,6 +220,7 @@ async fn day_picks_verified_odds_row() {
             include_all: false,
             competition_id: None,
             window_days: 0,
+            team_id: None,
         },
     )
     .await
@@ -387,6 +391,7 @@ async fn day_json_uses_bookmaker_chain() {
             include_all: false,
             competition_id: None,
             window_days: 0,
+            team_id: None,
         },
     )
     .await

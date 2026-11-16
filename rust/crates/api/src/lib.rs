@@ -27,6 +27,8 @@ pub fn router(state: AppState) -> Router {
             "/v1/competition/{id}",
             get(routes::competition::competition_detail),
         )
+        .route("/v1/teams", get(routes::team::teams))
+        .route("/v1/team/{id}", get(routes::team::team_detail))
         .route(
             "/v1/ops/verification/gates",
             get(routes::verification::gates),

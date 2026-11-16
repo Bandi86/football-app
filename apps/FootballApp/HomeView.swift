@@ -11,6 +11,7 @@ enum AppTab: Equatable {
     case day
     case ops
     case competitions
+    case teams
 }
 
 struct HomeView: View {
@@ -37,6 +38,8 @@ struct HomeView: View {
                 OperationsView()
             case .competitions:
                 CompetitionsView()
+            case .teams:
+                TeamsView()
             case .day:
                 dayContent(model: model)
             }
@@ -184,8 +187,8 @@ private struct TopNavigationBar: View {
             HStack(spacing: 8) {
                 pill("Ma", active: selected == .day) { onSelect(.day) }
                 pill("Versenyek", active: selected == .competitions) { onSelect(.competitions) }
+                pill("Csapatok", active: selected == .teams) { onSelect(.teams) }
                 pill("Üzemeltetés", active: selected == .ops) { onSelect(.ops) }
-                pill("Csapatok")
             }
 
             Spacer()

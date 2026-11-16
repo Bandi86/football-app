@@ -1,0 +1,163 @@
+//! Csapat-lista és csapat-adatlap (S12): kanonikus csapatok kereséssel,
+//! megfigyelt mérleggel (W/D/L, gólarány) és a legfrissebb Elo-val.
+
+use anyhow::Result;
+use chrono::NaiveDate;
+use sqlx::PgPool;
+use uuid::Uuid;
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+pub struct TeamListRow {
+    pub team_id: Uuid,
+    pub name: String,
+    pub country_code: Option<String>,
+    pub country_name: Option<String>,
+    pub gender: String,
+    pub branch: String,
+    pub logo: Option<String>,
+    pub recent_matches: i64,
+}
+
+pub async fn fetch_teams(
+    pool: &PgPool,
+    query: &str,
+    date: NaiveDate,
+    timezone: &str,
+) -> Result<Vec<TeamListRow>> {
+    let rows = sqlx::query_as::<_, TeamListRow>(
+        "SELECT
+            t.id AS team_id,
+            t.name,
+            co.code AS country_code,
+            co.name AS country_name,
+            t.gender,
+            t.branch,
+            tl.logo,
+            COALESCE(rec.recent_matches, 0)::bigint AS recent_matches
+         FROM core.team t
+         LEFT JOIN core.country co ON co.id = t.country_id
+         LEFT JOIN LATERAL (
+             SELECT CASE WHEN a.storage_key IS NOT NULL
+                         THEN '/v1/asset/' || a.storage_key
+                         ELSE a.url END AS logo
+             FROM ops.asset a
+             WHERE a.entity_kind = 'team' AND a.kind = 'logo'
+               AND a.entity_id = t.id
+             ORDER BY (a.storage_key IS NULL), a.captured_at DESC
+             LIMIT 1
+         ) tl ON true
+         LEFT JOIN LATERAL (
+             SELECT count(*) AS recent_matches
+             FROM core.match m
+             JOIN ops.publish_gate g ON g.match_id = m.id
+               AND g.publish_date = (m.kickoff_at AT TIME ZONE $3)::date
+             WHERE (m.home_team_id = t.id OR m.away_team_id = t.id)
+               AND (m.kickoff_at AT TIME ZONE $3)::date
+                     BETWEEN $2 - 30 AND $2 + 30
+               AND g.state = 'verified_publish'
+         ) rec ON true
+         WHERE ($1 = '' OR t.name ILIKE '%' || $1 || '%')
+         ORDER BY t.name
+         LIMIT 400",
+    )
+    .bind(query.trim())
+    .bind(date)
+    .bind(timezone)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+pub struct TeamDetailRow {
+    pub team_id: Uuid,
+    pub name: String,
+    pub country_code: Option<String>,
+    pub country_name: Option<String>,
+    pub gender: String,
+    pub branch: String,
+    pub logo: Option<String>,
+    pub elo: Option<f64>,
+    pub played: i64,
+    pub wins: i64,
+    pub draws: i64,
+    pub losses: i64,
+    pub goals_for: i64,
+    pub goals_against: i64,
+}
+
+pub async fn fetch_team_detail(
+    pool: &PgPool,
+    team_id: Uuid,
+    date: NaiveDate,
+    timezone: &str,
+    window_days: i64,
+) -> Result<Option<TeamDetailRow>> {
+    let row = sqlx::query_as::<_, TeamDetailRow>(
+        "WITH results AS (
+             SELECT m.id, m.home_team_id, m.away_team_id,
+                    COALESCE(r.home_ft, r.home_et) AS hf,
+                    COALESCE(r.away_ft, r.away_et) AS af
+             FROM core.match m
+             JOIN ops.publish_gate g ON g.match_id = m.id
+               AND g.publish_date = (m.kickoff_at AT TIME ZONE $3)::date
+             LEFT JOIN core.match_result r ON r.match_id = m.id
+             WHERE (m.home_team_id = $1 OR m.away_team_id = $1)
+               AND (m.kickoff_at AT TIME ZONE $3)::date
+                     BETWEEN $2 - ($4::int) AND $2 + ($4::int)
+               AND g.state = 'verified_publish'
+               AND COALESCE(r.home_ft, r.home_et) IS NOT NULL
+               AND COALESCE(r.away_ft, r.away_et) IS NOT NULL
+         ), spelled AS (
+             SELECT home_team_id AS tid, hf AS gf, af AS ga
+             FROM results WHERE home_team_id = $1
+             UNION ALL
+             SELECT away_team_id, af, hf
+             FROM results WHERE away_team_id = $1
+         )
+         SELECT
+            t.id AS team_id,
+            t.name,
+            co.code AS country_code,
+            co.name AS country_name,
+            t.gender,
+            t.branch,
+            tl.logo,
+            el.elo,
+            count(s.tid)::bigint AS played,
+            count(*) FILTER (WHERE s.gf > s.ga)::bigint AS wins,
+            count(*) FILTER (WHERE s.gf = s.ga)::bigint AS draws,
+            count(*) FILTER (WHERE s.gf < s.ga)::bigint AS losses,
+            COALESCE(sum(s.gf), 0)::bigint AS goals_for,
+            COALESCE(sum(s.ga), 0)::bigint AS goals_against
+         FROM core.team t
+         LEFT JOIN core.country co ON co.id = t.country_id
+         LEFT JOIN LATERAL (
+             SELECT CASE WHEN a.storage_key IS NOT NULL
+                         THEN '/v1/asset/' || a.storage_key
+                         ELSE a.url END AS logo
+             FROM ops.asset a
+             WHERE a.entity_kind = 'team' AND a.kind = 'logo'
+               AND a.entity_id = t.id
+             ORDER BY (a.storage_key IS NULL), a.captured_at DESC
+             LIMIT 1
+         ) tl ON true
+         LEFT JOIN LATERAL (
+             SELECT e.elo::double precision AS elo
+             FROM fact.club_elo e
+             WHERE e.club_entity_id = t.id AND e.as_of <= $2
+             ORDER BY e.as_of DESC
+             LIMIT 1
+         ) el ON true
+         LEFT JOIN spelled s ON true
+         WHERE t.id = $1
+         GROUP BY t.id, t.name, co.code, co.name, t.gender, t.branch, tl.logo, el.elo",
+    )
+    .bind(team_id)
+    .bind(date)
+    .bind(timezone)
+    .bind(window_days)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
+}

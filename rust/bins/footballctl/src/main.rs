@@ -227,6 +227,7 @@ async fn main() -> Result<()> {
                     include_all,
                     competition_id: None,
                     window_days: 0,
+                    team_id: None,
                 },
             )
             .await?;

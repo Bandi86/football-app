@@ -12,6 +12,8 @@ pub struct DayFilter {
     pub competition_id: Option<Uuid>,
     /// A nap körüli ablak napokban (0 = csak az adott nap).
     pub window_days: i64,
+    /// Opcionális csapat-szűrő (csapat-adatlap: hazai vagy vendég).
+    pub team_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, FromRow, serde::Serialize)]
@@ -148,6 +150,7 @@ pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatch
          WHERE (m.kickoff_at AT TIME ZONE $2)::date
                  BETWEEN $1 - ($5::int) AND $1 + ($5::int)
            AND ($4::uuid IS NULL OR m.competition_id = $4)
+           AND ($6::uuid IS NULL OR m.home_team_id = $6 OR m.away_team_id = $6)
            AND ($3::boolean OR g.state = 'verified_publish')
          ORDER BY m.kickoff_at, home.name, away.name",
     )
@@ -156,6 +159,7 @@ pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatch
     .bind(filter.include_all)
     .bind(filter.competition_id)
     .bind(filter.window_days)
+    .bind(filter.team_id)
     .fetch_all(pool)
     .await?;
     Ok(rows)
