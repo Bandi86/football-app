@@ -230,8 +230,186 @@ pub fn page_date(html: &str) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(label.trim(), "%A, %B %d, %Y").ok()
 }
 
-pub struct GroupHeader {
-    slug: String,
+/// A nap-oldal egy verseny-csoportja (fejléc) az osztályozással.
+#[derive(Debug, Clone)]
+struct GroupMeta {
+    name: String,
+    country_code: String,
+    country_name: String,
+    tier: i16,
+    priority: i32,
+    gender: &'static str,
+    branch: &'static str,
+    /// A csapatok országa ebben a csoportban ("" = ismeretlen, pl. kupa).
+    team_country: String,
+}
+
+/// Lokalizált országnév → (ISO, angol név). Ismeretlen → None (fail-open
+/// a besorolásnál: a verseny ország nélkül is bekerülhet).
+fn country_by_title(title: &str) -> Option<(&'static str, &'static str)> {
+    let key = title.trim().to_lowercase();
+    let pairs: &[(&str, &str, &str)] = &[
+        ("anglia", "GB", "England"),
+        ("skócia", "GB", "Scotland"),
+        ("wales", "GB", "Wales"),
+        ("észak-írország", "GB", "Northern Ireland"),
+        ("spanyolország", "ES", "Spain"),
+        ("olaszország", "IT", "Italy"),
+        ("németország", "DE", "Germany"),
+        ("franciaország", "FR", "France"),
+        ("magyarország", "HU", "Hungary"),
+        ("ausztria", "AT", "Austria"),
+        ("svájc", "CH", "Switzerland"),
+        ("hollandia", "NL", "Netherlands"),
+        ("belgium", "BE", "Belgium"),
+        ("portugália", "PT", "Portugal"),
+        ("törökország", "TR", "Turkey"),
+        ("görögország", "GR", "Greece"),
+        ("horvátország", "HR", "Croatia"),
+        ("szerbia", "RS", "Serbia"),
+        ("szlovénia", "SI", "Slovenia"),
+        ("bosznia-hercegovina", "BA", "Bosnia and Herzegovina"),
+        ("montenegró", "ME", "Montenegro"),
+        ("észak-macedónia", "MK", "North Macedonia"),
+        ("albánia", "AL", "Albania"),
+        ("lengyelország", "PL", "Poland"),
+        ("csehország", "CZ", "Czech Republic"),
+        ("szlovákia", "SK", "Slovakia"),
+        ("románia", "RO", "Romania"),
+        ("bulgária", "BG", "Bulgaria"),
+        ("oroszország", "RU", "Russia"),
+        ("ukrajna", "UA", "Ukraine"),
+        ("fehéroroszország", "BY", "Belarus"),
+        ("moldova", "MD", "Moldova"),
+        ("grúzia", "GE", "Georgia"),
+        ("örményország", "AM", "Armenia"),
+        ("azerbajdzsán", "AZ", "Azerbaijan"),
+        ("kazahsztán", "KZ", "Kazakhstan"),
+        ("izrael", "IL", "Israel"),
+        ("izland", "IS", "Iceland"),
+        ("norvégia", "NO", "Norway"),
+        ("svédország", "SE", "Sweden"),
+        ("dánia", "DK", "Denmark"),
+        ("finnország", "FI", "Finland"),
+        ("észtország", "EE", "Estonia"),
+        ("lettország", "LV", "Latvia"),
+        ("litvánia", "LT", "Lithuania"),
+        ("írország", "IE", "Ireland"),
+        ("ciprus", "CY", "Cyprus"),
+        ("málta", "MT", "Malta"),
+        ("luxemburg", "LU", "Luxembourg"),
+        ("brazília", "BR", "Brazil"),
+        ("argentin", "AR", "Argentina"),
+        ("egyesült államok", "US", "United States"),
+        ("mexikó", "MX", "Mexico"),
+        ("japán", "JP", "Japan"),
+        ("kína", "CN", "China"),
+        ("ausztrália", "AU", "Australia"),
+        ("egyiptom", "EG", "Egypt"),
+        ("marokkó", "MA", "Morocco"),
+        ("algéria", "DZ", "Algeria"),
+        ("tunézia", "TN", "Tunisia"),
+        ("dél-afrika", "ZA", "South Africa"),
+    ];
+    pairs
+        .iter()
+        .find(|(name, _, _)| key.contains(name))
+        .map(|(_, cc, cn)| (*cc, *cn))
+}
+
+fn is_cup(text: &str) -> bool {
+    [
+        "kupa",
+        "cup",
+        "copa",
+        "coupe",
+        "pokal",
+        "szuperkupa",
+        "supercup",
+    ]
+    .iter()
+    .any(|needle| text.contains(needle))
+}
+
+fn is_women(text: &str) -> bool {
+    ["női", "-noi", "women", "feminine", "femenina", "femminile"]
+        .iter()
+        .any(|needle| text.contains(needle))
+}
+
+fn is_youth(text: &str) -> bool {
+    [
+        "u17",
+        "u18",
+        "u19",
+        "u20",
+        "u21",
+        "u23",
+        "ifjúsági",
+        "youth",
+        "junior",
+    ]
+    .iter()
+    .any(|needle| text.contains(needle))
+}
+
+impl SoccerwayAdapter {
+    /// Csoport-osztályozás: ismert liga → kanonikus meta; ismeretlen →
+    /// megjelenített név + zászló-ország + kupa/női/utánpótlás heurisztika.
+    fn group_meta(&self, slug: &str, title: &str, flag_title: &str) -> GroupMeta {
+        let haystack = format!("{slug} {title}").to_lowercase();
+        let (gender, branch) = if is_women(&haystack) {
+            ("female", "women")
+        } else if is_youth(&haystack) {
+            ("male", "youth")
+        } else {
+            ("male", "senior")
+        };
+        if let Some(known) = self.leagues.iter().find(|l| l.slug == slug) {
+            return GroupMeta {
+                name: known.name.clone(),
+                country_code: known.country_code.clone(),
+                country_name: known.country_name.clone(),
+                tier: known.tier,
+                priority: known.priority,
+                gender,
+                branch,
+                team_country: known.country_code.clone(),
+            };
+        }
+        let cup = is_cup(&haystack);
+        let (country_code, country_name) = country_by_title(flag_title).unwrap_or(("", ""));
+        let priority = if gender == "female" {
+            60
+        } else if branch == "youth" {
+            70
+        } else if cup {
+            40
+        } else {
+            50
+        };
+        let name = if title.trim().is_empty() {
+            slug.rsplit('/').next().unwrap_or(slug).to_string()
+        } else {
+            title.trim().to_string()
+        };
+        GroupMeta {
+            name,
+            country_code: country_code.to_string(),
+            country_name: country_name.to_string(),
+            tier: if cup { 0 } else { 1 },
+            priority,
+            gender,
+            branch,
+            // Kupában/nemzetköziben a csapat-ország a versenyből nem
+            // következik (a meccs két különböző országból is jöhet).
+            team_country: if cup || country_code.is_empty() {
+                String::new()
+            } else {
+                country_code.to_string()
+            },
+        }
+    }
 }
 
 impl SourceAdapter for SoccerwayAdapter {
@@ -239,8 +417,8 @@ impl SourceAdapter for SoccerwayAdapter {
         AdapterMeta {
             source_slug: SOURCE_SLUG.into(),
             adapter_version: "1.0".into(),
-            parser_version: "1.0".into(),
-            domains: self.leagues.iter().map(|l| l.slug.clone()).collect(),
+            parser_version: "2.0".into(),
+            domains: vec!["day".into()],
             transport: Transport::Obscura,
         }
     }
@@ -254,8 +432,8 @@ impl SourceAdapter for SoccerwayAdapter {
         };
         vec![FetchRequest {
             url: format!("https://www.soccerway.com{path}"),
-            request_key: format!("{SOURCE_SLUG}:{}:{}", job.domain, job.time_window),
-            endpoint_key: job.domain.clone(),
+            request_key: format!("{SOURCE_SLUG}:day:{}", job.time_window),
+            endpoint_key: "day".into(),
             ready_marker: Some(READY_MARKER.into()),
         }]
     }
@@ -275,24 +453,14 @@ impl SourceAdapter for SoccerwayAdapter {
                 got: got.to_string(),
             });
         }
-        let domain = ctx
-            .request_key
-            .split(':')
-            .nth(1)
-            .ok_or_else(|| ParseError::Parse("a request_key-ből nem derül ki a liga".into()))?;
-        let league = self
-            .leagues
-            .iter()
-            .find(|l| l.slug == domain)
-            .ok_or_else(|| {
-                ParseError::SchemaDrift(format!("ismeretlen soccerway liga: {domain}"))
-            })?;
 
         let document = Html::parse_document(&html);
         let combined =
             Selector::parse("div[data-testid=wcl-headerLeague], div.event__match[data-event-row]")
                 .map_err(|e| ParseError::Parse(format!("szelektor: {e}")))?;
         let header_link = Selector::parse("a.headerLeague__title")
+            .map_err(|e| ParseError::Parse(format!("szelektor: {e}")))?;
+        let header_flag = Selector::parse("span.headerLeague__flag")
             .map_err(|e| ParseError::Parse(format!("szelektor: {e}")))?;
         let row_link = Selector::parse("a.eventRowLink")
             .map_err(|e| ParseError::Parse(format!("szelektor: {e}")))?;
@@ -312,28 +480,30 @@ impl SourceAdapter for SoccerwayAdapter {
         };
 
         let captured_at = Utc::now();
-        let mut current: Option<GroupHeader> = None;
-        let mut teams: std::collections::BTreeMap<String, String> = Default::default();
+        let mut current: Option<GroupMeta> = None;
+        let mut teams: std::collections::BTreeMap<String, (String, GroupMeta)> = Default::default();
         let mut observations = Vec::new();
 
         for element in document.select(&combined) {
             if element.value().attr("data-testid") == Some("wcl-headerLeague") {
-                let slug = element
-                    .select(&header_link)
+                let link = element.select(&header_link).next();
+                let slug = link
+                    .and_then(|a| a.value().attr("href"))
+                    .map(|href| href.trim_matches('/').to_string())
+                    .unwrap_or_default();
+                let title = link.map(|a| text_of(&a)).unwrap_or_default();
+                let flag_title = element
+                    .select(&header_flag)
                     .next()
-                    .and_then(|a| a.value().attr("href").map(str::to_string))
-                    .map(|href| href.trim_matches('/').to_string());
-                current = slug.map(|slug| GroupHeader { slug });
+                    .and_then(|span| span.value().attr("title"))
+                    .unwrap_or_default();
+                current = Some(self.group_meta(&slug, &title, flag_title));
                 continue;
             }
 
-            let Some(header) = current.as_ref() else {
+            let Some(group) = current.as_ref() else {
                 continue;
             };
-            if header.slug != league.slug {
-                continue;
-            }
-
             let row = element;
             let Some(href) = row
                 .select(&row_link)
@@ -360,8 +530,12 @@ impl SourceAdapter for SoccerwayAdapter {
                 .ok_or_else(|| ParseError::SchemaDrift("hazai csapatnév hiányzik".into()))?;
             let away_name = participant(&row, "event__awayParticipant")
                 .ok_or_else(|| ParseError::SchemaDrift("vendég csapatnév hiányzik".into()))?;
-            teams.insert(home_code.clone(), home_name.clone());
-            teams.insert(away_code.clone(), away_name.clone());
+            teams
+                .entry(home_code.clone())
+                .or_insert_with(|| (home_name.clone(), group.clone()));
+            teams
+                .entry(away_code.clone())
+                .or_insert_with(|| (away_name.clone(), group.clone()));
 
             let classes: Vec<&str> = row.value().classes().collect();
             let is_live = classes.contains(&"event__match--live");
@@ -443,11 +617,11 @@ impl SourceAdapter for SoccerwayAdapter {
                     "competition_timezone": COMPETITION_TIMEZONE,
                     "competition": {
                         "id": null,
-                        "name": league.name,
-                        "country_code": league.country_code,
-                        "country_name": league.country_name,
-                        "tier": league.tier,
-                        "priority": league.priority,
+                        "name": group.name,
+                        "country_code": group.country_code,
+                        "country_name": group.country_name,
+                        "tier": group.tier,
+                        "priority": group.priority,
                     },
                     "season": { "id": null, "label": season_label(ctx.requested_date) },
                     "source_code": SOURCE_SLUG,
@@ -457,7 +631,7 @@ impl SourceAdapter for SoccerwayAdapter {
         }
 
         let mut team_obs = Vec::new();
-        for (code, name) in &teams {
+        for (code, (name, group)) in &teams {
             team_obs.push(Observation {
                 entity_kind: "team".into(),
                 aspect: "team_identity".into(),
@@ -468,10 +642,10 @@ impl SourceAdapter for SoccerwayAdapter {
                     "id": null,
                     "source_entity_id": code,
                     "name": name,
-                    "country_code": league.country_code,
-                    "gender": "male",
-                    "age_group": "senior",
-                    "branch": "senior",
+                    "country_code": group.team_country,
+                    "gender": group.gender,
+                    "age_group": if group.branch == "youth" { "youth" } else { "senior" },
+                    "branch": group.branch,
                 }),
             });
         }

@@ -6,7 +6,7 @@ use football_ingest::soccerway::SoccerwayAdapter;
 fn ctx(date: &str) -> Ctx {
     Ctx {
         requested_date: NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap(),
-        request_key: format!("soccerway:anglia/premier-league:{date}"),
+        request_key: format!("soccerway:day:{date}"),
     }
 }
 
@@ -70,8 +70,13 @@ fn row(
 }
 
 fn header(slug: &str) -> String {
+    header_full(slug, "", "")
+}
+
+fn header_full(slug: &str, title: &str, flag_title: &str) -> String {
+    let name = if title.is_empty() { slug } else { title };
     format!(
-        "<div data-testid=\"wcl-headerLeague\"><a class=\"headerLeague__title\" href=\"/{slug}/\">{slug}</a></div>"
+        "<div data-testid=\"wcl-headerLeague\"><span class=\"headerLeague__flag\" title=\"{flag_title}\"></span><a class=\"headerLeague__title\" href=\"/{slug}/\">{name}</a></div>"
     )
 }
 
@@ -185,9 +190,9 @@ fn parses_target_league_rows_with_statuses_and_results() {
         .unwrap();
 
     let matches: Vec<_> = obs.iter().filter(|o| o.aspect == "match_core").collect();
-    assert_eq!(matches.len(), 5, "csak a cél-liga sorai jönnek");
+    assert_eq!(matches.len(), 6, "minden verseny sorai jönnek");
     let teams: Vec<_> = obs.iter().filter(|o| o.aspect == "team_identity").collect();
-    assert_eq!(teams.len(), 10);
+    assert_eq!(teams.len(), 12);
 
     let by_key = |key: &str| {
         matches
@@ -233,11 +238,9 @@ fn parses_target_league_rows_with_statuses_and_results() {
     assert_eq!(postponed["status"], "postponed");
     assert!(postponed["result"].is_null());
 
-    assert!(
-        matches
-            .iter()
-            .all(|o| o.source_record_key != "soccerway-fff6")
-    );
+    let foreign = by_key("fff6");
+    assert_eq!(foreign["competition"]["name"], "La Liga");
+    assert_eq!(foreign["competition"]["country_code"], "ES");
 }
 
 #[test]
@@ -292,4 +295,99 @@ fn unknown_stage_with_scores_is_finished_without_decider() {
     assert_eq!(m["status"], "finished");
     assert!(m["result"]["decided_by"].is_null());
     assert_eq!(m["result"]["home_ft"], 0);
+}
+
+/// S9: ismeretlen, női és kupa csoportok osztályozása.
+#[test]
+fn classifies_unknown_women_and_cup_groups() {
+    let body = format!(
+        "{}{}{}{}{}{}",
+        header_full("valahol/liga-x", "Liga X", "Spanyolország"),
+        row(
+            "x1",
+            "",
+            "a",
+            "CodeX001",
+            "A",
+            "b",
+            "CodeX002",
+            "B",
+            Some("Vége"),
+            None,
+            Some(("1", "0")),
+            None
+        ),
+        header_full("magyarorszag/noi-liga", "Női Liga", "Magyarország"),
+        row(
+            "w1",
+            "",
+            "c",
+            "CodeW001",
+            "C",
+            "d",
+            "CodeW002",
+            "D",
+            None,
+            Some("18:00"),
+            None,
+            None
+        ),
+        header_full("magyarorszag/magyar-kupa", "Magyar Kupa", "Magyarország"),
+        row(
+            "c1",
+            "",
+            "e",
+            "CodeK001",
+            "E",
+            "f",
+            "CodeK002",
+            "F",
+            None,
+            Some("19:00"),
+            None,
+            None
+        ),
+    );
+    let adapter = SoccerwayAdapter::default();
+    let obs = adapter
+        .parse(&raw(&page(&body)), &ctx("2026-11-14"))
+        .unwrap();
+    let matches: Vec<_> = obs.iter().filter(|o| o.aspect == "match_core").collect();
+    assert_eq!(matches.len(), 3, "minden csoport bekerül");
+    let by_key = |key: &str| {
+        matches
+            .iter()
+            .find(|o| o.source_record_key == format!("soccerway-{key}"))
+            .unwrap()
+            .payload
+            .clone()
+    };
+    let unknown = by_key("x1");
+    assert_eq!(unknown["competition"]["name"], "Liga X");
+    assert_eq!(unknown["competition"]["country_code"], "ES");
+    assert_eq!(unknown["competition"]["tier"], 1);
+    assert_eq!(unknown["competition"]["priority"], 50);
+
+    let women = by_key("w1");
+    assert_eq!(women["competition"]["priority"], 60);
+    let women_team = obs
+        .iter()
+        .find(|o| o.aspect == "team_identity" && o.payload["source_entity_id"] == "CodeW001")
+        .unwrap();
+    assert_eq!(women_team.payload["gender"], "female");
+    assert_eq!(women_team.payload["branch"], "women");
+    assert_eq!(women_team.payload["country_code"], "HU");
+
+    let cup = by_key("c1");
+    assert_eq!(cup["competition"]["tier"], 0);
+    assert_eq!(cup["competition"]["priority"], 40);
+    assert_eq!(cup["competition"]["country_code"], "HU");
+    let cup_team = obs
+        .iter()
+        .find(|o| o.aspect == "team_identity" && o.payload["source_entity_id"] == "CodeK001")
+        .unwrap();
+    assert_eq!(
+        cup_team.payload["country_code"], "",
+        "kupában a csapat-ország ismeretlen"
+    );
 }

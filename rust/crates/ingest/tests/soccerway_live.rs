@@ -11,7 +11,7 @@ use chrono::Local;
 use football_ingest::adapter::{ParseCtx, SourceAdapter};
 use football_ingest::fetch::{FetchLimits, FetchRequest, Fetcher, RawPayload};
 use football_ingest::obscura::{ObscuraConfig, ObscuraFetcher, server::ObscuraServer};
-use football_ingest::soccerway::{SoccerwayAdapter, SoccerwayLeague};
+use football_ingest::soccerway::SoccerwayAdapter;
 
 fn obscura_bin() -> String {
     std::env::var("OBSCURA_BIN").unwrap_or_else(|_| {
@@ -93,19 +93,10 @@ async fn live_soccerway_day_parses_with_date_guard() {
     eprintln!("kezdési idők (első 5): {times:?}");
 
     let slug = first_group_slug(&html).expect("első verseny-slug");
-    let adapter = SoccerwayAdapter {
-        leagues: vec![SoccerwayLeague {
-            slug: slug.clone(),
-            country_code: "XX".into(),
-            country_name: "Test".into(),
-            name: "Test League".into(),
-            tier: 1,
-            priority: 1,
-        }],
-    };
+    let adapter = SoccerwayAdapter::default();
     let ctx = ParseCtx {
         requested_date: today,
-        request_key: format!("soccerway:{slug}:{today}"),
+        request_key: format!("soccerway:day:{today}"),
     };
     let payload = RawPayload {
         bytes: raw.bytes.clone(),
@@ -117,8 +108,21 @@ async fn live_soccerway_day_parses_with_date_guard() {
     let obs = adapter.parse(&payload, &ctx).expect("parse");
     let matches = obs.iter().filter(|o| o.aspect == "match_core").count();
     let teams = obs.iter().filter(|o| o.aspect == "team_identity").count();
-    eprintln!("slug: {slug}, meccsek: {matches}, csapatok: {teams}");
-    assert!(matches > 0, "a kiválasztott ligában nincs meccs");
+    let competitions: std::collections::BTreeSet<String> = obs
+        .iter()
+        .filter(|o| o.aspect == "match_core")
+        .filter_map(|o| o.payload.pointer("/competition/name"))
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect();
+    eprintln!(
+        "első slug: {slug}, meccsek: {matches}, csapatok: {teams}, versenyek: {}",
+        competitions.len()
+    );
+    assert!(
+        matches > 0,
+        "a nap-oldalon van sor, de nincs parse-olt meccs"
+    );
     assert!(teams >= 2);
+    assert!(!competitions.is_empty());
     assert_eq!(label, today, "a renderelt nap a helyi mai nap");
 }
