@@ -331,3 +331,87 @@ async fn date_only_observation_keeps_exact_kickoff_and_persists_decided_by() {
     assert_eq!((hp, ap), (Some(4), Some(5)));
     assert_eq!(decided.as_deref(), Some("pens"));
 }
+
+/// S9: kupa/nemzetközi nap ország nélkül — a verseny és a csapat országa
+/// NULL, a materializálás nem bukik.
+#[tokio::test]
+async fn cup_day_without_country_stores_null_country() {
+    let pool = test_pool().await;
+    let _source_id = seed_source(&pool).await;
+    let mut day = live_day(&[("a1", "A1"), ("a2", "A2")], "a1", "a2");
+    day.competition.country_code = String::new();
+    day.competition.country_name = String::new();
+    for team in &mut day.teams {
+        team.country_code = String::new();
+        team.id = Some(Uuid::now_v7());
+    }
+    let materialized = Canonicalizer::materialize(&pool, &day).await.unwrap();
+    assert_eq!(materialized.matches.len(), 1);
+
+    let competition_country: Option<Uuid> =
+        sqlx::query_scalar("SELECT country_id FROM core.competition LIMIT 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(competition_country.is_none(), "verseny-ország NULL");
+    let team_country: Option<Uuid> = sqlx::query_scalar("SELECT country_id FROM core.team LIMIT 1")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(team_country.is_none(), "csapat-ország NULL");
+}
+
+/// S9: a meglévő csapat országát a NULL-os megfigyelés nem írja felül.
+#[tokio::test]
+async fn null_country_does_not_overwrite_existing_team_country() {
+    let pool = test_pool().await;
+    let source_id = seed_source(&pool).await;
+    let country_id = seed_country(&pool).await;
+    seed_linked_team(&pool, source_id, country_id, "ujpest", "Újpest").await;
+    seed_linked_team(&pool, source_id, country_id, "gyor", "Győr").await;
+
+    let teams = [("ujpest", "Újpest"), ("gyor", "Győr")];
+    let first = live_day(&teams, "ujpest", "gyor");
+    Canonicalizer::materialize(&pool, &first).await.unwrap();
+
+    let (competition_id, season_id): (Uuid, Uuid) = sqlx::query_as(
+        "SELECT c.id, s.id FROM core.competition c JOIN core.season s ON s.competition_id=c.id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let match_id: Uuid = sqlx::query_scalar("SELECT id FROM core.match")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let team_id: Uuid = sqlx::query_scalar("SELECT id FROM core.team WHERE name='Újpest'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+    let mut second = live_day(&teams, "ujpest", "gyor");
+    second.competition.id = Some(competition_id);
+    second.competition.country_code = String::new();
+    second.competition.country_name = String::new();
+    second.season.id = Some(season_id);
+    second.matches[0].id = Some(match_id);
+    for team in &mut second.teams {
+        team.country_code = String::new();
+        if team.source_entity_id == "ujpest" {
+            team.id = Some(team_id);
+        }
+    }
+    Canonicalizer::materialize(&pool, &second).await.unwrap();
+
+    let kept: Option<Uuid> =
+        sqlx::query_scalar("SELECT country_id FROM core.team WHERE name='Újpest'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(kept, Some(country_id), "a meglévő ország megmarad");
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM core.match").await,
+        1,
+        "nincs duplikált meccs"
+    );
+}

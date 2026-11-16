@@ -63,12 +63,20 @@ impl Canonicalizer {
     pub async fn materialize(pool: &PgPool, day: &NormalizedDay) -> Result<MaterializedDay> {
         let mut tx = pool.begin().await?;
 
-        let country_id = upsert_country(
-            &mut tx,
-            &day.competition.country_code,
-            &day.competition.country_name,
-        )
-        .await?;
+        // S9: a verseny országa ismeretlen lehet (kupa/nemzetközi) — ilyenkor
+        // NULL; csak ismert kódnál hozunk létre ország-sort.
+        let country_id: Option<Uuid> = if day.competition.country_code.trim().is_empty() {
+            None
+        } else {
+            Some(
+                upsert_country(
+                    &mut tx,
+                    &day.competition.country_code,
+                    &day.competition.country_name,
+                )
+                .await?,
+            )
+        };
         let source_id: Uuid = sqlx::query_scalar("SELECT id FROM ops.source WHERE code=$1")
             .bind(&day.source_code)
             .fetch_one(&mut *tx)
@@ -79,7 +87,8 @@ impl Canonicalizer {
         let competition_id = match day.competition.id {
             Some(id) => id,
             None => sqlx::query_scalar(
-                "SELECT id FROM core.competition WHERE country_id=$1 AND name=$2 LIMIT 1",
+                "SELECT id FROM core.competition
+                 WHERE country_id IS NOT DISTINCT FROM $1 AND name=$2 LIMIT 1",
             )
             .bind(country_id)
             .bind(&day.competition.name)
@@ -111,6 +120,7 @@ impl Canonicalizer {
             "INSERT INTO core.competition (id, entity_id, country_id, name, tier, priority)
              VALUES ($1,$1,$2,$3,$4,$5)
              ON CONFLICT (id) DO UPDATE SET
+               country_id = COALESCE(EXCLUDED.country_id, core.competition.country_id),
                name = EXCLUDED.name,
                tier = EXCLUDED.tier,
                priority = EXCLUDED.priority",
@@ -140,7 +150,8 @@ impl Canonicalizer {
             match team.id {
                 // Fixture-út: az id-hint kanonikus; a seed-ref a demóhoz tartozik.
                 Some(_) => {
-                    upsert_team(&mut tx, team, country_id, day.source_code.as_str()).await?;
+                    let team_country = team_country_id(&mut tx, team, country_id).await?;
+                    upsert_team(&mut tx, team, team_country, day.source_code.as_str()).await?;
                     team_ids.insert(
                         team.source_entity_id.clone(),
                         team.id.expect("hint jelen van"),
@@ -148,8 +159,13 @@ impl Canonicalizer {
                 }
                 // Élő út: a fail-closed linker oldja fel; nem egzakt → kimarad.
                 None => {
+                    let team_country = team_country_id(&mut tx, team, country_id).await?;
                     let ctx = football_domain::identity::IdentityContext {
-                        country_code: Some(team.country_code.clone()),
+                        country_code: if team.country_code.trim().is_empty() {
+                            None
+                        } else {
+                            Some(team.country_code.clone())
+                        },
                         gender: Some(team.gender.clone()),
                         age_group: Some(team.age_group.clone()),
                         branch: Some(team.branch.clone()),
@@ -166,7 +182,7 @@ impl Canonicalizer {
                     .await
                     {
                         Ok(football_domain::identity::Resolution::Exact { entity_id, .. }) => {
-                            ensure_live_team(&mut tx, entity_id, &team.name, country_id).await?;
+                            ensure_live_team(&mut tx, entity_id, &team.name, team_country).await?;
                             team_ids.insert(team.source_entity_id.clone(), entity_id);
                         }
                         Ok(_) => {
@@ -408,7 +424,7 @@ async fn upsert_entity(
 async fn upsert_team(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     team: &NormalizedTeam,
-    country_id: Uuid,
+    country_id: Option<Uuid>,
     source_code: &str,
 ) -> Result<()> {
     let team_id = team.id.unwrap_or_else(Uuid::now_v7);
@@ -420,7 +436,7 @@ async fn upsert_team(
          VALUES ($1,$1,$2,$3,$4,$5,$6)
          ON CONFLICT (id) DO UPDATE SET
            name = EXCLUDED.name,
-           country_id = EXCLUDED.country_id,
+           country_id = COALESCE(EXCLUDED.country_id, core.team.country_id),
            gender = EXCLUDED.gender,
            age_group = EXCLUDED.age_group,
            branch = EXCLUDED.branch",
@@ -518,6 +534,30 @@ async fn observations_for_match(
     Ok(rows)
 }
 
+/// A csapat országa: a megfigyelt kód, ha van; különben a verseny országa
+/// (hazai liga), kupa/nemzetközi esetén NULL.
+async fn team_country_id(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    team: &NormalizedTeam,
+    competition_country: Option<Uuid>,
+) -> Result<Option<Uuid>> {
+    if team.country_code.trim().is_empty() {
+        return Ok(competition_country);
+    }
+    // Meglévő országot nem írunk felül a kóddal mint névvel; új kódnál a
+    // kód az ideiglenes név (későbbi megfigyelés javíthatja).
+    let existing: Option<Uuid> = sqlx::query_scalar("SELECT id FROM core.country WHERE code=$1")
+        .bind(&team.country_code)
+        .fetch_optional(&mut **tx)
+        .await?;
+    match existing {
+        Some(id) => Ok(Some(id)),
+        None => Ok(Some(
+            upsert_country(tx, &team.country_code, &team.country_code).await?,
+        )),
+    }
+}
+
 /// Élő csapat: a linkeres Exact entitáshoz létezzen core.team sor
 /// (az invariáns: core.team.id == entity.id); hiányzó sor a forrás nevével
 /// jön létre.
@@ -525,7 +565,7 @@ async fn ensure_live_team(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     entity_id: Uuid,
     name: &str,
-    country_id: Uuid,
+    country_id: Option<Uuid>,
 ) -> Result<()> {
     let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM core.team WHERE id=$1)")
         .bind(entity_id)
