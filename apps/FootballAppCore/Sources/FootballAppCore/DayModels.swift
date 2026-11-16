@@ -28,13 +28,14 @@ public struct Blocker: Decodable, Equatable, Sendable {
 }
 
 public struct OddsSnapshot: Decodable, Equatable, Sendable {
-    public let home: Double
-    public let draw: Double
-    public let away: Double
-    public let bttsYes: Double
-    public let bttsNo: Double
-    public let over25: Double
-    public let under25: Double
+    // A piacok hiányozhatnak (pl. footballdata BTTS nélkül) → opcionális.
+    public let home: Double?
+    public let draw: Double?
+    public let away: Double?
+    public let bttsYes: Double?
+    public let bttsNo: Double?
+    public let over25: Double?
+    public let under25: Double?
 
     enum CodingKeys: String, CodingKey {
         case home, draw, away

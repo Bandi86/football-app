@@ -21,6 +21,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/health", get(routes::health::health))
         .route("/v1/day/{date}", get(routes::day::day))
         .route("/v1/asset/{*key}", get(routes::asset::asset))
+        .route("/v1/match/{id}", get(routes::match_detail::match_detail))
         .route(
             "/v1/ops/verification/gates",
             get(routes::verification::gates),

@@ -2,13 +2,13 @@ import Foundation
 import FootballAppCore
 
 struct MatchOdds {
-    let home: Double
-    let draw: Double
-    let away: Double
-    let bttsYes: Double
-    let bttsNo: Double
-    let over25: Double
-    let under25: Double
+    let home: Double?
+    let draw: Double?
+    let away: Double?
+    let bttsYes: Double?
+    let bttsNo: Double?
+    let over25: Double?
+    let under25: Double?
 }
 
 enum Outcome {

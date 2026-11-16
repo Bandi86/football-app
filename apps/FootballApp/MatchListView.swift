@@ -38,6 +38,7 @@ enum MatchFilter: String, CaseIterable, Identifiable {
 struct MatchListView: View {
     let leagues: [LeagueGroup]
     let logos: LogoStore
+    let onSelect: (String) -> Void
 
     var body: some View {
         if leagues.isEmpty {
@@ -53,7 +54,7 @@ struct MatchListView: View {
             ScrollView {
                 LazyVStack(spacing: 16) {
                     ForEach(leagues) { league in
-                        LeagueSectionView(league: league, logos: logos)
+                        LeagueSectionView(league: league, logos: logos, onSelect: onSelect)
                     }
                 }
                 .padding(.horizontal, 48)
@@ -66,6 +67,7 @@ struct MatchListView: View {
 private struct LeagueSectionView: View {
     let league: LeagueGroup
     let logos: LogoStore
+    let onSelect: (String) -> Void
 
     private var sortedMatches: [MatchCardModel] {
         league.matches.sorted { $0.time < $1.time }
@@ -98,7 +100,8 @@ private struct LeagueSectionView: View {
 
             VStack(spacing: 0) {
                 ForEach(Array(sortedMatches.enumerated()), id: \.element.id) { index, match in
-                    MatchItemRow(match: match, showPositions: league.tier != 0, logos: logos)
+                    MatchItemRow(match: match, showPositions: league.tier != 0,
+                                 logos: logos, onSelect: onSelect)
                     if index < sortedMatches.count - 1 {
                         Rectangle().fill(AppTheme.hairline).frame(height: 1).padding(.leading, 18)
                     }
@@ -118,6 +121,7 @@ private struct MatchItemRow: View {
     let match: MatchCardModel
     let showPositions: Bool
     let logos: LogoStore
+    let onSelect: (String) -> Void
     @State private var hover = false
 
     private var group: MatchFilter? { MatchFilter.group(of: match.status) }
@@ -181,7 +185,9 @@ private struct MatchItemRow: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
         .background(hover ? AppTheme.surface : Color.clear)
+        .contentShape(Rectangle())
         .onHover { hover = $0 }
+        .onTapGesture { onSelect(match.id) }
     }
 
     private var statusColumn: some View {

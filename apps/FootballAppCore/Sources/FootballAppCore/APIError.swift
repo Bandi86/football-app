@@ -3,6 +3,7 @@ import Foundation
 public enum APIError: Error, Equatable, Sendable {
     case runtimeMissing
     case unauthorized
+    case notFound
     case badRequest
     case server
     case network
@@ -14,6 +15,8 @@ public enum APIError: Error, Equatable, Sendable {
             return "A footballd daemon nem fut (runtime.json nem található). Indítsd el a daemont."
         case .unauthorized:
             return "Érvénytelen vagy hiányzó hozzáférési token."
+        case .notFound:
+            return "A keresett elem nem található."
         case .badRequest:
             return "Hibás dátum."
         case .server:

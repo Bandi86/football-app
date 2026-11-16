@@ -3,6 +3,10 @@ import FootballAppCore
 
 /// A főoldal: felső navigáció → változó HEADER → szűrő → liga szerint csoportosított
 /// napi lista, a footballd API valós válaszából.
+struct SelectedMatch: Identifiable {
+    let id: UUID
+}
+
 enum AppTab: Equatable {
     case day
     case ops
@@ -15,6 +19,7 @@ struct HomeView: View {
     @State private var division: Int? = nil
     @State private var tab: AppTab = .day
     @State private var featuredOnly = true
+    @State private var selected: SelectedMatch?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
@@ -37,6 +42,9 @@ struct HomeView: View {
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.4)) { appeared = true }
         }
         .task(id: model.selectedDate) { await model.load() }
+        .sheet(item: $selected) { item in
+            MatchDetailSheet(matchId: item.id)
+        }
     }
 
     @ViewBuilder
@@ -74,7 +82,11 @@ struct HomeView: View {
             if leagues.isEmpty, featuredOnly, !groups(feed.matches, featured: false).isEmpty {
                 featuredEmptyHint
             } else {
-                MatchListView(leagues: leagues, logos: model.logos)
+                MatchListView(leagues: leagues, logos: model.logos) { id in
+                    if let uuid = UUID(uuidString: id) {
+                        selected = SelectedMatch(id: uuid)
+                    }
+                }
             }
         case .empty:
             EmptyStateView()

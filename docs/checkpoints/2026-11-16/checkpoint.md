@@ -213,3 +213,26 @@
 - [x] Napi keret visszaállítva 6-ra; az agent a friss binárissal fut.
 - [x] Záró kapu: foundation 0, workspace 74 csoport zöld, clippy/fmt
       tiszta, app 18 teszt zöld, teszt-DB resetelve.
+
+## S10 — Meccs-részletező (API + kliens)
+
+- [x] **API:** `GET /v1/match/{id}` (read-token): eredmény-bontás
+      (FT/HT/ET/pens + decided_by), kickoff-precízió, játékvezető,
+      forrásonkénti statisztika (legfrissebb), odds-lánc + forrás/trust,
+      Elo as-of, logók, publikálási kapu (állapot, blokkolók, kiértékelés,
+      szabálykészlet). Nem található → 404, érvénytelen id → 400.
+      Teszt: teljes mezők + 401/404.
+- [x] **Kliens core:** `MatchDetail` modell + `HTTPMatchDetailService`
+      (`APIError.notFound` új eset); teszt dekódolás + szolgáltatás.
+- [x] **Kliens UI:** a napi lista sorai kattinthatók → részletező sheet:
+      fejléc (logók, eredmény, gate-badge, publikálás dátuma), meta
+      (verseny, szezon, időpont, játékvezető), eredmény-chipek,
+      összehasonlító statisztika, odds-chipek + trust + forrás/idő,
+      ellenőrzési szekció (blokkolók). Élő ellenőrzés a 2026-11-08-i
+      Brighton–Brentford meccsen (statisztika, odds, gate).
+- [x] **Valós hiba javítva:** az `OddsSnapshot` minden piacot kötelezőnek
+      várt, a footballdata viszont BTTS nélkül ad → a 2026-11-08-i nap
+      dekódolása elhasalt („Váratlan válaszformátum"), a lista üres volt.
+      A piacok most `Double?`-k, a UI „–"-t mutat; a nap újra 24 meccses.
+- [x] Kapuk: Rust workspace 74 csoport zöld, clippy/fmt tiszta,
+      foundation 0; app 20 teszt, core 21 teszt zöld; teszt-DB resetelve.

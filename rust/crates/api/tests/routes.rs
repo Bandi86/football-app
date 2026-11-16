@@ -444,3 +444,62 @@ async fn ops_status_returns_counts_and_sources() {
     assert_eq!(sources[0]["enabled"], true);
     assert_eq!(sources[0]["breaker_state"], "closed");
 }
+
+#[tokio::test]
+async fn match_detail_returns_verified_fields_and_gate() {
+    let pool = test_pool().await;
+    let base = seed_day_base(&pool).await;
+    let match_id = seed_day_match(&pool, &base, 22).await;
+
+    let app = router(AppState {
+        pool,
+        read_token: "read-test".into(),
+        ops_token: "ops-test".into(),
+        data_dir: std::env::temp_dir(),
+    });
+
+    let unauthorized = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/match/{match_id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/match/{match_id}"))
+                .header("authorization", "Bearer read-test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(value["home_name"], "Újpest");
+    assert_eq!(value["away_name"], "Győr");
+    assert_eq!(value["competition_name"], "NB I");
+    assert_eq!(value["gate_state"], "verified_publish");
+    assert_eq!(value["kickoff_precision"], "exact");
+    assert!(value["season_label"].is_string());
+
+    let missing = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/match/{}", Uuid::now_v7()))
+                .header("authorization", "Bearer read-test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+}
