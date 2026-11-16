@@ -130,3 +130,29 @@
    is beletenni (későbbi szelet).
 2. Az első teljes kanonikus nap a review-bootstrap után (várhatóan a
    hétvégi fordulókkal).
+
+### Automatizálás — telepítve és ellenőrizve
+
+- [x] **TCC-tanulság:** a launchd a Documents mappából nem futtat
+      („Operation not permitted"). A telepítő ezért a futtatandó
+      elemeket a `~/Library/Application Support/FootballAppV2/agent`
+      alá másolja (bináris, Obscura, env 600, adatok; a repó `data/`
+      egyszeri átemelése).
+- [x] Agent telepítve: `hu.bandi86.football.v2`, `state = running`
+      (pid 41010), `obscura fetcher aktiv`, API port 63405, napi tick
+      0 pending jobbal; a kliens a runtime.json-t innen olvassa.
+      Log: `~/Library/Logs/FootballAppV2/footballd.log`.
+- [x] Üzemeltetési doksi: `docs/operations/automation.md` (telepítés,
+      frissítés = telepítő újrafuttatása, kézi tick ugyanazzal a
+      DATA_DIR-rel, visszavonás `--uninstall`).
+- Megjegyzés: a soccerway mai kerete 9/6 (a nap elején még a régi
+  per-liga jobok és a teszt-kör fogyasztott) — holnap nullázódik; az új
+  napi job 1–2 fetch.
+
+### Záró állapot
+
+- [x] Teljes kapu: `check-foundation.sh` exit 0, workspace 74 csoport
+      zöld, clippy/fmt (workspace + obscura feature) tiszta, app 18 teszt
+      zöld, teszt-DB resetelve.
+- [x] Kliens UI: a „★ Kiemelt kör / Minden verseny" kapcsoló élőben
+      megjelenik (a mai nap kanonikusan üres a review-bootstrapig).
