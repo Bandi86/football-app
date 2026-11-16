@@ -175,10 +175,10 @@
       „2026 · szerda · 20 meccs · frissítve nov. 14. 10:57", a Chelsea
       logója renderelődik (v1-audit asset), a blob-végpont
       `200 image/webp` 5,5 KB.
-- Megjegyzés: a dev DB-ben ezen a napon csak a demó meccsek élnek (a
-  korábbi élő footballdata-sorok ebben a DB-állapotban nincsenek, árva
-  provenance nélkül — nem a mai futások törölték). Az élő SDK-teszthez
-  a 2026-11-16-i teljes kör adja a bizonyítékot.
+- Megjegyzés: a dev DB-ben az élő footballdata-meccsek is megvannak
+  (2026-11-16-i ellenőrzés: 44 élő + 20 demó = 64 sor, mind gated); a
+  korábbi „csak demó" megállapítás téves volt — a gate-query a demó és
+  élő sorokat dátum szerint együtt mutatta.
 - Következő: Üzemeltetés nézet (worker/review), asset-licence döntés
   (`unknown` → `cleared`), La Liga logó pótlása, élő adat visszatöltése.
 
