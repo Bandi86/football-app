@@ -80,7 +80,7 @@ private struct LeagueSectionView: View {
                     Text(league.name)
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(AppTheme.primaryText)
-                    Text("\(league.country.uppercased()) · \(league.divisionLabel.uppercased())")
+                    Text(league.subtitle)
                         .font(.system(size: 10, weight: .semibold))
                         .tracking(1.2)
                         .foregroundStyle(AppTheme.secondaryText)

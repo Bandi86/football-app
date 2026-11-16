@@ -509,3 +509,45 @@ pub async fn entity_kind(pool: &PgPool, entity_id: Uuid) -> Result<Option<String
         .await
         .context("entitás kind lekérés")
 }
+
+/// Pending review-k összesítése a triage-hez: nem/korosztály/ország és a
+/// legutóbbi megfigyelt verseny szerint (a team-observation nem hordoz
+/// versenyt, ezért a match_core payloadból kötjük).
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize)]
+pub struct ReviewSummaryRow {
+    pub gender: Option<String>,
+    pub branch: Option<String>,
+    pub competition: Option<String>,
+    pub count: i64,
+    pub countries: Option<String>,
+    pub sample_names: Option<String>,
+}
+
+pub async fn review_summary(pool: &PgPool) -> Result<Vec<ReviewSummaryRow>> {
+    sqlx::query_as(
+        "SELECT r.context->>'gender' AS gender,
+                r.context->>'branch' AS branch,
+                comp.name AS competition,
+                count(*)::bigint AS count,
+                string_agg(DISTINCT coalesce(r.context->>'country_code', '?'), ',') AS countries,
+                (array_agg(r.proposed_name ORDER BY r.proposed_name))[1:5]::text AS sample_names
+         FROM identity.review_queue r
+         LEFT JOIN LATERAL (
+             SELECT o.normalized_payload->'competition'->>'name' AS name
+             FROM stage.observation o
+             WHERE r.source_id IS NOT NULL
+               AND o.source_id = r.source_id
+               AND o.aspect = 'match_core'
+               AND (o.normalized_payload->>'source_home_id' = r.source_entity_id
+                 OR o.normalized_payload->>'source_away_id' = r.source_entity_id)
+             ORDER BY o.observed_at DESC
+             LIMIT 1
+         ) comp ON true
+         WHERE r.status = 'pending'
+         GROUP BY 1, 2, 3
+         ORDER BY count(*) DESC, competition NULLS LAST, sample_names",
+    )
+    .fetch_all(pool)
+    .await
+    .context("review összesítés")
+}

@@ -391,3 +391,70 @@ fn classifies_unknown_women_and_cup_groups() {
         "kupában a csapat-ország ismeretlen"
     );
 }
+
+/// S9: nemzetközi meccseknél a csapatnév ország; az U/W tokenek
+/// korosztályt/nemet adnak.
+#[test]
+fn international_teams_get_country_and_youth_gender_hints() {
+    let body = format!(
+        "{}{}{}",
+        header_full(
+            "europa/friendly-international",
+            "Friendly International",
+            "Európa"
+        ),
+        row(
+            "i1",
+            "",
+            "serbia",
+            "CodeI001",
+            "Serbia",
+            "belgium-u21",
+            "CodeI002",
+            "Belgium U21",
+            None,
+            Some("18:00"),
+            None,
+            None
+        ),
+        row(
+            "i2",
+            "",
+            "spain-u17-w",
+            "CodeI003",
+            "Spain U17 W",
+            "france-u17-w",
+            "CodeI004",
+            "France U17 W",
+            None,
+            Some("19:00"),
+            None,
+            None
+        ),
+    );
+    let adapter = SoccerwayAdapter::default();
+    let obs = adapter
+        .parse(&raw(&page(&body)), &ctx("2026-11-14"))
+        .unwrap();
+    let team = |code: &str| {
+        obs.iter()
+            .find(|o| o.aspect == "team_identity" && o.payload["source_entity_id"] == code)
+            .unwrap()
+            .payload
+            .clone()
+    };
+    let serbia = team("CodeI001");
+    assert_eq!(serbia["country_code"], "RS");
+    assert_eq!(serbia["gender"], "male");
+    assert_eq!(serbia["branch"], "senior");
+
+    let belgium = team("CodeI002");
+    assert_eq!(belgium["country_code"], "BE");
+    assert_eq!(belgium["branch"], "youth");
+    assert_eq!(belgium["age_group"], "youth");
+
+    let spain = team("CodeI003");
+    assert_eq!(spain["country_code"], "ES");
+    assert_eq!(spain["gender"], "female");
+    assert_eq!(spain["branch"], "women");
+}

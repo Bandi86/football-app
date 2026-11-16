@@ -41,6 +41,14 @@ struct LeagueGroup: Identifiable {
         }
     }
 
+    /// A fejléc második sora: nemzetközi versenynél nincs ország.
+    var subtitle: String {
+        if country == "Ismeretlen" || country.isEmpty {
+            return tier <= 0 ? "NEMZETKÖZI · KUPA" : "NEMZETKÖZI"
+        }
+        return "\(country.uppercased()) · \(divisionLabel.uppercased())"
+    }
+
     func filtering(_ filter: MatchFilter) -> LeagueGroup? {
         let kept = matches.filter { filter.matches(status: $0.status) }
         guard !kept.isEmpty else { return nil }

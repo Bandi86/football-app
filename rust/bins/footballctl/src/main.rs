@@ -101,6 +101,8 @@ enum IdentityAction {
         #[arg(long)]
         note: String,
     },
+    /// Pending review-ök összesítése (nem/korosztály/ország/verseny).
+    ReviewSummary,
     ListAliases {
         #[arg(long)]
         entity: Option<Uuid>,
@@ -461,6 +463,25 @@ async fn identity_command(pool: &sqlx::PgPool, action: IdentityAction) -> Result
         IdentityAction::Reject { id, note } => {
             football_identity::review::reject(pool, id, "cli", &note).await?;
             println!("elutasítva: {id}");
+        }
+        IdentityAction::ReviewSummary => {
+            let rows = identity_repo::review_summary(pool).await?;
+            if rows.is_empty() {
+                println!("(nincs függő review)");
+            } else {
+                println!("nem | ág | verseny | db | országok | minta");
+                for row in &rows {
+                    println!(
+                        "{} | {} | {} | {} | {} | {}",
+                        row.gender.as_deref().unwrap_or("-"),
+                        row.branch.as_deref().unwrap_or("-"),
+                        row.competition.as_deref().unwrap_or("-"),
+                        row.count,
+                        row.countries.as_deref().unwrap_or("-"),
+                        row.sample_names.as_deref().unwrap_or("")
+                    );
+                }
+            }
         }
         IdentityAction::ListAliases { entity } => {
             let rows = identity_repo::list_aliases(pool, entity).await?;

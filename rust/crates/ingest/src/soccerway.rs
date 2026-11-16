@@ -317,6 +317,144 @@ fn country_by_title(title: &str) -> Option<(&'static str, &'static str)> {
         .map(|(_, cc, cn)| (*cc, *cn))
 }
 
+/// Angol országnevek (nemzetközi meccsek csapatnevei) → (ISO, angol név).
+fn country_by_english(name: &str) -> Option<(&'static str, &'static str)> {
+    let pairs: &[(&str, &str, &str)] = &[
+        ("england", "GB", "England"),
+        ("scotland", "GB", "Scotland"),
+        ("wales", "GB", "Wales"),
+        ("northern ireland", "GB", "Northern Ireland"),
+        ("spain", "ES", "Spain"),
+        ("italy", "IT", "Italy"),
+        ("germany", "DE", "Germany"),
+        ("france", "FR", "France"),
+        ("hungary", "HU", "Hungary"),
+        ("austria", "AT", "Austria"),
+        ("switzerland", "CH", "Switzerland"),
+        ("netherlands", "NL", "Netherlands"),
+        ("belgium", "BE", "Belgium"),
+        ("portugal", "PT", "Portugal"),
+        ("turkey", "TR", "Turkey"),
+        ("greece", "GR", "Greece"),
+        ("croatia", "HR", "Croatia"),
+        ("serbia", "RS", "Serbia"),
+        ("slovenia", "SI", "Slovenia"),
+        ("bosnia & herzegovina", "BA", "Bosnia and Herzegovina"),
+        ("bosnia and herzegovina", "BA", "Bosnia and Herzegovina"),
+        ("montenegro", "ME", "Montenegro"),
+        ("north macedonia", "MK", "North Macedonia"),
+        ("albania", "AL", "Albania"),
+        ("poland", "PL", "Poland"),
+        ("czech republic", "CZ", "Czech Republic"),
+        ("czechia", "CZ", "Czech Republic"),
+        ("slovakia", "SK", "Slovakia"),
+        ("romania", "RO", "Romania"),
+        ("bulgaria", "BG", "Bulgaria"),
+        ("russia", "RU", "Russia"),
+        ("ukraine", "UA", "Ukraine"),
+        ("belarus", "BY", "Belarus"),
+        ("moldova", "MD", "Moldova"),
+        ("georgia", "GE", "Georgia"),
+        ("armenia", "AM", "Armenia"),
+        ("azerbaijan", "AZ", "Azerbaijan"),
+        ("kazakhstan", "KZ", "Kazakhstan"),
+        ("israel", "IL", "Israel"),
+        ("iceland", "IS", "Iceland"),
+        ("norway", "NO", "Norway"),
+        ("sweden", "SE", "Sweden"),
+        ("denmark", "DK", "Denmark"),
+        ("finland", "FI", "Finland"),
+        ("estonia", "EE", "Estonia"),
+        ("latvia", "LV", "Latvia"),
+        ("lithuania", "LT", "Lithuania"),
+        ("ireland", "IE", "Ireland"),
+        ("cyprus", "CY", "Cyprus"),
+        ("malta", "MT", "Malta"),
+        ("luxembourg", "LU", "Luxembourg"),
+        ("faroe islands", "FO", "Faroe Islands"),
+        ("andorra", "AD", "Andorra"),
+        ("gibraltar", "GI", "Gibraltar"),
+        ("liechtenstein", "LI", "Liechtenstein"),
+        ("san marino", "SM", "San Marino"),
+        ("kosovo", "XK", "Kosovo"),
+        ("brazil", "BR", "Brazil"),
+        ("argentina", "AR", "Argentina"),
+        ("uruguay", "UY", "Uruguay"),
+        ("colombia", "CO", "Colombia"),
+        ("peru", "PE", "Peru"),
+        ("chile", "CL", "Chile"),
+        ("ecuador", "EC", "Ecuador"),
+        ("paraguay", "PY", "Paraguay"),
+        ("bolivia", "BO", "Bolivia"),
+        ("venezuela", "VE", "Venezuela"),
+        ("mexico", "MX", "Mexico"),
+        ("united states", "US", "United States"),
+        ("usa", "US", "United States"),
+        ("canada", "CA", "Canada"),
+        ("japan", "JP", "Japan"),
+        ("south korea", "KR", "South Korea"),
+        ("china", "CN", "China"),
+        ("australia", "AU", "Australia"),
+        ("egypt", "EG", "Egypt"),
+        ("morocco", "MA", "Morocco"),
+        ("algeria", "DZ", "Algeria"),
+        ("tunisia", "TN", "Tunisia"),
+        ("south africa", "ZA", "South Africa"),
+        ("nigeria", "NG", "Nigeria"),
+        ("ghana", "GH", "Ghana"),
+        ("cameroon", "CM", "Cameroon"),
+        ("senegal", "SN", "Senegal"),
+        ("ivory coast", "CI", "Ivory Coast"),
+        ("mali", "ML", "Mali"),
+        ("kenya", "KE", "Kenya"),
+    ];
+    let key = name.trim().to_lowercase();
+    pairs
+        .iter()
+        .find(|(label, _, _)| key == *label)
+        .map(|(_, cc, cn)| (*cc, *cn))
+}
+
+/// Nemzetközi verseny-e (a csapatnév ekkor ország-név).
+fn is_international(text: &str) -> bool {
+    [
+        "international",
+        "nations league",
+        "cup of nations",
+        "qualification",
+        "world cup",
+        "friendly",
+        "euro u",
+        "copa america",
+        "afcon",
+    ]
+    .iter()
+    .any(|needle| text.contains(needle))
+}
+
+/// `Belgium U21` → (`Belgium`, youth); `Spain U17 W` → (`Spain`, youth, women).
+fn team_hints(name: &str) -> (String, bool, bool) {
+    let mut youth = false;
+    let mut women = false;
+    let mut base: Vec<&str> = Vec::new();
+    for token in name.split_whitespace() {
+        let upper = token.to_ascii_uppercase();
+        let is_u = upper.len() >= 2
+            && upper.starts_with('U')
+            && upper[1..].chars().all(|c| c.is_ascii_digit());
+        if is_u {
+            youth = true;
+            continue;
+        }
+        if upper == "W" || upper == "WOMEN" || token.eq_ignore_ascii_case("női") {
+            women = true;
+            continue;
+        }
+        base.push(token);
+    }
+    (base.join(" "), youth, women)
+}
+
 fn is_cup(text: &str) -> bool {
     [
         "kupa",
@@ -632,6 +770,29 @@ impl SourceAdapter for SoccerwayAdapter {
 
         let mut team_obs = Vec::new();
         for (code, (name, group)) in &teams {
+            let (base_name, name_youth, name_women) = team_hints(name);
+            let comp_haystack = group.name.to_lowercase();
+            // Nemzetközi meccsen a csapatnév ország-név (nemzeti csapat);
+            // hazai ligában a csoport országa érvényes.
+            let country = if is_international(&comp_haystack) {
+                country_by_english(&base_name)
+                    .map(|(cc, _)| cc.to_string())
+                    .unwrap_or_default()
+            } else {
+                group.team_country.clone()
+            };
+            let gender = if name_women || group.gender == "female" {
+                "female"
+            } else {
+                "male"
+            };
+            let branch = if gender == "female" {
+                "women"
+            } else if name_youth || group.branch == "youth" {
+                "youth"
+            } else {
+                "senior"
+            };
             team_obs.push(Observation {
                 entity_kind: "team".into(),
                 aspect: "team_identity".into(),
@@ -642,10 +803,10 @@ impl SourceAdapter for SoccerwayAdapter {
                     "id": null,
                     "source_entity_id": code,
                     "name": name,
-                    "country_code": group.team_country,
-                    "gender": group.gender,
-                    "age_group": if group.branch == "youth" { "youth" } else { "senior" },
-                    "branch": group.branch,
+                    "country_code": country,
+                    "gender": gender,
+                    "age_group": if branch == "youth" { "youth" } else { "senior" },
+                    "branch": branch,
                 }),
             });
         }

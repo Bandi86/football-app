@@ -156,3 +156,33 @@
       zöld, teszt-DB resetelve.
 - [x] Kliens UI: a „★ Kiemelt kör / Minden verseny" kapcsoló élőben
       megjelenik (a mai nap kanonikusan üres a review-bootstrapig).
+
+### Review-triage és az első kanonikus nap (folytatás)
+
+- [x] `identity review-summary` CLI: pending review-ök csoportosítva
+      (nem/ág/verseny/orrkágok/minta), a versenyt a match_core
+      observationből kötve (nincs séma-változás).
+- [x] Soccerway osztályozás-finomítás: nemzetközi versenyeknél a
+      csapatnév ország (angol név-tábla), U##/W tokenek →
+      korosztály/nem (Serbia→RS, Belgium U21→BE/youth, Spain U17 W→
+      ES/female/women); tesztek.
+- [x] Kontrollált bootstrap: `identity approve-create-all` → **58
+      nemzeti csapat** létrehozva (országos kontextussal), **116 sor
+      pending** maradt (klubok, ország nélkül — fail-closed; a
+      country-flag map bővítése későbbi szelet).
+- [x] A nap újrafuttatása a feloldott csapatokkal: **24 kanonikus meccs**
+      (2026-11-16), mind `verified_publish` (Nations League C/B/A/D,
+      Friendly International, Euro U17 Women stb.); az API
+      `refreshed_at`-tel adja.
+- [x] Kliens-ellenőrzés: a kiemelt nézet „nincs meccs" tippje +
+      „Minden verseny mutatása" gomb; a teljes nézet 24 meccset mutat
+      verseny szerint; nemzetközi verseny felirata „NEMZETKÖZI"
+      (korábbi „ISMERETLEN · 1. OSZTÁLY" javítva).
+- [x] Az agent a friss binárissal újratelepítve (pid 50219 → újraindult),
+      az adatok megmaradtak.
+- [x] Teljes záró kapu: foundation 0, workspace 74 csoport zöld,
+      clippy/fmt tiszta, app 18 teszt zöld, teszt-DB resetelve.
+- Megjegyzés: a napi keret ma 9+/6 a nap eleji legacy per-liga körök
+  miatt; holnap már 1–2 fetch. A `footballctl` binárist mindig
+  `--features obscura`-val kell építeni (különben a Soccerway-job
+  `transport hiba`).
