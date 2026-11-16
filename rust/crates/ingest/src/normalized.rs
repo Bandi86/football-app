@@ -470,6 +470,117 @@ impl NormalizedDay {
     }
 }
 
+impl NormalizedDay {
+    /// S9: a napi observationöket **verseny szerint** bontja; minden csoport
+    /// önálló `NormalizedDay` (a megszokott `from_observations` szerződésen).
+    /// A csoport kulcsa az ország+név+tier+priority+szezon; a csapatok és a
+    /// meccshez kötött aspketek (odds/stats/referee/tabella) a csoporthoz
+    /// kerülnek. Üres bemenet → hiba (a hívó a nulla-napot külön kezeli).
+    pub fn grouped_from_observations(observations: &[Observation]) -> Result<Vec<Self>> {
+        use std::collections::{BTreeSet, HashMap, HashSet};
+
+        #[derive(Clone, PartialEq, Eq, Hash)]
+        struct GroupKey {
+            country_code: String,
+            name: String,
+            tier: i16,
+            priority: i32,
+            season_label: String,
+        }
+
+        let mut team_payloads: HashMap<String, Observation> = HashMap::new();
+        for obs in observations {
+            if obs.aspect == "team_identity"
+                && let Some(id) = obs.payload.get("source_entity_id").and_then(|v| v.as_str())
+            {
+                team_payloads
+                    .entry(id.to_string())
+                    .or_insert_with(|| obs.clone());
+            }
+        }
+
+        let mut order: Vec<GroupKey> = Vec::new();
+        let mut groups: HashMap<GroupKey, Vec<Observation>> = HashMap::new();
+        for obs in observations {
+            if obs.aspect != "match_core" {
+                continue;
+            }
+            let competition = obs.payload.get("competition");
+            let field = |key: &str| {
+                competition
+                    .and_then(|c| c.get(key))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string()
+            };
+            let key = GroupKey {
+                country_code: field("country_code"),
+                name: field("name"),
+                tier: competition
+                    .and_then(|c| c.get("tier"))
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(1) as i16,
+                priority: competition
+                    .and_then(|c| c.get("priority"))
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(100) as i32,
+                season_label: obs
+                    .payload
+                    .pointer("/season/label")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+            };
+            if !groups.contains_key(&key) {
+                order.push(key.clone());
+            }
+            groups.entry(key).or_default().push(obs.clone());
+        }
+        if order.is_empty() {
+            anyhow::bail!("hiányzó match_core meta az observationökből");
+        }
+
+        let mut days = Vec::with_capacity(order.len());
+        for key in order {
+            let matches = groups.remove(&key).unwrap_or_default();
+            let records: HashSet<String> = matches
+                .iter()
+                .map(|m| m.source_record_key.clone())
+                .collect();
+            let mut team_ids: BTreeSet<String> = BTreeSet::new();
+            for m in &matches {
+                for field in ["source_home_id", "source_away_id"] {
+                    if let Some(id) = m.payload.get(field).and_then(|v| v.as_str()) {
+                        team_ids.insert(id.to_string());
+                    }
+                }
+            }
+            let mut slice: Vec<Observation> = Vec::new();
+            for id in &team_ids {
+                if let Some(team) = team_payloads.get(id) {
+                    slice.push(team.clone());
+                }
+            }
+            slice.extend(matches);
+            for obs in observations {
+                match obs.aspect.as_str() {
+                    "match_odds" | "match_stats" | "match_referee" => {
+                        if records.contains(&obs.source_record_key) {
+                            slice.push(obs.clone());
+                        }
+                    }
+                    "standing" if team_ids.contains(obs.source_record_key.as_str()) => {
+                        slice.push(obs.clone());
+                    }
+                    _ => {}
+                }
+            }
+            days.push(Self::from_observations(&slice)?);
+        }
+        Ok(days)
+    }
+}
+
 impl From<&FixtureSource> for NormalizedDay {
     fn from(fixture: &FixtureSource) -> Self {
         Self {

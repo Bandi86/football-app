@@ -28,7 +28,7 @@ use football_domain::policy::{
 };
 use football_domain::trust::{ODDS_TOLERANCE_DEFAULT, OddsTrustState};
 use football_identity::linker;
-use football_ingest::adapter::{ParseCtx, SourceAdapter};
+use football_ingest::adapter::{Observation, ParseCtx, SourceAdapter};
 use football_ingest::canonicalize::Canonicalizer;
 use football_ingest::fetch::{FetchLimits, FetchRequest, Fetcher, Fetchers};
 use football_ingest::observe::insert_observation;
@@ -167,12 +167,13 @@ async fn process_job(
         return Ok(JobResult::Failed);
     };
 
-    // 4. (előrehozva) A terv első kérése határozza meg a robots- és fetch-utat.
+    // S9: a job a forrás egy napi körét képviseli; a terv MINDEN kérését
+    // feldolgozzuk (a korábbi kód csak az elsőt használta).
     let plan = adapter.plan(job);
-    let Some(req) = plan.first() else {
+    if plan.is_empty() {
         scheduler::complete(pool, job.id, JobStatus::Failed, Some("üres fetch-terv")).await?;
         return Ok(JobResult::Failed);
-    };
+    }
 
     // A tartalom-fetch fetcherét a policy transzportja választja (S2c).
     let fetcher = match fetchers.for_transport(&policy.transport) {
@@ -183,181 +184,200 @@ async fn process_job(
         }
     };
 
-    // 2. Robots-kapu: fail-closed, nem számláló ledger + coverage blocked.
-    // Fixture forrásnál a robots.txt a fixture fetcheren megy (nincs hálózat);
-    // valódi forrásnál plain HTTP-vel (a böngésző itt fölösleges és drága).
+    // Robots: fixture forrásnál a fixture fetcheren (nincs hálózat), valódi
+    // forrásnál plain HTTP-vel.
     let robots_fetcher: &dyn Fetcher = if policy.transport == Transport::Fixture {
         fetcher
     } else {
         fetchers.rust_http()
     };
-    if robots::check(pool, robots_fetcher, &job.source_slug, &req.url).await?
-        == robots::RobotsVerdict::Blocked
-    {
-        block_ledger(pool, job, req, now, FetchOutcome::RobotsBlocked).await?;
-        coverage::set(
-            pool,
-            &job.source_slug,
-            &job.domain,
-            &job.event_type,
-            &job.time_window,
-            CoverageState::Blocked,
-            job.id,
-        )
-        .await?;
-        scheduler::complete(pool, job.id, JobStatus::Failed, Some("robots tiltás")).await?;
-        return Ok(JobResult::Blocked);
-    }
 
-    // 2. Kvóta/delay-kapu: nem számláló ledger, azonnali pending visszasorolás.
-    let decision = quota::guard(pool, &policy, now).await?;
-    if decision != quota::QuotaDecision::Allowed {
-        block_ledger(pool, job, req, now, FetchOutcome::QuotaBlocked).await?;
-        let reason = if decision == quota::QuotaDecision::QuotaBlocked {
-            "napi kvóta kimerült"
-        } else {
-            "a min_delay még nem telt le"
-        };
-        scheduler::complete(pool, job.id, JobStatus::Pending, Some(reason)).await?;
-        return Ok(JobResult::Blocked);
-    }
-
-    // 2. Breaker-kapu: nyitva → nem számláló ledger + failed.
-    if !breaker::allow(pool, &policy, now).await? {
-        block_ledger(pool, job, req, now, FetchOutcome::BreakerOpen).await?;
-        scheduler::complete(pool, job.id, JobStatus::Failed, Some("breaker nyitva")).await?;
-        return Ok(JobResult::Blocked);
-    }
-
-    // 3. Reserve: a placeholder már a reserve pillanatában kísérletnek számít.
-    let ledger_id = repo::insert_ledger(
-        pool,
-        &LedgerEntry {
-            source_slug: job.source_slug.clone(),
-            request_key: req.request_key.clone(),
-            attempted_at: now,
-            outcome: FetchOutcome::TransportError,
-            http_status: None,
-            byte_size: None,
-            latency_ms: None,
-            artifact_hash: None,
-            job_id: Some(job.id),
-        },
-    )
-    .await?;
-
-    // 4. Fetch a policy limitjeivel.
-    let limits = FetchLimits {
-        max_bytes: u64::try_from(policy.max_bytes).context("policy max_bytes nem ábrázolható")?,
-        timeout: StdDuration::from_secs(FETCH_TIMEOUT_SECS),
-    };
-    let started = Instant::now();
-    let fetched = fetcher.fetch(req, &limits).await;
-    let latency_ms = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
-    let raw = match fetched {
-        Ok(raw) => raw,
-        Err(err) => {
-            return fetch_failure(pool, &policy, job, ledger_id, now, latency_ms, &err).await;
-        }
-    };
-    // A breaker a fetch-egészséget tükrözi: a sikeres fetch azonnal zárja
-    // (half-open probe sem ragadhat be parse-karantén/infra-hiba miatt).
-    breaker::on_success(pool, &job.source_slug).await?;
-    // 5–10. Sikeres fetch utáni szakasz. Váratlan infrastruktúra-hibán
-    // (objektumtár-írás, nem napi időablak, részleges verify_and_publish)
-    // a coverage Failed-re áll, mielőtt a tick a jobot failed-re zárja.
-    // A ledger-placeholder transport_error marad (dokumentált, jogos kísérlet).
+    let mut observations: Vec<Observation> = Vec::new();
     let result = async {
-        let http_status = i16::try_from(raw.http_status).context("HTTP-státusz i16 konverzió")?;
-        let byte_size = i64::try_from(raw.bytes.len()).ok();
-
-        // 5. L0: objektumtár + forrás/artifact/capture megőrzés (parse előtt,
-        // hogy a karanténba került payload nyersben is megmaradjon).
-        // A forrásazonosító a job hiteles slugja; a payload kódja csak a
-        // megjelenítési névhez járulhat hozzá (megszemélyesítés-védelem).
-        let artifact = store
-            .put_json(&raw.bytes)
-            .context("nyers payload objektumtárba írása")?;
-        let display_name = raw_display_name(&raw.bytes, &job.source_slug);
-        let (source_id, capture_id) = repo::persist_raw(
-            pool,
-            &job.source_slug,
-            &display_name,
-            &artifact,
-            &RawCapture {
-                endpoint_key: &req.endpoint_key,
-                request_url: &req.url,
-                request_key: &req.request_key,
-                requested_at: now,
-                received_at: raw.fetched_at,
-                http_status,
-                adapter_version: &policy.adapter_version,
-                parser_version: &policy.parser_version,
-            },
-            &raw.content_type,
-        )
-        .await?;
-
-        // 6. Parse: hiba → karantén (coverage quarantined, ledger parse_error),
-        // a nyers megmarad. A breaker nem változik: a forrás válaszolt.
-        let requested_date = NaiveDate::parse_from_str(&job.time_window, "%Y-%m-%d")
-            .with_context(|| format!("a job időablaka nem napi dátum: {}", job.time_window))?;
-        let ctx = ParseCtx {
-            requested_date,
-            request_key: req.request_key.clone(),
-        };
-        let observations = match adapter.parse(&raw, &ctx) {
-            Ok(observations) => observations,
-            Err(err) => {
-                repo::update_ledger_outcome(
-                    pool,
-                    ledger_id,
-                    FetchOutcome::ParseError,
-                    Some(http_status),
-                    byte_size,
-                    Some(latency_ms),
-                    Some(&artifact.sha256),
-                )
-                .await?;
+        for (index, req) in plan.iter().enumerate() {
+            // Robots-kapu kérésenként (fail-closed).
+            if robots::check(pool, robots_fetcher, &job.source_slug, &req.url).await?
+                == robots::RobotsVerdict::Blocked
+            {
+                block_ledger(pool, job, req, now, FetchOutcome::RobotsBlocked).await?;
                 coverage::set(
                     pool,
                     &job.source_slug,
                     &job.domain,
                     &job.event_type,
                     &job.time_window,
-                    CoverageState::Quarantined,
+                    CoverageState::Blocked,
                     job.id,
                 )
                 .await?;
-                scheduler::complete(pool, job.id, JobStatus::Failed, Some(&err.to_string()))
+                scheduler::complete(pool, job.id, JobStatus::Failed, Some("robots tiltás"))
                     .await?;
-                tracing::warn!(job_id = %job.id, error = %err, "tick: parse karantén, a nyers megmaradt");
-                return Ok(JobResult::Failed);
+                return Ok(JobResult::Blocked);
             }
-        };
 
-        // 7. Observationök a stage rétegbe.
-        for obs in &observations {
-            insert_observation(
+            // Kvóta/delay-kapu: az első kérésnél a megszokott visszasorolás;
+            // további kéréseknél a policy min_delay-ét a jobon belül kivárjuk
+            // (max 15 s), utána újra ellenőrzünk.
+            let decision = if index == 0 {
+                quota::guard(pool, &policy, now).await?
+            } else {
+                wait_for_delay(pool, &policy).await?
+            };
+            if decision != quota::QuotaDecision::Allowed {
+                block_ledger(pool, job, req, Utc::now(), FetchOutcome::QuotaBlocked).await?;
+                let reason = if decision == quota::QuotaDecision::QuotaBlocked {
+                    "napi kvóta kimerült"
+                } else {
+                    "a min_delay még nem telt le"
+                };
+                scheduler::complete(pool, job.id, JobStatus::Pending, Some(reason)).await?;
+                return Ok(JobResult::Blocked);
+            }
+
+            // Breaker-kapu: nyitva → nem számláló ledger + failed.
+            if !breaker::allow(pool, &policy, now).await? {
+                block_ledger(pool, job, req, now, FetchOutcome::BreakerOpen).await?;
+                scheduler::complete(pool, job.id, JobStatus::Failed, Some("breaker nyitva"))
+                    .await?;
+                return Ok(JobResult::Blocked);
+            }
+
+            // Reserve: a placeholder már a reserve pillanatában kísérletnek számít.
+            let ledger_id = repo::insert_ledger(
                 pool,
-                source_id,
-                capture_id,
-                &obs.entity_kind,
-                &obs.aspect,
-                &obs.natural_key,
-                &obs.source_record_key,
-                obs.observed_at,
-                obs.payload.clone(),
+                &LedgerEntry {
+                    source_slug: job.source_slug.clone(),
+                    request_key: req.request_key.clone(),
+                    attempted_at: now,
+                    outcome: FetchOutcome::TransportError,
+                    http_status: None,
+                    byte_size: None,
+                    latency_ms: None,
+                    artifact_hash: None,
+                    job_id: Some(job.id),
+                },
+            )
+            .await?;
+
+            // Fetch a policy limitjeivel.
+            let limits = FetchLimits {
+                max_bytes: u64::try_from(policy.max_bytes)
+                    .context("policy max_bytes nem ábrázolható")?,
+                timeout: StdDuration::from_secs(FETCH_TIMEOUT_SECS),
+            };
+            let started = Instant::now();
+            let fetched = fetcher.fetch(req, &limits).await;
+            let latency_ms = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
+            let raw = match fetched {
+                Ok(raw) => raw,
+                Err(err) => {
+                    return fetch_failure(pool, &policy, job, ledger_id, now, latency_ms, &err)
+                        .await;
+                }
+            };
+            // A breaker a fetch-egészséget tükrözi (S3a).
+            breaker::on_success(pool, &job.source_slug).await?;
+
+            let http_status =
+                i16::try_from(raw.http_status).context("HTTP-státusz i16 konverzió")?;
+            let byte_size = i64::try_from(raw.bytes.len()).ok();
+
+            // L0: objektumtár + forrás/artifact/capture megőrzés (parse előtt).
+            let artifact = store
+                .put_json(&raw.bytes)
+                .context("nyers payload objektumtárba írása")?;
+            let display_name = raw_display_name(&raw.bytes, &job.source_slug);
+            let (source_id, capture_id) = repo::persist_raw(
+                pool,
+                &job.source_slug,
+                &display_name,
+                &artifact,
+                &RawCapture {
+                    endpoint_key: &req.endpoint_key,
+                    request_url: &req.url,
+                    request_key: &req.request_key,
+                    requested_at: now,
+                    received_at: raw.fetched_at,
+                    http_status,
+                    adapter_version: &policy.adapter_version,
+                    parser_version: &policy.parser_version,
+                },
+                &raw.content_type,
+            )
+            .await?;
+
+            // Parse: hiba → karantén (coverage quarantined, ledger parse_error).
+            let requested_date = NaiveDate::parse_from_str(&job.time_window, "%Y-%m-%d")
+                .with_context(|| format!("a job időablaka nem napi dátum: {}", job.time_window))?;
+            let ctx = ParseCtx {
+                requested_date,
+                request_key: req.request_key.clone(),
+            };
+            let parsed = match adapter.parse(&raw, &ctx) {
+                Ok(parsed) => parsed,
+                Err(err) => {
+                    repo::update_ledger_outcome(
+                        pool,
+                        ledger_id,
+                        FetchOutcome::ParseError,
+                        Some(http_status),
+                        byte_size,
+                        Some(latency_ms),
+                        Some(&artifact.sha256),
+                    )
+                    .await?;
+                    coverage::set(
+                        pool,
+                        &job.source_slug,
+                        &job.domain,
+                        &job.event_type,
+                        &job.time_window,
+                        CoverageState::Quarantined,
+                        job.id,
+                    )
+                    .await?;
+                    scheduler::complete(pool, job.id, JobStatus::Failed, Some(&err.to_string()))
+                        .await?;
+                    tracing::warn!(job_id = %job.id, error = %err, "tick: parse karantén, a nyers megmaradt");
+                    return Ok(JobResult::Failed);
+                }
+            };
+
+            // Observationök a stage rétegbe.
+            for obs in &parsed {
+                insert_observation(
+                    pool,
+                    source_id,
+                    capture_id,
+                    &obs.entity_kind,
+                    &obs.aspect,
+                    &obs.natural_key,
+                    &obs.source_record_key,
+                    obs.observed_at,
+                    obs.payload.clone(),
+                )
+                .await?;
+            }
+            observations.extend(parsed);
+
+            // A fetch sikeres: a ledger-sor véglegesítése (a kanonikus szakasz
+            // hibája már nem a fetch eredménye).
+            repo::update_ledger_outcome(
+                pool,
+                ledger_id,
+                FetchOutcome::Success,
+                Some(http_status),
+                byte_size,
+                Some(latency_ms),
+                Some(&artifact.sha256),
             )
             .await?;
         }
 
         // 8–9. Shadow ágban nincs kanonikus írás; live/canary ágban a teljes
-        // verification + gate lánc fut (a footballctl IngestFixture mintáján).
-        // Üres observation-lista legitím nulla-nap (pl. válogatott szünet,
-        // nincs meccs a szűrt ligákban) → no_data, nem hiba.
+        // verification + gate lánc fut, VERSENYENKÉNT (S9). Üres observation-
+        // lista legitím nulla-nap → no_data, nem hiba.
         if policy.mode != SourceMode::Shadow && !observations.is_empty() {
-            // Elo-feed: nem meccs-scoped; külön materializálás.
             if observations.iter().any(|o| o.aspect == "club_elo") {
                 let elo = football_ingest::normalized::ClubEloDay::from_observations(
                     &observations,
@@ -366,27 +386,18 @@ async fn process_job(
                 let written = Canonicalizer::materialize_elo(pool, &elo).await?;
                 tracing::info!(written, "club_elo pillanatkép materializálva");
             } else {
-                // A kanonikus út az observationökből indul (forrás-független).
-                let normalized = football_ingest::normalized::NormalizedDay::from_observations(
+                let days = football_ingest::normalized::NormalizedDay::grouped_from_observations(
                     &observations,
                 )
-                .context("observationökből normalizált nap")?;
-                verify_and_publish(pool, &normalized).await?;
+                .context("observationökből normalizált napok")?;
+                for day in &days {
+                    verify_and_publish(pool, day).await?;
+                }
+                tracing::info!(competitions = days.len(), "napi versenyek materializálva");
             }
         }
 
-        // 10. Tick-zárás: ledger success, coverage done (0 observation → no_data),
-        // breaker closed, job done.
-        repo::update_ledger_outcome(
-            pool,
-            ledger_id,
-            FetchOutcome::Success,
-            Some(http_status),
-            byte_size,
-            Some(latency_ms),
-            Some(&artifact.sha256),
-        )
-        .await?;
+        // 10. Tick-zárás: coverage done (0 observation → no_data), job done.
         let coverage_state = if observations.is_empty() {
             CoverageState::NoData
         } else {
@@ -407,8 +418,7 @@ async fn process_job(
     }
     .await;
     if result.is_err() {
-        // Best-effort coverage-failed: ha ez sem megy, a hiba naplózódik,
-        // az eredeti hiba terjed tovább a tick job-záró ágába.
+        // Best-effort coverage-failed: ha ez sem megy, a hiba naplózódik.
         if let Err(cov_err) = coverage::set(
             pool,
             &job.source_slug,
@@ -425,6 +435,22 @@ async fn process_job(
         }
     }
     result
+}
+
+/// A policy min_delay-ét kivárja a jobon belüli következő kéréshez
+/// (legfeljebb 15 s); utána a kvóta-állapotot adja vissza.
+async fn wait_for_delay(pool: &PgPool, policy: &SourcePolicy) -> Result<quota::QuotaDecision> {
+    let deadline = tokio::time::Instant::now() + StdDuration::from_secs(15);
+    loop {
+        let decision = quota::guard(pool, policy, Utc::now()).await?;
+        if decision != quota::QuotaDecision::DelayBlocked {
+            return Ok(decision);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Ok(decision);
+        }
+        tokio::time::sleep(StdDuration::from_millis(250)).await;
+    }
 }
 
 /// Nem számláló ledger-sor a kapu-blokkokhoz (reserve előtt).

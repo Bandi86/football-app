@@ -848,3 +848,183 @@ async fn empty_canary_day_is_no_data_not_failure() {
     assert_eq!(ledger, "success");
     assert_eq!(count(&pool, "SELECT count(*) FROM core.match").await, 0);
 }
+
+/// S9: egy napi job több kéréssel; a parse versenyenként bontva
+/// materializál (2 verseny, 2 meccs, 2 gate), a kérések közti min_delay-t
+/// a worker kivárja.
+struct MultiDayAdapter;
+
+impl SourceAdapter for MultiDayAdapter {
+    fn meta(&self) -> AdapterMeta {
+        AdapterMeta {
+            source_slug: "multi-src".into(),
+            adapter_version: "1.0".into(),
+            parser_version: "1.0".into(),
+            domains: vec!["day".into()],
+            transport: Transport::Fixture,
+        }
+    }
+
+    fn plan(&self, _job: &FetchJob) -> Vec<FetchRequest> {
+        vec![
+            FetchRequest {
+                url: "fixture://a".into(),
+                request_key: "multi:k1".into(),
+                endpoint_key: "k1".into(),
+                ready_marker: None,
+            },
+            FetchRequest {
+                url: "fixture://b".into(),
+                request_key: "multi:k2".into(),
+                endpoint_key: "k2".into(),
+                ready_marker: None,
+            },
+        ]
+    }
+
+    fn parse(&self, _raw: &RawPayload, ctx: &ParseCtx) -> Result<Vec<Observation>, ParseError> {
+        let first = ctx.request_key == "multi:k1";
+        let (comp, country_name, code, home, away, key) = if first {
+            ("Liga A", "Hungary", "HU", "h1", "a1", "m-1")
+        } else {
+            ("Liga B", "Germany", "DE", "h2", "a2", "m-2")
+        };
+        let kickoff = format!("{}T15:00:00Z", ctx.requested_date.format("%Y-%m-%d"));
+        let day = "2026/27";
+        let captured = chrono::Utc::now();
+        let team = |id: &str, name: &str| Observation {
+            entity_kind: "team".into(),
+            aspect: "team_identity".into(),
+            natural_key: id.into(),
+            source_record_key: id.into(),
+            observed_at: captured,
+            payload: serde_json::json!({
+                "id": Uuid::now_v7().to_string(),
+                "source_entity_id": id,
+                "name": name,
+                "country_code": code,
+                "gender": "male", "age_group": "senior", "branch": "senior"
+            }),
+        };
+        Ok(vec![
+            team(home, &format!("{home} FC")),
+            team(away, &format!("{away} FC")),
+            Observation {
+                entity_kind: "match".into(),
+                aspect: "match_core".into(),
+                natural_key: key.into(),
+                source_record_key: key.into(),
+                observed_at: captured,
+                payload: serde_json::json!({
+                    "canonical_match_id": null,
+                    "source_home_id": home,
+                    "source_away_id": away,
+                    "kickoff_at": kickoff,
+                    "status": "scheduled",
+                    "result": null,
+                    "round_label": null,
+                    "competition_timezone": "UTC",
+                    "competition": {
+                        "id": null, "name": comp, "country_code": code,
+                        "country_name": country_name, "tier": 1, "priority": 50
+                    },
+                    "season": { "id": null, "label": day },
+                    "source_code": "multi-src",
+                    "captured_at": captured
+                }),
+            },
+        ])
+    }
+}
+
+#[tokio::test]
+async fn multi_request_day_job_materializes_per_competition() {
+    let pool = test_pool().await;
+    // Valós most: a jobon belüli min_delay-várakozás így értelmes
+    // (a today_noon a jövőben lehet, ami a delay-órát elrontaná).
+    let now = Utc::now();
+    let store_dir = tempfile::tempdir().unwrap();
+    let store = ObjectStore::new(store_dir.path()).unwrap();
+    let fetch_dir = tempfile::tempdir().unwrap();
+    let a = fetch_dir.path().join("a.json");
+    let b = fetch_dir.path().join("b.json");
+    std::fs::write(&a, b"{\"page\":\"a\"}").unwrap();
+    std::fs::write(&b, b"{\"page\":\"b\"}").unwrap();
+    let fetchers = as_fetchers(FixtureFetcher::new(HashMap::from([
+        ("multi:k1".to_string(), a),
+        ("multi:k2".to_string(), b),
+    ])));
+    repo::upsert_policy(
+        &pool,
+        &SourcePolicy {
+            source_slug: "multi-src".into(),
+            transport: Transport::Fixture,
+            mode: SourceMode::Canary,
+            daily_budget: 10,
+            min_delay_ms: 100,
+            jitter_ms: 0,
+            breaker_threshold: 3,
+            breaker_cooldown_secs: 60,
+            adapter_version: "1.0".into(),
+            parser_version: "1.0".into(),
+            domains: vec!["day".into()],
+            events: vec![],
+            enabled: true,
+            max_bytes: 1_048_576,
+        },
+    )
+    .await
+    .unwrap();
+    repo::insert_job(
+        &pool,
+        &repo::NewJob {
+            source_slug: "multi-src".into(),
+            domain: "day".into(),
+            entity_key: "all".into(),
+            event_type: "discovery".into(),
+            time_window: now.date_naive().to_string(),
+            due_at: now - Duration::minutes(1),
+            priority: 10,
+        },
+    )
+    .await
+    .unwrap();
+
+    let adapters: HashMap<String, Box<dyn SourceAdapter>> = HashMap::from([(
+        "multi-src".to_string(),
+        Box::new(MultiDayAdapter) as Box<dyn SourceAdapter>,
+    )]);
+    let outcome = tick::tick(&pool, &store, &fetchers, &adapters, Uuid::now_v7(), now)
+        .await
+        .unwrap();
+    assert_eq!(outcome.processed, 1);
+    assert_eq!(outcome.failed, 0);
+    assert_eq!(outcome.blocked, 0);
+
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM core.competition").await,
+        2
+    );
+    assert_eq!(count(&pool, "SELECT count(*) FROM core.match").await, 2);
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM ops.publish_gate").await,
+        2
+    );
+    assert_eq!(
+        count(
+            &pool,
+            "SELECT count(*) FROM ops.fetch_ledger WHERE outcome='success'"
+        )
+        .await,
+        2
+    );
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM stage.observation").await,
+        6
+    );
+    let coverage: String = sqlx::query_scalar("SELECT state FROM ops.coverage_slot")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(coverage, "done");
+}
