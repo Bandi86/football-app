@@ -387,8 +387,8 @@ fn classifies_unknown_women_and_cup_groups() {
         .find(|o| o.aspect == "team_identity" && o.payload["source_entity_id"] == "CodeK001")
         .unwrap();
     assert_eq!(
-        cup_team.payload["country_code"], "",
-        "kupában a csapat-ország ismeretlen"
+        cup_team.payload["country_code"], "HU",
+        "hazai kupa: a csapat-ország a verseny országa"
     );
 }
 
@@ -457,4 +457,71 @@ fn international_teams_get_country_and_youth_gender_hints() {
     assert_eq!(spain["country_code"], "ES");
     assert_eq!(spain["gender"], "female");
     assert_eq!(spain["branch"], "women");
+}
+
+/// S9: angol zászló-nevek országot adnak; a kontinens-zászló nemzetközi
+/// versenyt jelez (a csapatnév ország).
+#[test]
+fn english_flags_and_continent_flags_classify_teams() {
+    let body = format!(
+        "{}{}{}{}",
+        header_full("peru/liga-1", "Liga 1 - Clausura", "Peru"),
+        row(
+            "p1",
+            "",
+            "cajamarca",
+            "CodeP001",
+            "Cajamarca",
+            "cusco",
+            "CodeP002",
+            "Cusco",
+            None,
+            Some("20:00"),
+            None,
+            None
+        ),
+        header_full("europa/elite-league-u20", "Elite League U20", "Europe"),
+        row(
+            "e1",
+            "",
+            "czech-u20",
+            "CodeE001",
+            "Czech Republic U20",
+            "england-u20",
+            "CodeE002",
+            "England U20",
+            None,
+            Some("18:00"),
+            None,
+            None
+        ),
+    );
+    let adapter = SoccerwayAdapter::default();
+    let obs = adapter
+        .parse(&raw(&page(&body)), &ctx("2026-11-14"))
+        .unwrap();
+    let match_payload = |key: &str| {
+        obs.iter()
+            .find(|o| o.aspect == "match_core" && o.source_record_key == format!("soccerway-{key}"))
+            .unwrap()
+            .payload
+            .clone()
+    };
+    let team = |code: &str| {
+        obs.iter()
+            .find(|o| o.aspect == "team_identity" && o.payload["source_entity_id"] == code)
+            .unwrap()
+            .payload
+            .clone()
+    };
+
+    let peru = match_payload("p1");
+    assert_eq!(peru["competition"]["country_code"], "PE");
+    assert_eq!(team("CodeP001")["country_code"], "PE");
+
+    let czech = team("CodeE001");
+    assert_eq!(czech["country_code"], "CZ");
+    assert_eq!(czech["branch"], "youth");
+    let england = team("CodeE002");
+    assert_eq!(england["country_code"], "GB");
 }

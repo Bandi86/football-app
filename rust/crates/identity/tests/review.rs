@@ -481,3 +481,38 @@ async fn approve_create_pending_batches_all_pending_rows() {
             .unwrap();
     assert_eq!(pending, 0, "minden pending sor lezárva");
 }
+
+/// Ország nélküli kontextus: szigorúan hiba, explicit engedéllyel NULL
+/// országú csapat jön létre (őszinte hiány, nincs találgatás).
+#[tokio::test]
+async fn approve_create_with_allows_missing_country() {
+    let pool = test_pool().await;
+    let source_id = seed_source(&pool, "demo-synthetic").await;
+    let queue_id = pending_queue(
+        &pool,
+        source_id,
+        "rev-nocountry",
+        &IdentityContext::default(),
+    )
+    .await;
+
+    let strict = review::approve_create(&pool, queue_id, "cli", None).await;
+    assert!(strict.is_err(), "ország nélkül szigorúan hiba");
+
+    let entity_id =
+        review::approve_create_with(&pool, queue_id, "cli", Some("ország nélkül"), true)
+            .await
+            .unwrap();
+    let country: Option<Uuid> = sqlx::query_scalar("SELECT country_id FROM core.team WHERE id=$1")
+        .bind(entity_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(country.is_none(), "NULL ország");
+    let status: String = sqlx::query_scalar("SELECT status FROM identity.review_queue WHERE id=$1")
+        .bind(queue_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "approved");
+}

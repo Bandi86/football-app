@@ -136,6 +136,18 @@ pub async fn approve_create(
     decided_by: &str,
     note: Option<&str>,
 ) -> Result<Uuid, IdentityError> {
+    approve_create_with(pool, queue_id, decided_by, note, false).await
+}
+
+/// Mint `approve_create`, de `allow_missing_country` esetén az ország nélküli
+/// kontextusú csapat **NULL országgal** jön létre (őszinte hiány, nem találgatás).
+pub async fn approve_create_with(
+    pool: &PgPool,
+    queue_id: Uuid,
+    decided_by: &str,
+    note: Option<&str>,
+    allow_missing_country: bool,
+) -> Result<Uuid, IdentityError> {
     let row = load_pending(pool, queue_id).await?;
     let source_id = row.source_id.ok_or(IdentityError::InvalidInput(
         "A review-sorhoz nem tartozik forrás, kézi döntés nem lehetséges.".into(),
@@ -157,28 +169,36 @@ pub async fn approve_create(
 
     if row.entity_kind == "team" {
         let ctx = context_from_json(&row.context);
-        let country_code = ctx.country_code.as_deref().ok_or_else(|| {
-            IdentityError::InvalidInput(
-                "a review-sor kontextusában nincs ország; a csapat nem hozható létre".into(),
-            )
-        })?;
-        // Ismeretlen országkódnál az entitás-létrehozás pótolja a kanonikus
-        // sort (a megjelenítési név később finomítható).
-        let country_id: Uuid = match sqlx::query_scalar("SELECT id FROM core.country WHERE code=$1")
-            .bind(country_code)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(|e| IdentityError::Db(e.to_string()))?
-        {
-            Some(id) => id,
-            None => sqlx::query_scalar(
-                "INSERT INTO core.country (id, code, name) VALUES ($1,$2,$2) RETURNING id",
-            )
-            .bind(Uuid::now_v7())
-            .bind(country_code)
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(|e| IdentityError::Db(e.to_string()))?,
+        let country_id: Option<Uuid> = match ctx.country_code.as_deref() {
+            Some(country_code) => {
+                // Ismeretlen országkódnál az entitás-létrehozás pótolja a
+                // kanonikus sort (a megjelenítési név később finomítható).
+                match sqlx::query_scalar("SELECT id FROM core.country WHERE code=$1")
+                    .bind(country_code)
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .map_err(|e| IdentityError::Db(e.to_string()))?
+                {
+                    Some(id) => Some(id),
+                    None => Some(
+                        sqlx::query_scalar(
+                            "INSERT INTO core.country (id, code, name)
+                             VALUES ($1,$2,$2) RETURNING id",
+                        )
+                        .bind(Uuid::now_v7())
+                        .bind(country_code)
+                        .fetch_one(&mut *tx)
+                        .await
+                        .map_err(|e| IdentityError::Db(e.to_string()))?,
+                    ),
+                }
+            }
+            None if allow_missing_country => None,
+            None => {
+                return Err(IdentityError::InvalidInput(
+                    "a review-sor kontextusában nincs ország; a csapat nem hozható létre".into(),
+                ));
+            }
         };
         sqlx::query(
             "INSERT INTO core.team
@@ -233,13 +253,29 @@ pub async fn approve_create_pending(
     pool: &PgPool,
     decided_by: &str,
 ) -> Result<(Vec<(Uuid, Uuid)>, Vec<(Uuid, String)>), IdentityError> {
+    approve_create_pending_with(pool, decided_by, false).await
+}
+
+pub async fn approve_create_pending_with(
+    pool: &PgPool,
+    decided_by: &str,
+    allow_missing_country: bool,
+) -> Result<(Vec<(Uuid, Uuid)>, Vec<(Uuid, String)>), IdentityError> {
     let rows = repo::list_reviews(pool, Some("pending"))
         .await
         .map_err(db_err)?;
     let mut approved = Vec::new();
     let mut failed = Vec::new();
     for row in rows {
-        match approve_create(pool, row.id, decided_by, Some("bootstrap batch")).await {
+        match approve_create_with(
+            pool,
+            row.id,
+            decided_by,
+            Some("bootstrap batch"),
+            allow_missing_country,
+        )
+        .await
+        {
             Ok(entity_id) => approved.push((row.id, entity_id)),
             Err(err) => failed.push((row.id, err.to_string())),
         }

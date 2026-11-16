@@ -242,6 +242,9 @@ struct GroupMeta {
     branch: &'static str,
     /// A csapatok országa ebben a csoportban ("" = ismeretlen, pl. kupa).
     team_country: String,
+    /// Nemzetközi verseny (kontinens/világ zászló vagy kulcsszó) — a
+    /// csapatnevek ekkor országnevek.
+    international: bool,
 }
 
 /// Lokalizált országnév → (ISO, angol név). Ismeretlen → None (fail-open
@@ -310,6 +313,34 @@ fn country_by_title(title: &str) -> Option<(&'static str, &'static str)> {
         ("algéria", "DZ", "Algeria"),
         ("tunézia", "TN", "Tunisia"),
         ("dél-afrika", "ZA", "South Africa"),
+        ("antigua & barbuda", "AG", "Antigua and Barbuda"),
+        ("antigua and barbuda", "AG", "Antigua and Barbuda"),
+        ("argentina", "AR", "Argentina"),
+        ("aruba", "AW", "Aruba"),
+        ("brazil", "BR", "Brazil"),
+        ("cameroon", "CM", "Cameroon"),
+        ("chile", "CL", "Chile"),
+        ("colombia", "CO", "Colombia"),
+        ("dr congo", "CD", "DR Congo"),
+        ("england", "GB", "England"),
+        ("germany", "DE", "Germany"),
+        ("greece", "GR", "Greece"),
+        ("hong kong", "HK", "Hong Kong"),
+        ("india", "IN", "India"),
+        ("iran", "IR", "Iran"),
+        ("italy", "IT", "Italy"),
+        ("kosovo", "XK", "Kosovo"),
+        ("mali", "ML", "Mali"),
+        ("mexico", "MX", "Mexico"),
+        ("nigeria", "NG", "Nigeria"),
+        ("peru", "PE", "Peru"),
+        ("portugal", "PT", "Portugal"),
+        ("serbia", "RS", "Serbia"),
+        ("slovakia", "SK", "Slovakia"),
+        ("spain", "ES", "Spain"),
+        ("ukraine", "UA", "Ukraine"),
+        ("uruguay", "UY", "Uruguay"),
+        ("venezuela", "VE", "Venezuela"),
     ];
     pairs
         .iter()
@@ -407,6 +438,98 @@ fn country_by_english(name: &str) -> Option<(&'static str, &'static str)> {
         ("ivory coast", "CI", "Ivory Coast"),
         ("mali", "ML", "Mali"),
         ("kenya", "KE", "Kenya"),
+        ("bermuda", "BM", "Bermuda"),
+        ("cuba", "CU", "Cuba"),
+        ("grenada", "GD", "Grenada"),
+        ("guadeloupe", "GP", "Guadeloupe"),
+        ("guyana", "GY", "Guyana"),
+        ("tonga", "TO", "Tonga"),
+        ("benin", "BJ", "Benin"),
+        ("central africa", "CF", "Central African Republic"),
+        ("equatorial guinea", "GQ", "Equatorial Guinea"),
+        ("eritrea", "ER", "Eritrea"),
+        ("guinea", "GN", "Guinea"),
+        ("eswatini", "SZ", "Eswatini"),
+        ("gambia", "GM", "Gambia"),
+        ("guinea-bissau", "GW", "Guinea-Bissau"),
+        ("mauritania", "MR", "Mauritania"),
+        ("sierra leone", "SL", "Sierra Leone"),
+        ("togo", "TG", "Togo"),
+        ("zambia", "ZM", "Zambia"),
+        ("angola", "AO", "Angola"),
+        ("mozambique", "MZ", "Mozambique"),
+        ("madagascar", "MG", "Madagascar"),
+        ("comoros", "KM", "Comoros"),
+        ("cape verde", "CV", "Cape Verde"),
+        ("burkina faso", "BF", "Burkina Faso"),
+        ("gabon", "GA", "Gabon"),
+        ("congo", "CG", "Congo"),
+        ("south sudan", "SS", "South Sudan"),
+        ("sudan", "SD", "Sudan"),
+        ("liberia", "LR", "Liberia"),
+        ("niger", "NE", "Niger"),
+        ("chad", "TD", "Chad"),
+        ("rwanda", "RW", "Rwanda"),
+        ("burundi", "BI", "Burundi"),
+        ("ethiopia", "ET", "Ethiopia"),
+        ("uganda", "UG", "Uganda"),
+        ("tanzania", "TZ", "Tanzania"),
+        ("malawi", "MW", "Malawi"),
+        ("zimbabwe", "ZW", "Zimbabwe"),
+        ("botswana", "BW", "Botswana"),
+        ("namibia", "NA", "Namibia"),
+        ("lesotho", "LS", "Lesotho"),
+        ("seychelles", "SC", "Seychelles"),
+        ("somalia", "SO", "Somalia"),
+        ("indonesia", "ID", "Indonesia"),
+        ("kyrgyzstan", "KG", "Kyrgyzstan"),
+        ("uzbekistan", "UZ", "Uzbekistan"),
+        ("tajikistan", "TJ", "Tajikistan"),
+        ("turkmenistan", "TM", "Turkmenistan"),
+        ("thailand", "TH", "Thailand"),
+        ("vietnam", "VN", "Vietnam"),
+        ("malaysia", "MY", "Malaysia"),
+        ("singapore", "SG", "Singapore"),
+        ("philippines", "PH", "Philippines"),
+        ("india", "IN", "India"),
+        ("iraq", "IQ", "Iraq"),
+        ("saudi arabia", "SA", "Saudi Arabia"),
+        ("qatar", "QA", "Qatar"),
+        ("united arab emirates", "AE", "United Arab Emirates"),
+        ("oman", "OM", "Oman"),
+        ("bahrain", "BH", "Bahrain"),
+        ("kuwait", "KW", "Kuwait"),
+        ("jordan", "JO", "Jordan"),
+        ("lebanon", "LB", "Lebanon"),
+        ("syria", "SY", "Syria"),
+        ("palestine", "PS", "Palestine"),
+        ("puerto rico", "PR", "Puerto Rico"),
+        ("haiti", "HT", "Haiti"),
+        ("trinidad & tobago", "TT", "Trinidad and Tobago"),
+        ("trinidad and tobago", "TT", "Trinidad and Tobago"),
+        ("suriname", "SR", "Suriname"),
+        ("dominica", "DM", "Dominica"),
+        ("dominican republic", "DO", "Dominican Republic"),
+        (
+            "st. vincent & grenadines",
+            "VC",
+            "St. Vincent and the Grenadines",
+        ),
+        ("st. lucia", "LC", "St. Lucia"),
+        ("st. kitts & nevis", "KN", "St. Kitts and Nevis"),
+        ("montserrat", "MS", "Montserrat"),
+        ("bahamas", "BS", "Bahamas"),
+        ("barbados", "BB", "Barbados"),
+        ("belize", "BZ", "Belize"),
+        ("costa rica", "CR", "Costa Rica"),
+        ("el salvador", "SV", "El Salvador"),
+        ("guatemala", "GT", "Guatemala"),
+        ("honduras", "HN", "Honduras"),
+        ("jamaica", "JM", "Jamaica"),
+        ("nicaragua", "NI", "Nicaragua"),
+        ("panama", "PA", "Panama"),
+        ("curacao", "CW", "Curacao"),
+        ("aruba", "AW", "Aruba"),
     ];
     let key = name.trim().to_lowercase();
     pairs
@@ -453,6 +576,29 @@ fn team_hints(name: &str) -> (String, bool, bool) {
         base.push(token);
     }
     (base.join(" "), youth, women)
+}
+
+/// Kontinens/világ zászló → nemzetközi verseny (a csapatnév ország).
+fn is_continent_flag(title: &str) -> bool {
+    let key = title.trim().to_lowercase();
+    [
+        "europe",
+        "európa",
+        "africa",
+        "afrika",
+        "world",
+        "világ",
+        "north & central america",
+        "north america",
+        "south america",
+        "asia",
+        "ázsia",
+        "oceania",
+        "óceánia",
+        "international",
+    ]
+    .iter()
+    .any(|needle| key.contains(needle))
 }
 
 fn is_cup(text: &str) -> bool {
@@ -513,6 +659,7 @@ impl SoccerwayAdapter {
                 gender,
                 branch,
                 team_country: known.country_code.clone(),
+                international: false,
             };
         }
         let cup = is_cup(&haystack);
@@ -541,11 +688,14 @@ impl SoccerwayAdapter {
             branch,
             // Kupában/nemzetköziben a csapat-ország a versenyből nem
             // következik (a meccs két különböző országból is jöhet).
-            team_country: if cup || country_code.is_empty() {
+            // Hazai kupa csapatai ugyanabból az országból jönnek; csak a
+            // kontinens/nemzetközi zászló esetén ismeretlen a csapat-ország.
+            team_country: if country_code.is_empty() {
                 String::new()
             } else {
                 country_code.to_string()
             },
+            international: is_continent_flag(flag_title) || is_international(&haystack),
         }
     }
 }
@@ -774,7 +924,7 @@ impl SourceAdapter for SoccerwayAdapter {
             let comp_haystack = group.name.to_lowercase();
             // Nemzetközi meccsen a csapatnév ország-név (nemzeti csapat);
             // hazai ligában a csoport országa érvényes.
-            let country = if is_international(&comp_haystack) {
+            let country = if group.international || is_international(&comp_haystack) {
                 country_by_english(&base_name)
                     .map(|(cc, _)| cc.to_string())
                     .unwrap_or_default()

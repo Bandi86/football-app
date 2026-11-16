@@ -186,3 +186,30 @@
   miatt; holnap már 1–2 fetch. A `footballctl` binárist mindig
   `--features obscura`-val kell építeni (különben a Soccerway-job
   `transport hiba`).
+
+### Zászló-térkép bővítés + a maradék 116 review feloldása
+
+- [x] A tárolt nyers oldalból (offline) kiolvasott zászló-nevek alapján a
+      `country_by_title` **angol országnevekkel** bővült (Argentina, Peru,
+      DR Congo, Ukraine, …); a kontinens/világ zászló (Europe, Africa,
+      World, North & Central America) mostantól a **nemzetközi meccs**
+      jelzője (a csapatnév ország-név).
+- [x] Javítás: **hazai kupáknál** a csapat-ország a verseny országa
+      (korábban üres volt) — csak kontinens-zászlónál marad ismeretlen.
+- [x] A nemzeti-csapat névtábla bővítve (CONCACAF/Afrika/Ázsia: Bermuda,
+      Cuba, Benin, Eswatini, Indonesia, Kyrgyzstan, Uzbekistan, Somalia…).
+- [x] `approve-create-all --allow-unknown-country`: ország nélküli
+      kontextusnál **NULL országgal** hoz létre (őszinte hiány) — ezzel a
+      maradék sor is lezárható; alapból továbbra is szigorú.
+- [x] Eredmény: **116 sor jóváhagyva** (115 országgal, 1 NULL:
+      Auckland City U23), **0 pending** review; összesen 269 approved.
+- [x] A nap újrafuttatása: **85 kanonikus meccs** (2026-11-16), mind
+      `verified_publish`, 15+ versenyből (Friendly International, Africa
+      Cup-selejtező, Kings Cup, Baller League, Persha Liga, Liga 1 Peru,
+      Super League 2, Premier League Cup/U22, Liga MX Women, …).
+- [x] Kliens: „Minden verseny" nézet 85 meccset mutat (81 következik,
+      1 élő, 3 befejezett); nemzetközi felirat „NEMZETKÖZI · KUPA";
+      alapnézet visszaállítva kiemelt körre.
+- [x] Napi keret visszaállítva 6-ra; az agent a friss binárissal fut.
+- [x] Záró kapu: foundation 0, workspace 74 csoport zöld, clippy/fmt
+      tiszta, app 18 teszt zöld, teszt-DB resetelve.

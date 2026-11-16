@@ -95,7 +95,12 @@ enum IdentityAction {
         note: Option<String>,
     },
     /// Minden pending review-sor batch jóváhagyása új entitással (bootstrap).
-    ApproveCreateAll,
+    ApproveCreateAll {
+        /// Ország nélküli kontextusú csapatot NULL országgal hoz létre
+        /// (őszinte hiány; alapból az ilyen sorok pending maradnak).
+        #[arg(long)]
+        allow_unknown_country: bool,
+    },
     Reject {
         id: Uuid,
         #[arg(long)]
@@ -440,9 +445,15 @@ async fn identity_command(pool: &sqlx::PgPool, action: IdentityAction) -> Result
             football_identity::review::approve(pool, id, entity, "cli", note.as_deref()).await?;
             println!("jóváhagyva: {id} → {entity}");
         }
-        IdentityAction::ApproveCreateAll => {
-            let (approved, failed) =
-                football_identity::review::approve_create_pending(pool, "cli").await?;
+        IdentityAction::ApproveCreateAll {
+            allow_unknown_country,
+        } => {
+            let (approved, failed) = football_identity::review::approve_create_pending_with(
+                pool,
+                "cli",
+                allow_unknown_country,
+            )
+            .await?;
             println!(
                 "batch approve-create: {} jóváhagyva, {} hiba",
                 approved.len(),
