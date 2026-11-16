@@ -19,7 +19,7 @@ INSERT INTO ops.source_policy
    domains, events, enabled, max_bytes)
 VALUES
   ('footballdata', 'rust_http', 'canary', 10, 2000, 1000, 3, 60, '1.0', '1.0',
-   ARRAY['e0','sp1','i1','d1','f1'],
+   '["day"]'::jsonb,  -- S9: egy napi job, ligánként 1 kérés (5 CSV)
    ARRAY['{"event_type":"discovery","offset_minutes":null,"interval_minutes":1440}'::jsonb],
    true, 10485760)
 ON CONFLICT (source_slug) DO UPDATE SET
@@ -49,8 +49,9 @@ linker az első körben review-sorokat nyit, a meccsek kimaradnak:
 
 ## 3. Napi működés
 
-- A policy `discovery` eventje naponta generál egy jobot ligánként
-  (`domains`: e0…f1) → 5 CSV-kérés/nap, 2 s delay + jitter.
+- A policy `discovery` eventje naponta **egy jobot** generál (`day`); a
+  job 5 CSV-kérést tartalmaz (ligánként egy), a worker a kérések között
+  kivárja a 2 s delay-t — 5 CSV-kérés/nap, egy coverage-slot.
 - Robots: a worker robots-kapuja a valódi robots.txt-t ellenőrzi
   (a robots-kérés nem számít a büdzsébe, S3a).
 - Hiba: 429 → Retry-After szerinti requeue; átmeneti hiba → exponenciális

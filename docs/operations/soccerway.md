@@ -39,8 +39,10 @@ a meccs-eredmény a 90 perces FT-konvenciót követi, ET/pens `decided_by`-jel.
 - **Decoy-200:** a Soccerway ismételt gyors kérések után 200-zal ad
   „The requested page can't be displayed" hiboldalt (`404_page`
   dataLayer). A parser `DecoyDetected`-del fail-closed elutasítja.
-- **Egy job = egy liga:** a napi oldalon minden verseny szerepel; a
-  parser a `domain` (liga-slug) csoportjára szűr.
+- **Egy job = egy nap (S9):** a napi oldalon minden verseny szerepel; a
+  parser MINDEN csoportot besorol (ország/liga/kupa + női/utánpótlás) és
+  versenyenként materializál. A kiemelt kör (top-5 + NB I/II) a
+  kliensben alapértelmezett szűrő, nem ingest-korlát.
 
 ## 2. Policy- és trust-seed (dev DB)
 
@@ -54,10 +56,8 @@ INSERT INTO ops.source_policy
    breaker_threshold, breaker_cooldown_secs, adapter_version, parser_version,
    domains, events, enabled, max_bytes)
 VALUES
-  ('soccerway', 'obscura', 'canary', 14, 60000, 15000, 3, 120, '1.0', '1.0',
-   '["anglia/premier-league","spanyolorszag/laliga","olaszorszag/serie-a",
-     "nemetorszag/bundesliga","franciaorszag/ligue-1",
-     "magyarorszag/nb-i","magyarorszag/nb-ii"]'::jsonb,
+  ('soccerway', 'obscura', 'canary', 6, 60000, 15000, 3, 120, '1.0', '2.0',
+   '["day"]'::jsonb,
    '[{"event_type":"discovery","offset_minutes":null,"interval_minutes":1440}]'::jsonb,
    false, 26214400)
 ON CONFLICT (source_slug) DO UPDATE SET
@@ -77,8 +77,8 @@ elérhető `tools/obscura/obscura` bináris (lásd [obscura.md](obscura.md)).
 ## 3. Terhelés és cooldown
 
 - A Soccerway oldal ismételt, gyors renderelésre **elakad vagy 200-as
-  hiboldalt ad** — ezért 60 s + 15 s jitter min_delay, napi 14 kérés
-  (7 liga), 120 s breaker-cooldown.
+  hiboldalt ad** — ezért 60 s + 15 s jitter min_delay, napi 6 kérés
+  (ma + tegnap ablak), 120 s breaker-cooldown.
 - A kliens-oldali lista miatt egy render 10–45 s; a worker fetch-timeoutja
   **60 s** (2026-11-15 óta; a 30 s-os plafon élőben levágta a lassú
   rendereket). Három egymás utáni fetch-hiba (timeout/transport) nyitja a
