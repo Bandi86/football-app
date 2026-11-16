@@ -118,7 +118,7 @@ impl SourceAdapter for FootballdataAdapter {
         let mut observations = Vec::new();
         let mut competition = None;
 
-        for (index, record) in reader.records().enumerate() {
+        for record in reader.records() {
             let record = record.map_err(|e| ParseError::Parse(format!("CSV sor: {e}")))?;
             let field = |i: usize| record.get(i).unwrap_or("").trim().to_string();
             let date = NaiveDate::parse_from_str(&field(c_date), "%d/%m/%Y")
@@ -169,8 +169,10 @@ impl SourceAdapter for FootballdataAdapter {
                     "home_pens": null, "away_pens": null,
                 })
             });
-            let source_match_id =
-                format!("{}-{}-{}-{}", ctx.request_key, index, home_slug, away_slug);
+            // Az observation-kulcs a meccs természetes azonosítója, NEM az
+            // ablaké: ugyanaz a forduló több napi körben is megfigyelhető,
+            // és az ablakfüggő kulcs ablakonként új observation-t gyártana.
+            let source_match_id = format!("footballdata-{}-{}-{}", date, home_slug, away_slug);
             let season = serde_json::json!({ "id": null, "label": "2026/27" });
             observations.push(Observation {
                 entity_kind: "match".into(),

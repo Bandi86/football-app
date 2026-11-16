@@ -99,3 +99,26 @@ fn missing_required_column_is_schema_drift() {
     let msg = format!("{err}");
     assert!(msg.contains("hiányzó CSV-oszlop"), "üzenet: {msg}");
 }
+
+/// Az observation-kulcs a meccshez kötött, nem az ablakhoz: két különböző
+/// napi körben (különböző request_key) ugyanazok a kulcsok jönnek.
+#[test]
+fn observation_keys_are_independent_of_the_time_window() {
+    let keys = |date: &str| -> Vec<String> {
+        let mut values: Vec<String> = parse(ctx(date))
+            .into_iter()
+            .filter(|o| o.aspect == "match_core")
+            .map(|o| o.source_record_key)
+            .collect();
+        values.sort();
+        values
+    };
+    let first = keys("2026-11-21");
+    let second = keys("2026-11-19");
+    assert_eq!(first, second, "az ablak nem változtathatja meg a kulcsot");
+    assert!(
+        first
+            .iter()
+            .all(|k| k.starts_with("footballdata-2026-11-2"))
+    );
+}

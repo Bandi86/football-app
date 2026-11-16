@@ -42,11 +42,12 @@
 
 ## Megfigyelések (nem blokkoló)
 
-1. A footballdata `source_record_key` tartalmazza a `time_window`-t
-   (`footballdata:e0:2026-11-15-96-...`), ezért ugyanaz a meccs
-   ablakonként más observation-kulcsot kap; a kanonikus azonosítás
-   natural key alapú, így adatromlás nincs, de az observation-ök
-   száma ablakonként nő (audit-torzítás jellegű). Későbbi szelet.
+1. [x] **Javítva:** a footballdata `source_record_key` tartalmazta a
+   `time_window`-t, ezért ugyanaz a meccs ablakonként más
+   observation-kulcsot kapott. Az új kulcs meccshez kötött
+   (`footballdata-<dátum>-<home>-<away>`), regressziós teszttel
+   (két különböző napi kör azonos kulcsokat ad). A meglévő stage-sorok
+   történelmi kulcsai megmaradnak; kanonikus hatás nincs.
 2. A Soccerway mai renderjei ~1,2 MB-osak (tegnap 2,2–3,1 MB) — a
    kisebb nap-oldal (kevesebb meccs), a marker-várakozás és a
    dátum-guard így is végigfutott.
