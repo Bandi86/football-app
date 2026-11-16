@@ -14,6 +14,7 @@ struct HomeView: View {
     @State private var country: String? = nil
     @State private var division: Int? = nil
     @State private var tab: AppTab = .day
+    @State private var featuredOnly = true
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
@@ -54,6 +55,7 @@ struct HomeView: View {
             )
 
             FilterBar(filter: $filter, country: $country, division: $division,
+                      featuredOnly: $featuredOnly,
                       counts: filterCounts, countries: allCountries)
 
             content
@@ -68,7 +70,12 @@ struct HomeView: View {
                 .controlSize(.large)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .loaded(let feed):
-            MatchListView(leagues: filteredLeagues(feed.matches), logos: model.logos)
+            let leagues = filteredLeagues(feed.matches)
+            if leagues.isEmpty, featuredOnly, !groups(feed.matches, featured: false).isEmpty {
+                featuredEmptyHint
+            } else {
+                MatchListView(leagues: leagues, logos: model.logos)
+            }
         case .empty:
             EmptyStateView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -88,11 +95,30 @@ struct HomeView: View {
         return nil
     }
 
-    private func baseGroups(_ matches: [DayMatch]) -> [LeagueGroup] {
+    private var featuredEmptyHint: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "star")
+                .font(.largeTitle)
+                .foregroundStyle(AppTheme.secondaryText)
+            Text("A kiemelt körben nincs meccs ezen a napon.")
+                .foregroundStyle(AppTheme.secondaryText)
+            Button("Minden verseny mutatása") { featuredOnly = false }
+                .buttonStyle(.borderedProminent)
+                .tint(AppTheme.accent)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func groups(_ matches: [DayMatch], featured: Bool) -> [LeagueGroup] {
         LeagueGroup.fromDay(matches).filter { league in
+            (!featured || league.priority <= 10) &&
             (country == nil || league.country == country) &&
             (division == nil || league.tier == division)
         }
+    }
+
+    private func baseGroups(_ matches: [DayMatch]) -> [LeagueGroup] {
+        groups(matches, featured: featuredOnly)
     }
 
     private var allCountries: [String] {
@@ -366,6 +392,7 @@ private struct FilterBar: View {
     @Binding var filter: MatchFilter
     @Binding var country: String?
     @Binding var division: Int?
+    @Binding var featuredOnly: Bool
     let counts: [MatchFilter: Int]
     let countries: [String]
 
@@ -382,6 +409,29 @@ private struct FilterBar: View {
             }
 
             Spacer()
+
+            Button {
+                featuredOnly.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: featuredOnly ? "star.fill" : "star")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(featuredOnly ? "Kiemelt kör" : "Minden verseny")
+                        .font(.system(size: 12.5, weight: .medium))
+                }
+                .foregroundStyle(featuredOnly ? AppTheme.accent : AppTheme.secondaryText)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(
+                    (featuredOnly ? AppTheme.accent.opacity(0.12) : AppTheme.surface),
+                    in: Capsule()
+                )
+                .overlay(Capsule().strokeBorder(AppTheme.hairline))
+            }
+            .buttonStyle(.plain)
+            .help(featuredOnly
+                  ? "A kiemelt kör látszik (top-5 + NB I/II). Kattints a teljes naphoz."
+                  : "Minden beolvasott verseny látszik. Kattints a kiemelt körhöz.")
 
             Menu {
                 Button("Minden ország") { country = nil }

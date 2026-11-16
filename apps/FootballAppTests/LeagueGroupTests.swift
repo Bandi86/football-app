@@ -70,4 +70,26 @@ final class LeagueGroupTests: XCTestCase {
         XCTAssertEqual(display.name, "Ismeretlen ország")
         XCTAssertEqual(display.flag, "🏳️")
     }
+
+    func testFeaturedFilterKeepsOnlyPriorityTenOrLess() throws {
+        let matches = try decode("""
+        {"date":"2026-11-11","timezone":"Europe/Budapest","matches":[
+          {"id":"00000000-0000-0000-0000-000000000011","kickoff_at":"2026-11-11T18:00:00Z",
+           "status":"scheduled","home":"A","away":"B","home_score":null,"away_score":null,
+           "publish_state":"verified_publish","blockers":[],
+           "competition_id":"00000000-0000-0000-0000-0000000000b1","competition_name":"Premier League",
+           "country_code":"GB","country_name":"England","tier":1,"priority":6},
+          {"id":"00000000-0000-0000-0000-000000000012","kickoff_at":"2026-11-11T16:00:00Z",
+           "status":"scheduled","home":"C","away":"D","home_score":null,"away_score":null,
+           "publish_state":"verified_publish","blockers":[],
+           "competition_id":"00000000-0000-0000-0000-0000000000b2","competition_name":"Liga X",
+           "country_code":"ES","country_name":"Spanyolország","tier":1,"priority":50}
+        ]}
+        """)
+        let groups = LeagueGroup.fromDay(matches)
+        XCTAssertEqual(groups.count, 2)
+        let featured = LeagueGroup.featured(groups)
+        XCTAssertEqual(featured.count, 1)
+        XCTAssertEqual(featured[0].name, "Premier League")
+    }
 }

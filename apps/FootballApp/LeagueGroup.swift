@@ -48,6 +48,11 @@ struct LeagueGroup: Identifiable {
                            tier: tier, priority: priority, matches: kept)
     }
 
+    /// Kiemelt kör: a top-5 + NB I/II (priority ≤ 10) versenyei.
+    static func featured(_ groups: [LeagueGroup]) -> [LeagueGroup] {
+        groups.filter { $0.priority <= 10 }
+    }
+
     static func fromDay(_ matches: [DayMatch]) -> [LeagueGroup] {
         let grouped = Dictionary(grouping: matches) { $0.competitionId?.uuidString ?? "unknown" }
         return grouped.map { key, matches in
