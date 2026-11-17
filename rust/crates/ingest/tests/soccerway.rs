@@ -603,3 +603,43 @@ fn hungarian_locale_is_normalized_to_canonical_english() {
     assert_eq!(team("CodeH004")["name"], "Spain U17 W");
     assert_eq!(team("CodeH004")["gender"], "female");
 }
+
+#[test]
+fn flipped_display_row_keeps_slug_orientation_and_swaps_scores() {
+    // A meccs-URL slugja a kanonikus sorrend (iran - iraq); a megjelenített
+    // sor fordítva áll — a kód↔név páros és a pontszámok nem keveredhetnek.
+    let body = format!(
+        "{}\
+<div id=\"g_1_flip1\" class=\"event__match event__match--withRowLink event__match--twoLine\" data-event-row=\"true\">\
+<a class=\"eventRowLink\" href=\"https://www.soccerway.com/match/iran-CodeIR01/iraq-CodeIQ02/?mid=flip1\" aria-label=\"Iraq - Iran\"></a>\
+<div class=\"event__homeParticipant\" data-testid=\"wcl-matchRow-participant\"><span data-testid=\"wcl-simple-text-01\">Iraq</span></div>\
+<div class=\"event__awayParticipant\" data-testid=\"wcl-matchRow-participant\"><span data-testid=\"wcl-simple-text-01\">Iran</span></div>\
+<span class=\"event__score\" data-testid=\"wcl-tableScore\" data-side=\"1\">1</span>\
+<span class=\"event__score\" data-testid=\"wcl-tableScore\" data-side=\"2\">2</span></div>",
+        header("svajc/super-league")
+    );
+    let obs = SoccerwayAdapter::default()
+        .parse(&raw(&page(&body)), &ctx("2026-11-14"))
+        .unwrap();
+    let core = obs
+        .iter()
+        .find(|o| o.aspect == "match_core")
+        .expect("match_core");
+    assert_eq!(core.payload["source_home_id"], "CodeIR01");
+    assert_eq!(core.payload["source_away_id"], "CodeIQ02");
+    // A kijelzés szerinti 1–2 (Iraq–Iran) a slug-sorrendre fordítva: Iran 2 – Iraq 1.
+    assert_eq!(core.payload["result"]["home_ft"], 2);
+    assert_eq!(core.payload["result"]["away_ft"], 1);
+
+    let teams: Vec<_> = obs.iter().filter(|o| o.aspect == "team_identity").collect();
+    let iran = teams
+        .iter()
+        .find(|t| t.payload["source_entity_id"] == "CodeIR01")
+        .expect("iran team");
+    assert_eq!(iran.payload["name"], "Iran");
+    let iraq = teams
+        .iter()
+        .find(|t| t.payload["source_entity_id"] == "CodeIQ02")
+        .expect("iraq team");
+    assert_eq!(iraq.payload["name"], "Iraq");
+}

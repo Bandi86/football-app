@@ -110,8 +110,10 @@ fn text_of(element: &ElementRef) -> String {
 }
 
 /// A csapathivatkozás utolsó két szegmense `<slug>-<Code>`; a kód a stabil
-/// forrás-azonosító. A lokalizált útvonal-szó (pl. `merkozes`) nem számít.
-fn team_codes(href: &str) -> Option<(String, String)> {
+/// forrás-azonosító, a slug-szöveg a **kanonikus** oldalsorrendet adja (a
+/// megjelenített sor ettől eltérhet — ilyenkor a kijelzés fordítva van).
+/// A lokalizált útvonal-szó (pl. `merkozes`) nem számít.
+fn team_codes(href: &str) -> Option<(String, String, String, String)> {
     let path = href.split('?').next().unwrap_or(href);
     let mut segments = path
         .trim_end_matches('/')
@@ -119,14 +121,35 @@ fn team_codes(href: &str) -> Option<(String, String)> {
         .filter(|segment| !segment.is_empty());
     let away = segments.next()?;
     let home = segments.next()?;
-    let code = |segment: &str| -> Option<String> {
-        segment
-            .rsplit('-')
-            .next()
-            .filter(|code| code.len() >= 4)
-            .map(str::to_string)
+    let split = |segment: &str| -> Option<(String, String)> {
+        let (slug, code) = segment.rsplit_once('-')?;
+        if code.len() < 4 {
+            return None;
+        }
+        Some((slug.replace('-', " "), code.to_string()))
     };
-    Some((code(home)?, code(away)?))
+    let (home_slug, home_code) = split(home)?;
+    let (away_slug, away_code) = split(away)?;
+    Some((home_code, away_code, home_slug, away_slug))
+}
+
+/// A megjelenített oldal a slughoz képest fordítva van-e. Bizonytalan
+/// egyezésnél a megjelenítési sorrendet hagyjuk (nincs flip).
+fn display_flipped(display_home: &str, slug_home: &str, slug_away: &str) -> bool {
+    let fold = |s: &str| -> String {
+        football_domain::identity::fold_name(s)
+            .replace('&', " and ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let dh = fold(display_home);
+    let sh = fold(slug_home);
+    let sa = fold(slug_away);
+    if dh == sh {
+        return false;
+    }
+    dh == sa
 }
 
 #[derive(Debug, Default)]
@@ -575,12 +598,21 @@ impl SourceAdapter for SoccerwayAdapter {
                         .map(|rest| rest.split('&').next().unwrap_or(rest))
                 })
                 .ok_or_else(|| ParseError::SchemaDrift("meccssor mid nélkül".into()))?;
-            let (home_code, away_code) = team_codes(&href)
+            let (home_code, away_code, home_slug, away_slug) = team_codes(&href)
                 .ok_or_else(|| ParseError::SchemaDrift("csapatkód a hivatkozásból".into()))?;
-            let home_name = participant(&row, "event__homeParticipant")
+            let display_home = participant(&row, "event__homeParticipant")
                 .ok_or_else(|| ParseError::SchemaDrift("hazai csapatnév hiányzik".into()))?;
-            let away_name = participant(&row, "event__awayParticipant")
+            let display_away = participant(&row, "event__awayParticipant")
                 .ok_or_else(|| ParseError::SchemaDrift("vendég csapatnév hiányzik".into()))?;
+            // A kódok a slug (kanonikus) sorrendjében jönnek; a kijelzés
+            // fordítva is állhat — ilyenkor a nevek és a pontszámok oldalt
+            // cserélődnek, hogy a kód↔név páros ne keveredjen.
+            let flipped = display_flipped(&display_home, &home_slug, &away_slug);
+            let (home_name, away_name) = if flipped {
+                (display_away.clone(), display_home.clone())
+            } else {
+                (display_home.clone(), display_away.clone())
+            };
             teams
                 .entry(home_code.clone())
                 .or_insert_with(|| (home_name.clone(), group.clone()));
@@ -592,7 +624,11 @@ impl SourceAdapter for SoccerwayAdapter {
             let is_live = classes.contains(&"event__match--live");
             let is_scheduled = classes.contains(&"event__match--scheduled");
             let stage = row.select(&stage_selector).next().map(|e| text_of(&e));
-            let scores = parse_scores(&row);
+            let mut scores = parse_scores(&row);
+            if flipped && let Some(s) = scores.as_mut() {
+                std::mem::swap(&mut s.home, &mut s.away);
+                std::mem::swap(&mut s.home_pens, &mut s.away_pens);
+            }
 
             let (status, decided_by) = if is_live {
                 ("live", None)
@@ -794,7 +830,12 @@ mod tests {
             "https://hu.soccerway.com/merkozes/belgium-GbB957na/olaszorszag-hlKvieGH/?mid=4YNzMsxg";
         assert_eq!(
             team_codes(href),
-            Some(("GbB957na".into(), "hlKvieGH".into()))
+            Some((
+                "GbB957na".into(),
+                "hlKvieGH".into(),
+                "belgium".into(),
+                "olaszorszag".into()
+            ))
         );
     }
 }

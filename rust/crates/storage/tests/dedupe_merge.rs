@@ -360,13 +360,44 @@ async fn mirrored_pair_is_grouped_and_merged_without_result_copy() {
 }
 
 #[tokio::test]
-async fn mirrored_pair_with_result_is_refused() {
+async fn mirrored_pair_with_survivor_result_merges() {
+    // Mindkét oldalon van eredmény; a túlélőé marad (lock-first), az áldozaté
+    // az archívumba kerül — nincs elutasítás.
     let pool = test_pool().await;
     let (survivor, duplicate) = seed_mirrored(&pool, true).await;
+    assert!(is_same_match(&pool, survivor, duplicate).await.unwrap());
+    merge_duplicate(&pool, survivor, duplicate, "tükör eredménnyel")
+        .await
+        .unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM core.match")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+    let survivor_has: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM core.match_result WHERE match_id=$1)")
+            .bind(survivor)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(survivor_has, "a túlélő eredménye megmarad");
+}
+
+#[tokio::test]
+async fn mirrored_pair_with_only_victim_result_is_refused() {
+    let pool = test_pool().await;
+    // Áldozatnál van eredmény, túlélőnél nincs → az eredmény elveszne.
+    let (survivor, duplicate) = seed_mirrored(&pool, false).await;
+    sqlx::query("INSERT INTO core.match_result (match_id, home_ft, away_ft) VALUES ($1,1,0)")
+        .bind(duplicate)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(!is_same_match(&pool, survivor, duplicate).await.unwrap());
     let err = merge_duplicate(&pool, survivor, duplicate, "tiltott tükör")
         .await
         .unwrap_err();
-    assert!(format!("{err:#}").contains("tükrözött"), "{err:#}");
+    assert!(format!("{err:#}").contains("elveszne"), "{err:#}");
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM core.match")
         .fetch_one(&pool)
         .await

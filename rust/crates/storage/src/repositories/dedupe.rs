@@ -117,9 +117,10 @@ pub async fn is_same_match(pool: &PgPool, survivor: Uuid, duplicate: Uuid) -> Re
                  OR (
                    s.home_team_id = d.away_team_id
                    AND s.away_team_id = d.home_team_id
-                   AND NOT EXISTS (
-                       SELECT 1 FROM core.match_result r
-                        WHERE r.match_id IN (s.id, d.id))
+                   AND (
+                     EXISTS (SELECT 1 FROM core.match_result r WHERE r.match_id = s.id)
+                     OR NOT EXISTS (SELECT 1 FROM core.match_result r WHERE r.match_id = d.id)
+                   )
                  )
                )
          )",
@@ -142,9 +143,12 @@ pub async fn merge_duplicate(
     let mut tx = pool.begin().await?;
 
     // 0. Tükrözött pár: az eredmény/orientáció-érzékeny blokkok nem másolhatók.
-    let (mirrored, has_result): (bool, bool) = sqlx::query_as(
+    //    Elutasítás csak akkor, ha a túlélőnél nincs eredmény, az áldozatnál
+    //    viszont van (különben az eredmény elveszne).
+    let (mirrored, survivor_result, duplicate_result): (bool, bool, bool) = sqlx::query_as(
         "SELECT (s.home_team_id = d.away_team_id AND s.away_team_id = d.home_team_id),
-                EXISTS (SELECT 1 FROM core.match_result r WHERE r.match_id IN (s.id, d.id))
+                EXISTS (SELECT 1 FROM core.match_result r WHERE r.match_id = s.id),
+                EXISTS (SELECT 1 FROM core.match_result r WHERE r.match_id = d.id)
            FROM core.match s, core.match d
           WHERE s.id = $1 AND d.id = $2",
     )
@@ -152,10 +156,8 @@ pub async fn merge_duplicate(
     .bind(duplicate)
     .fetch_one(&mut *tx)
     .await?;
-    if mirrored && has_result {
-        anyhow::bail!(
-            "tükrözött pár eredménnyel: kézi döntés kell (nem másoljuk át az orientációt)"
-        );
+    if mirrored && duplicate_result && !survivor_result {
+        anyhow::bail!("tükrözött pár: az áldozat eredménye elveszne (kézi döntés kell)");
     }
 
     // 1. Archívum (visszaállítási út): a törlendő sor és gyermekei JSONB-ben.

@@ -538,3 +538,42 @@
       workspace tesztek zöld (`--test-threads=1`) → clippy/fmt tiszta →
       teszt-DB resetelve. Tesztek: `storage/tests/team_merge.rs`,
       `dedupe_merge.rs` (tükrözött merge + eredményes elutasítás).
+
+## S20 — Oldal-orientáció megszilárdítása + ref-javítás (2026-11-17)
+
+- [x] **Gyökérok:** a Soccerway renderenként **tükrözheti az egész
+      fixture-t** (kijelzés, slug-szöveg és pontszámok együtt), miközben
+      a meccs-URL `<slug>-<Code>` kódja stabil csapat-ID marad. A parser
+      a megjelenítési sorrendet használta → fordított kijelzésnél a
+      kód↔név párok felcserélődtek (rossz team-refek, home=away crash).
+- [x] **Parser-javítás:** orientáció a slug sorrendjéből; a kijelzési
+      neveket a slug-szöveghez párosítja (fold-egyezés), fordított
+      kijelzésnél a pontszámokat/büntetőket oldalra cseréli. Új teszt:
+      `flipped_display_row_keeps_slug_orientation_and_swaps_scores`.
+- [x] **Ref-javítás (ops, auditálva):** stabil kód→slug-szöveg térkép két
+      angol renderből (332 kód, 0 ellentmondás) → 188 ref korrigálva,
+      16 pótolva (`identity_ref_repair`), 74 elavult/keresztbe párosított
+      ref superseded (`identity_ref_supersede`). A kételkedő, első körös
+      17 ref-változtatást visszavontam (a létrehozási observation
+      keresztezett volt).
+- [x] **Materializer-őr:** azonos kanonikus csapat a két oldalon →
+      figyelmeztetéssel kihagyás (nincs `match_check` összeomlás);
+      fordított forrás-sor a meglévő sorra megy, 1X2 odds oldalcserével.
+- [x] **Dedupe-politika (lock-first):** tükrözött pár merge-elhető, ha nem
+      veszne el egyetlen eredmény sem (elutasítás csak: áldozatnak van
+      eredménye, túlélőnek nincs); `is_same_match` ugyanezt a szabályt
+      követi; a CLI egy hibás/kockázatos párt kihagy, nem áll meg
+      (`kihagyva` számláló). Tesztek frissítve.
+- [x] **Napi állapot helyreállítva:** 249 meccs, **0 duplikált csoport**,
+      mind `verified_publish`, 39 Tippmix-odds, **0 pending review**;
+      a vitatott párok lock-first alapon egy sorra olvadtak
+      (Guatemala–Canada 4–1, Malaysia–Yemen 2–1); a téves, keresztezett
+      Jordan review elutasítva, a helyes kódú (vNcmJoU2) approve-create,
+      a többi új csapat jóváhagyva.
+- [x] Kapuk: teszt-DB reset → `check-foundation` OK (47 tábla) →
+      workspace tesztek zöld → clippy/fmt tiszta → teszt-DB reset;
+      agent a végleges binárisokkal.
+- [ ] **Ismert korlát:** semleges pályás válogatott-meccseknél az upstream
+      home/away kétértelmű lehet (lock-first + második forrás dönt);
+      a Soccerway lokalizált verseny-nevei (`Kings Cup - Thaiföld`) még
+      churnt okozhatnak — a crosswalk-projekt feladata.

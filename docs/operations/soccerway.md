@@ -136,3 +136,32 @@ meccses nap menete:
    napi lista a trust-gate szerint publikál (`verified_publish`).
 4. **Ellenőrzés:** `footballctl worker status` (függő review, kvóta,
    breaker), `identity crosswalk-check`, a kliens Üzemeltetés nézete.
+
+## 8. Oldal-orientáció és kód-stabilitás (S20, 2026-11-17)
+
+- **Kód = stabil csapat-ID:** a meccs-URL `<slug>-<Code>` szegmensében a
+  `Code` a csapathoz kötődik és renderenként stabil (pl. `MTVhw6Go` mindig
+  Hungary), a slug-szöveg is ugyanazt a csapatot írja le (lokalizált
+  renderben lokalizált szöveggel).
+- **A sor kijelzése renderenként tükröződhet:** ugyanaz a fixture egyik
+  renderben `Canada - Guatemala`, másikban `Guatemala - Canada`
+  (a pontszámok is tükrözve). Ez upstream viselkedés; a parser a **slug**
+  sorrendjét tekinti kanonikusnak, a kijelzési neveket a slug-szöveghez
+  párosítja (ékezet/kisbetű-független egyezés), és fordított kijelzésnél a
+  pontszámokat (és a büntetőket) oldalra cseréli.
+- **Lock-first politika:** a kanonikus sor orientációját az első
+  létrehozó futás rögzíti; későbbi fordított render a meglévő sorra megy
+  (fordított materializálás), nem hoz létre új sort.
+- **Létrehozási párosítás a refekhez:** a `source_entity_ref` kód→entitás
+  kötése a stabil kód→slug-szöveg térképből épül (nem a render
+  megjelenítési sorrendjéből) — a 2026-11-17-i javítás 188 refet
+  korrigált, 16-ot pótolt, 74 elavult/keresztezett refet superseded-re
+  állított (audit: `identity_ref_repair`, `identity_ref_supersede`).
+- **Őr:** ha a két oldal ugyanarra a kanonikus csapatra oldódik (keresztezett
+  ref maradéka), a materializer figyelmeztetéssel kihagyja a meccset
+  (`azonos csapat mindkét oldalon`), nem száll el a `match_check`
+  megszorításon.
+- **Ismert korlát:** semleges pályás (válogatott) meccseknél a home/away
+  upstream szinten kétértelmű lehet; a lock-first + második forrás
+  (OpenFoot/Tipplap) az irányadó, az eredmény-orientáció konfliktusnál a
+  dedupe merge csak akkor fut, ha nem veszne el egyetlen eredmény sem.

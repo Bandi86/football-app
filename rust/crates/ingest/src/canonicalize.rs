@@ -218,6 +218,16 @@ impl Canonicalizer {
                 );
                 continue;
             };
+            if home == away {
+                tracing::warn!(
+                    source = %day.source_code,
+                    home = %fixture_match.home_source_entity_id,
+                    away = %fixture_match.away_source_entity_id,
+                    "azonos csapat mindkét oldalon: a meccs kimarad"
+                );
+                continue;
+            }
+
             // `reversed`: a forrás a meccset fordított hazai/vendég oldallal
             // listázza; ilyenkor a meglévő kanonikus sor az igazság, az
             // eredmény/statisztika nem írható, az odds oldalt cserélve megy.
