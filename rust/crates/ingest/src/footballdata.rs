@@ -52,6 +52,31 @@ const LEAGUES: [(&str, &str, &str, &str, i16, i32); 22] = [
 /// A backoff-ablak: a job dátuma ±7 nap.
 const WINDOW_DAYS: i64 = 7;
 
+/// S23: a `new/{LIGA}.csv` fájlok (egy fájl = több szezon) liga-kódjai és
+/// helyi időzónái. A verseny-nevet a sor `League` mezője adja.
+const NEW_LEAGUES: [(&str, &str); 15] = [
+    ("arg", "America/Argentina/Buenos_Aires"),
+    ("aut", "Europe/Vienna"),
+    ("bra", "America/Sao_Paulo"),
+    ("chn", "Asia/Shanghai"),
+    ("dnk", "Europe/Copenhagen"),
+    ("fin", "Europe/Helsinki"),
+    ("irl", "Europe/Dublin"),
+    ("jpn", "Asia/Tokyo"),
+    ("mex", "America/Mexico_City"),
+    ("nor", "Europe/Oslo"),
+    ("pol", "Europe/Warsaw"),
+    ("rou", "Europe/Bucharest"),
+    ("rus", "Europe/Moscow"),
+    ("swe", "Europe/Stockholm"),
+    ("usa", "America/New_York"),
+];
+
+/// A `new/` liga-kódok (backfill-tervezéshez).
+pub fn new_league_codes() -> Vec<&'static str> {
+    NEW_LEAGUES.iter().map(|(code, _)| *code).collect()
+}
+
 pub struct FootballdataAdapter;
 
 impl FootballdataAdapter {
@@ -97,6 +122,23 @@ impl SourceAdapter for FootballdataAdapter {
     }
 
     fn plan(&self, job: &FetchJob) -> Vec<FetchRequest> {
+        // S23d: "new" ligák — egy fájl = sok szezon (más séma).
+        if job.domain == "backfill" && job.entity_key.starts_with("new-") {
+            let code = job
+                .entity_key
+                .trim_start_matches("new-")
+                .to_ascii_lowercase();
+            return vec![FetchRequest {
+                url: format!(
+                    "https://www.football-data.co.uk/new/{}.csv",
+                    code.to_ascii_uppercase()
+                ),
+                request_key: format!("{SOURCE_SLUG}:new:{code}:all"),
+                endpoint_key: code,
+                ready_marker: None,
+                bearer_token: None,
+            }];
+        }
         // S23: backfill job = egy liga-szezon CSV; a liga a job entity_key-ében,
         // a szezonkód (pl. 2526) a time_window-ban utazik.
         if job.domain == "backfill" {
@@ -134,6 +176,9 @@ impl SourceAdapter for FootballdataAdapter {
     }
 
     fn parse(&self, raw: &RawPayload, ctx: &ParseCtx) -> Result<Vec<Observation>, ParseError> {
+        if ctx.request_key.split(':').nth(1) == Some("new") {
+            return parse_new_league(raw, ctx);
+        }
         let (country_code, country_name, competition_name, tier, priority) =
             Self::league_token(ctx)?;
         // S23: backfill módban a kérés a teljes szezon-CSV-t hozza; a szezon
@@ -176,13 +221,20 @@ impl SourceAdapter for FootballdataAdapter {
         let mut competition = None;
         let mut skipped_outside = 0usize;
         let mut seen_rows = 0usize;
+        let mut skipped_malformed = 0usize;
 
         for record in reader.records() {
             let record = record.map_err(|e| ParseError::Parse(format!("CSV sor: {e}")))?;
             seen_rows += 1;
             let field = |i: usize| record.get(i).unwrap_or("").trim().to_string();
-            // Régi archívum: 2 jegyű év (dd/mm/yy); az újabb: 4 jegyű.
+            // Hibás/hiányos sor (üres dátum vagy csapat): kihagyjuk, nem
+            // buktatjuk el az egész szezont (a teljesen üres fájlt a
+            // decoy-őr fogja).
             let date_text = field(c_date);
+            if date_text.is_empty() || field(c_home).is_empty() || field(c_away).is_empty() {
+                skipped_malformed += 1;
+                continue;
+            }
             let mut date = NaiveDate::parse_from_str(&date_text, "%d/%m/%Y")
                 .map_err(|e| ParseError::Parse(format!("dátum ({date_text}): {e}")))?;
             if date.year() < 1900 {
@@ -346,7 +398,7 @@ impl SourceAdapter for FootballdataAdapter {
 
         if season_scope.is_some() && seen_rows > 0 && observations.is_empty() {
             return Err(ParseError::SchemaDrift(format!(
-                "egyetlen sor sem esik a kért szezonba (olvasott sorok: {seen_rows}, sávon kívül: {skipped_outside})"
+                "egyetlen sor sem esik a kért szezonba (olvasott sorok: {seen_rows}, sávon kívül: {skipped_outside}, hibás sor: {skipped_malformed})"
             )));
         }
 
@@ -532,4 +584,281 @@ pub fn first_season(code: &str) -> Option<u16> {
         .iter()
         .find(|(c, _)| *c == code)
         .map(|(_, year)| *year)
+}
+
+// ---------------------------------------------------------------------------
+// S23d: footballdata "new" ligák (más séma, egy fájl = több szezon).
+// ---------------------------------------------------------------------------
+
+fn is_women_league(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    [
+        "women",
+        "femenina",
+        "női",
+        "feminine",
+        "frauen",
+        "femminile",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+}
+
+fn is_youth_league(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    ["u17", "u18", "u19", "u20", "u21", "u23", "youth", "junior"]
+        .iter()
+        .any(|needle| lower.contains(needle))
+}
+
+/// "2012/2013" → "2012/13"; "2014" → "2014".
+fn normalize_season_label(raw: &str) -> String {
+    match raw.split_once('/') {
+        Some((start, end)) => {
+            let tail = &end[end.len().saturating_sub(2)..];
+            format!("{start}/{tail}")
+        }
+        None => raw.to_string(),
+    }
+}
+
+fn parse_new_league(raw: &RawPayload, ctx: &ParseCtx) -> Result<Vec<Observation>, ParseError> {
+    let code = ctx
+        .request_key
+        .split(':')
+        .nth(2)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let zone_name = NEW_LEAGUES
+        .iter()
+        .find(|(c, _)| *c == code)
+        .map(|(_, zone)| *zone)
+        .ok_or_else(|| ParseError::SchemaDrift(format!("ismeretlen new-liga: {code}")))?;
+    let tz: chrono_tz::Tz = zone_name
+        .parse()
+        .map_err(|e| ParseError::Parse(format!("időzóna ({zone_name}): {e}")))?;
+
+    let text = std::str::from_utf8(&raw.bytes)
+        .map_err(|_| ParseError::Parse("a CSV nem érvényes UTF-8".into()))?;
+    let text = text.trim_start_matches('\u{feff}');
+    let mut reader = csv::ReaderBuilder::new()
+        .has_headers(true)
+        .flexible(true)
+        .from_reader(text.as_bytes());
+    let headers = reader
+        .headers()
+        .map_err(|e| ParseError::Parse(format!("CSV fejléc: {e}")))?
+        .clone();
+    let column = |name: &str| {
+        headers
+            .iter()
+            .position(|h| h.trim() == name)
+            .ok_or_else(|| ParseError::SchemaDrift(format!("hiányzó CSV-oszlop: {name}")))
+    };
+    let c_country = column("Country")?;
+    let c_league = column("League")?;
+    let c_season = column("Season")?;
+    let c_date = column("Date")?;
+    let c_time = headers.iter().position(|h| h.trim() == "Time");
+    let c_home = column("Home")?;
+    let c_away = column("Away")?;
+    let c_hg = column("HG")?;
+    let c_ag = column("AG")?;
+
+    let captured_at = Utc::now();
+    let mut observations: Vec<Observation> = Vec::new();
+    let mut teams: std::collections::BTreeMap<String, serde_json::Value> = Default::default();
+    let mut seen_rows = 0usize;
+    let mut skipped = 0usize;
+
+    for record in reader.records() {
+        let record = record.map_err(|e| ParseError::Parse(format!("CSV sor: {e}")))?;
+        let field = |i: usize| record.get(i).unwrap_or("").trim().to_string();
+        seen_rows += 1;
+
+        let home = field(c_home);
+        let away = field(c_away);
+        let date_text = field(c_date);
+        let league = field(c_league).trim().to_string();
+        if home.is_empty() || away.is_empty() || date_text.is_empty() || league.is_empty() {
+            skipped += 1;
+            continue;
+        }
+        let mut date = NaiveDate::parse_from_str(&date_text, "%d/%m/%Y")
+            .map_err(|e| ParseError::Parse(format!("dátum ({date_text}): {e}")))?;
+        if date.year() < 1900 {
+            date = NaiveDate::parse_from_str(&date_text, "%d/%m/%y")
+                .map_err(|e| ParseError::Parse(format!("dátum ({date_text}): {e}")))?;
+        }
+        if !(1990..=2035).contains(&date.year()) {
+            return Err(ParseError::SchemaDrift(format!(
+                "hihetetlen dátum a new-liga CSV-ben: {date_text}"
+            )));
+        }
+
+        let time_text = c_time.map(|i| field(i)).unwrap_or_default();
+        let (kickoff_at, kickoff_precision) = match NaiveTime::parse_from_str(&time_text, "%H:%M") {
+            Ok(time) => {
+                let local = NaiveDateTime::new(date, time);
+                let kickoff = tz
+                    .from_local_datetime(&local)
+                    .earliest()
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .ok_or_else(|| {
+                        ParseError::Parse(format!("érvénytelen helyi időpont: {local}"))
+                    })?;
+                (kickoff, "exact")
+            }
+            Err(_) => (
+                Utc.from_utc_datetime(&NaiveDateTime::new(
+                    date,
+                    NaiveTime::from_hms_opt(12, 0, 0).expect("12:00 érvényes"),
+                )),
+                "date_only",
+            ),
+        };
+
+        let season_raw = field(c_season);
+        let season_label = normalize_season_label(&season_raw);
+        let country_name = field(c_country);
+        let (country_code, country_name) = match crate::countries::by_english_name(&country_name) {
+            Some((cc, cn)) => (cc.to_string(), cn.to_string()),
+            None => (String::new(), country_name.clone()),
+        };
+        let (gender, branch) = if is_women_league(&league) {
+            ("female", "women")
+        } else if is_youth_league(&league) {
+            ("male", "youth")
+        } else {
+            ("male", "senior")
+        };
+
+        let home_ft = field(c_hg).parse::<i16>().ok();
+        let away_ft = field(c_ag).parse::<i16>().ok();
+        let (status, result) = match (home_ft, away_ft) {
+            (Some(h), Some(a)) => (
+                "finished",
+                Some(serde_json::json!({
+                    "home_ft": h, "away_ft": a,
+                    "home_ht": null, "away_ht": null,
+                    "home_et": null, "away_et": null,
+                    "home_pens": null, "away_pens": null,
+                    "decided_by": "ft",
+                })),
+            ),
+            _ => ("scheduled", None),
+        };
+
+        let home_slug = slug(&home);
+        let away_slug = slug(&away);
+        for (team_slug, team_name) in [(&home_slug, &home), (&away_slug, &away)] {
+            teams.entry(team_slug.clone()).or_insert_with(|| {
+                serde_json::json!({
+                    "id": null,
+                    "source_entity_id": team_slug,
+                    "name": team_name,
+                    "country_code": country_code,
+                    "gender": gender,
+                    "age_group": if branch == "youth" { "youth" } else { "senior" },
+                    "branch": branch,
+                })
+            });
+        }
+
+        let source_match_id = format!("footballdata-new-{code}-{date}-{home_slug}-{away_slug}");
+        observations.push(Observation {
+            entity_kind: "match".into(),
+            aspect: "match_core".into(),
+            natural_key: source_match_id.clone(),
+            source_record_key: source_match_id.clone(),
+            observed_at: captured_at,
+            payload: serde_json::json!({
+                "canonical_match_id": null,
+                "source_home_id": home_slug,
+                "source_away_id": away_slug,
+                "kickoff_at": kickoff_at,
+                "kickoff_precision": kickoff_precision,
+                "status": status,
+                "result": result,
+                "round_label": null,
+                "competition_timezone": zone_name,
+                "competition": {
+                    "id": null,
+                    "name": league,
+                    "country_code": country_code,
+                    "country_name": country_name,
+                    "tier": 1,
+                    "priority": 60,
+                },
+                "season": { "id": null, "label": season_label },
+                "source_code": SOURCE_SLUG,
+                "captured_at": captured_at,
+            }),
+        });
+
+        let price = |name: &str| -> Option<f64> {
+            headers
+                .iter()
+                .position(|h| h.trim() == name)
+                .and_then(|i| record.get(i))
+                .and_then(|v| parse_number(Some(v)))
+                .filter(|p| *p > 1.0)
+        };
+        let mut quotes = Vec::new();
+        for (bookmaker, prefix) in [
+            ("B365", "B365C"),
+            ("Max", "MaxC"),
+            ("Avg", "AvgC"),
+            ("BFE", "BFEC"),
+            ("PSC", "PSC"),
+        ] {
+            let outcome = |letter: &str| price(&format!("{prefix}{letter}"));
+            if let (Some(h), Some(d), Some(a)) = (outcome("H"), outcome("D"), outcome("A")) {
+                for (name, value) in [("home", h), ("draw", d), ("away", a)] {
+                    quotes.push(serde_json::json!({
+                        "bookmaker": bookmaker,
+                        "market": "1x2",
+                        "outcome": name,
+                        "line": 0.0,
+                        "phase": "closing",
+                        "price": value,
+                    }));
+                }
+            }
+        }
+        if !quotes.is_empty() {
+            observations.push(Observation {
+                entity_kind: "match".into(),
+                aspect: "match_odds".into(),
+                natural_key: source_match_id.clone(),
+                source_record_key: source_match_id,
+                observed_at: captured_at,
+                payload: serde_json::json!({
+                    "canonical_match_id": null,
+                    "quotes": quotes,
+                    "market_count": 1,
+                }),
+            });
+        }
+    }
+
+    if seen_rows == 0 || observations.is_empty() {
+        return Err(ParseError::SchemaDrift(format!(
+            "üres new-liga CSV (sorok: {seen_rows}, kihagyva: {skipped})"
+        )));
+    }
+
+    let mut team_obs: Vec<Observation> = teams
+        .into_iter()
+        .map(|(code, payload)| Observation {
+            entity_kind: "team".into(),
+            aspect: "team_identity".into(),
+            natural_key: code.clone(),
+            source_record_key: code,
+            observed_at: captured_at,
+            payload,
+        })
+        .collect();
+    team_obs.extend(observations);
+    Ok(team_obs)
 }

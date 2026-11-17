@@ -113,13 +113,16 @@ enum BackfillAction {
         source: String,
         /// Kezdő szezon kezdőéve (pl. 2015).
         #[arg(long)]
-        from: u16,
+        from: Option<u16>,
         /// Utolsó szezon kezdőéve (pl. 2026).
         #[arg(long)]
-        to: u16,
+        to: Option<u16>,
         /// Liga-kódok vesszővel (pl. e0,e1), vagy "all".
         #[arg(long, default_value = "all")]
         leagues: String,
+        /// A `new/` ligák (egy fájl = sok szezon) sorba állítása.
+        #[arg(long)]
+        new_leagues: bool,
         #[arg(long)]
         apply: bool,
     },
@@ -481,6 +484,7 @@ async fn main() -> Result<()> {
                 from,
                 to,
                 leagues,
+                new_leagues,
                 apply,
             } => {
                 if source != "footballdata" {
@@ -488,6 +492,49 @@ async fn main() -> Result<()> {
                         "a backfill-tervezés egyelőre csak a footballdata forrást támogatja"
                     );
                 }
+                if new_leagues {
+                    let mut new_jobs = 0usize;
+                    for code in football_ingest::footballdata::new_league_codes() {
+                        if !apply {
+                            println!("  terv: new-{code} (minden szezon)");
+                            new_jobs += 1;
+                            continue;
+                        }
+                        new_jobs += worker_repo::insert_job_counted(
+                            &pool,
+                            &worker_repo::NewJob {
+                                source_slug: "footballdata".into(),
+                                domain: "backfill".into(),
+                                entity_key: format!("new-{code}"),
+                                event_type: "backfill".into(),
+                                time_window: "all".into(),
+                                due_at: Utc::now(),
+                                priority: 200,
+                            },
+                        )
+                        .await?;
+                    }
+                    println!(
+                        "new-liga backfill terv: {} job{}{}",
+                        new_jobs,
+                        if apply {
+                            " sorba állítva"
+                        } else {
+                            " (dry-run)"
+                        },
+                        if apply {
+                            ""
+                        } else {
+                            " — --apply a sorba állításhoz"
+                        }
+                    );
+                }
+                let (Some(from), Some(to)) = (from, to) else {
+                    if new_leagues {
+                        return Ok(());
+                    }
+                    anyhow::bail!("a szezonos backfillhez --from és --to kell");
+                };
                 let codes: Vec<String> = if leagues == "all" {
                     football_ingest::footballdata::league_codes()
                         .into_iter()

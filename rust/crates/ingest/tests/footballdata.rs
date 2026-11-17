@@ -221,3 +221,64 @@ fn backfill_parse_uses_season_span_and_label() {
     let err = FootballdataAdapter.parse(&raw, &ctx).unwrap_err();
     assert!(format!("{err:?}").contains("SchemaDrift"), "{err:?}");
 }
+
+#[test]
+fn new_league_plan_and_parse() {
+    use chrono::TimeZone;
+    let job = FetchJob {
+        id: uuid::Uuid::now_v7(),
+        source_slug: "footballdata".into(),
+        domain: "backfill".into(),
+        entity_key: "new-arg".into(),
+        event_type: "backfill".into(),
+        time_window: "all".into(),
+        due_at: Utc.with_ymd_and_hms(2026, 11, 17, 12, 0, 0).unwrap(),
+        priority: 200,
+    };
+    let plan = FootballdataAdapter.plan(&job);
+    assert_eq!(plan.len(), 1);
+    assert!(plan[0].url.ends_with("/new/ARG.csv"), "{}", plan[0].url);
+    assert_eq!(plan[0].request_key, "footballdata:new:arg:all");
+
+    let csv = "Country,League,Season,Date,Time,Home,Away,HG,AG,Res,PSCH,PSCD,PSCA,AvgCH,AvgCD,AvgCA,B365CH,B365CD,B365CA\n\
+Argentina,Liga Profesional ,2012/2013,03/08/2012,23:00,Arsenal Sarandi,Union de Santa Fe,1,0,H,1.90,3.39,5.03,1.76,3.30,4.74,1.95,3.40,4.60\n\
+Argentina,Liga Profesional ,2012/2013,04/08/2012,18:10,Racing Club,Atl. Rafaela,1,1,D,1.91,3.34,5.09,1.91,3.22,4.05,,,\n";
+    let raw = RawPayload {
+        bytes: csv.as_bytes().to_vec(),
+        content_type: "text/csv".into(),
+        http_status: 200,
+        fetched_at: chrono::Utc::now(),
+        sha256: String::new(),
+    };
+    let ctx = ParseCtx {
+        requested_date: chrono::NaiveDate::from_ymd_opt(2026, 11, 17).unwrap(),
+        request_key: "footballdata:new:arg:all".into(),
+    };
+    let observations = FootballdataAdapter.parse(&raw, &ctx).unwrap();
+    let matches: Vec<_> = observations
+        .iter()
+        .filter(|o| o.aspect == "match_core")
+        .collect();
+    assert_eq!(matches.len(), 2);
+    let first = matches[0];
+    assert_eq!(first.payload["competition"]["name"], "Liga Profesional");
+    assert_eq!(first.payload["competition"]["country_code"], "AR");
+    assert_eq!(first.payload["season"]["label"], "2012/13");
+    // 2012-08-03 23:00 ART (UTC-3) → 2012-08-04 02:00 UTC.
+    assert_eq!(first.payload["kickoff_at"], "2012-08-04T02:00:00Z");
+    assert_eq!(first.payload["result"]["home_ft"], 1);
+    let odds: Vec<_> = observations
+        .iter()
+        .filter(|o| o.aspect == "match_odds")
+        .collect();
+    assert_eq!(
+        odds.len(),
+        2,
+        "mindkét sornál van legalább B365/Avg záró odds"
+    );
+    assert_eq!(
+        odds[0].payload["quotes"].as_array().unwrap().len(),
+        9,
+        "B365+Avg+PSC záró 1X2"
+    );
+}

@@ -675,3 +675,22 @@
       A köteg végén: `identity approve-create-all`, majd a kész jobok
       egyszeri újrafuttatása (a jóváhagyás előtt kimaradt meccsek
       pótlására), végül a budget visszaállítása 60-ra.
+
+## S23d — Mély múlt + „new" ligák (2026-11-17)
+
+- [x] **Batch állapot:** 2015–2026 köteg: done ≈ 57, matches 13 300+;
+      a napi kvóta (450) ma elfogyott (692 kérés a diagnosztikákkal),
+      a maradék holnap folytatódik. 2 hibás job (i1/f1 2015/16) oka üres
+      dátumú sor → a parser most kihagyja a hibás sorokat (decoy-őr marad),
+      a jobok újra sorba állítva. 46 új csapat/játékvezető jóváhagyva.
+- [x] **Elő-2015 köteg:** 447 job sorba állítva (1993–2014, 37 kihagyás a
+      liga első szezonja előtt).
+- [x] **„new" ligák adaptere:** `new/{LIGA}.csv` (15 ország, egy fájl =
+      sok szezon, más séma): ország+liga+szezon oszlopok, helyi idő →
+      UTC ország-időzóna-táblával, szezon-címke normalizálás
+      (`2012/2013` → `2012/13`), záró odds (B365/Max/Avg/BFE/PSC),
+      hiányzó idő → date_only. Teszt: plan + parse (UTC-konverzió,
+      szezon-címke, odds). 15 new-liga job sorba állítva.
+- [ ] **Következő:** a teljes backlog (657 pending job) feldolgozása a
+      keret-reset után; bootstrap-kör (approve-create + kész jobok
+      újrafuttatása); coverage-riport; utána S23e (v1 import).
