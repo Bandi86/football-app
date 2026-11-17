@@ -167,3 +167,57 @@ fn new_leagues_map_to_their_competition_meta() {
     assert_eq!(core.payload["competition"]["tier"], 2);
     assert_eq!(core.payload["competition"]["priority"], 12);
 }
+
+#[test]
+fn backfill_job_plans_one_season_csv() {
+    use chrono::TimeZone;
+    let job = FetchJob {
+        id: uuid::Uuid::now_v7(),
+        source_slug: "footballdata".into(),
+        domain: "backfill".into(),
+        entity_key: "e1".into(),
+        event_type: "backfill".into(),
+        time_window: "2526".into(),
+        due_at: Utc.with_ymd_and_hms(2026, 11, 17, 12, 0, 0).unwrap(),
+        priority: 200,
+    };
+    let plan = FootballdataAdapter.plan(&job);
+    assert_eq!(plan.len(), 1);
+    assert!(
+        plan[0].url.ends_with("/mmz4281/2526/E1.csv"),
+        "{}",
+        plan[0].url
+    );
+    assert_eq!(plan[0].request_key, "footballdata:backfill:e1:2526");
+}
+
+#[test]
+fn backfill_parse_uses_season_span_and_label() {
+    let raw = RawPayload {
+        bytes: read_fixture(),
+        content_type: "text/csv".into(),
+        http_status: 200,
+        fetched_at: chrono::Utc::now(),
+        sha256: String::new(),
+    };
+    // 2026/27 szezon: mind a három fixture-sor beleesik a sávba.
+    let ctx = ParseCtx {
+        requested_date: chrono::NaiveDate::from_ymd_opt(2026, 11, 17).unwrap(),
+        request_key: "footballdata:backfill:e0:2627".into(),
+    };
+    let observations = FootballdataAdapter.parse(&raw, &ctx).unwrap();
+    let matches: Vec<_> = observations
+        .iter()
+        .filter(|o| o.aspect == "match_core")
+        .collect();
+    assert_eq!(matches.len(), 3, "backfill módban nincs ±7 napos ablak");
+    assert_eq!(matches[0].payload["season"]["label"], "2026/27");
+
+    // 2025/26 szezonba a 2026. novemberi sorok nem esnek bele → fail-closed.
+    let ctx = ParseCtx {
+        requested_date: chrono::NaiveDate::from_ymd_opt(2026, 11, 17).unwrap(),
+        request_key: "footballdata:backfill:e0:2526".into(),
+    };
+    let err = FootballdataAdapter.parse(&raw, &ctx).unwrap_err();
+    assert!(format!("{err:?}").contains("SchemaDrift"), "{err:?}");
+}

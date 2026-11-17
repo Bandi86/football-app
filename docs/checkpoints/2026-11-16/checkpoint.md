@@ -624,3 +624,30 @@
 - [ ] **Következő:** OpenFoot registry-nevek a verseny-szótárba
       (adatvezérelt, a S23 backfill-leltárral); az U19/U21 forduló-modell
       (round_label) külön szelet; S23 backfill-terv.
+
+## S23 — Történelmi backfill: leltár + motor (2026-11-17)
+
+- [x] **Leltár (S23a):** `docs/research/backfill-inventory-2026-11-17.md` —
+      footballdata mmz4281: 22 liga, **711 liga-szezon CSV** (1993/94–
+      2026/27); footballdata `new/`: **15 liga egy-egy fájlban** (2012+,
+      más séma, SUI kivételével); v1 DB: **1 467 472 meccs**, 234 916
+      oddsszal (3,82M sor), 1406 verseny; OpenFoot nap-feed. Terv:
+      `docs/superpowers/plans/2026-11-17-backfill.md` (KPI-k, fázisok
+      S23b–S23f, kockázatok).
+- [x] **Backfill motor (S23b):** új job-típus (`domain='backfill'`,
+      `time_window=<szezonkód>`, `entity_key=<liga>`); a tick ilyenkor
+      szezonkódos időablakot is elfogad; a footballdata adapter egy
+      liga-szezon CSV-t kér (`mmz4281/{szezon}/{LIGA}.csv`), szezon-módban
+      **nincs ±7 napos ablak**, a szezon-címke a kódból jön, a sorok
+      dátum-sávja (±2 hónap tűrés) tartalmi őr, üres eredmény → fail-closed.
+      CLI: `footballctl backfill plan --from --to --leagues all|lista
+      [--apply]`, idempotens, priority 200 (az élő napi jobok előbb futnak).
+      Tesztek: egy kéréses terv, ablak nélküli parse, sávon kívüli CSV →
+      SchemaDrift.
+- [x] **Canary: Championship 2025/26** — 552 meccs, **552 eredmény,
+      552 odds**, 0 duplikált csoport; 20 új csapat + 28 játékvezető
+      approve-create; a keret ideiglenesen 60, utána vissza 40.
+- [ ] **Következő (S23c):** 2015+ mind a 22 ligára (≈242 fájl ≈ 6-7 nap a
+      40/nap kerettel) kötegelt approve-create-pel; coverage CLI
+      (`footballctl coverage`) a KPI-méréshez; utána S23d (mély múlt +
+      new ligák) és S23e (v1 import).

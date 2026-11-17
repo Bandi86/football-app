@@ -307,8 +307,18 @@ async fn process_job(
             .await?;
 
             // Parse: hiba → karantén (coverage quarantined, ledger parse_error).
-            let requested_date = NaiveDate::parse_from_str(&job.time_window, "%Y-%m-%d")
-                .with_context(|| format!("a job időablaka nem napi dátum: {}", job.time_window))?;
+            // Napi jobok: a time_window dátum. Backfill joboknál a
+            // time_window szezonkód; a szezon-hatókört a request_key hordozza,
+            // a requested_date ilyenkor csak helyőrző.
+            let requested_date = match NaiveDate::parse_from_str(&job.time_window, "%Y-%m-%d") {
+                Ok(date) => date,
+                Err(_) if job.domain == "backfill" => Utc::now().date_naive(),
+                Err(err) => {
+                    return Err(err).with_context(|| {
+                        format!("a job időablaka nem napi dátum: {}", job.time_window)
+                    });
+                }
+            };
             let ctx = ParseCtx {
                 requested_date,
                 request_key: req.request_key.clone(),

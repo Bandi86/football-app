@@ -89,6 +89,31 @@ enum Command {
         #[command(subcommand)]
         action: DedupeAction,
     },
+    /// Történelmi backfill jobok tervezése (S23).
+    Backfill {
+        #[command(subcommand)]
+        action: BackfillAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum BackfillAction {
+    /// Liga-szezon backfill jobok sorba állítása (alapból dry-run).
+    Plan {
+        #[arg(long, default_value = "footballdata")]
+        source: String,
+        /// Kezdő szezon kezdőéve (pl. 2015).
+        #[arg(long)]
+        from: u16,
+        /// Utolsó szezon kezdőéve (pl. 2026).
+        #[arg(long)]
+        to: u16,
+        /// Liga-kódok vesszővel (pl. e0,e1), vagy "all".
+        #[arg(long, default_value = "all")]
+        leagues: String,
+        #[arg(long)]
+        apply: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -393,6 +418,84 @@ async fn main() -> Result<()> {
                         }
                     );
                 }
+            }
+        },
+        Command::Backfill { action } => match action {
+            BackfillAction::Plan {
+                source,
+                from,
+                to,
+                leagues,
+                apply,
+            } => {
+                if source != "footballdata" {
+                    anyhow::bail!(
+                        "a backfill-tervezés egyelőre csak a footballdata forrást támogatja"
+                    );
+                }
+                let codes: Vec<String> = if leagues == "all" {
+                    football_ingest::footballdata::league_codes()
+                        .into_iter()
+                        .map(str::to_string)
+                        .collect()
+                } else {
+                    leagues
+                        .split(',')
+                        .map(|c| c.trim().to_ascii_lowercase())
+                        .filter(|c| !c.is_empty())
+                        .collect()
+                };
+                let mut planned = 0usize;
+                let mut skipped = 0usize;
+                for code in &codes {
+                    let first = football_ingest::footballdata::first_season(code)
+                        .ok_or_else(|| anyhow::anyhow!("ismeretlen liga-kód: {code}"))?;
+                    for start in from..=to {
+                        if start < first {
+                            skipped += 1;
+                            continue;
+                        }
+                        let season = format!("{:02}{:02}", start % 100, (start + 1) % 100);
+                        let label = football_ingest::footballdata::season_label_from_code(&season)
+                            .expect("érvényes szezonkód");
+                        if !apply {
+                            if planned < 6 {
+                                println!("  terv: {code} {label} ({season})");
+                            }
+                            planned += 1;
+                            continue;
+                        }
+                        let inserted = worker_repo::insert_job_counted(
+                            &pool,
+                            &worker_repo::NewJob {
+                                source_slug: "footballdata".into(),
+                                domain: "backfill".into(),
+                                entity_key: code.clone(),
+                                event_type: "backfill".into(),
+                                time_window: season,
+                                due_at: Utc::now(),
+                                priority: 200,
+                            },
+                        )
+                        .await?;
+                        planned += inserted;
+                    }
+                }
+                println!(
+                    "backfill terv: {} job{}, {} kihagyott (a liga még nem létezett){}",
+                    planned,
+                    if apply {
+                        " sorba állítva"
+                    } else {
+                        " (dry-run)"
+                    },
+                    skipped,
+                    if apply {
+                        ""
+                    } else {
+                        " — --apply a sorba állításhoz"
+                    }
+                );
             }
         },
         Command::Asset { action } => match action {
