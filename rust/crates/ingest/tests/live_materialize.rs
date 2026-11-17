@@ -415,3 +415,30 @@ async fn null_country_does_not_overwrite_existing_team_country() {
         "nincs duplikált meccs"
     );
 }
+
+/// A forduló megjelenítési adat: két forrás eltérő forduló-jelöléssel
+/// ugyanazt a meccset írja le → egy kanonikus sor, frissülő címkével.
+#[tokio::test]
+async fn round_label_is_display_only_in_match_identity() {
+    let pool = test_pool().await;
+    let source_id = seed_source(&pool).await;
+    let country_id = seed_country(&pool).await;
+    seed_linked_team(&pool, source_id, country_id, "ujpest", "Újpest").await;
+    seed_linked_team(&pool, source_id, country_id, "gyor", "Győr").await;
+    let teams = [("ujpest", "Újpest"), ("gyor", "Győr")];
+
+    let mut first = live_day(&teams, "ujpest", "gyor");
+    first.matches[0].round_label = Some("Round 6".into());
+    Canonicalizer::materialize(&pool, &first).await.unwrap();
+
+    let mut second = live_day(&teams, "ujpest", "gyor");
+    second.matches[0].round_label = Some("League A".into());
+    Canonicalizer::materialize(&pool, &second).await.unwrap();
+
+    assert_eq!(count(&pool, "SELECT count(*) FROM core.match").await, 1);
+    let round: Option<String> = sqlx::query_scalar("SELECT round_label FROM core.match")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(round.as_deref(), Some("League A"), "a címke frissül");
+}

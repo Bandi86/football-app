@@ -377,3 +377,27 @@
 - [x] Keretek visszaállítva: soccerway 6/nap, openfoot 8/nap; az agent a
       végleges binárissal fut. Kapuk: 77 tesztcsoport, clippy/fmt,
       foundation 0, teszt-DB resetelve.
+
+## S15 — Dedupe előrefelé: forduló-kulcs + a név-instabilitás tanulsága (2026-11-17)
+
+- [x] **Forduló kikerült a meccs-azonosságból:** a `find_or_insert_match_id`
+      és a `count_duplicate_matches` már nem nézi a `round_label`-t
+      (megjelenítési adat marad, frissül) — két forrás eltérő
+      forduló-jelöléssel ugyanazt a meccset írja le. Teszt: két round-
+      címke → 1 kanonikus sor, frissülő címkével.
+- [x] **Tanulság (visszafordítva):** a heurisztikus kétnyelvű
+      verseny-sablonok **instabilak** — minden sablon-változtatás új
+      verseny-entitást és duplikált meccseket szül (ma 41 pár:
+      AFC Asian Cup U17 két alakja, Africa Cup U23 dupla „Qualification",
+      Nations League szülő vs League A/B). Ezért a Soccerway-nevezést
+      **visszaállítottam a bizonyítottan stabil b51781b állapotra**
+      (a locale-normalizálás és a 170-es nap ezt használta); csak a
+      forduló-kulcs javítás maradt.
+- [ ] **Nyitott takarítás (dedupe-szelet):** a 2026-11-17-i napon a
+      kísérleti név-körök után **231 sor / 41 duplikált pár** maradt.
+      Szükséges: stabil név-migráció + merge-eszköz (provenance/gate
+      átmozgatás, vesztes sorok törlése) VAGY a nap observationjeiből
+      történő újramaterializálás stabil nevekkel — a teljes
+      backfill/crosswalk projekttel együtt.
+- [x] Agent a végleges (stabil nevezésű) binárissal fut; keretek:
+      soccerway 6/nap, openfoot 8/nap.

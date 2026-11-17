@@ -798,7 +798,6 @@ pub async fn count_duplicate_matches(
         "SELECT count(*) FROM core.match
          WHERE competition_id = (SELECT competition_id FROM core.match WHERE id=$1)
            AND season_id = (SELECT season_id FROM core.match WHERE id=$1)
-           AND round_label IS NOT DISTINCT FROM (SELECT round_label FROM core.match WHERE id=$1)
            AND home_team_id = $2 AND away_team_id = $3
            AND kickoff_at = $4
            AND id <> $1",

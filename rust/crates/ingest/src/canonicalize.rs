@@ -587,7 +587,9 @@ async fn ensure_live_team(
     Ok(())
 }
 
-/// Élő meccs natural-key keresése (NULL-safe round_label), különben új id.
+/// Élő meccs natural-key keresése, különben új id. A `round_label` NEM
+/// része az azonosságnak (két forrás eltérő forduló-jelöléssel ugyanazt a
+/// meccset írja le); megjelenítési adatként frissül.
 async fn find_or_insert_match_id(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     competition_id: Uuid,
@@ -599,15 +601,13 @@ async fn find_or_insert_match_id(
     let existing: Option<Uuid> = sqlx::query_scalar(
         "SELECT id FROM core.match
          WHERE competition_id=$1 AND season_id=$2
-           AND round_label IS NOT DISTINCT FROM $3
-           AND home_team_id=$4 AND away_team_id=$5
-           AND (($7 = 'date_only' AND kickoff_at::date = $6::date)
-             OR ($7 = 'exact' AND kickoff_at = $6))
+           AND home_team_id=$3 AND away_team_id=$4
+           AND (($6 = 'date_only' AND kickoff_at::date = $5::date)
+             OR ($6 = 'exact' AND kickoff_at = $5))
          LIMIT 1",
     )
     .bind(competition_id)
     .bind(season_id)
-    .bind(&m.round_label)
     .bind(home)
     .bind(away)
     .bind(m.kickoff_at)
