@@ -35,25 +35,32 @@ fetch nélkül újraszámolhatók.
 - **`footballctl reverify --from --to`** — gate-állapotok újraszámolása a
   tárolt megfigyelésekből (fetch nélkül).
 
-## Pillanatkép (2026-11-17, a teljes újraellenőrzés után)
+## Pillanatkép (2026-11-17, lezárás után)
 
-- **40 847 meccs**, 142 verseny, 937 csapat; **verified 4 069**
-  (keresztforrás-egyezés), **provisional 36 776** (egyetlen közepes
-  forrás — őszinte jelölés), withheld 2, **0 duplikált csoport**,
-  pending review 0.
-- Az angol/olasz/spanyol/német/francia ligák teljes szezonjai 100%
-  eredmény/odds lefedettséggel; a legtöbb backfill-meccs egy forrásból
-  (footballdata, közepes) jön → provisional. A következő lépés a
-  keresztellenőrzés bővítése (v1 import ugyanazokra a ligákra → két
-  független forrás → verified).
-- **v1 import (S23e):** Eliteserien 4 010 meccs (99,2% eredmény,
-  98,1% odds), Ekstraklasa 4 562 meccs (96% eredmény; a lezártaknál
-  100%, a 182 hiányzó ütemezett jövőbeli meccs) — provisional.
-- Backfill köteg: 2015–2026 + 1993–2014 + 15 new-liga; fut (done 153,
-  pending ~568); a Latin-1 kódolású régi CSV-k (EC/SC) dekódolása
-  javítva, az 5 hibás job újraindítva.
-- **Újraellenőrzés lefutott:** 39 219 meccs fetch nélkül újraszámolva;
-  a gate-állapotok most a valódi forrás-összetételt tükrözik.
+- **242 479 meccs**, 160 verseny, 1 925 csapat, 985 szezon, 701 Elo-rating.
+- Gate: **verified 40 937** (két független forrás egyezése),
+  **provisional 201 527** (egyetlen közepes forrás), withheld 15.
+- **0 duplikált csoport, 0 pending review.**
+- Fő ligák 34 szezonja: eredmény ~97–98%, odds ~70–80% (a régi szezonok
+  CSV-iben nincs odds oszlop — ott az odds-lefedettség természetes hiány).
+- A provisional tömeg oka: a backfill java egy forrásból (footballdata)
+  jön; a keresztellenőrzés (v1) a 2015+ szezonokra ad második forrást
+  (→ verified). A pre-2015 és a new-ligák egyelőre provisional-ok.
+- Elhalasztott top-up pass: a korai szezonok néhány kimaradt meccse
+  (site throttle a burst után) — későbbi szekvenciális szelet.
+
+## Keresztellenőrzés, ELO, szezon-nézet (2026-11-17)
+
+- **Keresztellenőrzés:** a v1 import ugyanazokra a ligákra/szezonokra
+  (17 liga, 2015–2026) a footballdata mellé második forrást ad; a dedupe
+  merge additívan mozgatja az oddsokat, így a trust-szabály két független
+  közepes forrást lát → **verified**. Reverify után ~40 066 verified.
+- **Saját Elo:** `footballctl elo [--as-of]` a lezárt meccsekből számol
+  (155 305 meccs → 728 csapat), `fact.club_elo` `source='own-elo'`,
+  `provenance='observed'`; a nap-API `home_elo/away_elo` adja. A rating
+  as-of pillanatkép (mai dátum); történelmi as-of sorozat későbbi szelet.
+- **Szezon-nézet:** `/v1/competition/{id}/seasons` + a kliens verseny-
+  adatlap „Szezonok" füle (szezon / meccs / eredmény / odds).
 
 ## Figyelőlista (ismert kockázatok)
 
@@ -68,3 +75,10 @@ fetch nélkül újraszámolhatók.
   visszakövethető.
 - **Részleges szezon:** ha egy liga-szezon CSV később frissül, a backfill
   job újrafuttatása pótolja a hiányzó sorokat (idempotens).
+- **Csapatnév-változatok:** a v1 és a footballdata eltérő rövid nevei
+  (pl. „Manchester City" vs „Man City") külön entitást hozhatnak létre;
+  az alias-seed (`identity seed-v1`) és az entitás-merge kezeli — a
+  `data-status`/coverage sorokban duplikált csapatnév pár figyelendő.
+- **Backfill-tempó:** a tick-en belüli delay-kapu ~1 job/tick-et enged;
+  párhuzamos tick-loopok a breakert nyitják (rate-limit védelem) — csak
+  szekvenciális, udvarias delay-jel futtatandó.

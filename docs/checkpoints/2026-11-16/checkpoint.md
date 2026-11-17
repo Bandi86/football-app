@@ -768,3 +768,19 @@
 - [ ] **Folyamatban:** bootstrap-újrafuttatás (717 job) a korán kimaradt
       meccsek pótlására; utána approve-create, reverify, coverage,
       budget 2000 → 60 és tick 5 → 60 visszaállítás (2026-11-18 checklist).
+
+## Lezárás (2026-11-17 este) — a mai 3 feladat kész
+
+- [x] **Keresztellenőrzés:** 17 liga v1 import a footballdata mellé;
+      additív odds-merge → két független forrás → trust; reverify után
+      ~40 066 verified (volt 4 069).
+- [x] **Saját Elo + kliens szezon-nézet:** `footballctl elo` (728 csapat),
+      seasons endpoint + Szezonok fül; Core 25 + app 24 teszt, build OK,
+      app-screenshot élő adattal.
+- [x] **Lezárás:** 726 backfill job done; budget 60 / min_delay 2000 /
+      tick 60 visszaállítva; pending review 0; minden kapu zöld
+      (workspace tesztek, clippy/fmt, foundation, Core+app tesztek).
+- [ ] **Elhalasztva:** bootstrap top-up pass (korai szezonok kimaradt
+      meccsei) — a burst után a site throttle-olt, a breaker védelem
+      működött; szekvenciális, udvarias tempójú későbbi szelet
+      (2026-11-18 checklist 0. pont).
