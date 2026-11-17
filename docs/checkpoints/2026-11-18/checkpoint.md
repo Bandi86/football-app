@@ -1,0 +1,40 @@
+# Checkpoint — 2026-11-18
+
+## Induló állapot (2026-11-17 este)
+
+- Backfill köteg fut: **668 job pending** (2015–2026: maradék; 1993–2014:
+  447; new-ligák: 15), a napi kvóta (450) 2026-11-17-én elfogyott.
+- Kész: 58 job; coverage bizonyíték: PL 2020/21–2025/26 teljes
+  (380 meccs, 100% eredmény/odds), Championship 2025/26 teljes.
+- Napi élő ingest ép: 2026-11-17 = 255 meccs, 0 duplikátum, 0 pending
+  review; `daily_budget` footballdata = 450 (ideiglenes).
+- Utolsó commitok: `a43c829` (new ligák), `670aa8d` (S23e terv).
+
+## Mai teendők (ebben a sorrendben)
+
+- [ ] **1. Köteg állapot:** `SELECT status, count(*) FROM ops.job WHERE
+      domain='backfill' GROUP BY 1;` — ha van `failed`, a `last_error`
+      alapján javítás + requeue; ha minden `done`, mehet a 2. pont.
+- [ ] **2. Bootstrap-kör:** `footballctl identity approve-create-all`
+      (majd maradék `--allow-unknown-country`); utána a kész jobok
+      egyszeri újrafuttatása:
+      `UPDATE ops.job SET status='pending', attempts=0, last_error=NULL
+       WHERE domain='backfill' AND status='done';`
+      — ismételd az 1–2 pontot, amíg pending review = 0 és a coverage
+      stabil (jellemzően 2 kör).
+- [ ] **3. Coverage KPI:** `footballctl coverage --from 1993 --to 2026` →
+      liga-szezononként eredmény ≥99%, odds ≥90%, 0 duplikált csoport
+      (`dedupe` scan), duplikátumok esetén `dedupe matches --apply`.
+- [ ] **4. Budget visszaállítás:** footballdata `daily_budget` 450 → 60
+      (élő napi 22 kérés + tartalék); ellenőrzés:
+      `SELECT source_slug, daily_budget FROM ops.source_policy;`
+- [ ] **5. Zárás:** checkpoint-frissítés (S23c/d eredmények), commit+push,
+      majd a következő szelet (S23e v1 import pilot vagy kliens szezon-nézet).
+
+## Fontos kontextus
+
+- Runbook: `docs/operations/backfill.md` (sorba állítás, tempó, bootstrap,
+  visszaállítás).
+- A köteg tempója ~1 job/tick; a keret a szűk keresztmetszet.
+- A backfill sorok a normál kanonikus táblákban élnek provenance-szel;
+  a napi élő ingesttel nem ütköznek (lock-first + dedupe).
