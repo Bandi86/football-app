@@ -49,6 +49,7 @@ async fn local_cdp_fetch_returns_status_and_content() {
         request_key: "k".into(),
         endpoint_key: "e".into(),
         ready_marker: None,
+        bearer_token: None,
     };
     let limits = FetchLimits {
         max_bytes: 5_000_000,
@@ -108,6 +109,7 @@ setTimeout(function () {
         request_key: "marker".into(),
         endpoint_key: "e".into(),
         ready_marker: Some("div.event__match[data-event-row]".into()),
+        bearer_token: None,
     };
     let limits = FetchLimits {
         max_bytes: 5_000_000,
@@ -119,6 +121,59 @@ setTimeout(function () {
     assert!(
         html.contains("data-event-row=\"true\""),
         "a marker-poll nem várta meg a kliens-renderelt sort"
+    );
+    srv.stop();
+}
+
+/// Ha a kliens-renderelt marker nem jön meg, a fetcher tranziens hibát ad
+/// (nem fél oldalt): az automata napi kör így retry-zik, nem karanténoz.
+#[tokio::test]
+async fn missing_ready_marker_is_transient_failure() {
+    let default_bin = format!(
+        "{}/../../../../football-app/tools/obscura/obscura",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let bin = std::env::var("OBSCURA_BIN").unwrap_or(default_bin);
+    if !std::path::Path::new(&bin).exists() {
+        eprintln!("skip: nincs obscura bináris ({bin})");
+        return;
+    }
+
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            "<html><body><div id=\"app\"></div></body></html>",
+            "text/html",
+        ))
+        .mount(&server)
+        .await;
+
+    let cfg = ObscuraConfig {
+        bin: bin.into(),
+        url: None,
+        port: 19231,
+        timeout_ms: 3000,
+    };
+    let mut srv = ObscuraServer::start(&cfg).await.unwrap();
+    let fetcher = ObscuraFetcher::connect(srv.cdp_url(), Duration::from_secs(3))
+        .await
+        .unwrap();
+
+    let req = FetchRequest {
+        url: server.uri(),
+        request_key: "marker-missing".into(),
+        endpoint_key: "e".into(),
+        ready_marker: Some("div.event__match[data-event-row]".into()),
+        bearer_token: None,
+    };
+    let limits = FetchLimits {
+        max_bytes: 1_000_000,
+        timeout: Duration::from_secs(3),
+    };
+    let err = fetcher.fetch(&req, &limits).await.unwrap_err();
+    assert!(
+        matches!(err, football_domain::error::FetchError::Timeout),
+        "tranziens timeoutot vártunk, ehelyett: {err:?}"
     );
     srv.stop();
 }

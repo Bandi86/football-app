@@ -58,6 +58,7 @@ async fn live_soccerway_day_parses_with_date_guard() {
         request_key: "live".into(),
         endpoint_key: "matches".into(),
         ready_marker: Some("div.event__match[data-event-row]".into()),
+        bearer_token: None,
     };
     let limits = FetchLimits {
         max_bytes: 20_000_000,

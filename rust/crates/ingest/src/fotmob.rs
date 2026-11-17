@@ -185,6 +185,7 @@ impl SourceAdapter for FotMobAdapter {
             request_key: format!("{SOURCE_SLUG}:day:{}", job.time_window),
             endpoint_key: "day".into(),
             ready_marker: None,
+            bearer_token: None,
         }]
     }
 

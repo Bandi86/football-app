@@ -96,3 +96,12 @@ a worker robots-kapuját.
 | `CDP hiba` a fetchnél | a kapcsolat megszakadt; a worker a breaker/delay őrökkel kezeli |
 | `nincs HTTP-státusz a CDP válaszból` | a navigáció nem adott main-document választ (hálózati hiba, blokk) — a fetch failed |
 | üres renderelt tartalom | a cél nem JS-renderelt vagy a settle nem elég; parser-szintű decoy-őr kötelező |
+
+## 7. Önjavítás (2026-11-17)
+
+A `footballd` és a `footballctl` a fetchert `connect_managed(cfg)`-fel
+építi: a fetcher a saját szerverét kezeli, és fetch előtt health-checkel
+(`/json/version`). Ha a motor-gyermek elhalt vagy a CDP-kapcsolat bezárt,
+a fetcher leállítja/újraindítja a szervert és újracsatlakozik
+(transport hiba esetén egy automatikus retry is). A render-marker
+hiánya tranziens `Timeout` — a worker backoff-ol, nem karanténoz.

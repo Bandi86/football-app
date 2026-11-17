@@ -61,6 +61,11 @@ export DATA_DIR="$AGENTDIR/data"
 export WORKER_ENABLED=true
 export RUST_LOG="\${RUST_LOG:-info}"
 export OBSCURA_BIN="$AGENTDIR/bin/obscura"
+# OpenFoot API-kulcs a bejelentkezési Keychainből (soha nem fájlban/naplóban).
+if [ -z "\${OPENFOOT_API_KEY:-}" ]; then
+  OPENFOOT_API_KEY="$(security find-generic-password -a football-app-v2 -s openfoot-api-key -w 2>/dev/null || true)"
+  export OPENFOOT_API_KEY
+fi
 exec "$AGENTDIR/bin/footballd"
 RUN_EOF
 chmod 700 "$AGENTDIR/run.sh"

@@ -11,7 +11,7 @@
 //! (outerHTML) → Target.closeTarget.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use async_tungstenite::tungstenite::Message;
@@ -39,6 +39,7 @@ pub struct CdpClient {
     cmd_tx: mpsc::UnboundedSender<(String, oneshot::Sender<Value>)>,
     events: Mutex<mpsc::UnboundedReceiver<Value>>,
     next_id: AtomicU64,
+    closed: std::sync::Arc<AtomicBool>,
 }
 
 impl CdpClient {
@@ -48,6 +49,8 @@ impl CdpClient {
             .map_err(|e| ObscuraError::ServerStart(format!("CDP kapcsolat: {e}")))?;
         let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel::<(String, oneshot::Sender<Value>)>();
         let (event_tx, event_rx) = mpsc::unbounded_channel::<Value>();
+        let closed = std::sync::Arc::new(AtomicBool::new(false));
+        let closed_task = closed.clone();
 
         tokio::spawn(async move {
             let (mut sink, mut stream) = ws.split();
@@ -94,13 +97,20 @@ impl CdpClient {
             for (_, tx) in pending {
                 let _ = tx.send(connection_closed());
             }
+            closed_task.store(true, Ordering::SeqCst);
         });
 
         Ok(Self {
             cmd_tx,
             events: Mutex::new(event_rx),
             next_id: AtomicU64::new(1),
+            closed,
         })
+    }
+
+    /// A WS-kapcsolat életben van-e (az olvasó task még fut).
+    pub fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::SeqCst)
     }
 
     async fn request(

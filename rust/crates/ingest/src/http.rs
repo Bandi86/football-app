@@ -52,10 +52,15 @@ impl Fetcher for RustHttpFetcher {
         req: &FetchRequest,
         limits: &FetchLimits,
     ) -> Result<RawPayload, FetchError> {
-        let mut response = self
+        let mut request = self
             .client
             .get(&req.url)
-            .header(reqwest::header::USER_AGENT, &self.user_agent)
+            .header(reqwest::header::USER_AGENT, &self.user_agent);
+        // API-forrás tokene: csak a kérés fejlécébe, se naplóba, se capture-be.
+        if let Some(token) = &req.bearer_token {
+            request = request.bearer_auth(token);
+        }
+        let mut response = request
             .timeout(limits.timeout)
             .send()
             .await

@@ -40,6 +40,7 @@ impl SourceAdapter for DemoAdapter {
             request_key: format!("{}:{}:{}", job.source_slug, job.domain, job.time_window),
             endpoint_key: job.domain.clone(),
             ready_marker: None,
+            bearer_token: None,
         }]
     }
 

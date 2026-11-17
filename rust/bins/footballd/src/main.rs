@@ -12,6 +12,7 @@ use football_ingest::fetch::{Fetchers, FixtureFetcher};
 use football_ingest::footballdata::FootballdataAdapter;
 use football_ingest::fotmob::FotMobAdapter;
 use football_ingest::http::RustHttpFetcher;
+use football_ingest::openfoot::OpenFootAdapter;
 use football_ingest::soccerway::SoccerwayAdapter;
 use football_storage::object_store::ObjectStore;
 #[cfg(feature = "obscura")]
@@ -41,8 +42,6 @@ async fn main() -> Result<()> {
         .unwrap_or(false);
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let data_dir = std::env::var("DATA_DIR").unwrap_or_else(|_| "./data".into());
-    #[cfg(feature = "obscura")]
-    let mut obscura_server: Option<football_ingest::obscura::server::ObscuraServer> = None;
     let worker_handle = if worker_enabled {
         let store = ObjectStore::new(&data_dir)?;
         let fixture_dir = std::path::Path::new(&data_dir).join("worker-fixtures");
@@ -55,16 +54,13 @@ async fn main() -> Result<()> {
         let fetchers = {
             let mut fetchers = fetchers;
             if worker_repo::has_enabled_transport(&pool, Transport::Obscura.as_db_str()).await? {
+                // Önjavító fetcher: a motor-gyermek halála esetén újraindít
+                // + CDP-reconnect (launchd alatti hosszú futáshoz).
                 let cfg = football_ingest::obscura::ObscuraConfig::from_env();
-                let server = football_ingest::obscura::server::ObscuraServer::start(&cfg).await?;
-                let fetcher = football_ingest::obscura::ObscuraFetcher::connect(
-                    server.cdp_url(),
-                    std::time::Duration::from_millis(cfg.timeout_ms),
-                )
-                .await?;
-                obscura_server = Some(server);
+                let fetcher =
+                    football_ingest::obscura::ObscuraFetcher::connect_managed(&cfg).await?;
                 fetchers = fetchers.with_obscura(fetcher);
-                tracing::info!("obscura fetcher aktiv (lazy szerverinditas)");
+                tracing::info!("obscura fetcher aktiv (önjavító, lazy szerverinditas)");
             }
             fetchers
         };
@@ -73,6 +69,7 @@ async fn main() -> Result<()> {
         adapters.insert("footballdata".into(), Box::new(FootballdataAdapter));
         adapters.insert("fotmob".into(), Box::new(FotMobAdapter::default()));
         adapters.insert("soccerway".into(), Box::new(SoccerwayAdapter::default()));
+        adapters.insert("openfoot".into(), Box::new(OpenFootAdapter::from_env()));
         let tick_secs = worker_tick_secs(std::env::var("WORKER_TICK_SECS").ok().as_deref());
         let worker_id = uuid::Uuid::now_v7();
         tracing::info!(worker_id = %worker_id, tick_secs, "worker elindult");
@@ -124,11 +121,6 @@ async fn main() -> Result<()> {
             .and_then(|r| r),
         None => Ok(()),
     };
-    #[cfg(feature = "obscura")]
-    if let Some(mut server) = obscura_server {
-        server.stop();
-        tracing::info!("obscura szerver leállítva");
-    }
     tracing::info!("footballd leállt");
     serve_result?;
     worker_result

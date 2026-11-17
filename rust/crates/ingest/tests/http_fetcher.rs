@@ -28,6 +28,7 @@ async fn fetch_200_with_honest_ua() {
         request_key: "k".into(),
         endpoint_key: "match".into(),
         ready_marker: None,
+        bearer_token: None,
     };
     let raw = fetcher.fetch(&req, &limits()).await.unwrap();
     assert_eq!(raw.http_status, 200);
@@ -47,6 +48,7 @@ async fn http_error_status_is_typed() {
         request_key: "k".into(),
         endpoint_key: "m".into(),
         ready_marker: None,
+        bearer_token: None,
     };
     let err = fetcher.fetch(&req, &limits()).await.unwrap_err();
     assert!(matches!(err, FetchError::HttpStatus(403)));
@@ -65,6 +67,7 @@ async fn oversize_body_rejected() {
         request_key: "k".into(),
         endpoint_key: "m".into(),
         ready_marker: None,
+        bearer_token: None,
     };
     let err = fetcher.fetch(&req, &limits()).await.unwrap_err();
     assert!(matches!(err, FetchError::Oversize(_)));
@@ -83,6 +86,7 @@ async fn timeout_is_typed() {
         request_key: "k".into(),
         endpoint_key: "m".into(),
         ready_marker: None,
+        bearer_token: None,
     };
     let err = fetcher.fetch(&req, &limits()).await.unwrap_err();
     assert!(matches!(err, FetchError::Timeout));
@@ -107,6 +111,7 @@ async fn oversize_chunked_without_content_length() {
         request_key: "k".into(),
         endpoint_key: "m".into(),
         ready_marker: None,
+        bearer_token: None,
     };
     let err = fetcher.fetch(&req, &limits()).await.unwrap_err();
     assert!(matches!(err, FetchError::Oversize(_)));

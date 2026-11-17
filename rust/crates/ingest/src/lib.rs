@@ -1,6 +1,7 @@
 pub mod adapter;
 pub mod canonicalize;
 pub mod clubelo;
+pub mod countries;
 pub mod demo;
 pub mod fetch;
 pub mod fixture;
@@ -11,4 +12,5 @@ pub mod normalized;
 #[cfg(feature = "obscura")]
 pub mod obscura;
 pub mod observe;
+pub mod openfoot;
 pub mod soccerway;

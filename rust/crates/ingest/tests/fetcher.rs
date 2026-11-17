@@ -18,6 +18,7 @@ fn req(key: &str) -> FetchRequest {
         request_key: key.into(),
         endpoint_key: "match".into(),
         ready_marker: None,
+        bearer_token: None,
     }
 }
 

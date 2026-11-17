@@ -83,6 +83,7 @@ impl SourceAdapter for FootballdataAdapter {
                     request_key: format!("{SOURCE_SLUG}:{code}:{}", job.time_window),
                     endpoint_key: (*code).to_string(),
                     ready_marker: None,
+                    bearer_token: None,
                 }
             })
             .collect()

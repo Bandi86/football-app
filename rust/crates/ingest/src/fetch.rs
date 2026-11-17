@@ -20,6 +20,9 @@ pub struct FetchRequest {
     /// renderelt DOM-ban meg nem jelenik (kliens-oldali lista-várakozás).
     /// A HTTP-fetcher figyelmen kívül hagyja.
     pub ready_marker: Option<String>,
+    /// Opcionális Bearer token a kéréshez (pl. API-forrás). A naplóba és a
+    /// nyers capture-be NEM kerül (csak a kérés fejlécébe).
+    pub bearer_token: Option<String>,
 }
 
 #[derive(Debug, Clone)]

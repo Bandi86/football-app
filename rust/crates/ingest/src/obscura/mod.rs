@@ -81,91 +81,189 @@ impl ObscuraConfig {
 
 /// CDP-alapú browser-fetcher az Obscura serve mögött. A Fetcher trait mögé
 /// illeszkedik, így a worker robots/budget/breaker/delay őrei változatlanok.
+/// Opcionálisan kezelt Obscura-szerver: health-check + motor-újraindítás
+/// (a launchd alatt futó automata körben a motor-gyermek elhalhat; a
+/// fetcher ezt észleli és újraindítja, majd újracsatlakozik CDP-n).
+struct ManagedServer {
+    cfg: ObscuraConfig,
+    server: tokio::sync::Mutex<Option<server::ObscuraServer>>,
+}
+
 pub struct ObscuraFetcher {
-    client: CdpClient,
+    client: tokio::sync::Mutex<CdpClient>,
+    managed: Option<std::sync::Arc<ManagedServer>>,
+    health_url: String,
     timeout: Duration,
 }
 
-impl ObscuraFetcher {
-    pub async fn connect(cdp_url: &str, timeout: Duration) -> Result<Self, ObscuraError> {
-        Ok(Self {
-            client: CdpClient::connect(cdp_url).await?,
-            timeout,
-        })
-    }
+fn http_base(cfg: &ObscuraConfig) -> String {
+    cfg.url
+        .clone()
+        .unwrap_or_else(|| format!("http://127.0.0.1:{}", cfg.port))
+        .trim_end_matches('/')
+        .to_string()
 }
 
 impl ObscuraFetcher {
+    /// Külső (már futó) szerverhez csatlakozás — nincs önjavítás.
+    pub async fn connect(cdp_url: &str, timeout: Duration) -> Result<Self, ObscuraError> {
+        let client = CdpClient::connect(cdp_url).await?;
+        let base = cdp_url
+            .trim_end_matches("/devtools/browser")
+            .trim_end_matches('/')
+            .replacen("ws://", "http://", 1)
+            .replacen("wss://", "https://", 1);
+        Ok(Self {
+            client: tokio::sync::Mutex::new(client),
+            managed: None,
+            health_url: format!("{base}/json/version"),
+            timeout,
+        })
+    }
+
+    /// Saját életciklusú szerver: ha a motor elhal vagy a CDP-kapcsolat
+    /// megszakad, a fetcher újraindítja és újracsatlakozik.
+    pub async fn connect_managed(cfg: &ObscuraConfig) -> Result<Self, ObscuraError> {
+        let server = server::ObscuraServer::start(cfg).await?;
+        let client = CdpClient::connect(server.cdp_url()).await?;
+        Ok(Self {
+            client: tokio::sync::Mutex::new(client),
+            managed: Some(std::sync::Arc::new(ManagedServer {
+                cfg: cfg.clone(),
+                server: tokio::sync::Mutex::new(Some(server)),
+            })),
+            health_url: format!("{}/json/version", http_base(cfg)),
+            timeout: Duration::from_millis(cfg.timeout_ms),
+        })
+    }
+
+    /// Motor leállítása (daemon/CLI leálláskor).
+    pub async fn shutdown(&self) {
+        if let Some(managed) = &self.managed
+            && let Some(mut srv) = managed.server.lock().await.take()
+        {
+            srv.stop();
+        }
+    }
+
+    async fn health_ok(&self) -> bool {
+        reqwest::Client::new()
+            .get(&self.health_url)
+            .timeout(Duration::from_millis(800))
+            .send()
+            .await
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+    }
+
+    /// Ha a motor halott vagy a CDP-kapcsolat bezárt: újraindítás + reconnect.
+    async fn ensure_ready(&self) -> Result<(), FetchError> {
+        let healthy = self.health_ok().await;
+        let closed = self.client.lock().await.is_closed();
+        if healthy && !closed {
+            return Ok(());
+        }
+        self.restart().await
+    }
+
+    async fn restart(&self) -> Result<(), FetchError> {
+        let Some(managed) = &self.managed else {
+            return Err(FetchError::Transport(
+                "obscura kapcsolat megszakadt (külső szerver)".into(),
+            ));
+        };
+        tracing::warn!("obscura motor újraindítás (health/CDP hiba)");
+        {
+            let mut slot = managed.server.lock().await;
+            if let Some(mut old) = slot.take() {
+                old.stop();
+            }
+        }
+        let server = server::ObscuraServer::start(&managed.cfg)
+            .await
+            .map_err(|e| FetchError::Transport(format!("motor újraindítás: {e}")))?;
+        let cdp = server.cdp_url().to_string();
+        *managed.server.lock().await = Some(server);
+        let client = CdpClient::connect(&cdp)
+            .await
+            .map_err(|e| FetchError::Transport(format!("CDP újracsatlakozás: {e}")))?;
+        *self.client.lock().await = client;
+        Ok(())
+    }
+
     /// A renderelési lánc magja: oldal → Network/Page.enable → navigate →
     /// dokumentum-státusz → settle → renderelt DOM. A hívó lezárja az oldalt.
-    async fn render(&self, req: &FetchRequest) -> Result<(u16, Vec<u8>), FetchError> {
-        let page = self.client.open_page().await.map_err(|e| e.into_fetch())?;
+    async fn render(
+        &self,
+        client: &CdpClient,
+        req: &FetchRequest,
+    ) -> Result<(u16, Vec<u8>), FetchError> {
+        let page = client.open_page().await.map_err(|e| e.into_fetch())?;
         let outcome = async {
-            self.client
+            client
                 .enable_network(&page)
                 .await
                 .map_err(|e| e.into_fetch())?;
-            self.client
+            client
                 .enable_page(&page)
                 .await
                 .map_err(|e| e.into_fetch())?;
-            self.client
+            client
                 .navigate(&page, &req.url)
                 .await
                 .map_err(|e| e.into_fetch())?;
 
-            // A státusz a fő dokumentum-válaszból jön (redirect-lánc miatt
-            // nem URL-re illesztünk); ugyanez az olvasó várja a load
-            // eseményt is, mert az Obscura a navigate válaszát a betöltésig
-            // visszatarthatja — az esemény a biztos jel.
-            let status = self
-                .client
+            let status = client
                 .wait_for_page_ready(&page, Duration::from_secs(20))
                 .await
                 .map_err(|e| e.into_fetch())?;
 
-            // A spike szerinti 1.5 s settle a stabil renderelt DOM-hoz
-            // (előtte "Cannot find context" hibák).
+            // A spike szerinti 1.5 s settle a stabil renderelt DOM-hoz.
             tokio::time::sleep(Duration::from_millis(1500)).await;
 
-            // Kliens-oldali lista (pl. Soccerway nap-feed): a settle kevés,
-            // a marker megjelenéséig pollozunk; túllépésnél a meglévő HTML
-            // megy tovább, és a parser tartalmi őre dönt (fail-closed).
+            // Kliens-oldali lista: marker-várakozás; ha nem jön meg,
+            // TRANZIENS hiba (fél oldalt nem adunk a parsernek).
             if let Some(marker) = &req.ready_marker {
                 let selector = serde_json::to_string(marker)
                     .map_err(|e| FetchError::Transport(format!("marker-szelektor: {e}")))?;
                 let check =
                     format!("document.querySelector({selector}) !== null ? 'true' : 'false'");
-                let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+                let wait = Duration::from_secs(20)
+                    .min(self.timeout.saturating_sub(Duration::from_secs(2)));
+                let deadline = tokio::time::Instant::now() + wait;
+                let mut ready = false;
                 loop {
-                    match self.client.evaluate_string(&page, &check).await {
-                        Ok(value) if value == "true" => break,
+                    match client.evaluate_string(&page, &check).await {
+                        Ok(value) if value == "true" => {
+                            ready = true;
+                            break;
+                        }
                         Ok(_) | Err(_) if tokio::time::Instant::now() < deadline => {
                             tokio::time::sleep(Duration::from_millis(500)).await;
                         }
                         _ => break,
                     }
                 }
+                if !ready {
+                    return Err(FetchError::Timeout);
+                }
             }
 
             let expression = "document.documentElement.outerHTML";
-            let mut result = self.client.evaluate_string(&page, expression).await;
+            let mut result = client.evaluate_string(&page, expression).await;
             for _ in 0..3 {
                 if result.is_ok() {
                     break;
                 }
                 tokio::time::sleep(Duration::from_secs(1)).await;
-                result = self.client.evaluate_string(&page, expression).await;
+                result = client.evaluate_string(&page, expression).await;
             }
             let html = result.map_err(|e| e.into_fetch())?;
             Ok((status, html.into_bytes()))
         }
         .await;
         // A hibás fetch is zárja be az oldalt (ne szivárogjon target).
-        self.client
-            .close_page(&page)
-            .await
-            .map_err(|e| e.into_fetch())?;
+        client.close_page(&page).await.map_err(|e| e.into_fetch())?;
         outcome
     }
 }
@@ -178,18 +276,34 @@ impl Fetcher for ObscuraFetcher {
         limits: &FetchLimits,
     ) -> Result<RawPayload, FetchError> {
         let fut = async {
-            self.client.drain_events().await;
-            let (http_status, bytes) = self.render(req).await?;
-            if bytes.len() as u64 > limits.max_bytes {
-                return Err(FetchError::Oversize(bytes.len() as u64));
+            self.ensure_ready().await?;
+            let mut last_error: Option<FetchError> = None;
+            for attempt in 0..2 {
+                let client = self.client.lock().await;
+                client.drain_events().await;
+                match self.render(&client, req).await {
+                    Ok((http_status, bytes)) => {
+                        drop(client);
+                        if bytes.len() as u64 > limits.max_bytes {
+                            return Err(FetchError::Oversize(bytes.len() as u64));
+                        }
+                        return Ok(RawPayload {
+                            sha256: hex::encode(sha2::Sha256::digest(&bytes)),
+                            bytes,
+                            content_type: "text/html".to_string(),
+                            http_status,
+                            fetched_at: chrono::Utc::now(),
+                        });
+                    }
+                    Err(err @ FetchError::Transport(_)) if attempt == 0 => {
+                        drop(client);
+                        last_error = Some(err);
+                        self.restart().await?;
+                    }
+                    Err(err) => return Err(err),
+                }
             }
-            Ok(RawPayload {
-                sha256: hex::encode(sha2::Sha256::digest(&bytes)),
-                bytes,
-                content_type: "text/html".to_string(),
-                http_status,
-                fetched_at: chrono::Utc::now(),
-            })
+            Err(last_error.unwrap_or(FetchError::Transport("obscura hiba".into())))
         };
         match tokio::time::timeout(self.timeout.min(limits.timeout), fut).await {
             Ok(res) => res,

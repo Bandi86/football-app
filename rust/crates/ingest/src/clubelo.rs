@@ -36,6 +36,7 @@ impl SourceAdapter for ClubEloAdapter {
             request_key: format!("{SOURCE_SLUG}:elo:{}", job.time_window),
             endpoint_key: "elo".into(),
             ready_marker: None,
+            bearer_token: None,
         }]
     }
 

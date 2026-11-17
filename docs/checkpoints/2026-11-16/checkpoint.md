@@ -285,3 +285,64 @@
       bekötése után **teljes utólagos feltöltés** kell minden ligára és
       országra, a lehető legtöbb meccsre odds-szal (v1 DB vagy más
       forrás) — a mai adat csak részleges kör.
+
+## S13 — OpenFoot forrás bekötése (2026-11-17)
+
+- [x] Research (5 kérés, kvóta 342→~347/5000): robots `Allow: /`;
+      `/v1/competitions` = 120 verseny (név/ország/kód); nap-feed
+      `data[]` + `meta` (`count/total_count/scope.partial`); lapozás
+      `page` paraméterrel (100/oldal); státusz-szűrő nélkül ütemezett +
+      lezárt együtt; statuses scheduled/live/finished/postponed/cancelled;
+      odds nincs; `sourceRefs` (fotmob) részben.
+- [x] **Fetch-modell:** `bearer_token` mező (csak a kérés fejlécébe;
+      naplóba/capture-be nem kerül) — az összes adapter/teszt frissítve.
+- [x] **Közös ország-segédek:** `ingest::countries` (lokalizált/angol
+      név → ISO, nemzetközi/kontinens felismerés) — a Soccerway is ezt
+      használja (viselkedés változatlan, tesztek zöldek).
+- [x] **`OpenFootAdapter`:** napi job 4 kéréssel (registry + 3 nap-oldal),
+      registry-cache, dátum-guard, státusz/eredmény fail-closed mapping,
+      ismert versenyek kanonikus nevekkel (top-5 + NB I/II), kupa/női/
+      utánpótlás heurisztika, csapat-ország szabály. Teszt 4/4.
+- [x] **Wiring:** regisztráció footballd/CLI; agent `run.sh` a Keychainből
+      injektálja az `OPENFOOT_API_KEY`-t; policy `canary` napi 8 kéréssel,
+      trust `result`/medium; ops doc `docs/operations/openfoot.md`.
+- [x] **Élő canary:** 4 kérés sikeres (30 meccs, 20 csapat, 20 review);
+      `approve-create-all` (20 új entitás, mind országgal); újrafuttatás:
+      **12 kanonikus meccs 2026-11-17-re, mind `verified_publish`**
+      (UEFA Nations League 8, Friendly, Liga AUF, NPFL, USL); nincs
+      napon belüli duplikált meccs.
+- [x] **Render-reziliencia javítás (Soccerway, reggeli automata hiba):**
+      a 07:31-es timeout után a 07:33-as kör 594 KB-os **részleges
+      rendert** adott (nincs nap-címke) → karantén. A fetcher mostantól,
+      ha a ready-marker nem jelenik meg a várakozási ablakban, **tranziens
+      Timeout** hibát ad (nem fél oldalt) → a worker backoff-os retry-t
+      folytat, nem terminális karantént. Teszt: marker nélküli oldal →
+      Timeout. A mai Soccerway-job pending/retry állapotban van.
+
+## S13 folytatás — Obscura önjavítás + Soccerway locale-megfigyelés (2026-11-17)
+
+- [x] **Motor-halál ok:** az agent Obscura-gyermeke elhalt (nincs
+      `obscura` process), a hosszú életű CDP-kapcsolat transport hibákat
+      adott. A jobok helyesen pending/backoff-ban maradtak (nem
+      karantén).
+- [x] **Önjavító fetcher:** `ObscuraFetcher::connect_managed(cfg)` — a
+      motor health-checkje (`/json/version`) + a CDP-kliens zárt állapota
+      alapján újraindítja a szervert és újracsatlakozik; transport hiba
+      esetén egy automatikus restart+retry. A daemon és a CLI ezt
+      használja; a kliens `is_closed()` jelzőt kapott. Élő bizonyíték:
+      a halott motor mellett a következő tick **200-at és 951 KB-ot**
+      hozott (31 verseny materializálva).
+- [x] A marker nélküli render **tranziens Timeout** (nem fél oldal,
+      nem karantén) — teszt hozzáadva.
+- [x] **Soccerway locale-fordulat:** a mai oldal **magyar csapatneveket**
+      adott (pl. „Albánia U21”, „Csehország U17”) a korábbi angol helyett
+      → 166 meccs, de a csapatok nagy része review-ra került (**328
+      pending**). Ezeket NEM hoztam létre (az angol nevű entitások
+      duplikálását okozná); a kanonikus nap részleges (13 meccs,
+      OpenFoot + a feloldott Soccerway-sorok).
+- [ ] Következő szelet: **Soccerway locale rögzítése** (int.soccerway.com
+      vagy language-paraméter kutatása) + a magyar nevű review-sorok
+      tudatos tisztítása (reject indoklással / angol párral való
+      összekötés), majd a nap újrafuttatása.
+- [x] Záró kapuk: workspace 77 tesztcsoport zöld, clippy/fmt tiszta,
+      foundation 0, teszt-DB resetelve.

@@ -15,6 +15,7 @@ use football_ingest::fixture::{FixtureAdapter, FixtureSource};
 use football_ingest::footballdata::FootballdataAdapter;
 use football_ingest::fotmob::FotMobAdapter;
 use football_ingest::http::RustHttpFetcher;
+use football_ingest::openfoot::OpenFootAdapter;
 use football_ingest::soccerway::SoccerwayAdapter;
 use football_storage::object_store::ObjectStore;
 use football_storage::repositories::day::{DayFilter, fetch_day};
@@ -351,28 +352,22 @@ async fn worker_tick(pool: &sqlx::PgPool, store: &ObjectStore, data_dir: &str) -
     // Canary/élő Soccerway-körhöz a CLI is indíthat Obscura-szervert
     // (csak engedélyezett obscura policy esetén; a feature mögött).
     #[cfg(feature = "obscura")]
-    let (fetchers, obscura_server) = {
+    let fetchers = {
         let mut fetchers = fetchers;
-        let mut server = None;
         if worker_repo::has_enabled_transport(pool, Transport::Obscura.as_db_str()).await? {
             let cfg = football_ingest::obscura::ObscuraConfig::from_env();
-            let started = football_ingest::obscura::server::ObscuraServer::start(&cfg).await?;
-            let fetcher = football_ingest::obscura::ObscuraFetcher::connect(
-                started.cdp_url(),
-                std::time::Duration::from_millis(cfg.timeout_ms),
-            )
-            .await?;
+            let fetcher = football_ingest::obscura::ObscuraFetcher::connect_managed(&cfg).await?;
             fetchers = fetchers.with_obscura(fetcher);
-            server = Some(started);
-            println!("obscura fetcher aktív (CLI mód)");
+            println!("obscura fetcher aktív (CLI mód, önjavító)");
         }
-        (fetchers, server)
+        fetchers
     };
     let mut adapters: HashMap<String, Box<dyn SourceAdapter>> = HashMap::new();
     adapters.insert("demo-synthetic".into(), Box::new(DemoAdapter));
     adapters.insert("footballdata".into(), Box::new(FootballdataAdapter));
     adapters.insert("fotmob".into(), Box::new(FotMobAdapter::default()));
     adapters.insert("soccerway".into(), Box::new(SoccerwayAdapter::default()));
+    adapters.insert("openfoot".into(), Box::new(OpenFootAdapter::from_env()));
     let now = Utc::now();
     let policies = worker_repo::list_enabled_policies(pool).await?;
     let generated = scheduler::generate_jobs(pool, &policies, now).await?;
@@ -381,10 +376,6 @@ async fn worker_tick(pool: &sqlx::PgPool, store: &ObjectStore, data_dir: &str) -
         "generált={generated} feldolgozott={} blokkolt={} sikertelen={}",
         outcome.processed, outcome.blocked, outcome.failed
     );
-    #[cfg(feature = "obscura")]
-    if let Some(mut server) = obscura_server {
-        server.stop();
-    }
     Ok(())
 }
 

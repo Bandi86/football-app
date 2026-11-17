@@ -83,6 +83,7 @@ pub async fn check(
                 request_key: format!("{source_slug}:robots:{origin}"),
                 endpoint_key: "robots".into(),
                 ready_marker: None,
+                bearer_token: None,
             };
             let limits = FetchLimits {
                 max_bytes: 5_242_880,

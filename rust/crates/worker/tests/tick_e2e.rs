@@ -566,6 +566,7 @@ impl SourceAdapter for TestHttpAdapter {
             request_key: "test:page".into(),
             endpoint_key: "match".into(),
             ready_marker: None,
+            bearer_token: None,
         }]
     }
 
@@ -875,12 +876,14 @@ impl SourceAdapter for MultiDayAdapter {
                 request_key: "multi:k1".into(),
                 endpoint_key: "k1".into(),
                 ready_marker: None,
+                bearer_token: None,
             },
             FetchRequest {
                 url: "fixture://b".into(),
                 request_key: "multi:k2".into(),
                 endpoint_key: "k2".into(),
                 ready_marker: None,
+                bearer_token: None,
             },
         ]
     }
