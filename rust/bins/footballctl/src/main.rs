@@ -20,6 +20,7 @@ use football_ingest::soccerway::SoccerwayAdapter;
 use football_storage::object_store::ObjectStore;
 use football_storage::repositories::day::{DayFilter, fetch_day};
 use football_storage::repositories::identity as identity_repo;
+use football_storage::repositories::identity_merge;
 use football_storage::repositories::trust;
 use football_storage::repositories::worker as worker_repo;
 use football_verification::engine::{VerificationContext, VerificationEngine};
@@ -149,6 +150,21 @@ enum IdentityAction {
         /// Csak az első N v1 csapatot dolgozza fel (minta-ellenőrzéshez).
         #[arg(long)]
         limit: Option<i64>,
+    },
+    /// Duplikált csapat-entitások (azonos név + kontextus) listája.
+    Duplicates,
+    /// Duplikált csapat-entitás összevonása a túlélőbe (alapból dry-run).
+    MergeTeam {
+        /// Az összevonandó (áldozat) entitás.
+        #[arg(long)]
+        from: Uuid,
+        /// A túlélő entitás.
+        #[arg(long)]
+        to: Uuid,
+        #[arg(long, default_value = "S19 entitás-merge")]
+        note: String,
+        #[arg(long)]
+        apply: bool,
     },
     CrosswalkCheck,
 }
@@ -299,6 +315,7 @@ async fn main() -> Result<()> {
                     println!("nincs duplikált meccs ezen a napon: {date}");
                 } else {
                     let mut merges = 0usize;
+                    let mut skipped = 0usize;
                     for group in &groups {
                         // Túlélő: nem deny-olt név; ha mindkettő/egyik sem,
                         // a legkorábbi sor.
@@ -328,33 +345,47 @@ async fn main() -> Result<()> {
                                 m.gate_state
                             );
                             if apply {
-                                let same = football_storage::repositories::dedupe::is_same_match(
-                                    &pool,
-                                    survivor.match_id,
-                                    m.match_id,
-                                )
-                                .await?;
-                                anyhow::ensure!(
-                                    same,
-                                    "a pár nem ugyanaz a meccs: {} / {}",
-                                    survivor.match_id,
-                                    m.match_id
-                                );
-                                football_storage::repositories::dedupe::merge_duplicate(
-                                    &pool,
-                                    survivor.match_id,
-                                    m.match_id,
-                                    "S16 dedupe (duplikált kanonikus meccs)",
-                                )
-                                .await?;
-                                merges += 1;
+                                // Egy hibás/kockázatos pár ne állítsa meg a
+                                // teljes napi takarítást: kihagyjuk, jelezzük.
+                                let outcome: Result<()> = async {
+                                    let same =
+                                        football_storage::repositories::dedupe::is_same_match(
+                                            &pool,
+                                            survivor.match_id,
+                                            m.match_id,
+                                        )
+                                        .await?;
+                                    anyhow::ensure!(
+                                        same,
+                                        "a pár nem ugyanaz a meccs: {} / {}",
+                                        survivor.match_id,
+                                        m.match_id
+                                    );
+                                    football_storage::repositories::dedupe::merge_duplicate(
+                                        &pool,
+                                        survivor.match_id,
+                                        m.match_id,
+                                        "S16 dedupe (duplikált kanonikus meccs)",
+                                    )
+                                    .await?;
+                                    Ok(())
+                                }
+                                .await;
+                                match outcome {
+                                    Ok(()) => merges += 1,
+                                    Err(err) => {
+                                        skipped += 1;
+                                        println!("  kihagyva: {err:#}");
+                                    }
+                                }
                             }
                         }
                     }
                     println!(
-                        "duplikált csoportok: {}, merge-ek: {}{}",
+                        "duplikált csoportok: {}, merge-ek: {}, kihagyva: {}{}",
                         groups.len(),
                         merges,
+                        skipped,
                         if apply {
                             ""
                         } else {
@@ -532,6 +563,70 @@ async fn identity_command(pool: &sqlx::PgPool, action: IdentityAction) -> Result
                     r.created_at.format("%Y-%m-%d %H:%M:%S UTC")
                 );
             }
+        }
+        IdentityAction::Duplicates => {
+            let groups = identity_merge::duplicate_team_groups(pool).await?;
+            if groups.is_empty() {
+                println!("(nincs duplikált csapat-entitás)");
+            }
+            for group in groups {
+                println!(
+                    "{} | ország: {} | nem: {} | korosztály: {} | ág: {}",
+                    group.name,
+                    group.country_code.as_deref().unwrap_or("-"),
+                    group.gender.as_deref().unwrap_or("-"),
+                    group.age_group.as_deref().unwrap_or("-"),
+                    group.branch.as_deref().unwrap_or("-")
+                );
+                for team in &group.teams {
+                    println!(
+                        "  entitás: {} | team: {} | meccsek: {} | létre: {}",
+                        team.entity_id,
+                        team.team_id,
+                        team.matches,
+                        team.created_at.format("%Y-%m-%d %H:%M")
+                    );
+                }
+            }
+        }
+        IdentityAction::MergeTeam {
+            from,
+            to,
+            note,
+            apply,
+        } => {
+            let preview = identity_merge::merge_team_preview(pool, to, from).await?;
+            println!(
+                "merge: {} ← {} | meccsek: {} | lehetséges duplikált meccs: {} | alias: {} | ref: {} | tabella: {} | szezon-stat: {} | asset: {}",
+                preview.survivor_name,
+                preview.duplicate_name,
+                preview.matches_moved,
+                preview.potential_duplicate_matches,
+                preview.aliases,
+                preview.refs,
+                preview.standings,
+                preview.season_stats,
+                preview.assets
+            );
+            if !apply {
+                println!("dry-run: nincs írás (--apply a merge-hez)");
+                return Ok(());
+            }
+            let report = identity_merge::merge_team(pool, to, from, &note).await?;
+            println!(
+                "merge kész: meccsek {} | alias {} (eldobva {}) | ref {} | tabella {} (eldobva {}) | szezon-stat {} (eldobva {}) | asset {} (eldobva {}) | merge utáni duplikált meccsek: {}",
+                report.matches_moved,
+                report.aliases_moved,
+                report.aliases_dropped,
+                report.refs_moved,
+                report.standings_moved,
+                report.standings_dropped,
+                report.season_stats_moved,
+                report.season_stats_dropped,
+                report.assets_moved,
+                report.assets_dropped,
+                report.duplicate_matches
+            );
         }
         IdentityAction::CrosswalkCheck => {
             let conflicts = football_identity::crosswalk_conflicts(pool).await?;

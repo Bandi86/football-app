@@ -247,3 +247,129 @@ async fn merge_moves_provenance_and_archives_duplicate() {
         .unwrap();
     assert_eq!(audit, 1);
 }
+
+/// Fordított oldalú (home/away csere) pár: azonos meccs, azonos kickoff.
+async fn seed_mirrored(pool: &PgPool, with_result: bool) -> (Uuid, Uuid) {
+    let country = Uuid::now_v7();
+    sqlx::query("INSERT INTO core.country (id, code, name) VALUES ($1,'KY','Cayman Islands')")
+        .bind(country)
+        .execute(pool)
+        .await
+        .unwrap();
+    let comp_entity = Uuid::now_v7();
+    let comp = Uuid::now_v7();
+    sqlx::query("INSERT INTO core.entity (id, kind, canonical_name) VALUES ($1,'competition','CONCACAF Nations League - League B')")
+        .bind(comp_entity)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO core.competition (id, entity_id, name) VALUES ($1,$2,'CONCACAF Nations League - League B')")
+        .bind(comp)
+        .bind(comp_entity)
+        .execute(pool)
+        .await
+        .unwrap();
+    let season = Uuid::now_v7();
+    sqlx::query("INSERT INTO core.season (id, competition_id, label) VALUES ($1,$2,'2026/27')")
+        .bind(season)
+        .bind(comp)
+        .execute(pool)
+        .await
+        .unwrap();
+    let mut teams = Vec::new();
+    for name in ["Cayman Islands", "Dominica"] {
+        let entity = Uuid::now_v7();
+        let team = Uuid::now_v7();
+        sqlx::query("INSERT INTO core.entity (id, kind, canonical_name) VALUES ($1,'team',$2)")
+            .bind(entity)
+            .bind(name)
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO core.team (id, entity_id, country_id, name, gender) VALUES ($1,$2,$3,$4,'male')")
+            .bind(team)
+            .bind(entity)
+            .bind(country)
+            .bind(name)
+            .execute(pool)
+            .await
+            .unwrap();
+        teams.push(team);
+    }
+    let kickoff = Utc.with_ymd_and_hms(2026, 11, 17, 19, 0, 0).unwrap();
+    let mut ids = Vec::new();
+    for (home, away) in [(teams[0], teams[1]), (teams[1], teams[0])] {
+        let id = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO core.match
+             (id, competition_id, season_id, home_team_id, away_team_id, kickoff_at,
+              competition_timezone, status)
+             VALUES ($1,$2,$3,$4,$5,$6,'UTC','scheduled')",
+        )
+        .bind(id)
+        .bind(comp)
+        .bind(season)
+        .bind(home)
+        .bind(away)
+        .bind(kickoff)
+        .execute(pool)
+        .await
+        .unwrap();
+        if with_result {
+            sqlx::query(
+                "INSERT INTO core.match_result (match_id, home_ft, away_ft) VALUES ($1,1,0)",
+            )
+            .bind(id)
+            .execute(pool)
+            .await
+            .unwrap();
+        }
+        ids.push(id);
+    }
+    (ids[0], ids[1])
+}
+
+#[tokio::test]
+async fn mirrored_pair_is_grouped_and_merged_without_result_copy() {
+    let pool = test_pool().await;
+    let (survivor, duplicate) = seed_mirrored(&pool, false).await;
+    let date = chrono::NaiveDate::from_ymd_opt(2026, 11, 17).unwrap();
+
+    let groups = duplicate_groups(&pool, date).await.unwrap();
+    assert_eq!(
+        groups.len(),
+        1,
+        "a tükrözött sor ugyanabba a csoportba tartozik"
+    );
+    assert_eq!(groups[0].matches.len(), 2);
+    assert!(is_same_match(&pool, survivor, duplicate).await.unwrap());
+
+    merge_duplicate(&pool, survivor, duplicate, "tükrözött teszt")
+        .await
+        .unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM core.match")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+    let results: i64 = sqlx::query_scalar("SELECT count(*) FROM core.match_result")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(results, 0, "tükrözött párnál nincs eredmény-másolás");
+}
+
+#[tokio::test]
+async fn mirrored_pair_with_result_is_refused() {
+    let pool = test_pool().await;
+    let (survivor, duplicate) = seed_mirrored(&pool, true).await;
+    let err = merge_duplicate(&pool, survivor, duplicate, "tiltott tükör")
+        .await
+        .unwrap_err();
+    assert!(format!("{err:#}").contains("tükrözött"), "{err:#}");
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM core.match")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 2, "elutasításnál nincs törlés");
+}

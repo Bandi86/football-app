@@ -218,8 +218,11 @@ impl Canonicalizer {
                 );
                 continue;
             };
-            let match_id = match fixture_match.id {
-                Some(id) => id,
+            // `reversed`: a forrás a meccset fordított hazai/vendég oldallal
+            // listázza; ilyenkor a meglévő kanonikus sor az igazság, az
+            // eredmény/statisztika nem írható, az odds oldalt cserélve megy.
+            let (match_id, reversed) = match fixture_match.id {
+                Some(id) => (id, false),
                 None => {
                     find_or_insert_match_id(
                         &mut tx,
@@ -234,8 +237,17 @@ impl Canonicalizer {
             };
             let status = parse_status(&fixture_match.status)?;
 
-            sqlx::query(
-                "INSERT INTO core.match
+            if reversed {
+                tracing::warn!(
+                    source = %day.source_code,
+                    match_id = %match_id,
+                    home = %fixture_match.home_source_entity_id,
+                    away = %fixture_match.away_source_entity_id,
+                    "fordított oldalú forrás-sor: a kanonikus meccs adatai érintetlenek"
+                );
+            } else {
+                sqlx::query(
+                    "INSERT INTO core.match
                  (id, competition_id, season_id, round_label, home_team_id, away_team_id,
                   kickoff_at, kickoff_precision, competition_timezone, status)
                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
@@ -253,19 +265,20 @@ impl Canonicalizer {
                      THEN 'exact' ELSE 'date_only' END,
                    status = EXCLUDED.status,
                    updated_at = now()",
-            )
-            .bind(match_id)
-            .bind(competition_id)
-            .bind(season_id)
-            .bind(&fixture_match.round_label)
-            .bind(home)
-            .bind(away)
-            .bind(fixture_match.kickoff_at)
-            .bind(&fixture_match.kickoff_precision)
-            .bind(&fixture_match.competition_timezone)
-            .bind(status_db(status))
-            .execute(&mut *tx)
-            .await?;
+                )
+                .bind(match_id)
+                .bind(competition_id)
+                .bind(season_id)
+                .bind(&fixture_match.round_label)
+                .bind(home)
+                .bind(away)
+                .bind(fixture_match.kickoff_at)
+                .bind(&fixture_match.kickoff_precision)
+                .bind(&fixture_match.competition_timezone)
+                .bind(status_db(status))
+                .execute(&mut *tx)
+                .await?;
+            }
 
             let result = fixture_match.result.as_ref().map(|r| MatchResultSnapshot {
                 home_ft: r.home_ft,
@@ -278,16 +291,24 @@ impl Canonicalizer {
                 away_pens: r.away_pens,
             });
 
-            persist_result(
-                &mut tx,
-                match_id,
-                result.as_ref(),
-                fixture_match
-                    .result
-                    .as_ref()
-                    .and_then(|r| r.decided_by.as_deref()),
-            )
-            .await?;
+            if !reversed {
+                persist_result(
+                    &mut tx,
+                    match_id,
+                    result.as_ref(),
+                    fixture_match
+                        .result
+                        .as_ref()
+                        .and_then(|r| r.decided_by.as_deref()),
+                )
+                .await?;
+            } else if result.is_some() {
+                tracing::warn!(
+                    source = %day.source_code,
+                    match_id = %match_id,
+                    "fordított oldalú eredmény: nem írjuk (kézi döntés kell)"
+                );
+            }
 
             let observation_ids =
                 observations_for_match(&mut tx, &day.source_code, &fixture_match.source_match_id)
@@ -299,7 +320,10 @@ impl Canonicalizer {
                 "kickoff_at",
                 "status",
                 "result",
-            ] {
+            ]
+            .into_iter()
+            .filter(|_| !reversed)
+            {
                 if let Some(observation_id) = observation_ids.first() {
                     sqlx::query(
                         "INSERT INTO fact.provenance
@@ -345,13 +369,24 @@ impl Canonicalizer {
             // Odds csak a materializált meccshez (a kimaradóknak nincs kanonikus
             // sora → FK-sértés lenne).
             if let Some(odds) = &fixture_match.odds {
-                write_odds(&mut tx, match_id, source_id, day.captured_at, odds).await?;
+                write_odds(
+                    &mut tx,
+                    match_id,
+                    source_id,
+                    day.captured_at,
+                    odds,
+                    reversed,
+                )
+                .await?;
             }
-            if let Some(stats) = &fixture_match.stats {
-                write_stats(&mut tx, match_id, source_id, day.captured_at, stats).await?;
-            }
-            if let Some(name) = &fixture_match.referee {
-                link_referee(pool, &mut tx, source_id, &day.source_code, match_id, name).await?;
+            if !reversed {
+                if let Some(stats) = &fixture_match.stats {
+                    write_stats(&mut tx, match_id, source_id, day.captured_at, stats).await?;
+                }
+                if let Some(name) = &fixture_match.referee {
+                    link_referee(pool, &mut tx, source_id, &day.source_code, match_id, name)
+                        .await?;
+                }
             }
         }
 
@@ -597,24 +632,29 @@ async fn find_or_insert_match_id(
     m: &NormalizedMatch,
     home: Uuid,
     away: Uuid,
-) -> Result<Uuid> {
-    let existing: Option<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM core.match
-         WHERE competition_id=$1 AND season_id=$2
-           AND home_team_id=$3 AND away_team_id=$4
-           AND (($6 = 'date_only' AND kickoff_at::date = $5::date)
-             OR ($6 = 'exact' AND kickoff_at = $5))
-         LIMIT 1",
-    )
-    .bind(competition_id)
-    .bind(season_id)
-    .bind(home)
-    .bind(away)
-    .bind(m.kickoff_at)
-    .bind(&m.kickoff_precision)
-    .fetch_optional(&mut **tx)
-    .await?;
-    Ok(existing.unwrap_or_else(Uuid::now_v7))
+) -> Result<(Uuid, bool)> {
+    for (h, a, reversed) in [(home, away, false), (away, home, true)] {
+        let existing: Option<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM core.match
+             WHERE competition_id=$1 AND season_id=$2
+               AND home_team_id=$3 AND away_team_id=$4
+               AND (($6 = 'date_only' AND kickoff_at::date = $5::date)
+                 OR ($6 = 'exact' AND kickoff_at = $5))
+             LIMIT 1",
+        )
+        .bind(competition_id)
+        .bind(season_id)
+        .bind(h)
+        .bind(a)
+        .bind(m.kickoff_at)
+        .bind(&m.kickoff_precision)
+        .fetch_optional(&mut **tx)
+        .await?;
+        if let Some(id) = existing {
+            return Ok((id, reversed));
+        }
+    }
+    Ok((Uuid::now_v7(), false))
 }
 
 /// Odds-fejléc upsert + a forrás quote-blokkjának teljes cseréje
@@ -625,6 +665,7 @@ async fn write_odds(
     source_id: Uuid,
     captured_at: chrono::DateTime<Utc>,
     odds: &crate::normalized::NormalizedOdds,
+    swap_sides: bool,
 ) -> Result<()> {
     let market_count = odds
         .market_count
@@ -649,6 +690,17 @@ async fn write_odds(
         .execute(&mut **tx)
         .await?;
     for quote in &odds.quotes {
+        // Fordított oldalú forrás-sornál az 1X2 hazai/vendég kimenetele
+        // oldalt cserél (a döntetlen marad).
+        let outcome = if swap_sides && quote.market == "1x2" {
+            match quote.outcome.as_str() {
+                "home" => "away".to_string(),
+                "away" => "home".to_string(),
+                other => other.to_string(),
+            }
+        } else {
+            quote.outcome.clone()
+        };
         sqlx::query(
             "INSERT INTO fact.odds_quote
              (match_id, source_id, bookmaker, market, outcome, line, phase, price)
@@ -658,7 +710,7 @@ async fn write_odds(
         .bind(source_id)
         .bind(&quote.bookmaker)
         .bind(&quote.market)
-        .bind(&quote.outcome)
+        .bind(&outcome)
         .bind(quote.line)
         .bind(&quote.phase)
         .bind(quote.price)

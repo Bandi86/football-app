@@ -15,6 +15,8 @@ use uuid::Uuid;
 pub struct DuplicateMatchRow {
     pub match_id: Uuid,
     pub competition_name: String,
+    pub home_team_id: Uuid,
+    pub away_team_id: Uuid,
     pub home_name: String,
     pub away_name: String,
     pub kickoff_at: DateTime<Utc>,
@@ -40,6 +42,8 @@ pub async fn duplicate_groups(
         "SELECT
             m.id AS match_id,
             c.name AS competition_name,
+            m.home_team_id,
+            m.away_team_id,
             h.name AS home_name,
             a.name AS away_name,
             m.kickoff_at,
@@ -61,9 +65,11 @@ pub async fn duplicate_groups(
            AND EXISTS (
                SELECT 1 FROM core.match m2
                WHERE m2.id <> m.id
-                 AND m2.home_team_id = m.home_team_id
-                 AND m2.away_team_id = m.away_team_id
                  AND m2.kickoff_at = m.kickoff_at
+                 AND LEAST(m2.home_team_id, m2.away_team_id)
+                     = LEAST(m.home_team_id, m.away_team_id)
+                 AND GREATEST(m2.home_team_id, m2.away_team_id)
+                     = GREATEST(m.home_team_id, m.away_team_id)
            )
          ORDER BY m.kickoff_at, h.name, a.name, m.created_at",
     )
@@ -71,17 +77,30 @@ pub async fn duplicate_groups(
     .fetch_all(pool)
     .await?;
 
-    let mut groups: Vec<DuplicateGroup> = Vec::new();
+    // Kulcs szerinti csoportosítás (a tükrözött sorok nem feltétlenül
+    // szomszédosak a név-rendezés miatt — nem lehet last_mut-ra építeni).
+    let mut order: Vec<String> = Vec::new();
+    let mut by_key: std::collections::HashMap<String, Vec<DuplicateMatchRow>> =
+        std::collections::HashMap::new();
     for row in rows {
-        let key = format!("{}|{}|{}", row.kickoff_at, row.home_name, row.away_name);
-        match groups.last_mut() {
-            Some(group) if group.key == key => group.matches.push(row),
-            _ => groups.push(DuplicateGroup {
-                key,
-                matches: vec![row],
-            }),
+        let (lo, hi) = if row.home_team_id < row.away_team_id {
+            (row.home_team_id, row.away_team_id)
+        } else {
+            (row.away_team_id, row.home_team_id)
+        };
+        let key = format!("{}|{}|{}", row.kickoff_at, lo, hi);
+        if !by_key.contains_key(&key) {
+            order.push(key.clone());
         }
+        by_key.entry(key).or_default().push(row);
     }
+    let groups = order
+        .into_iter()
+        .map(|key| DuplicateGroup {
+            matches: by_key.remove(&key).unwrap_or_default(),
+            key,
+        })
+        .collect();
     Ok(groups)
 }
 
@@ -92,9 +111,17 @@ pub async fn is_same_match(pool: &PgPool, survivor: Uuid, duplicate: Uuid) -> Re
             SELECT 1 FROM core.match s JOIN core.match d
               ON d.id = $2
              WHERE s.id = $1
-               AND s.home_team_id = d.home_team_id
-               AND s.away_team_id = d.away_team_id
                AND s.kickoff_at = d.kickoff_at
+               AND (
+                 (s.home_team_id = d.home_team_id AND s.away_team_id = d.away_team_id)
+                 OR (
+                   s.home_team_id = d.away_team_id
+                   AND s.away_team_id = d.home_team_id
+                   AND NOT EXISTS (
+                       SELECT 1 FROM core.match_result r
+                        WHERE r.match_id IN (s.id, d.id))
+                 )
+               )
          )",
     )
     .bind(survivor)
@@ -113,6 +140,23 @@ pub async fn merge_duplicate(
     note: &str,
 ) -> Result<Uuid> {
     let mut tx = pool.begin().await?;
+
+    // 0. Tükrözött pár: az eredmény/orientáció-érzékeny blokkok nem másolhatók.
+    let (mirrored, has_result): (bool, bool) = sqlx::query_as(
+        "SELECT (s.home_team_id = d.away_team_id AND s.away_team_id = d.home_team_id),
+                EXISTS (SELECT 1 FROM core.match_result r WHERE r.match_id IN (s.id, d.id))
+           FROM core.match s, core.match d
+          WHERE s.id = $1 AND d.id = $2",
+    )
+    .bind(survivor)
+    .bind(duplicate)
+    .fetch_one(&mut *tx)
+    .await?;
+    if mirrored && has_result {
+        anyhow::bail!(
+            "tükrözött pár eredménnyel: kézi döntés kell (nem másoljuk át az orientációt)"
+        );
+    }
 
     // 1. Archívum (visszaállítási út): a törlendő sor és gyermekei JSONB-ben.
     sqlx::query(
@@ -160,9 +204,10 @@ pub async fn merge_duplicate(
     .execute(&mut *tx)
     .await?;
 
-    // 3. Hiányzó eredmény pótlása a túlélőnél.
-    sqlx::query(
-        "INSERT INTO core.match_result
+    // 3. Hiányzó eredmény pótlása a túlélőnél (tükrözött párnál nincs).
+    if !mirrored {
+        sqlx::query(
+            "INSERT INTO core.match_result
            (match_id, home_ft, away_ft, home_ht, away_ht, home_et, away_et,
             home_pens, away_pens, decided_by)
          SELECT $2, r.home_ft, r.away_ft, r.home_ht, r.away_ht, r.home_et,
@@ -171,14 +216,16 @@ pub async fn merge_duplicate(
           WHERE r.match_id = $1
             AND NOT EXISTS (SELECT 1 FROM core.match_result s WHERE s.match_id = $2)
          ON CONFLICT (match_id) DO NOTHING",
-    )
-    .bind(duplicate)
-    .bind(survivor)
-    .execute(&mut *tx)
-    .await?;
+        )
+        .bind(duplicate)
+        .bind(survivor)
+        .execute(&mut *tx)
+        .await?;
+    }
 
-    // 4. Hiányzó odds-blokk pótlása (snapshot + quote-ok).
-    sqlx::query(
+    // 4. Hiányzó odds-blokk pótlása (snapshot + quote-ok), csak normál párnál.
+    if !mirrored {
+        sqlx::query(
         "INSERT INTO fact.odds_snapshot (match_id, source_id, captured_at, market_count, trust_state)
          SELECT $2, o.source_id, o.captured_at, o.market_count, o.trust_state
            FROM fact.odds_snapshot o
@@ -190,22 +237,22 @@ pub async fn merge_duplicate(
     .bind(survivor)
     .execute(&mut *tx)
     .await?;
-    sqlx::query(
-        "INSERT INTO fact.odds_quote
+        sqlx::query(
+            "INSERT INTO fact.odds_quote
            (match_id, source_id, bookmaker, market, outcome, line, phase, price)
          SELECT $2, q.source_id, q.bookmaker, q.market, q.outcome, q.line, q.phase, q.price
            FROM fact.odds_quote q
           WHERE q.match_id = $1
             AND NOT EXISTS (SELECT 1 FROM fact.odds_quote s WHERE s.match_id = $2)",
-    )
-    .bind(duplicate)
-    .bind(survivor)
-    .execute(&mut *tx)
-    .await?;
+        )
+        .bind(duplicate)
+        .bind(survivor)
+        .execute(&mut *tx)
+        .await?;
 
-    // 5. Hiányzó statisztika pótlása.
-    sqlx::query(
-        "INSERT INTO fact.match_stats
+        // 5. Hiányzó statisztika pótlása.
+        sqlx::query(
+            "INSERT INTO fact.match_stats
            (match_id, source_id, captured_at, home_shots, away_shots,
             home_shots_on_target, away_shots_on_target, home_corners, away_corners,
             home_yellow, away_yellow, home_red, away_red, home_fouls, away_fouls,
@@ -218,11 +265,12 @@ pub async fn merge_duplicate(
           WHERE s.match_id = $1
             AND NOT EXISTS (SELECT 1 FROM fact.match_stats t WHERE t.match_id = $2)
          ON CONFLICT (match_id, source_id) DO NOTHING",
-    )
-    .bind(duplicate)
-    .bind(survivor)
-    .execute(&mut *tx)
-    .await?;
+        )
+        .bind(duplicate)
+        .bind(survivor)
+        .execute(&mut *tx)
+        .await?;
+    }
 
     // 6. Az áldozat gyermeksorai: a publish_gate NEM kaszkádol, ezért
     //    explicit törlés (archívumban megvan); a maradék provenance is megy.

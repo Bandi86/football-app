@@ -3,6 +3,7 @@ pub mod core;
 pub mod day;
 pub mod dedupe;
 pub mod identity;
+pub mod identity_merge;
 pub mod match_detail;
 pub mod raw;
 pub mod team;

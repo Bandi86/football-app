@@ -497,3 +497,44 @@
       (linker `multiple_candidates`) → identitás-merge szelet;
       `Jordan` Soccerway-review; a Tipplap U19/U20 ligák és a „Nemzetközi
       Torna" nincs a szótárban (szándékos, név-instabilitás).
+
+## S19 — Csapat-entitás merge + tükrözött duplikátumok (2026-11-17)
+
+- [x] **Migráció 0015:** `ops.entity_merge_archive` (entity/team/aliasok/
+      refek/meccs-ids/standing/szezon-stat/asset JSONB payload) +
+      index; `db-check.sh` és `connection.rs` 47 tábla. Rollback: DROP.
+- [x] **Storage (`repositories/identity_merge.rs`):**
+      `duplicate_team_groups` (azonos lower(név) + azonos kontextus, ≥2),
+      `merge_team_preview` (száraz előnézet), `merge_team` (tranzakciós
+      merge: archívum → meccs/standing/szezon-stat/asset/alias/ref
+      átmozgatás konfliktus-eldobással → áldozat team-sor törlés →
+      entitás `merged_into_id` → audit `team_merge`). Csak azonos név +
+      azonos kontextus; fuzzy tilos.
+- [x] **CLI:** `identity duplicates`, `identity merge-team --from --to
+      [--note] [--apply]` (dry-run alap, előnézet-számokkal). Doksi:
+      `docs/operations/identity.md` 7. pont.
+- [x] **Éles merge-ek (2026-11-17):** China, Denmark U17, Dominica
+      ikerentitások összevonva (3 archívum + 3 audit); a China/Dominica
+      pending review-k a túlélőre jóváhagyva (forrás-ref képződött).
+- [x] **Tükrözött duplikátumok (a források fordított home/away oldallal is
+      listázzák ugyanazt a meccset):** a `duplicate_groups` LEAST/GREATEST
+      kulccsal csoportosít (HashMap-alapú, nem szomszédosság-alapú — ez a
+      korábbi csoportosítás hibája volt), az `is_same_match` elfogadja a
+      tükrözött párt, de **eredmény esetén elutasít** (orientáció-veszély);
+      a merge tükrözött párnál nem másol eredményt/oddsot/statisztikát.
+      Éles: 24 + 6 tükrözött merge (190 → 166 meccs), **2 pár kézi
+      döntésre vár** (Canada–Guatemala és Malaysia–Yemen: a források
+      ellentmondó orientációjú, azonosnak tűnő eredményt adnak).
+- [x] **Fordított oldalú materializálás:** ha a forrás meccse fordított
+      home/away-vel jön, a materializer a meglévő kanonikus sort használja
+      (nem hoz létre tükrözött új sort), az 1X2 oddsot oldalcserével írja,
+      eredményt/statisztikát/referee-t/provenance-t nem ír. Élő igazolás:
+      Tipplap „Qatar–South Korea" (6.75/4.35/1.33) → kanonikus
+      „South Korea–Qatar" (1.33/4.35/6.75), napi létszám változatlan.
+- [x] **Tipplap lefedettség a merge után:** China/Dominica review-k
+      jóváhagyásával és a javított materializerrel a Tippmix-odds 39
+      meccsre került fel (nap-API: 166 meccs, 39 odds, provisional).
+- [x] Kapuk: teszt-DB reset → `check-foundation` OK (47 tábla) →
+      workspace tesztek zöld (`--test-threads=1`) → clippy/fmt tiszta →
+      teszt-DB resetelve. Tesztek: `storage/tests/team_merge.rs`,
+      `dedupe_merge.rs` (tükrözött merge + eredményes elutasítás).

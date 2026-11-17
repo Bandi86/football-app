@@ -190,3 +190,26 @@ review után a gate újranyit. A parse-karantén (S2a) érintetlen.
   pipeline érintetlen).
 - **Kód:** a szelet a `feat/s2b1-identity-layer` ágon él; elvetés
   `git restore` csak kifejezett engedéllyel.
+
+## 7. Duplikált csapat-entitások kezelése (S19)
+
+- **Lista:** `footballctl identity duplicates` — azonos normalizált nevű és
+  kontextusú (ország/nem/korosztály/ág), még nem merge-ölt csapat-entitások
+  csoportjai, meccsszámmal és létrehozási idővel. A demó/fixture seedek
+  (`20000000-…` azonosítók) szándékosan párokban élnek — őket nem merge-eljük.
+- **Száraz előnézet / merge:**
+  `footballctl identity merge-team --from <áldozat> --to <túlélő>
+  [--note "..."] [--apply]`. A merge csak azonos normalized név + azonos
+  kontextus mellett fut (nincs fuzzy), és tranzakcióban:
+  archívum (`ops.entity_merge_archive`, teljes előtte-állapot JSONB-ben) →
+  meccsek/standing/szezon-statisztika/asset/alias/forrás-ref átmozgatása
+  (a konfliktusos gyermeksorok eldobva, de archiválva) → az áldozat
+  team-sorának törlése → az áldozat entitás `merged_into_id` megjelölése →
+  `ops.audit_event` (`team_merge`). A riportban látszik, hogy a merge hány
+  **duplikált meccset** hozott létre — ezeket a `dedupe matches` takarítja.
+- **Visszaállítás:** a merge nem automatikusan visszafordítható; az
+  archívum payload-ja (entity, team, aliasok, refek, meccs-azonosítók,
+  standing, szezon-stat, asset) kézi visszajátszás alapja. A migráció
+  rollbackje: `DROP TABLE ops.entity_merge_archive;`.
+- **Őrök:** ismeretlen entitás, nem-team kind, már merge-ölt entitás,
+  eltérő név vagy kontextus → hiba, nincs írás.
