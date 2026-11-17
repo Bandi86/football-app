@@ -126,6 +126,15 @@ enum BackfillAction {
         #[arg(long)]
         apply: bool,
     },
+    /// v1 (football_app) lefedettség a v2-höz képest — read-only riport.
+    V1Inventory {
+        #[arg(long, default_value_t = 2000)]
+        from_year: i32,
+        #[arg(long, default_value_t = 2026)]
+        to_year: i32,
+        #[arg(long, default_value_t = 60)]
+        top: i64,
+    },
 }
 
 #[derive(Subcommand)]
@@ -479,6 +488,105 @@ async fn main() -> Result<()> {
             }
         }
         Command::Backfill { action } => match action {
+            BackfillAction::V1Inventory {
+                from_year,
+                to_year,
+                top,
+            } => {
+                let user = std::env::var("USER").unwrap_or_else(|_| "postgres".into());
+                let v1_url = format!("postgres://{user}@127.0.0.1/football_app");
+                let v1 = PgPoolOptions::new()
+                    .max_connections(2)
+                    .connect(&v1_url)
+                    .await
+                    .context("v1 adatbázis kapcsolat (football_app)")?;
+                let v1_rows: Vec<(String, String, i32, i64, i64, i64)> = sqlx::query_as(
+                    "SELECT t.name, coalesce(c.iso2, ''), s.year_start::int, count(*)::bigint,
+                            count(*) FILTER (WHERE m.home_score IS NOT NULL)::bigint,
+                            count(*) FILTER (WHERE EXISTS (
+                                SELECT 1 FROM match_odds o WHERE o.match_id = m.id))::bigint
+                     FROM matches m
+                     JOIN tournaments t ON t.id = m.tournament_id
+                     JOIN seasons s ON s.id = m.season_id
+                     LEFT JOIN countries c ON c.id = t.country_id
+                     WHERE s.year_start BETWEEN $1 AND $2
+                     GROUP BY 1, 2, 3
+                     ORDER BY 4 DESC
+                     LIMIT $3",
+                )
+                .bind(from_year)
+                .bind(to_year)
+                .bind(top)
+                .fetch_all(&v1)
+                .await
+                .context("v1 lefedettség lekérés")?;
+
+                // v2: foldolt verseny-név + szezon-kezdőév → meccsszám.
+                let v2_rows: Vec<(String, String, String, i64)> = sqlx::query_as(
+                    "SELECT c.name, coalesce(co.code, ''), s.label, count(*)::bigint
+                     FROM core.match m
+                     JOIN core.competition c ON c.id = m.competition_id
+                     JOIN core.season s ON s.id = m.season_id
+                     LEFT JOIN core.country co ON co.id = c.country_id
+                     GROUP BY 1, 2, 3",
+                )
+                .fetch_all(&pool)
+                .await?;
+                let mut v2_map: HashMap<(String, String, i32), i64> = HashMap::new();
+                for (name, code, label, matches) in v2_rows {
+                    let year = label
+                        .get(..4)
+                        .and_then(|y| y.parse::<i32>().ok())
+                        .unwrap_or(0);
+                    *v2_map
+                        .entry((football_domain::identity::fold_name(&name), code, year))
+                        .or_insert(0) += matches;
+                }
+
+                println!(
+                    "v1 verseny | ország | szezon | v1 meccs | v1 odds % | v2 meccs | megjegyzés"
+                );
+                let (mut total, mut matched) = (0i64, 0i64);
+                for (name, country, year, matches, with_result, with_odds) in &v1_rows {
+                    let key = (
+                        football_domain::identity::fold_name(name),
+                        country.clone(),
+                        *year,
+                    );
+                    let in_v2 = v2_map.get(&key).copied().unwrap_or(0);
+                    total += matches;
+                    matched += (*matches).min(in_v2);
+                    let note = if in_v2 == 0 {
+                        "v2-ben nincs".to_string()
+                    } else if in_v2 >= *matches {
+                        "lefedve".to_string()
+                    } else {
+                        format!("résleges ({} hiány)", matches - in_v2)
+                    };
+                    println!(
+                        "{} | {} | {}/{} | {} | {:.1}% | {} | {}",
+                        name,
+                        if country.is_empty() { "-" } else { country },
+                        year,
+                        year + 1,
+                        matches,
+                        *with_odds as f64 / *matches as f64 * 100.0,
+                        in_v2,
+                        note
+                    );
+                    let _ = with_result;
+                }
+                if total > 0 {
+                    println!(
+                        "összesen: v1 {} meccs (top {}), v2-ben visszaigazolt ~{} ({:.1}%)",
+                        total,
+                        v1_rows.len(),
+                        matched,
+                        matched as f64 / total as f64 * 100.0
+                    );
+                }
+            }
+
             BackfillAction::Plan {
                 source,
                 from,

@@ -694,3 +694,16 @@
 - [ ] **Következő:** a teljes backlog (657 pending job) feldolgozása a
       keret-reset után; bootstrap-kör (approve-create + kész jobok
       újrafuttatása); coverage-riport; utána S23e (v1 import).
+
+## S23e — v1-leltár eszköz (2026-11-17)
+
+- [x] **`footballctl backfill v1-inventory --from-year --to-year --top`**
+      (read-only v1): verseny+ország+szezon bontásban v1 meccs/odds%,
+      v2 visszaigazolás foldolt név+ország+év kulccsal. Eredmény: a
+      legnagyobb v1-többlet a mély alsóbb ligák (Serie D, Regionalliga,
+      Provincial — odds nélkül); a v1 odds-gazdag ligái nagyrészt már
+      fedettek; **marginális érték: Ekstraklasa (PL) és Eliteserien (NO)**
+      (~4 000 meccs, ~4 000 oddsszal) → ezek az S23e pilot céljai.
+- [ ] **Következő:** pilot import egy verseny-szezonra (v1 → v2
+      normalizált sorok, trust medium), coverage/duplikátum/trust
+      ellenőrzés; a teljes leltár a checkpoint 2026-11-18 listájában.
