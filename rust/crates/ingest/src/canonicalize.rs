@@ -63,16 +63,20 @@ impl Canonicalizer {
     pub async fn materialize(pool: &PgPool, day: &NormalizedDay) -> Result<MaterializedDay> {
         let mut tx = pool.begin().await?;
 
+        // S21: a megfigyelt verseny-cím kanonizálása fix szótárral, hogy a
+        // lokalizált/név-változat címek ne hozzanak létre új entitást.
+        let competition = crate::competitions::canonicalize(&day.competition);
+
         // S9: a verseny országa ismeretlen lehet (kupa/nemzetközi) — ilyenkor
         // NULL; csak ismert kódnál hozunk létre ország-sort.
-        let country_id: Option<Uuid> = if day.competition.country_code.trim().is_empty() {
+        let country_id: Option<Uuid> = if competition.country_code.trim().is_empty() {
             None
         } else {
             Some(
                 upsert_country(
                     &mut tx,
-                    &day.competition.country_code,
-                    &day.competition.country_name,
+                    &competition.country_code,
+                    &competition.country_name,
                 )
                 .await?,
             )
@@ -84,17 +88,40 @@ impl Canonicalizer {
             .with_context(|| format!("ismeretlen forrás: {}", day.source_code))?;
 
         // Élő módban nincs id-hint: natural-key find-or-create.
-        let competition_id = match day.competition.id {
+        let competition_id = match competition.id {
             Some(id) => id,
-            None => sqlx::query_scalar(
-                "SELECT id FROM core.competition
-                 WHERE country_id IS NOT DISTINCT FROM $1 AND name=$2 LIMIT 1",
-            )
-            .bind(country_id)
-            .bind(&day.competition.name)
-            .fetch_optional(&mut *tx)
-            .await?
-            .unwrap_or_else(Uuid::now_v7),
+            None => {
+                let exact: Option<Uuid> = sqlx::query_scalar(
+                    "SELECT id FROM core.competition
+                     WHERE country_id IS NOT DISTINCT FROM $1 AND name=$2 LIMIT 1",
+                )
+                .bind(country_id)
+                .bind(&competition.name)
+                .fetch_optional(&mut *tx)
+                .await?;
+                match exact {
+                    Some(id) => id,
+                    None => {
+                        // Ékezet/kisbetű-változat felismerése: országon belül
+                        // foldolt név-egyezés, csak egyértelmű találatnál.
+                        let candidates: Vec<(Uuid, String)> = sqlx::query_as(
+                            "SELECT id, name FROM core.competition
+                             WHERE country_id IS NOT DISTINCT FROM $1",
+                        )
+                        .bind(country_id)
+                        .fetch_all(&mut *tx)
+                        .await?;
+                        let key = football_domain::identity::fold_name(&competition.name);
+                        let mut hits = candidates
+                            .into_iter()
+                            .filter(|(_, name)| football_domain::identity::fold_name(name) == key);
+                        match (hits.next(), hits.next()) {
+                            (Some((id, _)), None) => id,
+                            _ => Uuid::now_v7(),
+                        }
+                    }
+                }
+            }
         };
         let season_id = match day.season.id {
             Some(id) => id,
@@ -108,13 +135,7 @@ impl Canonicalizer {
             .unwrap_or_else(Uuid::now_v7),
         };
 
-        upsert_entity(
-            &mut tx,
-            competition_id,
-            "competition",
-            &day.competition.name,
-        )
-        .await?;
+        upsert_entity(&mut tx, competition_id, "competition", &competition.name).await?;
 
         sqlx::query(
             "INSERT INTO core.competition (id, entity_id, country_id, name, tier, priority)
@@ -127,9 +148,9 @@ impl Canonicalizer {
         )
         .bind(competition_id)
         .bind(country_id)
-        .bind(&day.competition.name)
-        .bind(day.competition.tier)
-        .bind(day.competition.priority)
+        .bind(&competition.name)
+        .bind(competition.tier)
+        .bind(competition.priority)
         .execute(&mut *tx)
         .await?;
 

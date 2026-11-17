@@ -1,6 +1,7 @@
 pub mod adapter;
 pub mod canonicalize;
 pub mod clubelo;
+pub mod competitions;
 pub mod countries;
 pub mod demo;
 pub mod fetch;

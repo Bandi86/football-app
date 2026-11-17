@@ -442,3 +442,45 @@ async fn round_label_is_display_only_in_match_identity() {
         .unwrap();
     assert_eq!(round.as_deref(), Some("League A"), "a címke frissül");
 }
+
+#[tokio::test]
+async fn localised_competition_titles_merge_into_one_entity() {
+    let pool = test_pool().await;
+    let source_id = seed_source(&pool).await;
+    let country_id = seed_country(&pool).await;
+    seed_linked_team(&pool, source_id, country_id, "ujpest", "Újpest").await;
+    seed_linked_team(&pool, source_id, country_id, "gyor", "Győr").await;
+
+    // Ugyanaz a kupa két lokalizált címmel, más napon/kickoffal.
+    let mut hu = live_day(&[("ujpest", "Újpest"), ("gyor", "Győr")], "ujpest", "gyor");
+    hu.competition = NormalizedCompetition {
+        id: None,
+        name: "Kings Cup - Thaiföld".into(),
+        country_code: String::new(),
+        country_name: String::new(),
+        tier: 0,
+        priority: 40,
+    };
+    let first = Canonicalizer::materialize(&pool, &hu).await.unwrap();
+    assert_eq!(first.matches.len(), 1);
+
+    let mut en = hu.clone();
+    en.competition.name = "Kings Cup (Thailand)".into();
+    let kickoff = Utc.with_ymd_and_hms(2026, 11, 22, 15, 0, 0).unwrap();
+    en.matches[0].kickoff_at = kickoff;
+    en.matches[0].source_match_id = "m-2".into();
+    let second = Canonicalizer::materialize(&pool, &en).await.unwrap();
+    assert_eq!(second.matches.len(), 1);
+
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM core.competition").await,
+        1,
+        "a két cím egy verseny-entitásba olvad"
+    );
+    let name: String = sqlx::query_scalar("SELECT name FROM core.competition")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(name, "Kings Cup (Thailand)");
+    assert_eq!(count(&pool, "SELECT count(*) FROM core.match").await, 2);
+}

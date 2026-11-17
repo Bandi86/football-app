@@ -165,3 +165,23 @@ meccses nap menete:
   upstream szinten kétértelmű lehet; a lock-first + második forrás
   (OpenFoot/Tipplap) az irányadó, az eredmény-orientáció konfliktusnál a
   dedupe merge csak akkor fut, ha nem veszne el egyetlen eredmény sem.
+
+## 9. Verseny-név kanonizálás (S21, 2026-11-17)
+
+- A verseny neve a természetes kulcs része, ezért a lokalizált/változat
+  címek (`Kings Cup - Thaiföld` vs `Kings Cup (Thailand)`, `Play Offs`
+  vs `Playoffs`, `Afrikai Nemzetek Kupája - Selejtező` vs angol név) új
+  entitást és duplikált meccseket szültek.
+- Megoldás: **fix szótár** a `crates/ingest/src/competitions.rs`-ben,
+  foldolt kulccsal (ékezet/kisbetű-független); a materializer minden nap
+  elején kanonizálja a verseny-metát (név, ország, tier, priority), majd
+  országon belül pontos, végül foldolt név-egyezéssel keresi a meglévő
+  entitást. Ismeretlen cím változatlanul megy tovább (nincs találgatás).
+- Új bejegyzés csak tesztelt adatváltozásként kerülhet be; a célnevek a
+  dev-ben már meccset tartó angol nevek.
+- A meccs-szintű maradék eltéréseket (ugyanaz a fixture két verseny alatt)
+  a `dedupe matches` kezeli, mert a csoportkulcs csak csapat+kickoff.
+- Canary 2026-11-17: a szótár bevezetése után a Soccerway-futás nem
+  hozott létre új verseny-entitást (130 verseny maradt), a nap 20
+  churn-duplikátuma dedupe-pal egy sorra olvadt (275 → 255 meccs,
+  0 duplikált csoport).

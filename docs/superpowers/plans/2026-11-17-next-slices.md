@@ -17,7 +17,7 @@ A szakaszok sorrendje a függőségek szerint: **S21 → S22 → S23**, közben
 S24/S25 folyamatos. Minden szakasz a megszokott szelet-fegyelemmel megy:
 egy szelet = egy commitolható, tesztelt, ellenőrzött egység.
 
-## S21 — Verseny-nevezés stabilizálása (crosswalk-alap)
+## S21 — Verseny-nevezés stabilizálása (crosswalk-alap) — **S21a KÉSZ 2026-11-17**
 
 **Probléma:** a Soccerway renderenként lokalizál (HU/EN), és az ismeretlen
 hazai kupák címe a megfigyelt szöveg → ugyanaz a verseny két entitássá

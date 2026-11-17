@@ -577,3 +577,25 @@
       home/away kétértelmű lehet (lock-first + második forrás dönt);
       a Soccerway lokalizált verseny-nevei (`Kings Cup - Thaiföld`) még
       churnt okozhatnak — a crosswalk-projekt feladata.
+
+## S21 — Verseny-név stabilizálás kezdete (2026-11-17)
+
+- [x] **Fix verseny-szótár (`ingest/competitions.rs`):** foldolt kulcsú
+      tábla a lokalizált/változat címekre (AFC/Afrika Kupa selejtezők,
+      Nations League A/B, Euro U17/19/21 selejtezők, Kings Cup, Copa
+      Colombia, Brazil Kupa U20, SAFF, USL, Torneo Federal, Liga MX Women,
+      IWL, FA Cup) a dev-ben már meccset tartó angol nevekre; ország-
+      kitöltéssel (CO/BR/US/AR/MX/IN/GB). Ismeretlen cím változatlan.
+- [x] **Materializer:** a verseny-meta kanonizálása a nap elején; országon
+      belül pontos, majd foldolt név-egyezés (csak egyértelmű találatnál).
+      Tesztek: szótár-unit tesztek + integráció (két lokalizált cím →
+      egy verseny-entitás, két meccs).
+- [x] **Canary:** Soccerway-futás a szótárral → **nem jött létre új
+      verseny-entitás** (130 maradt); a mai felgyűlt 20 churn-duplikátum
+      dedupe-pal zárva (275 → 255 meccs, 0 duplikált csoport); 3 új csapat
+      jóváhagyva, 0 pending review.
+- [ ] **Nyitott:** 1 sor `withheld` — a forrás csak hosszabbításos
+      eredményt ad (USL Play Offs), a 90 perces eredmény hiányzik → helyes
+      fail-closed; ET-eredmény publikálási szabálya külön döntés.
+- [ ] **Következő:** a 0-meccses, elhagyott verseny-entitások (régi
+      lokalizált nevek) opcionális tisztítása; majd S22 (ligabővítés).
