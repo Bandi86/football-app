@@ -668,7 +668,10 @@
       bootstrap-kör (approve-create → kész jobok újrafuttatása), coverage,
       visszaállítás.
 - [ ] **Futás közben:** a batch a háttérben folytatódik; jelenleg
-      done ≈ 10 / pending ≈ 244, matches ≈ 3 900, pending review 0.
+      done ≈ 15 / pending ≈ 249, matches ≈ 5 500, pending review 0–1.
+      Megfigyelt tempó: **~1 job/tick** (a tick-en belüli delay-kapu
+      miatt), így a köteg ~4 óra; a napi keret (450) a köteg végéig
+      marad, utána 60-ra állítandó.
       A köteg végén: `identity approve-create-all`, majd a kész jobok
       egyszeri újrafuttatása (a jóváhagyás előtt kimaradt meccsek
       pótlására), végül a budget visszaállítása 60-ra.
