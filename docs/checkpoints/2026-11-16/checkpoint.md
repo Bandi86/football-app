@@ -401,3 +401,40 @@
       backfill/crosswalk projekttel együtt.
 - [x] Agent a végleges (stabil nevezésű) binárissal fut; keretek:
       soccerway 6/nap, openfoot 8/nap.
+
+## S16 — Dedupe/merge eszköz + a 2026-11-17-i duplikátumok tisztítása (2026-11-17)
+
+- [x] **Migráció 0014:** `ops.dedupe_archive` (id, merged_at, survivor_id,
+      duplicate_id, note, payload jsonb) + időrendi index. A payload a
+      teljes előtte-állapotot rögzíti (match, gate, result, provenance,
+      odds snapshot/quote, stats) — a visszaállítási út kézi visszajátszás,
+      a migráció rollbackje `DROP TABLE ops.dedupe_archive`.
+      Érintett: `db-check.sh` (46 tábla), `storage/tests/connection.rs`.
+- [x] **Storage réteg (`storage/repositories/dedupe.rs`):**
+      `duplicate_groups` (home/away/kickoff szerinti duplikált csoportok
+      adott napon), `is_same_match` őr a merge előtt, `merge_duplicate`
+      tranzakcióban: archívum beírás → provenance átmozgatás (ütköző
+      `is_selected` törlése) → hiányzó eredmény/odds/stats feltöltés →
+      publish_gate + maradék provenance + kanonikus sor törlése →
+      `ops.audit_event` (`match_dedupe_merge`). Teszt:
+      `storage/tests/dedupe_merge.rs` (1 túlélő, mindkét forrás score
+      provenance-a megmarad, gate/archívum/audit ellenőrizve).
+- [x] **CLI:** `footballctl dedupe matches --date YYYY-MM-DD [--apply]
+      [--deny "név1|név2"]` — alapból dry-run; a túlélő a tiltott nevek
+      nélküli, legkorábbi `created_at`-ú sor (tie-break: legkorábbi sor);
+      minden merge előtt `is_same_match` ellenőrzés.
+- [x] **Éles futás (2026-11-17):** 43 csoport, 43 merge. Ellenőrzés:
+      napi duplikált csoport **0**, teljes DB-re is **0**; nap vége
+      **190 meccs**, mind `verified_publish` (nincs blokkolt sor);
+      233 → 190 sor, 43 áldozat (41 korábban jelzett + 2 újabb churn-pár);
+      provenance-árva 0;
+      `ops.dedupe_archive` 43, `audit_event` 43; day API 190 meccs,
+      0 nem publikált.
+- [x] **Ismétlődés kizárva:** a churn kizárólag a visszaállított
+      kísérleti névadásból jött; az OpenFoot és a Soccerway a Nations
+      League A/B meccseken ugyanazt a verseny-entitást és meccssort
+      használja (közös provenance), a stabil b51781b névadással nincs
+      új duplikáció.
+- [x] Kapuk: teszt-DB reset → `check-foundation.sh` OK (46 tábla) →
+      `cargo test --workspace -- --test-threads=1` mind zöld →
+      clippy `-D warnings` + `fmt --check` tiszta → teszt-DB visszaállítva.

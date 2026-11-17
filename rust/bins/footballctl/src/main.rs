@@ -43,6 +43,22 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+enum DedupeAction {
+    /// Duplikált kanonikus meccsek merge-e egy napon (dry-run alapból).
+    Matches {
+        #[arg(long)]
+        date: NaiveDate,
+        /// Tényleges végrehajtás (alapból csak terv).
+        #[arg(long)]
+        apply: bool,
+        /// Elavult névváltozatok `|`-vel elválasztva: a túlélő az a sor,
+        /// amelyik NEM ezek közül való (egyébként a legkorábbi sor).
+        #[arg(long)]
+        deny: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
 enum Command {
     Migrate,
     IngestFixture {
@@ -67,6 +83,10 @@ enum Command {
     Asset {
         #[command(subcommand)]
         action: AssetAction,
+    },
+    Dedupe {
+        #[command(subcommand)]
+        action: DedupeAction,
     },
 }
 
@@ -256,6 +276,83 @@ async fn main() -> Result<()> {
             WorkerAction::Tick => worker_tick(&pool, &store, &data_dir).await?,
         },
         Command::Identity { action } => identity_command(&pool, action).await?,
+        Command::Dedupe { action } => match action {
+            DedupeAction::Matches { date, apply, deny } => {
+                let deny_list: Vec<String> = deny
+                    .as_deref()
+                    .map(|d| d.split('|').map(|x| x.trim().to_string()).collect())
+                    .unwrap_or_default();
+                let groups =
+                    football_storage::repositories::dedupe::duplicate_groups(&pool, date).await?;
+                if groups.is_empty() {
+                    println!("nincs duplikált meccs ezen a napon: {date}");
+                } else {
+                    let mut merges = 0usize;
+                    for group in &groups {
+                        // Túlélő: nem deny-olt név; ha mindkettő/egyik sem,
+                        // a legkorábbi sor.
+                        let survivor = group
+                            .matches
+                            .iter()
+                            .filter(|m| !deny_list.iter().any(|d| d == &m.competition_name))
+                            .min_by_key(|m| m.created_at)
+                            .or_else(|| group.matches.iter().min_by_key(|m| m.created_at))
+                            .expect("csoport nem üres");
+                        println!(
+                            "csoport {} — túlélő: {} [{}]",
+                            group.key, survivor.match_id, survivor.competition_name
+                        );
+                        for m in group
+                            .matches
+                            .iter()
+                            .filter(|m| m.match_id != survivor.match_id)
+                        {
+                            println!(
+                                "  áldozat: {} [{}] (prov={}, result={}, odds={}, gate={:?})",
+                                m.match_id,
+                                m.competition_name,
+                                m.provenance_count,
+                                m.has_result,
+                                m.has_odds,
+                                m.gate_state
+                            );
+                            if apply {
+                                let same = football_storage::repositories::dedupe::is_same_match(
+                                    &pool,
+                                    survivor.match_id,
+                                    m.match_id,
+                                )
+                                .await?;
+                                anyhow::ensure!(
+                                    same,
+                                    "a pár nem ugyanaz a meccs: {} / {}",
+                                    survivor.match_id,
+                                    m.match_id
+                                );
+                                football_storage::repositories::dedupe::merge_duplicate(
+                                    &pool,
+                                    survivor.match_id,
+                                    m.match_id,
+                                    "S16 dedupe (duplikált kanonikus meccs)",
+                                )
+                                .await?;
+                                merges += 1;
+                            }
+                        }
+                    }
+                    println!(
+                        "duplikált csoportok: {}, merge-ek: {}{}",
+                        groups.len(),
+                        merges,
+                        if apply {
+                            ""
+                        } else {
+                            " (dry-run — --apply a végrehajtáshoz)"
+                        }
+                    );
+                }
+            }
+        },
         Command::Asset { action } => match action {
             AssetAction::Import { file } => {
                 let rows: Vec<serde_json::Value> = serde_json::from_slice(&std::fs::read(&file)?)?;
