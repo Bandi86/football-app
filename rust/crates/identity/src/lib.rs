@@ -7,6 +7,7 @@ pub mod crosswalk;
 pub mod error;
 pub mod linker;
 pub mod review;
+pub mod v1_seed;
 
 pub use crosswalk::{CrosswalkConflict, crosswalk_conflicts};
 pub use error::IdentityError;

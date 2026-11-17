@@ -228,6 +228,39 @@ pub async fn list_aliases(pool: &PgPool, entity_id: Option<Uuid>) -> Result<Vec<
     rows.iter().map(alias_from_row).collect()
 }
 
+/// Crosswalk-seed beszúrás (v1 import): reviewed alias sorok, ütközésnél
+/// kihagyás. Visszaadja a ténylegesen beszúrt sorok számát.
+pub async fn insert_alias_seeds(
+    pool: &PgPool,
+    seeds: &[football_domain::identity::AliasSeed],
+) -> Result<usize> {
+    let mut inserted = 0usize;
+    for seed in seeds {
+        let affected = sqlx::query(
+            "INSERT INTO identity.alias
+             (id, entity_id, alias, lang, country_code, gender, age_group, branch,
+              status, method, reviewed_by, reviewed_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'reviewed','import','v1-seed',now())
+             ON CONFLICT (entity_id, alias, lang, country_code, gender, age_group, branch)
+             DO NOTHING",
+        )
+        .bind(Uuid::now_v7())
+        .bind(seed.entity_id)
+        .bind(&seed.alias)
+        .bind(&seed.lang)
+        .bind(&seed.country_code)
+        .bind(&seed.gender)
+        .bind(&seed.age_group)
+        .bind(&seed.branch)
+        .execute(pool)
+        .await
+        .context("alias seed beszúrás")?
+        .rows_affected();
+        inserted += affected as usize;
+    }
+    Ok(inserted)
+}
+
 const ENTITY_COLUMNS: &str =
     "e.id AS entity_id, e.canonical_name, c.code AS country_code, t.gender, t.age_group, t.branch";
 

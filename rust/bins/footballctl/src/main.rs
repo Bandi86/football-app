@@ -139,6 +139,17 @@ enum IdentityAction {
         #[arg(long)]
         entity: Option<Uuid>,
     },
+    /// v1 crosswalk-seed: csapat- és alias-nevek importja a v1 adatbázisból
+    /// (csak olvasás). Alapból dry-run; `--apply` reviewed aliasokat ír.
+    SeedV1 {
+        #[arg(long, default_value = "football_app")]
+        v1_db: String,
+        #[arg(long)]
+        apply: bool,
+        /// Csak az első N v1 csapatot dolgozza fel (minta-ellenőrzéshez).
+        #[arg(long)]
+        limit: Option<i64>,
+    },
     CrosswalkCheck,
 }
 
@@ -612,6 +623,13 @@ async fn identity_command(pool: &sqlx::PgPool, action: IdentityAction) -> Result
                 }
             }
         }
+        IdentityAction::SeedV1 {
+            v1_db,
+            apply,
+            limit,
+        } => {
+            seed_v1(pool, &v1_db, apply, limit).await?;
+        }
         IdentityAction::ListAliases { entity } => {
             let rows = identity_repo::list_aliases(pool, entity).await?;
             println!("entitás | alias | nyelv | ország | státusz");
@@ -630,6 +648,97 @@ async fn identity_command(pool: &sqlx::PgPool, action: IdentityAction) -> Result
             }
         }
     }
+    Ok(())
+}
+
+/// v1 crosswalk-seed: a v1 csapatnevek/aliasok → reviewed v2 aliasok.
+/// A v1 adatbázis csak olvasott; ismeretlen/többértelmű csapatot nem seedel.
+async fn seed_v1(pool: &sqlx::PgPool, v1_db: &str, apply: bool, limit: Option<i64>) -> Result<()> {
+    let user = std::env::var("USER").unwrap_or_else(|_| "postgres".into());
+    let v1_url = format!("postgres://{user}@127.0.0.1/{v1_db}");
+    let v1 = PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&v1_url)
+        .await
+        .with_context(|| format!("v1 adatbázis kapcsolat: {v1_db}"))?;
+
+    let iso3_map: HashMap<String, String> = sqlx::query_as::<_, (String, String)>(
+        "SELECT iso3, iso2 FROM countries WHERE iso3 IS NOT NULL AND iso2 IS NOT NULL",
+    )
+    .fetch_all(&v1)
+    .await
+    .context("v1 ország-iso3 térkép")?
+    .into_iter()
+    .collect();
+
+    let team_rows: Vec<(i64, String, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT t.id, t.name, c.iso2, t.gender
+         FROM teams t
+         LEFT JOIN countries c ON c.id = t.country_id
+         ORDER BY t.id
+         LIMIT $1",
+    )
+    .bind(limit.unwrap_or(i64::MAX))
+    .fetch_all(&v1)
+    .await
+    .context("v1 csapatok")?;
+
+    let alias_rows: Vec<(i64, String, Option<String>)> =
+        sqlx::query_as("SELECT team_id, alias, language FROM team_aliases ORDER BY id")
+            .fetch_all(&v1)
+            .await
+            .context("v1 csapat-aliasok")?;
+
+    let mut aliases_by_team: HashMap<i64, Vec<(String, String)>> = HashMap::new();
+    for (team_id, alias, lang) in alias_rows {
+        aliases_by_team
+            .entry(team_id)
+            .or_default()
+            .push((alias, lang.unwrap_or_else(|| "en".into())));
+    }
+
+    let mut v1_teams = Vec::with_capacity(team_rows.len());
+    for (id, name, iso2, gender) in team_rows {
+        let mut names: Vec<(String, String)> = vec![(name, "en".into())];
+        names.extend(aliases_by_team.remove(&id).unwrap_or_default());
+        let mut seen = std::collections::HashSet::new();
+        names.retain(|(n, _)| seen.insert(football_domain::identity::fold_name(n)));
+        v1_teams.push(football_identity::v1_seed::V1Team {
+            names,
+            country_code: iso2,
+            gender: gender.map(|g| match g.as_str() {
+                "M" => "male".to_string(),
+                "F" => "female".to_string(),
+                other => other.to_lowercase(),
+            }),
+        });
+    }
+
+    // A v2 országkód néha ISO3 (HUN/GER); az egyezéshez ISO2-re vetítjük.
+    let mut v2 = identity_repo::all_team_entities(pool).await?;
+    for row in &mut v2 {
+        if let Some(code) = &row.country_code
+            && code.len() == 3
+            && let Some(iso2) = iso3_map.get(code)
+        {
+            row.country_code = Some(iso2.clone());
+        }
+    }
+
+    let (seeds, stats) = football_identity::v1_seed::plan_seeds(&v2, &v1_teams);
+    println!(
+        "v1 csapatok: {} | egyező: {} | többértelmű: {} | nincs találat: {} | alias-nevek: {}",
+        stats.v1_teams, stats.matched, stats.ambiguous, stats.unmatched, stats.seeded_names
+    );
+    for seed in seeds.iter().take(8) {
+        println!("  seed: {} → {}", seed.alias, seed.entity_id);
+    }
+    if !apply {
+        println!("dry-run: nincs írás (--apply a beszúráshoz)");
+        return Ok(());
+    }
+    let inserted = identity_repo::insert_alias_seeds(pool, &seeds).await?;
+    println!("beszúrt reviewed alias: {inserted}");
     Ok(())
 }
 

@@ -9,6 +9,44 @@ pub fn normalize_name(s: &str) -> String {
         .to_lowercase()
 }
 
+/// Ékezet-független, kisbetűs alak — crosswalk-seed összehasonlításhoz.
+/// A linker kulcsa a `normalize_name` (lower), ezért a seed mindkét alakot
+/// eltárolja, ha a forrás neve ékezetes.
+pub fn fold_name(s: &str) -> String {
+    normalize_name(s)
+        .chars()
+        .map(|c| match c {
+            'á' | 'à' | 'â' | 'ä' | 'ã' | 'å' | 'ą' => 'a',
+            'é' | 'è' | 'ê' | 'ë' | 'ę' => 'e',
+            'í' | 'ì' | 'î' | 'ï' => 'i',
+            'ó' | 'ò' | 'ô' | 'ö' | 'ő' | 'õ' | 'ø' => 'o',
+            'ú' | 'ù' | 'û' | 'ü' | 'ű' => 'u',
+            'ç' | 'ć' | 'č' => 'c',
+            'ñ' | 'ń' => 'n',
+            'š' | 'ś' => 's',
+            'ž' | 'ź' | 'ż' => 'z',
+            'ý' | 'ÿ' => 'y',
+            'đ' => 'd',
+            'ł' => 'l',
+            'ř' => 'r',
+            'ť' => 't',
+            other => other,
+        })
+        .collect()
+}
+
+/// Crosswalk-seed: egy reviewed alias sor a kanonikus entitás kontextusával.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AliasSeed {
+    pub entity_id: Uuid,
+    pub alias: String,
+    pub lang: String,
+    pub country_code: Option<String>,
+    pub gender: Option<String>,
+    pub age_group: Option<String>,
+    pub branch: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct IdentityContext {
     pub country_code: Option<String>,
