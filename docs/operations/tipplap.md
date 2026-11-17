@@ -70,3 +70,11 @@ felvenni.
   method='import';` (a linker ezután nem old fel belőlük).
 - A Tipplap-oddsok a többi forrás sorait nem érintik; a nap-API a
   trust-sorrenddel választ (verified előbb).
+
+## Szótár-bővítés (S22, 2026-11-17)
+
+Új bejegyzések a fix verseny-szótárban: `NB II` (HU, tier 2, priority 10)
+és `CONCACAF Nemz.Ligája A/C div` → `CONCACAF Nations League - League A/C`.
+Az U19/U21 Eb-selejtező szándékosan kimarad: a Soccerway kanonikus neve a
+fordulót is tartalmazza (`Round 2`), ami ablakonként változik — ezt a
+verseny-modell külön round_label mezője oldaná meg.

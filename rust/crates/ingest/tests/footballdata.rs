@@ -139,7 +139,31 @@ fn plan_lists_one_request_per_league() {
         priority: 10,
     };
     let plan = adapter.plan(&job);
-    assert_eq!(plan.len(), 5, "öt liga → öt kérés");
+    assert_eq!(plan.len(), 22, "22 liga → 22 kérés");
     assert_eq!(plan[0].request_key, "footballdata:e0:2026-11-16");
     assert!(plan.iter().all(|r| r.url.ends_with(".csv")));
+}
+
+#[test]
+fn new_leagues_map_to_their_competition_meta() {
+    let raw = RawPayload {
+        bytes: read_fixture(),
+        content_type: "text/csv".into(),
+        http_status: 200,
+        fetched_at: chrono::Utc::now(),
+        sha256: String::new(),
+    };
+    let ctx = ParseCtx {
+        requested_date: chrono::NaiveDate::from_ymd_opt(2026, 11, 21).unwrap(),
+        request_key: "footballdata:e1:2026-11-21".into(),
+    };
+    let observations = FootballdataAdapter.parse(&raw, &ctx).unwrap();
+    let core = observations
+        .iter()
+        .find(|o| o.aspect == "match_core")
+        .expect("match_core");
+    assert_eq!(core.payload["competition"]["name"], "Championship");
+    assert_eq!(core.payload["competition"]["country_code"], "GB");
+    assert_eq!(core.payload["competition"]["tier"], 2);
+    assert_eq!(core.payload["competition"]["priority"], 12);
 }

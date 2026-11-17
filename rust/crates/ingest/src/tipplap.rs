@@ -38,7 +38,7 @@ struct League {
     international: bool,
 }
 
-const LEAGUES: [League; 13] = [
+const LEAGUES: [League; 16] = [
     League {
         key: "Nemzetek Ligája, A div",
         name: "UEFA Nations League - League A",
@@ -80,8 +80,24 @@ const LEAGUES: [League; 13] = [
         international: true,
     },
     League {
+        key: "CONCACAF Nemz.Ligája A div",
+        name: "CONCACAF Nations League - League A",
+        country: None,
+        tier: 1,
+        priority: 50,
+        international: true,
+    },
+    League {
         key: "CONCACAF Nemz.Ligája B div",
         name: "CONCACAF Nations League - League B",
+        country: None,
+        tier: 1,
+        priority: 50,
+        international: true,
+    },
+    League {
+        key: "CONCACAF Nemz.Ligája C div",
+        name: "CONCACAF Nations League - League C",
         country: None,
         tier: 1,
         priority: 50,
@@ -141,6 +157,14 @@ const LEAGUES: [League; 13] = [
         country: Some(("HU", "Hungary")),
         tier: 1,
         priority: 8,
+        international: false,
+    },
+    League {
+        key: "NB II",
+        name: "NB II",
+        country: Some(("HU", "Hungary")),
+        tier: 2,
+        priority: 10,
         international: false,
     },
 ];
@@ -511,5 +535,24 @@ impl SourceAdapter for TipplapAdapter {
             .collect();
         team_obs.extend(observations);
         Ok(team_obs)
+    }
+}
+
+#[cfg(test)]
+mod league_map_tests {
+    use super::league_for;
+
+    #[test]
+    fn maps_nb_two_and_concacaf_leagues() {
+        let (league, round) = league_for("Labdarúgás – NB II").unwrap();
+        assert_eq!(league.name, "NB II");
+        assert_eq!(round, None);
+
+        let (league, round) = league_for("Labdarúgás – CONCACAF Nemz.Ligája A div.Acs").unwrap();
+        assert_eq!(league.name, "CONCACAF Nations League - League A");
+        assert_eq!(round.as_deref(), Some("Acs"));
+
+        let (league, _) = league_for("Labdarúgás – CONCACAF Nemz.Ligája C div.Bcs").unwrap();
+        assert_eq!(league.name, "CONCACAF Nations League - League C");
     }
 }

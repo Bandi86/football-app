@@ -67,3 +67,25 @@ canary körök zöldek. Visszaállítás: `mode='canary'` vagy `enabled=false`.
 - Policy/trust sorok törlése (a kanonikus + stage adatok forrás-kötöttek).
 - Kód: branch-revert; séma érintetlen.
 - Teszt DB: `./scripts/db-reset.sh`.
+
+## 6. Ligalefedettség (S22, 2026-11-17)
+
+A demo kör 5 ligája mellett a fő divíziók is be vannak kötve
+(22 kérés/nap, policy `daily_budget=40`, `min_delay 2000 ms`):
+
+- Anglia: Premier League (E0), Championship (E1), League One (E2),
+  League Two (E3), National League (EC)
+- Skócia: Premiership (SC0), Championship (SC1), League One (SC2),
+  League Two (SC3)
+- Másodosztályok: 2. Bundesliga (D2), Serie B (I2), LaLiga 2 (SP2),
+  Ligue 2 (F2)
+- További első osztályok: Eredivisie (N1), Belgian Pro League (B1),
+  Primeira Liga (P1), Süper Lig (T1), Super League Greece (G1)
+
+A CSV-k a `mmz4281/2627/{kód}.csv` útvonalon érhetők el (www→apex
+redirect, a fetcher követi). A parser a job dátuma ±7 napjára szűr, ezért
+egy futás az adott hét meccseit materializálja; válogatott szünetben a
+ligák CSV-jei a szünet előtti fordulóig frissülnek (2026-11-17: az új
+ligák ablakában nem volt sor → nincs új meccs, ez helyes).
+A kiemelt kör a priority ≤10, ezért az új divíziók alapból a „Minden
+verseny" nézetben látszanak.

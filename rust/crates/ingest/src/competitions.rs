@@ -106,13 +106,6 @@ const ENTRIES: &[Entry] = &[
         priority: 50,
     },
     Entry {
-        observed: "concacaf nations league",
-        name: "CONCACAF Nations League - Play-in",
-        country: None,
-        tier: 1,
-        priority: 50,
-    },
-    Entry {
         observed: "concacaf nations league - play-in",
         name: "CONCACAF Nations League - Play-in",
         country: None,

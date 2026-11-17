@@ -44,7 +44,7 @@ példák egy entitás alatt élnek.
 ezért minden új bejegyzés külön, tesztelt adatváltozás, és a régi nevek
 alias-ként maradnak.
 
-## S22 — Forrás-lefedettség bővítése
+## S22 — Forrás-lefedettség bővítése — **S22a/b KÉSZ 2026-11-17**
 
 **Cél:** több liga, teljes fordulók, több odds — a backfill előfeltétele.
 

@@ -599,3 +599,28 @@
       fail-closed; ET-eredmény publikálási szabálya külön döntés.
 - [ ] **Következő:** a 0-meccses, elhagyott verseny-entitások (régi
       lokalizált nevek) opcionális tisztítása; majd S22 (ligabővítés).
+
+## S22 — Forrás-lefedettség bővítés (2026-11-17)
+
+- [x] **footballdata +17 divízió:** E1–E3, EC, SC0–SC3, D2, I2, SP2, F2,
+      N1, B1, P1, T1, G1 (22 kérés/nap, budget 25 → 40). Tesztek: 22 kérés
+      terve, új liga-metak (Championship → GB, tier 2, priority 12).
+      Élő: 50 footballdata kérés ma, mind 200; a bootstrap **100 új csapatot**
+      hozott review-ba → approve-create-all, majd újrafutás; 40 játékvezető
+      review szintén approve-create. Az új ligák ablakában a válogatott
+      szünet miatt nincs sor (a CSV-k a szünet előtti fordulóig frissülnek)
+      — a lefedettség a következő fordulónál jelenik meg; nincs duplikátum.
+- [x] **Tipplap szótár-bővítés:** `NB II` (HU, tier 2, priority 10) és
+      `CONCACAF Nemz.Ligája A/C div` → League A/C (a v1 confirmed címek
+      alapján); unit teszt. Az U19/U21 Eb-selejtező kimarad (forduló a
+      kanonikus névben — round_label döntés kell).
+- [x] **Kockázat javítás:** a korábbi, találgatásos „CONCACAF Nations
+      League" (ország nélküli) szótár-bejegyzést eltávolítottam — a
+      League A/B meccseket tévesen Play-in alá sorolta volna.
+- [x] Kapuk: teszt-DB reset → `check-foundation` OK (47 tábla) → teljes
+      workspace teszt zöld → clippy/fmt tiszta → teszt-DB reset; agent a
+      végleges binárisokkal. Napi állapot: 255 meccs (2026-11-17),
+      0 duplikált csoport, 0 pending review, Tippmix-odds 39 meccsen.
+- [ ] **Következő:** OpenFoot registry-nevek a verseny-szótárba
+      (adatvezérelt, a S23 backfill-leltárral); az U19/U21 forduló-modell
+      (round_label) külön szelet; S23 backfill-terv.

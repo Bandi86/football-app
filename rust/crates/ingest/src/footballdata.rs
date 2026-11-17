@@ -16,12 +16,37 @@ use crate::fetch::{FetchRequest, RawPayload};
 pub const SOURCE_SLUG: &str = "footballdata";
 
 /// liga-kód → (ország-kód, ország-név, verseny-név, tier, priority)
-const LEAGUES: [(&str, &str, &str, &str, i16, i32); 5] = [
+///
+/// S22: a demo kör 5 ligája mellett a football-data.co.uk fő divíziói
+/// (másodosztályok és további országok). A csv-adapter ugyanaz marad; a napi
+/// job egy kérést indít ligánként. A kiemelt kör a priority ≤10.
+const LEAGUES: [(&str, &str, &str, &str, i16, i32); 22] = [
     ("e0", "GB", "England", "Premier League", 1, 6),
     ("sp1", "ES", "Spain", "La Liga", 1, 6),
     ("i1", "IT", "Italy", "Serie A", 1, 6),
     ("d1", "DE", "Germany", "Bundesliga", 1, 6),
     ("f1", "FR", "France", "Ligue 1", 1, 6),
+    // Anglia: Championship → National League
+    ("e1", "GB", "England", "Championship", 2, 12),
+    ("e2", "GB", "England", "League One", 3, 14),
+    ("e3", "GB", "England", "League Two", 4, 16),
+    ("ec", "GB", "England", "National League", 5, 18),
+    // Skócia
+    ("sc0", "GB", "Scotland", "Scottish Premiership", 1, 12),
+    ("sc1", "GB", "Scotland", "Scottish Championship", 2, 14),
+    ("sc2", "GB", "Scotland", "Scottish League One", 3, 16),
+    ("sc3", "GB", "Scotland", "Scottish League Two", 4, 18),
+    // Másodosztályok
+    ("d2", "DE", "Germany", "2. Bundesliga", 2, 12),
+    ("i2", "IT", "Italy", "Serie B", 2, 12),
+    ("sp2", "ES", "Spain", "LaLiga 2", 2, 12),
+    ("f2", "FR", "France", "Ligue 2", 2, 12),
+    // További első osztályok
+    ("n1", "NL", "Netherlands", "Eredivisie", 1, 12),
+    ("b1", "BE", "Belgium", "Belgian Pro League", 1, 12),
+    ("p1", "PT", "Portugal", "Primeira Liga", 1, 12),
+    ("t1", "TR", "Turkey", "Süper Lig", 1, 12),
+    ("g1", "GR", "Greece", "Super League Greece", 1, 12),
 ];
 
 /// A backoff-ablak: a job dátuma ±7 nap.
