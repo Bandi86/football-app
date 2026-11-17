@@ -651,3 +651,24 @@
       40/nap kerettel) kötegelt approve-create-pel; coverage CLI
       (`footballctl coverage`) a KPI-méréshez; utána S23d (mély múlt +
       new ligák) és S23e (v1 import).
+
+## S23c — Backfill köteg indítva (2026-11-17)
+
+- [x] **2015–2026 köteg sorba állítva:** 263 liga-szezon job (22 liga ×
+      12 szezon, a canary E1 2025/26 már kész). A daemon 10 job/kör
+      tempóban dolgozza fel; a keret ideiglenesen 450, a köteg után 60.
+- [x] **Archívum-sajátosságok javítva:** régi szezonok `Time` oszlop
+      nélkül → `date_only`; 2 jegyű év (`13/08/16`) → plausibilitás-alapú
+      újraértelmezés; érvénytelen odds-cellák (0) → kihagyás (DB
+      `price > 1`). Mind a három hiba élő jobokon derült ki és javítva.
+- [x] **Coverage CLI:** `footballctl coverage [--from] [--to]` —
+      liga-szezononként meccs, eredmény %, odds %; a canary sora
+      (Championship 2025/26: 552 meccs, 100% eredmény, 100% odds).
+- [x] **Runbook:** `docs/operations/backfill.md` — sorba állítás, tempó,
+      bootstrap-kör (approve-create → kész jobok újrafuttatása), coverage,
+      visszaállítás.
+- [ ] **Futás közben:** a batch a háttérben folytatódik; jelenleg
+      done ≈ 10 / pending ≈ 244, matches ≈ 3 900, pending review 0.
+      A köteg végén: `identity approve-create-all`, majd a kész jobok
+      egyszeri újrafuttatása (a jóváhagyás előtt kimaradt meccsek
+      pótlására), végül a budget visszaállítása 60-ra.

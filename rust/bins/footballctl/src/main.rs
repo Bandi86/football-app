@@ -89,6 +89,15 @@ enum Command {
         #[command(subcommand)]
         action: DedupeAction,
     },
+    /// Liga-szezon lefedettségi riport (S23).
+    Coverage {
+        /// Csak ettől a szezon-kezdőévtől (pl. 2015).
+        #[arg(long)]
+        from: Option<i32>,
+        /// Csak eddig a szezon-kezdőévig.
+        #[arg(long)]
+        to: Option<i32>,
+    },
     /// Történelmi backfill jobok tervezése (S23).
     Backfill {
         #[command(subcommand)]
@@ -420,6 +429,52 @@ async fn main() -> Result<()> {
                 }
             }
         },
+        Command::Coverage { from, to } => {
+            let rows: Vec<(String, String, i64, i64, i64)> = sqlx::query_as(
+                "SELECT c.name, s.label, count(*)::bigint,
+                        count(r.match_id)::bigint,
+                        count(*) FILTER (WHERE EXISTS (
+                            SELECT 1 FROM fact.odds_snapshot o WHERE o.match_id = m.id))::bigint
+                 FROM core.match m
+                 JOIN core.competition c ON c.id = m.competition_id
+                 JOIN core.season s ON s.id = m.season_id
+                 LEFT JOIN core.match_result r ON r.match_id = m.id
+                 WHERE ($1::int IS NULL OR substring(s.label from 1 for 4)::int >= $1)
+                   AND ($2::int IS NULL OR substring(s.label from 1 for 4)::int <= $2)
+                 GROUP BY 1, 2
+                 ORDER BY 3 DESC
+                 LIMIT 300",
+            )
+            .bind(from)
+            .bind(to)
+            .fetch_all(&pool)
+            .await?;
+            println!("verseny | szezon | meccs | eredmény % | odds %");
+            let (mut total, mut res, mut odds) = (0i64, 0i64, 0i64);
+            for (name, season, matches, with_result, with_odds) in &rows {
+                total += matches;
+                res += with_result;
+                odds += with_odds;
+                println!(
+                    "{} | {} | {} | {:.1}% | {:.1}%",
+                    name,
+                    season,
+                    matches,
+                    *with_result as f64 / *matches as f64 * 100.0,
+                    *with_odds as f64 / *matches as f64 * 100.0
+                );
+            }
+            if total > 0 {
+                println!(
+                    "összesen: {} meccs | eredmény {:.1}% | odds {:.1}%",
+                    total,
+                    res as f64 / total as f64 * 100.0,
+                    odds as f64 / total as f64 * 100.0
+                );
+            } else {
+                println!("(nincs adat a szűrésre)");
+            }
+        }
         Command::Backfill { action } => match action {
             BackfillAction::Plan {
                 source,

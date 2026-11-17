@@ -5,7 +5,7 @@
 //! quotes-szal); a kanonikus út `NormalizedDay::from_observations`-en megy át.
 //! A napi kérés a policy `domain`-jéből választ ligát (e0, sp1, i1, d1, f1).
 
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
+use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use chrono_tz::Europe::London;
 use football_domain::error::ParseError;
 use football_domain::policy::{FetchJob, Transport};
@@ -161,7 +161,8 @@ impl SourceAdapter for FootballdataAdapter {
                 .ok_or_else(|| ParseError::SchemaDrift(format!("hiányzó CSV-oszlop: {name}")))
         };
         let c_date = column("Date")?;
-        let c_time = column("Time")?;
+        // Régi szezonok CSV-jében nincs Time oszlop — ilyenkor date_only.
+        let c_time = headers.iter().position(|h| h.trim() == "Time");
         let c_home = column("HomeTeam")?;
         let c_away = column("AwayTeam")?;
         let c_fthg = column("FTHG")?;
@@ -180,8 +181,14 @@ impl SourceAdapter for FootballdataAdapter {
             let record = record.map_err(|e| ParseError::Parse(format!("CSV sor: {e}")))?;
             seen_rows += 1;
             let field = |i: usize| record.get(i).unwrap_or("").trim().to_string();
-            let date = NaiveDate::parse_from_str(&field(c_date), "%d/%m/%Y")
-                .map_err(|e| ParseError::Parse(format!("dátum ({}): {e}", field(c_date))))?;
+            // Régi archívum: 2 jegyű év (dd/mm/yy); az újabb: 4 jegyű.
+            let date_text = field(c_date);
+            let mut date = NaiveDate::parse_from_str(&date_text, "%d/%m/%Y")
+                .map_err(|e| ParseError::Parse(format!("dátum ({date_text}): {e}")))?;
+            if date.year() < 1900 {
+                date = NaiveDate::parse_from_str(&date_text, "%d/%m/%y")
+                    .map_err(|e| ParseError::Parse(format!("dátum ({date_text}): {e}")))?;
+            }
             match &season_scope {
                 Some(scope) => {
                     if date < scope.from || date > scope.to {
@@ -195,7 +202,8 @@ impl SourceAdapter for FootballdataAdapter {
                     }
                 }
             }
-            let kickoff_at = match NaiveTime::parse_from_str(&field(c_time), "%H:%M") {
+            let time_field = c_time.map(|i| field(i)).unwrap_or_default();
+            let kickoff_at = match NaiveTime::parse_from_str(&time_field, "%H:%M") {
                 Ok(time) => {
                     let local = NaiveDateTime::new(date, time);
                     London
@@ -394,12 +402,14 @@ impl FootballdataAdapter {
 /// B365/Avg/Max 1x2 (opening + closing) és O/U 2.5 quote-ok a sor oszlopaiból.
 fn odds_quotes(record: &csv::StringRecord, headers: &csv::StringRecord) -> Vec<serde_json::Value> {
     let mut quotes = Vec::new();
+    // A régi archívum tartalmaz 0/érvénytelen odds-cellákat: csak >1.0 megy.
     let get = |name: &str| -> Option<f64> {
         headers
             .iter()
             .position(|h| h.trim() == name)
             .and_then(|i| record.get(i))
             .and_then(|v| parse_number(Some(v)))
+            .filter(|price| *price > 1.0)
     };
     for bookmaker in ["B365", "Avg", "Max"] {
         for (suffix, phase) in [("", "opening"), ("C", "closing")] {
