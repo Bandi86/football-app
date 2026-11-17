@@ -188,8 +188,14 @@ impl SourceAdapter for FootballdataAdapter {
             Some(scope) => scope.label.clone(),
             None => season_label_for(ctx.requested_date),
         };
-        let text = std::str::from_utf8(&raw.bytes)
-            .map_err(|_| ParseError::Parse("a CSV nem érvényes UTF-8".into()))?;
+        let text = match std::str::from_utf8(&raw.bytes) {
+            Ok(text) => text.to_string(),
+            // Régi archívum: Latin-1 kódolású CSV-k (EC/SC 2019 előtt).
+            Err(_) => {
+                tracing::warn!("nem UTF-8 CSV: Latin-1 dekódolás");
+                raw.bytes.iter().map(|b| *b as char).collect::<String>()
+            }
+        };
         let text = text.trim_start_matches('\u{feff}');
         let mut reader = csv::ReaderBuilder::new()
             .has_headers(true)
@@ -254,7 +260,7 @@ impl SourceAdapter for FootballdataAdapter {
                     }
                 }
             }
-            let time_field = c_time.map(|i| field(i)).unwrap_or_default();
+            let time_field = c_time.map(field).unwrap_or_default();
             let kickoff_at = match NaiveTime::parse_from_str(&time_field, "%H:%M") {
                 Ok(time) => {
                     let local = NaiveDateTime::new(date, time);
@@ -638,8 +644,13 @@ fn parse_new_league(raw: &RawPayload, ctx: &ParseCtx) -> Result<Vec<Observation>
         .parse()
         .map_err(|e| ParseError::Parse(format!("időzóna ({zone_name}): {e}")))?;
 
-    let text = std::str::from_utf8(&raw.bytes)
-        .map_err(|_| ParseError::Parse("a CSV nem érvényes UTF-8".into()))?;
+    let text = match std::str::from_utf8(&raw.bytes) {
+        Ok(text) => text.to_string(),
+        Err(_) => {
+            tracing::warn!("nem UTF-8 new-liga CSV: Latin-1 dekódolás");
+            raw.bytes.iter().map(|b| *b as char).collect::<String>()
+        }
+    };
     let text = text.trim_start_matches('\u{feff}');
     let mut reader = csv::ReaderBuilder::new()
         .has_headers(true)
@@ -696,7 +707,7 @@ fn parse_new_league(raw: &RawPayload, ctx: &ParseCtx) -> Result<Vec<Observation>
             )));
         }
 
-        let time_text = c_time.map(|i| field(i)).unwrap_or_default();
+        let time_text = c_time.map(field).unwrap_or_default();
         let (kickoff_at, kickoff_precision) = match NaiveTime::parse_from_str(&time_text, "%H:%M") {
             Ok(time) => {
                 let local = NaiveDateTime::new(date, time);

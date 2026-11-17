@@ -583,7 +583,7 @@ fn raw_display_name(bytes: &[u8], source_slug: &str) -> String {
 /// S2b-2: a trust sorok egyszer töltődnek be az ÖSSZES hozzájáruló forrásra
 /// (a meccsek source_values forráskódjai + a fixture forrása), az odds
 /// meccsenként; a gate után az odds trust_state frissül (NoOdds esetén nem).
-async fn verify_and_publish(
+pub async fn verify_and_publish(
     pool: &PgPool,
     normalized: &football_ingest::normalized::NormalizedDay,
 ) -> Result<()> {
@@ -686,4 +686,103 @@ pub async fn resolve_team_identity(
             false
         }
     }
+}
+
+/// Egy meccs újraellenőrzése a tárolt megfigyelésekből (fetch nélkül).
+/// A trust- és konfliktus-szabály a provenance-ból töltött forrásértékekkel
+/// fut, így a korábbi, forrásérték nélkül számolt gate-állapotok javulnak.
+pub async fn reverify_match(pool: &PgPool, match_id: Uuid) -> Result<()> {
+    use football_domain::MatchStatus;
+    use football_domain::match_state::{MatchResultSnapshot, MatchSnapshot};
+
+    let (home, away, kickoff_at, status_text): (Uuid, Uuid, DateTime<Utc>, String) =
+        sqlx::query_as(
+            "SELECT home_team_id, away_team_id, kickoff_at, status FROM core.match WHERE id=$1",
+        )
+        .bind(match_id)
+        .fetch_one(pool)
+        .await
+        .context("meccs betöltése az újraellenőrzéshez")?;
+    let status = match status_text.as_str() {
+        "scheduled" => MatchStatus::Scheduled,
+        "confirmed" => MatchStatus::Confirmed,
+        "live" => MatchStatus::Live,
+        "halftime" => MatchStatus::Halftime,
+        "finished" => MatchStatus::Finished,
+        "postponed" => MatchStatus::Postponed,
+        "canceled" => MatchStatus::Canceled,
+        "abandoned" => MatchStatus::Abandoned,
+        "awarded" => MatchStatus::Awarded,
+        other => anyhow::bail!("ismeretlen meccs-státusz: {other}"),
+    };
+    let result: Option<MatchResultSnapshot> = sqlx::query_as::<
+        _,
+        (
+            Option<i16>,
+            Option<i16>,
+            Option<i16>,
+            Option<i16>,
+            Option<i16>,
+            Option<i16>,
+            Option<i16>,
+            Option<i16>,
+        ),
+    >(
+        "SELECT home_ft, away_ft, home_ht, away_ht, home_et, away_et, home_pens, away_pens
+         FROM core.match_result WHERE match_id=$1",
+    )
+    .bind(match_id)
+    .fetch_optional(pool)
+    .await?
+    .map(
+        |(home_ft, away_ft, home_ht, away_ht, home_et, away_et, home_pens, away_pens)| {
+            MatchResultSnapshot {
+                home_ft,
+                away_ft,
+                home_ht,
+                away_ht,
+                home_et,
+                away_et,
+                home_pens,
+                away_pens,
+            }
+        },
+    );
+    let snapshot = MatchSnapshot {
+        id: match_id,
+        home_team_id: home,
+        away_team_id: away,
+        kickoff_at,
+        status,
+        result,
+    };
+
+    let source_values = load_material_values(pool, match_id).await?;
+    let codes: Vec<String> = source_values
+        .iter()
+        .map(|v| v.source_code.clone())
+        .collect();
+    let source_trust = trust::trust_for_sources(pool, &codes).await?;
+    let odds_values = trust::load_match_odds(pool, match_id).await?;
+    let duplicate_match_count =
+        repo::count_duplicate_matches(pool, match_id, home, away, kickoff_at).await?;
+    let context = VerificationContext {
+        snapshot: &snapshot,
+        home_identity_exact: true,
+        away_identity_exact: true,
+        duplicate_match_count,
+        source_values: &source_values,
+        source_trust: &source_trust,
+        odds_values: &odds_values,
+        odds_tolerance: ODDS_TOLERANCE_DEFAULT,
+    };
+    let report = VerificationEngine::run(&default_rules(), &context);
+    persist_report(pool, match_id, &report, RULE_SET_VERSION).await?;
+    let date = local_publish_date(kickoff_at, PUBLISH_TIMEZONE)?;
+    evaluate_and_persist_gate(pool, match_id, date, &report, RULE_SET_VERSION).await?;
+    let odds_state = evaluate_odds_trust(&odds_values, ODDS_TOLERANCE_DEFAULT);
+    if odds_state != OddsTrustState::NoOdds {
+        trust::update_odds_trust_state(pool, match_id, odds_state).await?;
+    }
+    Ok(())
 }

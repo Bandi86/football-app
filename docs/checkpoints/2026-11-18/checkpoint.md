@@ -28,8 +28,13 @@
 - [ ] **4. Budget visszaállítás:** footballdata `daily_budget` 450 → 60
       (élő napi 22 kérés + tartalék); ellenőrzés:
       `SELECT source_slug, daily_budget FROM ops.source_policy;`
-- [ ] **5. Zárás:** checkpoint-frissítés (S23c/d eredmények), commit+push,
-      majd a következő szelet (S23e v1 import pilot vagy kliens szezon-nézet).
+- [x] **5. Újraellenőrzés (2026-11-17 este lefutott):** 39 219 meccs
+      újraszámolva; a holnap készülő új köteg-meccsek már a javított
+      betöltővel futnak. Ha a köteg után új szezonok zárulnak, futtasd
+      újra: `footballctl reverify --from 2015-01-01 --to 2027-12-31`,
+      majd `footballctl data-status` — a snapshotot írd a checkpointba.
+- [ ] **6. Zárás:** checkpoint-frissítés (S23c/d/e eredmények), commit+push,
+      majd a következő szelet (v1 import köteg vagy kliens szezon-nézet).
 
 ## Fontos kontextus
 

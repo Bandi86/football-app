@@ -172,7 +172,7 @@ async fn seed_corroborating_source(
             "kickoff_at": m.kickoff_at, "status": m.status, "result": m.result,
             "round_label": m.round_label, "competition_timezone": m.competition_timezone,
         });
-        insert_observation(
+        let observation_id = insert_observation(
             pool,
             source_id,
             capture_id,
@@ -185,6 +185,50 @@ async fn seed_corroborating_source(
         )
         .await
         .unwrap();
+        // A megerősítő forrásnak provenance + aktív ref kell a
+        // provenance-alapú forrásérték-betöltőhöz (trust-szabály).
+        for field in [
+            "home_team_id",
+            "away_team_id",
+            "kickoff_at",
+            "status",
+            "result",
+        ] {
+            sqlx::query(
+                "INSERT INTO fact.provenance
+                 (subject_kind, subject_id, field_key, observation_id, is_selected,
+                  policy_version, valid_from)
+                 VALUES ('match',$1,$2,$3,false,'fixture-1.0',$4)
+                 ON CONFLICT (subject_kind, subject_id, field_key, observation_id)
+                 DO NOTHING",
+            )
+            .bind(m.id)
+            .bind(field)
+            .bind(observation_id)
+            .bind(now)
+            .execute(pool)
+            .await
+            .unwrap();
+        }
+        for (code, entity) in [
+            (&m.home_source_entity_id, home.id),
+            (&m.away_source_entity_id, away.id),
+        ] {
+            sqlx::query(
+                "INSERT INTO identity.source_entity_ref
+                 (id, source_id, entity_kind, source_entity_id, entity_id, method, status)
+                 VALUES ($1,$2,'team',$3,$4,'manual_review','active')
+                 ON CONFLICT (source_id, entity_kind, source_entity_id)
+                 DO UPDATE SET entity_id = EXCLUDED.entity_id, status = 'active'",
+            )
+            .bind(Uuid::now_v7())
+            .bind(source_id)
+            .bind(code)
+            .bind(entity)
+            .execute(pool)
+            .await
+            .unwrap();
+        }
     }
 }
 

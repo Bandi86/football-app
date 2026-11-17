@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use chrono::{NaiveDate, Utc};
+use chrono::{NaiveDate, TimeZone, Utc};
 use clap::{Parser, Subcommand};
 #[cfg(feature = "obscura")]
 use football_domain::policy::Transport;
@@ -98,6 +98,24 @@ enum Command {
         #[arg(long)]
         to: Option<i32>,
     },
+    /// Adatbázis-állapot riport: liga/ország/szezon bontás, minőségi mutatók.
+    DataStatus {
+        #[arg(long)]
+        from: Option<NaiveDate>,
+        #[arg(long)]
+        to: Option<NaiveDate>,
+        #[arg(long, default_value_t = 80)]
+        top: i64,
+    },
+    /// Meccsek újraellenőrzése a tárolt megfigyelésekből (fetch nélkül).
+    Reverify {
+        #[arg(long)]
+        from: NaiveDate,
+        #[arg(long)]
+        to: NaiveDate,
+        #[arg(long)]
+        limit: Option<i64>,
+    },
     /// Történelmi backfill jobok tervezése (S23).
     Backfill {
         #[command(subcommand)]
@@ -123,6 +141,18 @@ enum BackfillAction {
         /// A `new/` ligák (egy fájl = sok szezon) sorba állítása.
         #[arg(long)]
         new_leagues: bool,
+        #[arg(long)]
+        apply: bool,
+    },
+    /// v1 import (golfolyam-írás) egy versenyre: mérkőzések + 1X2 záró/nyitó
+    /// odds a football_app adatbázisból, a normál ellenőrzési láncon át.
+    V1Import {
+        #[arg(long)]
+        tournament: i64,
+        #[arg(long, default_value_t = 2015)]
+        from_year: i32,
+        #[arg(long, default_value_t = 2026)]
+        to_year: i32,
         #[arg(long)]
         apply: bool,
     },
@@ -451,6 +481,155 @@ async fn main() -> Result<()> {
                 }
             }
         },
+        Command::DataStatus { from, to, top } => {
+            #[allow(clippy::type_complexity)]
+            let rows: Vec<(String, String, i64, i64, i64, i64, i64, i64, i64)> = sqlx::query_as(
+                "SELECT c.name, coalesce(co.code,''),
+                        count(DISTINCT s.id)::bigint, count(*)::bigint,
+                        count(r.match_id)::bigint,
+                        count(*) FILTER (WHERE EXISTS (
+                            SELECT 1 FROM fact.odds_snapshot o WHERE o.match_id=m.id))::bigint,
+                        count(*) FILTER (WHERE g.state='verified_publish')::bigint,
+                        count(*) FILTER (WHERE g.state='provisional_publish')::bigint,
+                        count(*) FILTER (WHERE g.state='withheld')::bigint
+                 FROM core.match m
+                 JOIN core.competition c ON c.id=m.competition_id
+                 JOIN core.season s ON s.id=m.season_id
+                 LEFT JOIN core.country co ON co.id=c.country_id
+                 LEFT JOIN core.match_result r ON r.match_id=m.id
+                 LEFT JOIN LATERAL (
+                     SELECT state FROM ops.publish_gate pg
+                     WHERE pg.match_id=m.id ORDER BY publish_date DESC LIMIT 1
+                 ) g ON true
+                 WHERE ($1::date IS NULL OR m.kickoff_at::date >= $1)
+                   AND ($2::date IS NULL OR m.kickoff_at::date <= $2)
+                 GROUP BY 1,2
+                 ORDER BY 4 DESC
+                 LIMIT $3",
+            )
+            .bind(from)
+            .bind(to)
+            .bind(top)
+            .fetch_all(&pool)
+            .await?;
+            println!(
+                "verseny | ország | szezon | meccs | eredmény % | odds % | verified | provisional | withheld"
+            );
+            for (
+                name,
+                code,
+                seasons,
+                matches,
+                with_result,
+                with_odds,
+                verified,
+                provisional,
+                withheld,
+            ) in &rows
+            {
+                println!(
+                    "{} | {} | {} | {} | {:.1}% | {:.1}% | {} | {} | {}",
+                    name,
+                    if code.is_empty() { "-" } else { code },
+                    seasons,
+                    matches,
+                    *with_result as f64 / *matches as f64 * 100.0,
+                    *with_odds as f64 / *matches as f64 * 100.0,
+                    verified,
+                    provisional,
+                    withheld
+                );
+            }
+
+            let (total, verified, provisional, withheld): (i64, i64, i64, i64) = sqlx::query_as(
+                "SELECT count(*)::bigint,
+                        count(*) FILTER (WHERE g.state='verified_publish')::bigint,
+                        count(*) FILTER (WHERE g.state='provisional_publish')::bigint,
+                        count(*) FILTER (WHERE g.state='withheld')::bigint
+                 FROM core.match m
+                 LEFT JOIN LATERAL (
+                     SELECT state FROM ops.publish_gate pg
+                     WHERE pg.match_id=m.id ORDER BY publish_date DESC LIMIT 1
+                 ) g ON true
+                 WHERE ($1::date IS NULL OR m.kickoff_at::date >= $1)
+                   AND ($2::date IS NULL OR m.kickoff_at::date <= $2)",
+            )
+            .bind(from)
+            .bind(to)
+            .fetch_one(&pool)
+            .await?;
+            let dup_groups: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM (
+                    SELECT 1 FROM core.match
+                    WHERE ($1::date IS NULL OR kickoff_at::date >= $1)
+                      AND ($2::date IS NULL OR kickoff_at::date <= $2)
+                    GROUP BY LEAST(home_team_id, away_team_id),
+                             GREATEST(home_team_id, away_team_id), kickoff_at
+                    HAVING count(*) > 1
+                 ) d",
+            )
+            .bind(from)
+            .bind(to)
+            .fetch_one(&pool)
+            .await?;
+            let reviews: Vec<(String, i64)> = sqlx::query_as(
+                "SELECT entity_kind, count(*)::bigint FROM identity.review_queue
+                 WHERE status='pending' GROUP BY 1 ORDER BY 2 DESC",
+            )
+            .fetch_all(&pool)
+            .await?;
+            println!(
+                "összesen: {total} meccs | verified {verified} | provisional {provisional} | withheld {withheld} | duplikált csoport {dup_groups}"
+            );
+            if reviews.is_empty() {
+                println!("pending review: 0");
+            } else {
+                let summary: Vec<String> = reviews
+                    .iter()
+                    .map(|(kind, count)| format!("{kind} {count}"))
+                    .collect();
+                println!("pending review: {}", summary.join(", "));
+            }
+        }
+        Command::Reverify { from, to, limit } => {
+            let ids: Vec<Uuid> = sqlx::query_scalar(
+                "SELECT id FROM core.match
+                 WHERE kickoff_at::date BETWEEN $1 AND $2
+                 ORDER BY kickoff_at
+                 LIMIT $3",
+            )
+            .bind(from)
+            .bind(to)
+            .bind(limit.unwrap_or(i64::MAX))
+            .fetch_all(&pool)
+            .await?;
+            let mut done = 0usize;
+            let mut failed = 0usize;
+            for id in &ids {
+                match football_worker::tick::reverify_match(&pool, *id).await {
+                    Ok(()) => done += 1,
+                    Err(err) => {
+                        failed += 1;
+                        eprintln!("reverify hiba ({id}): {err:#}");
+                    }
+                }
+            }
+            println!("újraellenőrzés: {done} meccs kész, {failed} hiba");
+            let states: Vec<(String, i64)> = sqlx::query_as(
+                "SELECT g.state, count(*)::bigint
+                 FROM ops.publish_gate g JOIN core.match m ON m.id=g.match_id
+                 WHERE m.kickoff_at::date BETWEEN $1 AND $2
+                 GROUP BY 1 ORDER BY 2 DESC",
+            )
+            .bind(from)
+            .bind(to)
+            .fetch_all(&pool)
+            .await?;
+            println!("gate-állapotok:");
+            for (state, count) in states {
+                println!("  {state}: {count}");
+            }
+        }
         Command::Coverage { from, to } => {
             let rows: Vec<(String, String, i64, i64, i64)> = sqlx::query_as(
                 "SELECT c.name, s.label, count(*)::bigint,
@@ -498,6 +677,14 @@ async fn main() -> Result<()> {
             }
         }
         Command::Backfill { action } => match action {
+            BackfillAction::V1Import {
+                tournament,
+                from_year,
+                to_year,
+                apply,
+            } => {
+                run_v1_import(&pool, &store, tournament, from_year, to_year, apply).await?;
+            }
             BackfillAction::V1Pilot {
                 tournament,
                 from_year,
@@ -1296,4 +1483,355 @@ async fn duplicate_count(
     .fetch_one(pool)
     .await
     .map_err(Into::into)
+}
+
+/// v1 (football_app) import: mérkőzések + 1X2 odds a normál observation →
+/// materializer → trust/gate láncon. Csak olvassa a v1 adatbázist.
+type V1MatchRow = (i64, String, i64, i64, chrono::DateTime<Utc>, String, String);
+type V1ResultRow = (
+    i64,
+    Option<i16>,
+    Option<i16>,
+    Option<i16>,
+    Option<i16>,
+    Option<i16>,
+    Option<i16>,
+    Option<i16>,
+    Option<i16>,
+);
+type V1ResultEntry = (
+    Option<i16>,
+    Option<i16>,
+    Option<i16>,
+    Option<i16>,
+    Option<i16>,
+    Option<i16>,
+    Option<i16>,
+    Option<i16>,
+);
+type V1OddsRow = (i64, String, String, Option<f64>, Option<f64>);
+
+async fn run_v1_import(
+    pool: &sqlx::PgPool,
+    store: &ObjectStore,
+    tournament: i64,
+    from_year: i32,
+    to_year: i32,
+    apply: bool,
+) -> Result<()> {
+    let user = std::env::var("USER").unwrap_or_else(|_| "postgres".into());
+    let v1_url = format!("postgres://{user}@127.0.0.1/football_app");
+    let v1 = PgPoolOptions::new()
+        .max_connections(4)
+        .connect(&v1_url)
+        .await
+        .context("v1 adatbázis kapcsolat (football_app)")?;
+
+    let (name, iso2, country_name): (String, Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT t.name, c.iso2, c.name FROM tournaments t
+         LEFT JOIN countries c ON c.id=t.country_id WHERE t.id=$1",
+    )
+    .bind(tournament)
+    .fetch_one(&v1)
+    .await
+    .context("v1 tournament")?;
+
+    let teams: Vec<(i64, String, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT DISTINCT t.id, t.name, c.iso2, t.gender
+         FROM teams t
+         LEFT JOIN countries c ON c.id=t.country_id
+         JOIN matches m ON m.home_team_id=t.id OR m.away_team_id=t.id
+         JOIN seasons s ON s.id=m.season_id
+         WHERE m.tournament_id=$1 AND s.year_start BETWEEN $2 AND $3",
+    )
+    .bind(tournament)
+    .bind(from_year)
+    .bind(to_year)
+    .fetch_all(&v1)
+    .await
+    .context("v1 csapatok")?;
+
+    let matches: Vec<V1MatchRow> = sqlx::query_as(
+        "SELECT m.id, s.name, m.home_team_id, m.away_team_id, m.kickoff_ts,
+                    coalesce(m.kickoff_precision,'exact'), m.status
+             FROM matches m JOIN seasons s ON s.id=m.season_id
+             WHERE m.tournament_id=$1 AND s.year_start BETWEEN $2 AND $3
+             ORDER BY m.kickoff_ts",
+    )
+    .bind(tournament)
+    .bind(from_year)
+    .bind(to_year)
+    .fetch_all(&v1)
+    .await
+    .context("v1 meccsek")?;
+
+    let results: Vec<V1ResultRow> = sqlx::query_as(
+        "SELECT m.id, m.home_score, m.away_score, m.home_score_ht, m.away_score_ht,
+                m.home_score_et, m.away_score_et, m.home_score_pen, m.away_score_pen
+         FROM matches m JOIN seasons s ON s.id=m.season_id
+         WHERE m.tournament_id=$1 AND s.year_start BETWEEN $2 AND $3",
+    )
+    .bind(tournament)
+    .bind(from_year)
+    .bind(to_year)
+    .fetch_all(&v1)
+    .await
+    .context("v1 eredmények")?;
+    let results: HashMap<i64, V1ResultEntry> = results
+        .into_iter()
+        .map(|(id, h, a, hh, ah, he, ae, hp, ap)| (id, (h, a, hh, ah, he, ae, hp, ap)))
+        .collect();
+
+    let odds: Vec<V1OddsRow> = sqlx::query_as(
+        "SELECT o.match_id, o.bookmaker, o.outcome,
+                o.opening_odds::float8, o.closing_odds::float8
+         FROM match_odds o
+         JOIN matches m ON m.id=o.match_id
+         JOIN seasons s ON s.id=m.season_id
+         WHERE o.market='1X2' AND m.tournament_id=$1 AND s.year_start BETWEEN $2 AND $3",
+    )
+    .bind(tournament)
+    .bind(from_year)
+    .bind(to_year)
+    .fetch_all(&v1)
+    .await
+    .context("v1 odds")?;
+    let mut odds_by_match: HashMap<i64, Vec<serde_json::Value>> = HashMap::new();
+    for (match_id, bookmaker, outcome, opening, closing) in odds {
+        let (value, phase) = match (closing, opening) {
+            (Some(v), _) if v > 1.0 => (v, "closing"),
+            (_, Some(v)) if v > 1.0 => (v, "opening"),
+            _ => continue,
+        };
+        let outcome = match outcome.as_str() {
+            "H" => "home",
+            "D" => "draw",
+            "A" => "away",
+            _ => continue,
+        };
+        odds_by_match
+            .entry(match_id)
+            .or_default()
+            .push(serde_json::json!({
+                "bookmaker": bookmaker,
+                "market": "1x2",
+                "outcome": outcome,
+                "line": 0.0,
+                "phase": phase,
+                "price": value,
+            }));
+    }
+
+    let captured_at = Utc::now();
+    let comp_country = iso2.clone().unwrap_or_default();
+    let comp_country_name = country_name.clone().unwrap_or_default();
+    let mut observations: Vec<football_ingest::adapter::Observation> = Vec::new();
+    let mut skipped_status = 0usize;
+    let mut skipped_team = 0usize;
+    let team_ids: std::collections::HashSet<i64> = teams.iter().map(|(id, ..)| *id).collect();
+
+    for (team_id, team_name, team_iso2, gender) in &teams {
+        observations.push(football_ingest::adapter::Observation {
+            entity_kind: "team".into(),
+            aspect: "team_identity".into(),
+            natural_key: format!("v1t-{team_id}"),
+            source_record_key: format!("v1t-{team_id}"),
+            observed_at: captured_at,
+            payload: serde_json::json!({
+                "id": null,
+                "source_entity_id": format!("v1t-{team_id}"),
+                "name": team_name,
+                "country_code": team_iso2.clone().unwrap_or_default(),
+                "gender": match gender.as_deref() { Some("F") => "female", _ => "male" },
+                "age_group": "senior",
+                "branch": "senior",
+            }),
+        });
+    }
+
+    for (match_id, season_name, home_id, away_id, kickoff_ts, precision, status) in &matches {
+        if !team_ids.contains(home_id) || !team_ids.contains(away_id) {
+            skipped_team += 1;
+            continue;
+        }
+        let status = match status.as_str() {
+            "finished" | "scheduled" | "postponed" | "cancelled" | "canceled" | "abandoned"
+            | "awarded" | "live" => status.as_str(),
+            other => {
+                tracing::warn!(match_id, other, "v1 import: ismeretlen státusz, kihagyva");
+                skipped_status += 1;
+                continue;
+            }
+        };
+        let kickoff_at = if precision == "date_only" {
+            let date = kickoff_ts.date_naive();
+            Utc.from_utc_datetime(&date.and_hms_opt(12, 0, 0).expect("12:00 érvényes"))
+        } else {
+            *kickoff_ts
+        };
+        let result = results
+            .get(match_id)
+            .and_then(|(h, a, hh, ah, he, ae, hp, ap)| match (status, h, a) {
+                ("finished", Some(h), Some(a)) => {
+                    let decided_by = if hp.is_some() && ap.is_some() {
+                        "pens"
+                    } else if he.is_some() && ae.is_some() {
+                        "et"
+                    } else {
+                        "ft"
+                    };
+                    Some(serde_json::json!({
+                        "home_ft": h, "away_ft": a,
+                        "home_ht": hh, "away_ht": ah,
+                        "home_et": he, "away_et": ae,
+                        "home_pens": hp, "away_pens": ap,
+                        "decided_by": decided_by,
+                    }))
+                }
+                _ => None,
+            });
+        let source_match_id = format!("v1-{match_id}");
+        observations.push(football_ingest::adapter::Observation {
+            entity_kind: "match".into(),
+            aspect: "match_core".into(),
+            natural_key: source_match_id.clone(),
+            source_record_key: source_match_id.clone(),
+            observed_at: captured_at,
+            payload: serde_json::json!({
+                "canonical_match_id": null,
+                "source_home_id": format!("v1t-{home_id}"),
+                "source_away_id": format!("v1t-{away_id}"),
+                "kickoff_at": kickoff_at,
+                "kickoff_precision": if precision == "date_only" { "date_only" } else { "exact" },
+                "status": status,
+                "result": result,
+                "round_label": null,
+                "competition_timezone": "UTC",
+                "competition": {
+                    "id": null,
+                    "name": name.clone(),
+                    "country_code": comp_country.clone(),
+                    "country_name": comp_country_name.clone(),
+                    "tier": 1,
+                    "priority": 60,
+                },
+                "season": { "id": null, "label": season_name.clone() },
+                "source_code": "v1-import",
+                "captured_at": captured_at,
+            }),
+        });
+        if let Some(quotes) = odds_by_match.get(match_id) {
+            let mut merged: Vec<serde_json::Value> = Vec::new();
+            let mut seen: std::collections::HashSet<(String, String, String)> =
+                std::collections::HashSet::new();
+            for q in quotes {
+                let key = (
+                    q["bookmaker"].as_str().unwrap_or_default().to_string(),
+                    q["outcome"].as_str().unwrap_or_default().to_string(),
+                    q["phase"].as_str().unwrap_or_default().to_string(),
+                );
+                if seen.insert(key) {
+                    merged.push(q.clone());
+                }
+            }
+            if !merged.is_empty() {
+                observations.push(football_ingest::adapter::Observation {
+                    entity_kind: "match".into(),
+                    aspect: "match_odds".into(),
+                    natural_key: source_match_id.clone(),
+                    source_record_key: source_match_id,
+                    observed_at: captured_at,
+                    payload: serde_json::json!({
+                        "canonical_match_id": null,
+                        "quotes": merged,
+                        "market_count": 1,
+                    }),
+                });
+            }
+        }
+    }
+
+    println!(
+        "v1 import terv: {} (ország: {}) | {} meccs, {} csapat, {} oddsolt meccs, kihagyva: {} státusz, {} csapat-hiány",
+        name,
+        if comp_country.is_empty() {
+            "-"
+        } else {
+            &comp_country
+        },
+        matches.len(),
+        teams.len(),
+        odds_by_match.len(),
+        skipped_status,
+        skipped_team
+    );
+    if !apply {
+        println!("dry-run: nincs írás (--apply az importhoz)");
+        return Ok(());
+    }
+
+    // Nyers megőrzés: a v1 export manifesztje (audit + provenance-lánc).
+    let manifest = serde_json::json!({
+        "source": "football_app (v1, read-only)",
+        "tournament_id": tournament,
+        "tournament": name,
+        "from_year": from_year,
+        "to_year": to_year,
+        "matches": matches.len(),
+        "teams": teams.len(),
+        "odds_matches": odds_by_match.len(),
+        "imported_at": captured_at,
+    });
+    let manifest_bytes = serde_json::to_vec_pretty(&manifest)?;
+    let artifact = store
+        .put_blob(&manifest_bytes, "json")
+        .context("v1 import manifeszt mentése")?;
+    let capture = football_storage::repositories::worker::RawCapture {
+        endpoint_key: "v1-import",
+        request_url: "postgres://football_app (read-only)",
+        request_key: &format!("v1-import:{tournament}:{from_year}-{to_year}"),
+        requested_at: captured_at,
+        received_at: captured_at,
+        http_status: 200,
+        adapter_version: "1.0",
+        parser_version: "1.0",
+    };
+    let (source_id, capture_id) = football_storage::repositories::worker::persist_raw(
+        pool,
+        "v1-import",
+        "v1 (football_app) import",
+        &artifact,
+        &capture,
+        "application/json",
+    )
+    .await
+    .context("v1 import raw megőrzés")?;
+
+    for obs in &observations {
+        football_ingest::observe::insert_observation(
+            pool,
+            source_id,
+            capture_id,
+            &obs.entity_kind,
+            &obs.aspect,
+            &obs.natural_key,
+            &obs.source_record_key,
+            obs.observed_at,
+            obs.payload.clone(),
+        )
+        .await?;
+    }
+
+    let days = football_ingest::normalized::NormalizedDay::grouped_from_observations(&observations)
+        .context("v1 import napok csoportosítása")?;
+    let mut materialized = 0usize;
+    for day in &days {
+        football_worker::tick::verify_and_publish(pool, day).await?;
+        materialized += 1;
+    }
+    println!(
+        "v1 import kész: {} verseny-szezon csoport feldolgozva (forrás: {source_id})",
+        materialized
+    );
+    Ok(())
 }

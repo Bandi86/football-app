@@ -714,3 +714,32 @@
       (linker-review → approve-create → újrafuttatás), nem közvetlen
       név-illesztést; a v1 odds-piacok: `1X2 H/D/A` (AH/OU is van, a
       pilot csak 1X2-t visz).
+
+## S23e — v1 import író ág + trust-javítás (2026-11-17)
+
+- [x] **`backfill v1-import --tournament --from --to [--apply]`:** a v1
+      (football_app) meccsei + 1X2 záró/nyitó oddsai a normál
+      observation → materializer → trust/gate láncon mennek át; a tick
+      `verify_and_publish` függvénye publikus lett és újrahasznosított.
+      Kétfázisú bootstrap (review → approve-create → újrafuttatás).
+- [x] **Pilotok:** Eliteserien (id 27) **4 010 meccs, 3 977 eredmény,
+      3 933 odds**; Ekstraklasa (id 28) **4 562 meccs, 4 380 eredmény,
+      4 177 odds** — mind provisional (egy közepes forrás).
+- [x] **Kritikus trust-javítás:** `load_material_values` eddig kanonikus
+      meccs-ID-ra szűrt, de a megfigyelések forrás-kulcsot hordoznak → a
+      konfliktus/trust-szabály forrásérték nélkül futott, egyetlen forrás
+      is „verified" lehetett. Új út: provenance → megfigyelés → aktív ref
+      → kanonikus csapat-ID, tükrözött soroknál pontszám-igazítás.
+      Tesztek frissítve (megerősítő forrás provenance+ref).
+- [x] **`footballctl reverify --from --to`:** fetch nélküli
+      újraellenőrzés; 39 219 meccs újraszámolva → verified 4 069,
+      provisional 36 776, withheld 2 (a valós forrás-összetétel szerint).
+- [x] **`footballctl data-status`:** liga/ország/szezon riport
+      (meccs, eredmény %, odds %, verified/provisional/withheld),
+      összesítés + duplikált csoport + pending review. Doksi:
+      `docs/operations/data-quality.md`.
+- [x] **Latin-1 fallback:** régi EC/SC CSV-k nem UTF-8 → Latin-1
+      dekódolás; az 5 hibás job újraindítva. 19 új review jóváhagyva,
+      pending 0.
+- [x] Kapuk: teljes workspace teszt zöld, clippy/fmt tiszta, foundation
+      OK (47 tábla), teszt-DB reset; agent a végleges binárisokkal.
