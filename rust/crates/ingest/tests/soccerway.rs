@@ -525,3 +525,81 @@ fn english_flags_and_continent_flags_classify_teams() {
     let england = team("CodeE002");
     assert_eq!(england["country_code"], "GB");
 }
+
+/// Locale-flip: a magyar oldal nemzeti csapatait és versenyeit angol
+/// kanonikus névre képezzük (stabil entitások, nincs duplikáció).
+#[test]
+fn hungarian_locale_is_normalized_to_canonical_english() {
+    let body = format!(
+        "{}{}{}{}",
+        header_full(
+            "europa/uefa-nations-league",
+            "UEFA Nemzetek Ligája - A-Liga",
+            "Európa"
+        ),
+        row(
+            "h1",
+            "",
+            "dania",
+            "CodeH001",
+            "Dánia",
+            "norvegia",
+            "CodeH002",
+            "Norvégia",
+            None,
+            Some("20:45"),
+            None,
+            None
+        ),
+        header_full(
+            "vilag/felkeszulesi-merkozes",
+            "Felkészülési mérkőzés",
+            "Világ"
+        ),
+        row(
+            "h2",
+            "",
+            "belgium-u21",
+            "CodeH003",
+            "Belgium U21",
+            "spanyolorszag-u17-w",
+            "CodeH004",
+            "Spanyolország U17 W",
+            None,
+            Some("18:00"),
+            None,
+            None
+        ),
+    );
+    let adapter = SoccerwayAdapter::default();
+    let obs = adapter
+        .parse(&raw(&page(&body)), &ctx("2026-11-14"))
+        .unwrap();
+    let m = |key: &str| {
+        obs.iter()
+            .find(|o| o.aspect == "match_core" && o.source_record_key == format!("soccerway-{key}"))
+            .unwrap()
+            .payload
+            .clone()
+    };
+    assert_eq!(
+        m("h1")["competition"]["name"],
+        "UEFA Nations League - League A"
+    );
+    assert_eq!(m("h2")["competition"]["name"], "Friendly International");
+
+    let team = |code: &str| {
+        obs.iter()
+            .find(|o| o.aspect == "team_identity" && o.payload["source_entity_id"] == code)
+            .unwrap()
+            .payload
+            .clone()
+    };
+    assert_eq!(team("CodeH001")["name"], "Denmark");
+    assert_eq!(team("CodeH001")["country_code"], "DK");
+    assert_eq!(team("CodeH002")["name"], "Norway");
+    assert_eq!(team("CodeH003")["name"], "Belgium U21");
+    assert_eq!(team("CodeH003")["country_code"], "BE");
+    assert_eq!(team("CodeH004")["name"], "Spain U17 W");
+    assert_eq!(team("CodeH004")["gender"], "female");
+}

@@ -248,9 +248,10 @@ struct GroupMeta {
     international: bool,
 }
 
-/// `Belgium U21` → (`Belgium`, youth); `Spain U17 W` → (`Spain`, youth, women).
-fn team_hints(name: &str) -> (String, bool, bool) {
-    let mut youth = false;
+/// `Belgium U21` → (`Belgium`, Some("U21"), false);
+/// `Spain U17 W` → (`Spain`, Some("U17"), true).
+fn team_hints(name: &str) -> (String, Option<String>, bool) {
+    let mut youth: Option<String> = None;
     let mut women = false;
     let mut base: Vec<&str> = Vec::new();
     for token in name.split_whitespace() {
@@ -259,7 +260,7 @@ fn team_hints(name: &str) -> (String, bool, bool) {
             && upper.starts_with('U')
             && upper[1..].chars().all(|c| c.is_ascii_digit());
         if is_u {
-            youth = true;
+            youth = Some(upper);
             continue;
         }
         if upper == "W" || upper == "WOMEN" || token.eq_ignore_ascii_case("női") {
@@ -269,6 +270,85 @@ fn team_hints(name: &str) -> (String, bool, bool) {
         base.push(token);
     }
     (base.join(" "), youth, women)
+}
+
+/// Nemzetközi verseny-sablonok kanonikus angol neve (a locale-flip ellen).
+fn canonical_international_competition(title: &str) -> Option<String> {
+    let lower = title.to_lowercase();
+    let suffix = |text: &str| -> String {
+        text.replace(" - selejtező", " - Qualification")
+            .replace("selejtező", "Qualification")
+            .replace(" - 2. forduló", " - Round 2")
+            .replace("2. forduló", "Round 2")
+            .replace(" - első szakasz", " - First stage")
+            .replace("első szakasz", "First stage")
+            .replace(" - osztályozó", " - Play-offs")
+            .replace("osztályozó", "Play-offs")
+            .replace("a-liga", "League A")
+            .replace("b-liga", "League B")
+            .replace("c-liga", "League C")
+            .replace("d-liga", "League D")
+            .replace("play - in", "Play-In")
+            .replace(" - play offs", " - Playoffs")
+    };
+    if lower.contains("nemzetek ligája") {
+        let prefix = if lower.contains("concacaf") {
+            "CONCACAF Nations League"
+        } else {
+            "UEFA Nations League"
+        };
+        let tail = suffix(&lower);
+        // A "- A-Liga" → " - League A" alak megőrzése.
+        if let Some(idx) = tail.to_lowercase().find("league ") {
+            return Some(format!(
+                "{prefix} - {}",
+                tail[idx..].replace("league", "League")
+            ));
+        }
+        return Some(prefix.to_string());
+    }
+    if lower.contains("afrikai nemzetek kupája") {
+        let base = if lower.contains("u23") {
+            "Africa Cup of Nations U23"
+        } else {
+            "Africa Cup of Nations"
+        };
+        if lower.contains("selejtező") {
+            return Some(format!("{base} - Qualification"));
+        }
+        return Some(base.to_string());
+    }
+    if lower.contains("ázsia-kupa") {
+        let base = if lower.contains("u17") {
+            "AFC U17 Asian Cup"
+        } else if lower.contains("u20") {
+            "AFC U20 Asian Cup"
+        } else if lower.contains("u23") {
+            "AFC U23 Asian Cup"
+        } else {
+            "AFC Asian Cup"
+        };
+        let rest = suffix(&lower)
+            .replace("afc ázsia-kupa", "")
+            .replace("ázsia-kupa", "");
+        return Some(format!("{base}{rest}"));
+    }
+    if lower.contains("felkészülési mérkőzés") || lower == "friendly international" {
+        return Some("Friendly International".to_string());
+    }
+    if lower.contains("u21-es eb") {
+        let rest = suffix(&lower).replace("u21-es eb", "");
+        return Some(format!("Euro U21{rest}"));
+    }
+    if lower.contains("u19-es eb") {
+        let rest = suffix(&lower).replace("u19-es eb", "");
+        return Some(format!("Euro U19{rest}"));
+    }
+    if lower.contains("u17-es eb") {
+        let rest = suffix(&lower).replace("u17-es eb", "");
+        return Some(format!("Euro U17{rest}"));
+    }
+    None
 }
 
 fn is_cup(text: &str) -> bool {
@@ -333,8 +413,17 @@ impl SoccerwayAdapter {
             };
         }
         let cup = is_cup(&haystack);
-        let (country_code, country_name) =
-            countries::by_localized_title(flag_title).unwrap_or(("", ""));
+        let international =
+            countries::is_continent_flag(flag_title) || countries::is_international_text(&haystack);
+        // Nemzetközi sablon → stabil angol verseny-név (locale-független).
+        let canonical_name = if international {
+            canonical_international_competition(title.trim())
+        } else {
+            None
+        };
+        let (country_code, country_name) = countries::by_localized_title(flag_title)
+            .or_else(|| countries::by_english_name(flag_title))
+            .unwrap_or(("", ""));
         let priority = if gender == "female" {
             60
         } else if branch == "youth" {
@@ -344,11 +433,13 @@ impl SoccerwayAdapter {
         } else {
             50
         };
-        let name = if title.trim().is_empty() {
-            slug.rsplit('/').next().unwrap_or(slug).to_string()
-        } else {
-            title.trim().to_string()
-        };
+        let name = canonical_name.unwrap_or_else(|| {
+            if title.trim().is_empty() {
+                slug.rsplit('/').next().unwrap_or(slug).to_string()
+            } else {
+                title.trim().to_string()
+            }
+        });
         GroupMeta {
             name,
             country_code: country_code.to_string(),
@@ -366,8 +457,7 @@ impl SoccerwayAdapter {
             } else {
                 country_code.to_string()
             },
-            international: countries::is_continent_flag(flag_title)
-                || countries::is_international_text(&haystack),
+            international,
         }
     }
 }
@@ -594,16 +684,37 @@ impl SourceAdapter for SoccerwayAdapter {
         let mut team_obs = Vec::new();
         for (code, (name, group)) in &teams {
             let (base_name, name_youth, name_women) = team_hints(name);
-            let comp_haystack = group.name.to_lowercase();
-            // Nemzetközi meccsen a csapatnév ország-név (nemzeti csapat);
-            // hazai ligában a csoport országa érvényes.
-            let country = if group.international || countries::is_international_text(&comp_haystack)
-            {
-                countries::by_english_name(&base_name)
-                    .map(|(cc, _)| cc.to_string())
-                    .unwrap_or_default()
+            // Nemzetközi meccsen a csapatnév ország-név: a lokalizált és az
+            // angol névből is feloldjuk, és a kanonikus ANGOL nevet adjuk
+            // (a locale-flip ne okozzon duplikált entitásokat).
+            let resolved = if group.international {
+                countries::by_localized_title(&base_name)
+                    .or_else(|| countries::by_english_name(&base_name))
+            } else {
+                None
+            };
+            let country = if group.international {
+                resolved.map(|(cc, _)| cc.to_string()).unwrap_or_default()
             } else {
                 group.team_country.clone()
+            };
+            let display_name = if group.international {
+                match resolved {
+                    Some((_, en)) => {
+                        let mut canonical = en.to_string();
+                        if let Some(age) = &name_youth {
+                            canonical.push(' ');
+                            canonical.push_str(age);
+                        }
+                        if name_women {
+                            canonical.push_str(" W");
+                        }
+                        canonical
+                    }
+                    None => name.clone(),
+                }
+            } else {
+                name.clone()
             };
             let gender = if name_women || group.gender == "female" {
                 "female"
@@ -612,7 +723,7 @@ impl SourceAdapter for SoccerwayAdapter {
             };
             let branch = if gender == "female" {
                 "women"
-            } else if name_youth || group.branch == "youth" {
+            } else if name_youth.is_some() || group.branch == "youth" {
                 "youth"
             } else {
                 "senior"
@@ -626,7 +737,7 @@ impl SourceAdapter for SoccerwayAdapter {
                 payload: serde_json::json!({
                     "id": null,
                     "source_entity_id": code,
-                    "name": name,
+                    "name": display_name,
                     "country_code": country,
                     "gender": gender,
                     "age_group": if branch == "youth" { "youth" } else { "senior" },

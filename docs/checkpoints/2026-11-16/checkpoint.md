@@ -346,3 +346,34 @@
       összekötés), majd a nap újrafuttatása.
 - [x] Záró kapuk: workspace 77 tesztcsoport zöld, clippy/fmt tiszta,
       foundation 0, teszt-DB resetelve.
+
+## S14 — Soccerway locale-normalizálás + review-tisztítás (2026-11-17)
+
+- [x] **Locale-kutatás:** `int.soccerway.com` → geo-redirect a magyar
+      oldalra; `?lang=en` hatástalan; élő cookie nincs; a nyelvet a geo
+      dönti el (kérésenként akár vált). Locale-pin nem lehetséges →
+      **nyelvfüggetlen normalizálás** a megoldás.
+- [x] **Normalizálás:** nemzeti csapatok mindig **angol kanonikus névvel**
+      (lokalizált + angol ország-táblák, ékezetfüggetlen illesztéssel) és
+      ISO országgal; a korosztály/nem token (U21/W) megmarad a névben.
+      Nemzetközi verseny-sablonok kanonikus angol neve (Nations League,
+      Afrikai Kupa, Euro U17/19/21, AFC Ázsia-kupa, Felkészülési);
+      a csoport-zászló a lokalizált és az angol táblából is oldódik.
+      Offline mérés a mentett magyar oldalon: **332 csapat, 0 magyar név,
+      0 ország nélküli**.
+- [x] **Tisztítás:** `identity reject-all-pending --note` batch CLI
+      (auditált elutasítás) — két elavult pillanatkép-kör (328 + 314 sor)
+      elutasítva; a végleges kör **313 pending, mind országgal**, batch
+      approve-create-all (313 új entitás).
+- [x] **Eredmény:** a 2026-11-17-i nap **170 kanonikus meccs, mind
+      `verified_publish`** (Soccerway 166 + OpenFoot, a feloldott
+      csapatokkal).
+- [ ] **Talált következő javítás (dedupe-szelet):** 8 kereszt-forrás
+      duplikátum (OpenFoot „UEFA Nations League” vs Soccerway
+      „- League A/B”). Javaslat: a természetes kulcsból a **forduló**
+      kikerül (megjelenítési metaadat marad), és a Nations League
+      szülő-versenynévre normalizál mindkét forrás; a meglévő sorok
+      migrációja/összevonása a teljes backfill/crosswalk projekttel.
+- [x] Keretek visszaállítva: soccerway 6/nap, openfoot 8/nap; az agent a
+      végleges binárissal fut. Kapuk: 77 tesztcsoport, clippy/fmt,
+      foundation 0, teszt-DB resetelve.

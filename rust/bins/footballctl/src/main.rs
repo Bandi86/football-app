@@ -109,6 +109,12 @@ enum IdentityAction {
     },
     /// Pending review-ök összesítése (nem/korosztály/ország/verseny).
     ReviewSummary,
+    /// Minden pending review-sor elutasítása kötelező indoklással
+    /// (pl. lokalizált, elavult kör tisztítása).
+    RejectAllPending {
+        #[arg(long)]
+        note: String,
+    },
     ListAliases {
         #[arg(long)]
         entity: Option<Uuid>,
@@ -468,6 +474,27 @@ async fn identity_command(pool: &sqlx::PgPool, action: IdentityAction) -> Result
         IdentityAction::Reject { id, note } => {
             football_identity::review::reject(pool, id, "cli", &note).await?;
             println!("elutasítva: {id}");
+        }
+        IdentityAction::RejectAllPending { note } => {
+            if note.trim().is_empty() {
+                anyhow::bail!("a jegyzet nem lehet üres");
+            }
+            let rows = identity_repo::list_reviews(pool, Some("pending")).await?;
+            let mut rejected = 0usize;
+            let mut failed = 0usize;
+            for row in rows {
+                match football_identity::review::reject(pool, row.id, "cli", &note).await {
+                    Ok(()) => rejected += 1,
+                    Err(err) => {
+                        failed += 1;
+                        println!("  hiba: {} — {err}", row.id);
+                    }
+                }
+            }
+            println!("batch reject: {rejected} elutasítva, {failed} hiba");
+            if failed > 0 {
+                anyhow::bail!("{failed} sor nem lett elutasítva");
+            }
         }
         IdentityAction::ReviewSummary => {
             let rows = identity_repo::review_summary(pool).await?;
