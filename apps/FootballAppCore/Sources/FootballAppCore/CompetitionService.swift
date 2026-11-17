@@ -3,6 +3,7 @@ import Foundation
 public protocol CompetitionService: Sendable {
     func competitions(date: Date) async throws -> [CompetitionSummary]
     func detail(id: UUID, date: Date, window: Int) async throws -> CompetitionDetail
+    func seasons(id: UUID) async throws -> [CompetitionSeason]
 }
 
 public struct HTTPCompetitionService: CompetitionService {
@@ -45,6 +46,18 @@ public struct HTTPCompetitionService: CompetitionService {
         let data = try await get(url)
         do {
             return try APIDecoding.makeDecoder().decode(CompetitionDetail.self, from: data)
+        } catch {
+            throw APIError.decoding
+        }
+    }
+
+    public func seasons(id: UUID) async throws -> [CompetitionSeason] {
+        let url = baseURL.appendingPathComponent(
+            "v1/competition/\(id.uuidString.lowercased())/seasons"
+        )
+        let data = try await get(url)
+        do {
+            return try APIDecoding.makeDecoder().decode([CompetitionSeason].self, from: data)
         } catch {
             throw APIError.decoding
         }

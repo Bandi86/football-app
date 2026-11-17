@@ -81,3 +81,19 @@ public struct CompetitionDetail: Decodable, Equatable, Sendable {
     public let matches: [DayMatch]
     public let teams: [CompetitionTeam]
 }
+
+/// Egy verseny szezonja a kliens szezon-nézethez (S23f).
+public struct CompetitionSeason: Decodable, Equatable, Sendable, Identifiable {
+    public let label: String
+    public let matches: Int
+    public let withResult: Int
+    public let withOdds: Int
+
+    public var id: String { label }
+
+    enum CodingKeys: String, CodingKey {
+        case label, matches
+        case withResult = "with_result"
+        case withOdds = "with_odds"
+    }
+}

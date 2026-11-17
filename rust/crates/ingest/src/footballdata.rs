@@ -214,12 +214,22 @@ impl SourceAdapter for FootballdataAdapter {
         let c_date = column("Date")?;
         // Régi szezonok CSV-jében nincs Time oszlop — ilyenkor date_only.
         let c_time = headers.iter().position(|h| h.trim() == "Time");
-        let c_home = column("HomeTeam")?;
-        let c_away = column("AwayTeam")?;
+        // Régi archívum (pl. G1 2000 előtt): HT/AT oszlopnevek.
+        let c_home = headers
+            .iter()
+            .position(|h| h.trim() == "HomeTeam")
+            .or_else(|| headers.iter().position(|h| h.trim() == "HT"))
+            .ok_or_else(|| ParseError::SchemaDrift("hiányzó CSV-oszlop: HomeTeam".into()))?;
+        let c_away = headers
+            .iter()
+            .position(|h| h.trim() == "AwayTeam")
+            .or_else(|| headers.iter().position(|h| h.trim() == "AT"))
+            .ok_or_else(|| ParseError::SchemaDrift("hiányzó CSV-oszlop: AwayTeam".into()))?;
         let c_fthg = column("FTHG")?;
         let c_ftag = column("FTAG")?;
-        let c_hthg = column("HTHG")?;
-        let c_htag = column("HTAG")?;
+        // Régi archívum: félidő-oszlopok hiányozhatnak.
+        let c_hthg = headers.iter().position(|h| h.trim() == "HTHG");
+        let c_htag = headers.iter().position(|h| h.trim() == "HTAG");
 
         let captured_at = Utc::now();
         let mut teams: std::collections::BTreeMap<String, String> = Default::default();
@@ -298,8 +308,12 @@ impl SourceAdapter for FootballdataAdapter {
                 serde_json::json!({
                     "home_ft": parse_number(Some(&field(c_fthg))).map(|v| v as i16),
                     "away_ft": parse_number(Some(&field(c_ftag))).map(|v| v as i16),
-                    "home_ht": parse_number(Some(&field(c_hthg))).map(|v| v as i16),
-                    "away_ht": parse_number(Some(&field(c_htag))).map(|v| v as i16),
+                    "home_ht": c_hthg
+                        .and_then(|i| parse_number(Some(&field(i))))
+                        .map(|v| v as i16),
+                    "away_ht": c_htag
+                        .and_then(|i| parse_number(Some(&field(i))))
+                        .map(|v| v as i16),
                     "home_et": null, "away_et": null,
                     "home_pens": null, "away_pens": null,
                 })
@@ -469,7 +483,7 @@ fn odds_quotes(record: &csv::StringRecord, headers: &csv::StringRecord) -> Vec<s
             .and_then(|v| parse_number(Some(v)))
             .filter(|price| *price > 1.0)
     };
-    for bookmaker in ["B365", "Avg", "Max"] {
+    for bookmaker in ["B365", "Avg", "Max", "GB", "IW"] {
         for (suffix, phase) in [("", "opening"), ("C", "closing")] {
             let outcome = |letter: &str| get(&format!("{bookmaker}{suffix}{letter}"));
             if let (Some(home), Some(draw), Some(away)) = (outcome("H"), outcome("D"), outcome("A"))
@@ -618,7 +632,7 @@ fn is_youth_league(text: &str) -> bool {
 }
 
 /// "2012/2013" → "2012/13"; "2014" → "2014".
-fn normalize_season_label(raw: &str) -> String {
+pub fn normalize_season_label(raw: &str) -> String {
     match raw.split_once('/') {
         Some((start, end)) => {
             let tail = &end[end.len().saturating_sub(2)..];
@@ -711,14 +725,17 @@ fn parse_new_league(raw: &RawPayload, ctx: &ParseCtx) -> Result<Vec<Observation>
         let (kickoff_at, kickoff_precision) = match NaiveTime::parse_from_str(&time_text, "%H:%M") {
             Ok(time) => {
                 let local = NaiveDateTime::new(date, time);
-                let kickoff = tz
-                    .from_local_datetime(&local)
-                    .earliest()
-                    .map(|dt| dt.with_timezone(&Utc))
-                    .ok_or_else(|| {
-                        ParseError::Parse(format!("érvénytelen helyi időpont: {local}"))
-                    })?;
-                (kickoff, "exact")
+                match tz.from_local_datetime(&local).earliest() {
+                    Some(dt) => (dt.with_timezone(&Utc), "exact"),
+                    // DST-rés (nem létező helyi idő): date_only fallback.
+                    None => (
+                        Utc.from_utc_datetime(&NaiveDateTime::new(
+                            date,
+                            NaiveTime::from_hms_opt(12, 0, 0).expect("12:00 érvényes"),
+                        )),
+                        "date_only",
+                    ),
+                }
             }
             Err(_) => (
                 Utc.from_utc_datetime(&NaiveDateTime::new(

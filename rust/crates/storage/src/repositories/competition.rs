@@ -3,7 +3,7 @@
 //! Sofascore liga-oldala (fejléc + meccsek + csapatok), a mi adatainkra
 //! szűkítve: nincs rating/forma, a W/D/L a megfigyelt ablakból számol.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::NaiveDate;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -223,4 +223,35 @@ pub async fn fetch_competition_teams(
     .fetch_all(pool)
     .await?;
     Ok(rows)
+}
+
+/// Egy verseny szezonjai meccs/eredmény/odds darabszámmal (kliens szezon-nézet).
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+pub struct CompetitionSeasonRow {
+    pub label: String,
+    pub matches: i64,
+    pub with_result: i64,
+    pub with_odds: i64,
+}
+
+pub async fn fetch_competition_seasons(
+    pool: &PgPool,
+    competition_id: Uuid,
+) -> Result<Vec<CompetitionSeasonRow>> {
+    sqlx::query_as(
+        "SELECT s.label, count(*)::bigint AS matches,
+                count(r.match_id)::bigint AS with_result,
+                count(*) FILTER (WHERE EXISTS (
+                    SELECT 1 FROM fact.odds_snapshot o WHERE o.match_id = m.id))::bigint AS with_odds
+         FROM core.match m
+         JOIN core.season s ON s.id = m.season_id
+         LEFT JOIN core.match_result r ON r.match_id = m.id
+         WHERE m.competition_id = $1
+         GROUP BY s.label
+         ORDER BY s.label DESC",
+    )
+    .bind(competition_id)
+    .fetch_all(pool)
+    .await
+    .context("verseny szezonjainak lekérése")
 }

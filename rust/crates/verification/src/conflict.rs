@@ -61,7 +61,7 @@ pub async fn load_material_values(
             "halftime" => MatchStatus::Halftime,
             "finished" => MatchStatus::Finished,
             "postponed" => MatchStatus::Postponed,
-            "canceled" => MatchStatus::Canceled,
+            "canceled" | "cancelled" => MatchStatus::Canceled,
             "abandoned" => MatchStatus::Abandoned,
             "awarded" => MatchStatus::Awarded,
             other => anyhow::bail!("ismeretlen státusz: {other}"),

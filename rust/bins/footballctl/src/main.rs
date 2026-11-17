@@ -49,6 +49,9 @@ enum DedupeAction {
     Matches {
         #[arg(long)]
         date: NaiveDate,
+        /// Opcionális tartomány-vég (backfill-takarítás).
+        #[arg(long)]
+        to: Option<NaiveDate>,
         /// Tényleges végrehajtás (alapból csak terv).
         #[arg(long)]
         apply: bool,
@@ -97,6 +100,12 @@ enum Command {
         /// Csak eddig a szezon-kezdőévig.
         #[arg(long)]
         to: Option<i32>,
+    },
+    /// Saját Elo-számítás a lezárt meccsekből (fact.club_elo, own-elo).
+    Elo {
+        /// A pillanatkép dátuma (alap: ma).
+        #[arg(long)]
+        as_of: Option<NaiveDate>,
     },
     /// Adatbázis-állapot riport: liga/ország/szezon bontás, minőségi mutatók.
     DataStatus {
@@ -390,13 +399,28 @@ async fn main() -> Result<()> {
         },
         Command::Identity { action } => identity_command(&pool, action).await?,
         Command::Dedupe { action } => match action {
-            DedupeAction::Matches { date, apply, deny } => {
+            DedupeAction::Matches {
+                date,
+                to,
+                apply,
+                deny,
+            } => {
                 let deny_list: Vec<String> = deny
                     .as_deref()
                     .map(|d| d.split('|').map(|x| x.trim().to_string()).collect())
                     .unwrap_or_default();
-                let groups =
-                    football_storage::repositories::dedupe::duplicate_groups(&pool, date).await?;
+                let groups = match to {
+                    Some(end) => {
+                        football_storage::repositories::dedupe::duplicate_groups_between(
+                            &pool, date, end,
+                        )
+                        .await?
+                    }
+                    None => {
+                        football_storage::repositories::dedupe::duplicate_groups(&pool, date)
+                            .await?
+                    }
+                };
                 if groups.is_empty() {
                     println!("nincs duplikált meccs ezen a napon: {date}");
                 } else {
@@ -481,6 +505,65 @@ async fn main() -> Result<()> {
                 }
             }
         },
+        Command::Elo { as_of } => {
+            let as_of = as_of.unwrap_or_else(|| Utc::now().date_naive());
+            let results: Vec<(Uuid, Uuid, i16, i16)> = sqlx::query_as(
+                "SELECT m.home_team_id, m.away_team_id, r.home_ft, r.away_ft
+                 FROM core.match m
+                 JOIN core.match_result r ON r.match_id = m.id
+                 WHERE m.status = 'finished'
+                   AND r.home_ft IS NOT NULL AND r.away_ft IS NOT NULL
+                 ORDER BY m.kickoff_at",
+            )
+            .fetch_all(&pool)
+            .await?;
+            let mut ratings: HashMap<Uuid, f64> = HashMap::new();
+            for (home, away, hs, as_) in &results {
+                let h = *ratings.entry(*home).or_insert(football_ingest::elo::START);
+                let a = *ratings.entry(*away).or_insert(football_ingest::elo::START);
+                let (nh, na) = football_ingest::elo::update(h, a, *hs, *as_);
+                ratings.insert(*home, nh);
+                ratings.insert(*away, na);
+            }
+            let teams: Vec<(Uuid, String, String)> = sqlx::query_as(
+                "SELECT t.id, e.canonical_name, coalesce(c.code, '')
+                 FROM core.team t
+                 JOIN core.entity e ON e.id = t.entity_id
+                 LEFT JOIN core.country c ON c.id = t.country_id",
+            )
+            .fetch_all(&pool)
+            .await?;
+            let now = Utc::now();
+            let mut written = 0usize;
+            for (id, name, code) in &teams {
+                let Some(rating) = ratings.get(id) else {
+                    continue;
+                };
+                sqlx::query(
+                    "INSERT INTO fact.club_elo
+                     (country_code, club_name, club_entity_id, as_of, elo, provenance, source, captured_at)
+                     VALUES ($1,$2,$3,$4,$5,'observed','own-elo',$6)
+                     ON CONFLICT (country_code, club_name, as_of) DO UPDATE SET
+                       elo = EXCLUDED.elo,
+                       club_entity_id = EXCLUDED.club_entity_id,
+                       captured_at = EXCLUDED.captured_at",
+                )
+                .bind(code)
+                .bind(name)
+                .bind(id)
+                .bind(as_of)
+                .bind(rating)
+                .bind(now)
+                .execute(&pool)
+                .await?;
+                written += 1;
+            }
+            println!(
+                "Elo számítva: {} meccsből, {} csapat ratingje mentve (as_of {as_of})",
+                results.len(),
+                written
+            );
+        }
         Command::DataStatus { from, to, top } => {
             #[allow(clippy::type_complexity)]
             let rows: Vec<(String, String, i64, i64, i64, i64, i64, i64, i64)> = sqlx::query_as(
@@ -1655,8 +1738,9 @@ async fn run_v1_import(
             continue;
         }
         let status = match status.as_str() {
-            "finished" | "scheduled" | "postponed" | "cancelled" | "canceled" | "abandoned"
-            | "awarded" | "live" => status.as_str(),
+            "cancelled" => "canceled",
+            "finished" | "scheduled" | "postponed" | "canceled" | "abandoned" | "awarded"
+            | "live" => status.as_str(),
             other => {
                 tracing::warn!(match_id, other, "v1 import: ismeretlen státusz, kihagyva");
                 skipped_status += 1;
@@ -1715,7 +1799,10 @@ async fn run_v1_import(
                     "tier": 1,
                     "priority": 60,
                 },
-                "season": { "id": null, "label": season_name.clone() },
+                "season": {
+                    "id": null,
+                    "label": football_ingest::footballdata::normalize_season_label(season_name),
+                },
                 "source_code": "v1-import",
                 "captured_at": captured_at,
             }),

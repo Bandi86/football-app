@@ -83,6 +83,7 @@ final class CompetitionDetailModel {
     }
 
     var state: State = .idle
+    var seasons: [CompetitionSeason] = []
     let logos = LogoStore()
 
     private let loader: any RuntimeInfoLoading
@@ -108,7 +109,9 @@ final class CompetitionDetailModel {
             }
             let service = try serviceFactory(info)
             let detail = try await service.detail(id: id, date: date, window: window)
+            let seasonRows = (try? await service.seasons(id: id)) ?? []
             guard currentGeneration == generation else { return }
+            seasons = seasonRows
             state = .loaded(detail)
         } catch is CancellationError {
             return

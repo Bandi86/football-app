@@ -4,6 +4,7 @@ pub mod clubelo;
 pub mod competitions;
 pub mod countries;
 pub mod demo;
+pub mod elo;
 pub mod fetch;
 pub mod fixture;
 pub mod footballdata;

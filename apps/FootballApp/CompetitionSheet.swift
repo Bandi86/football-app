@@ -14,6 +14,7 @@ struct CompetitionSheet: View {
     enum CompetitionTab: String, CaseIterable, Identifiable {
         case matches = "Meccsek"
         case teams = "Csapatok"
+        case seasons = "Szezonok"
         var id: String { rawValue }
     }
 
@@ -77,6 +78,8 @@ struct CompetitionSheet: View {
                 }
             case .teams:
                 teamsList(detail.teams)
+            case .seasons:
+                seasonsList(model.seasons)
             }
         }
     }
@@ -174,6 +177,41 @@ struct CompetitionSheet: View {
         switch tab {
         case .matches: return detail.matches.count
         case .teams: return detail.teams.count
+        case .seasons: return model.seasons.count
+        }
+    }
+
+    private func seasonsList(_ seasons: [CompetitionSeason]) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                if seasons.isEmpty {
+                    Text("Nincs szezonadat.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(AppTheme.secondaryText)
+                        .padding(24)
+                } else {
+                    ForEach(seasons) { season in
+                        HStack {
+                            Text(season.label)
+                                .font(.system(size: 13, weight: .semibold))
+                                .frame(width: 90, alignment: .leading)
+                            Text("\(season.matches) meccs")
+                                .font(.system(size: 12))
+                                .foregroundStyle(AppTheme.secondaryText)
+                            Spacer()
+                            Text("eredmény \(season.withResult)")
+                                .font(.system(size: 11))
+                                .foregroundStyle(AppTheme.secondaryText)
+                            Text("odds \(season.withOdds)")
+                                .font(.system(size: 11))
+                                .foregroundStyle(AppTheme.secondaryText)
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 10)
+                        Rectangle().fill(AppTheme.hairline).frame(height: 1)
+                    }
+                }
+            }
         }
     }
 

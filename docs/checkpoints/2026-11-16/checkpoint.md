@@ -743,3 +743,28 @@
       pending 0.
 - [x] Kapuk: teljes workspace teszt zöld, clippy/fmt tiszta, foundation
       OK (47 tábla), teszt-DB reset; agent a végleges binárisokkal.
+
+## S23f — Keresztellenőrzés + ELO + kliens szezon-nézet (2026-11-17)
+
+- [x] **Keresztellenőrzés (v1 ↔ footballdata):** 17 liga v1 importja
+      (2015–2026) a javított szezon-címkékkel (`2015/2016` → `2015/16`) és
+      szótárral (`Primera División` → `La Liga`, `La Liga 2` → `LaLiga 2`);
+      a dedupe merge **additívan mozgatja az oddsokat** forrásonként, így
+      a merge után két független forrás marad → trust. A rossz címkés
+      35 807 v1 sor törölve (v1-only, újratöltve). Eredmény: **30 890
+      meccs ≥2 forrással**; reverify után **40 066 verified** (volt 4 069).
+- [x] **Saját Elo:** `footballctl elo [--as-of]` — 155 305 lezárt meccsből
+      728 csapat ratingje (`fact.club_elo`, source `own-elo`, provenance
+      `observed`); tiszta Elo-függvények 5 unit teszttel; a nap-API
+      `home_elo/away_elo` szolgálja. Top: Arsenal 2060, Man City 1988.
+- [x] **Kliens szezon-nézet:** `/v1/competition/{id}/seasons` endpoint +
+      `CompetitionSeason` modell + `CompetitionService.seasons` + a
+      verseny-adatlap **Szezonok füle** (szezon/meccs/eredmény/odds).
+      Core 25 teszt + app 24 teszt zöld, build SUCCEEDED; élő endpoint
+      32 szezont ad a PL-re; app-screenshot: mai nap 151 meccs.
+- [x] **Archívum-robusztusság:** HTHG/HTAG hiány → opcionális; régi G1
+      `HT/AT` oszlopnevek + GB/IW bookmakerek; mexikói DST-rés → date_only
+      fallback. A hibás jobok újraindítva.
+- [ ] **Folyamatban:** bootstrap-újrafuttatás (717 job) a korán kimaradt
+      meccsek pótlására; utána approve-create, reverify, coverage,
+      budget 2000 → 60 és tick 5 → 60 visszaállítás (2026-11-18 checklist).

@@ -16,6 +16,7 @@ final class CompetitionsModelTests: XCTestCase {
         func detail(id: UUID, date: Date, window: Int) async throws -> CompetitionDetail {
             try detail.get()
         }
+        func seasons(id: UUID) async throws -> [CompetitionSeason] { [] }
     }
 
     private let info = RuntimeInfo(port: 56782, readToken: "r")

@@ -324,6 +324,34 @@ const ENTRIES: &[Entry] = &[
         priority: 60,
     },
     Entry {
+        observed: "primera division",
+        name: "La Liga",
+        country: Some(("ES", "Spain")),
+        tier: 1,
+        priority: 6,
+    },
+    Entry {
+        observed: "la liga",
+        name: "La Liga",
+        country: Some(("ES", "Spain")),
+        tier: 1,
+        priority: 6,
+    },
+    Entry {
+        observed: "la liga 2",
+        name: "LaLiga 2",
+        country: Some(("ES", "Spain")),
+        tier: 2,
+        priority: 12,
+    },
+    Entry {
+        observed: "laliga 2",
+        name: "LaLiga 2",
+        country: Some(("ES", "Spain")),
+        tier: 2,
+        priority: 12,
+    },
+    Entry {
         observed: "fa cup",
         name: "FA Cup",
         country: Some(("GB", "England")),
@@ -433,5 +461,27 @@ mod tests {
         assert_eq!(out.country_code, "TJ");
         assert_eq!(out.tier, 1);
         assert_eq!(out.priority, 50);
+    }
+}
+
+#[cfg(test)]
+mod spanish_probe {
+    use super::*;
+    #[test]
+    fn la_liga_variants_map() {
+        let c = NormalizedCompetition {
+            id: None,
+            name: "La Liga 2".into(),
+            country_code: "ES".into(),
+            country_name: "Spain".into(),
+            tier: 2,
+            priority: 12,
+        };
+        assert_eq!(canonicalize(&c).name, "LaLiga 2");
+        let c2 = NormalizedCompetition {
+            name: "Primera División".into(),
+            ..c.clone()
+        };
+        assert_eq!(canonicalize(&c2).name, "La Liga");
     }
 }

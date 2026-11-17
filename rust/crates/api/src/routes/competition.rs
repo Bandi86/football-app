@@ -6,8 +6,9 @@ use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use chrono::NaiveDate;
 use football_storage::repositories::competition::{
-    CompetitionDetailRow, CompetitionListRow, CompetitionTeamRow, fetch_competition_detail,
-    fetch_competition_teams, fetch_competitions,
+    CompetitionDetailRow, CompetitionListRow, CompetitionSeasonRow, CompetitionTeamRow,
+    fetch_competition_detail, fetch_competition_seasons, fetch_competition_teams,
+    fetch_competitions,
 };
 use football_storage::repositories::day::{DayFilter, fetch_day};
 use serde::Deserialize;
@@ -101,4 +102,22 @@ pub async fn competition_detail(
         matches: matches.into_iter().map(map_match).collect(),
         teams,
     }))
+}
+
+/// A verseny szezon-listája (meccs/eredmény/odds darabszámokkal).
+pub async fn competition_seasons(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<CompetitionSeasonRow>>, AppError> {
+    authorize(&headers, Scope::Read, &state.read_token, &state.ops_token)?;
+    let competition_id = Uuid::parse_str(&id)
+        .map_err(|_| AppError::bad_request("Érvénytelen verseny-azonosító."))?;
+    let rows = fetch_competition_seasons(&state.pool, competition_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(error=%e, "verseny-szezonok lekérdezés");
+            AppError::internal("A verseny szezonjainak lekérdezése sikertelen.")
+        })?;
+    Ok(Json(rows))
 }

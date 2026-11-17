@@ -38,6 +38,15 @@ pub async fn duplicate_groups(
     pool: &PgPool,
     date: chrono::NaiveDate,
 ) -> Result<Vec<DuplicateGroup>> {
+    duplicate_groups_between(pool, date, date).await
+}
+
+/// Duplikált csoportok egy dátumtartományban (backfill-takarításhoz).
+pub async fn duplicate_groups_between(
+    pool: &PgPool,
+    from: chrono::NaiveDate,
+    to: chrono::NaiveDate,
+) -> Result<Vec<DuplicateGroup>> {
     let rows = sqlx::query_as::<_, DuplicateMatchRow>(
         "SELECT
             m.id AS match_id,
@@ -61,7 +70,7 @@ pub async fn duplicate_groups(
              SELECT state FROM ops.publish_gate
              WHERE match_id = m.id ORDER BY publish_date DESC LIMIT 1
          ) g ON true
-         WHERE m.kickoff_at::date = $1
+         WHERE m.kickoff_at::date BETWEEN $1 AND $2
            AND EXISTS (
                SELECT 1 FROM core.match m2
                WHERE m2.id <> m.id
@@ -73,7 +82,8 @@ pub async fn duplicate_groups(
            )
          ORDER BY m.kickoff_at, h.name, a.name, m.created_at",
     )
-    .bind(date)
+    .bind(from)
+    .bind(to)
     .fetch_all(pool)
     .await?;
 
@@ -225,27 +235,28 @@ pub async fn merge_duplicate(
         .await?;
     }
 
-    // 4. Hiányzó odds-blokk pótlása (snapshot + quote-ok), csak normál párnál.
+    // 4. Odds-blokkok átmozgatása forrásonként (additívan): a túlélő meglévő
+    //    forrás-snapshotjai maradnak, az áldozat többi forrása hozzáadódik —
+    //    így a merge után két független forrás is jelen lehet (trust).
     if !mirrored {
         sqlx::query(
-        "INSERT INTO fact.odds_snapshot (match_id, source_id, captured_at, market_count, trust_state)
-         SELECT $2, o.source_id, o.captured_at, o.market_count, o.trust_state
-           FROM fact.odds_snapshot o
-          WHERE o.match_id = $1
-            AND NOT EXISTS (SELECT 1 FROM fact.odds_snapshot s WHERE s.match_id = $2)
-         ON CONFLICT (match_id, source_id) DO NOTHING",
-    )
-    .bind(duplicate)
-    .bind(survivor)
-    .execute(&mut *tx)
-    .await?;
+            "INSERT INTO fact.odds_snapshot (match_id, source_id, captured_at, market_count, trust_state)
+             SELECT $2, o.source_id, o.captured_at, o.market_count, o.trust_state
+               FROM fact.odds_snapshot o
+              WHERE o.match_id = $1
+             ON CONFLICT (match_id, source_id) DO NOTHING",
+        )
+        .bind(duplicate)
+        .bind(survivor)
+        .execute(&mut *tx)
+        .await?;
         sqlx::query(
             "INSERT INTO fact.odds_quote
-           (match_id, source_id, bookmaker, market, outcome, line, phase, price)
-         SELECT $2, q.source_id, q.bookmaker, q.market, q.outcome, q.line, q.phase, q.price
-           FROM fact.odds_quote q
-          WHERE q.match_id = $1
-            AND NOT EXISTS (SELECT 1 FROM fact.odds_quote s WHERE s.match_id = $2)",
+               (match_id, source_id, bookmaker, market, outcome, line, phase, price)
+             SELECT $2, q.source_id, q.bookmaker, q.market, q.outcome, q.line, q.phase, q.price
+               FROM fact.odds_quote q
+              WHERE q.match_id = $1
+             ON CONFLICT DO NOTHING",
         )
         .bind(duplicate)
         .bind(survivor)
