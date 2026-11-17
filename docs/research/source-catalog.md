@@ -264,6 +264,17 @@ adoptációs rang.
   - `day_2026-11-11.html`: `da659c56a0cc82e3bd249b73f34a5c9cb54dbc2698dcecf81183a923487fc062`
   - `past_2026-11-08.html`: `e11c8f9676a4e0b41160d0426a9ecc24044795bafcc36f14be4e0437f91faf66`
   - `markets_5546745.json`: `09222c6775c144f6250b01201f15e99c80a00c50c92831be82d99950e4209e81`
+- **2026-11-17 S18 — adapter bekötve (canary):** `tipplap` adapter a
+  v2-ben (rust-http, 1 kérés/nap, `<select id="dates">` dátum-guard,
+  `#calcTableDesktop` sorok, `data-event`/`data-event-name`/`data-odds`).
+  Verseny-fixszótár a v2 kanonikus nevekkel; ismeretlen liga → sor kimarad.
+  Csapatok: nemzetközi versenyben ország (HU→EN+ISO), hazai ligában a
+  v1 crosswalk-aliasokon (1342 reviewed alias) át; fail-closed review, ha
+  nincs találat. Canary 2026-11-17: 92 sor → 36 meccs a meglévő
+  Soccerway-sorokhoz illesztve (0 duplikátum), 36 Tippmix 1X2 snapshot
+  (`provisional`), nap-API-ban megjelenik. Üzemeltetés:
+  `docs/operations/tipplap.md`.
+
 - **Adoptációs rang:** 3.
 
 ### fotmob — FotMob

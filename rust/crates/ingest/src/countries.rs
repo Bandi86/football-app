@@ -491,10 +491,10 @@ pub fn by_english_name(name: &str) -> Option<(&'static str, &'static str)> {
         (
             "st. vincent & grenadines",
             "VC",
-            "St. Vincent and the Grenadines",
+            "Saint Vincent and the Grenadines",
         ),
-        ("st. lucia", "LC", "St. Lucia"),
-        ("st. kitts & nevis", "KN", "St. Kitts and Nevis"),
+        ("st. lucia", "LC", "Saint Lucia"),
+        ("st. kitts & nevis", "KN", "Saint Kitts and Nevis"),
         ("montserrat", "MS", "Montserrat"),
         ("bahamas", "BS", "Bahamas"),
         ("barbados", "BB", "Barbados"),

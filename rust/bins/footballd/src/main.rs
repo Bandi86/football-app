@@ -70,6 +70,10 @@ async fn main() -> Result<()> {
         adapters.insert("fotmob".into(), Box::new(FotMobAdapter::default()));
         adapters.insert("soccerway".into(), Box::new(SoccerwayAdapter::default()));
         adapters.insert("openfoot".into(), Box::new(OpenFootAdapter::from_env()));
+        adapters.insert(
+            "tipplap".into(),
+            Box::new(football_ingest::tipplap::TipplapAdapter),
+        );
         let tick_secs = worker_tick_secs(std::env::var("WORKER_TICK_SECS").ok().as_deref());
         let worker_id = uuid::Uuid::now_v7();
         tracing::info!(worker_id = %worker_id, tick_secs, "worker elindult");

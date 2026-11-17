@@ -460,3 +460,40 @@
       adapter a crosswalk-szelet után jön.
 - [ ] Következő döntési pont a userrel: crosswalk-enabler (v1 alias-seed)
       vagy ESPN licenc-döntés, illetve footballdata ligabővítés.
+
+## S18 — Crosswalk-seed + Tipplap forrás bekötése (2026-11-17)
+
+- [x] **Crosswalk-seed CLI:** `footballctl identity seed-v1 [--apply]
+      [--limit N]` a v1 adatbázist **csak olvasva** használja (teams,
+      team_aliases, countries); ékezet-független név-egyezés + ország/nem
+      kontextus, csak **egyértelmű** találatnál seedel; a linker kulcsa a
+      lower(alias), ezért a nyers és a foldolt alak is bekerül. Dev futás:
+      **441 csapat / 1342 reviewed alias**, 23 többértelmű, 0 írás dry-run
+      nélkül. Visszavonás: `DELETE FROM identity.alias WHERE
+      method='import';`. Teszt: seed → linker `reviewed_alias` feloldás
+      (ékezet nélküli forrásnévvel is).
+- [x] **Tipplap adapter (canary):** `rust-http`, 1 kérés/nap, dátum-guard
+      (`#dates` selected), desktop tábla, speciális tippek kiszűrve,
+      HU helyi idő → UTC (Europe/Budapest), szezon-címke a dátum alapján,
+      Tippmix 1X2 quote-ok (opening, `provisional`). Verseny-fixszótár a v2
+      kanonikus nevekkel (Nations League A–D, Africa Cup - Qualification,
+      CONCACAF B, Friendly International, PL, La Liga, Serie A, Bundesliga,
+      Ligue 1, NB I); ismeretlen liga → sor kimarad (nincs új entitás).
+      Tesztek: parse/dátum-guard/üres tábla/speciális tipp.
+- [x] **Canary-eredmény (2026-11-17):** 92 sor → 36 meccs a meglévő
+      Soccerway-sorokhoz illesztve, **0 duplikált csoport**, napi össz
+      190 változatlan; 36 Tippmix snapshot mind `provisional`;
+      `Kyrgyzstan–Vietnam 2.55/3.25/2.33` a nap-API-ban.
+      Nap-API javítás: fázis-preferencia (closing, ha nincs → opening,
+      `DISTINCT ON` + `LATERAL`) és Tippmix-beemelés a COALESCE-láncba
+      (B365 után) — enélkül a Tipplap-odds nem jelent meg.
+- [x] **Zászló-tábla egységesítés:** `St. Lucia`/`St. Kitts`/`St. Vincent`
+      → `Saint …` kanonikus nevű entitás (a `Saint Lucia` review-t a
+      meglévő entitásra jóváhagytuk, ref képződött).
+- [x] **Biztonsági javítás:** az agent `run.sh`-ban hardcode-olt OpenFoot
+      kulcs helyett Keychain-lekérdezés (a telepítő már így generálja).
+      **A korábbi kulcs cseréje javasolt** (a fájlban szerepelt).
+- [ ] **Nyitott:** `China`/`Dominica` duplikált kanonikus entitás-párok
+      (linker `multiple_candidates`) → identitás-merge szelet;
+      `Jordan` Soccerway-review; a Tipplap U19/U20 ligák és a „Nemzetközi
+      Torna" nincs a szótárban (szándékos, név-instabilitás).

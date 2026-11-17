@@ -14,3 +14,4 @@ pub mod obscura;
 pub mod observe;
 pub mod openfoot;
 pub mod soccerway;
+pub mod tipplap;

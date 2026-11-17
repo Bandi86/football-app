@@ -482,6 +482,10 @@ async fn worker_tick(pool: &sqlx::PgPool, store: &ObjectStore, data_dir: &str) -
     adapters.insert("fotmob".into(), Box::new(FotMobAdapter::default()));
     adapters.insert("soccerway".into(), Box::new(SoccerwayAdapter::default()));
     adapters.insert("openfoot".into(), Box::new(OpenFootAdapter::from_env()));
+    adapters.insert(
+        "tipplap".into(),
+        Box::new(football_ingest::tipplap::TipplapAdapter),
+    );
     let now = Utc::now();
     let policies = worker_repo::list_enabled_policies(pool).await?;
     let generated = scheduler::generate_jobs(pool, &policies, now).await?;
