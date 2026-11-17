@@ -542,6 +542,18 @@ adoptációs rang.
   NB I/NB II (nincs a regiszterben), góllövő-lapozás (25 sor/oldal).
   Az `until` DD/MM/YYYY formátum a mentett GB1 mintán MÉRT (54/85 dátum,
   31 üres); más ligákon az élő újramérés az adapter-szeletben szükséges.
+- **2026-11-17 újramérés (blokkoló):** a GB1/ES1 sérüléslista
+  (`/verletztespieler/wettbewerb/{GB1,ES1}`) és a GB1 góllövőlista
+  (`/torschuetzenliste/wettbewerb/GB1/saison_id/2026`) **üres `<tbody>`-t**
+  ad: GB1 sérülés 1 sor (Xaver Schlager), ES1 sérülés 0 sor, góllövő 0 sor;
+  a `?ajax=yw1`, a `/plus/1` (Detailed) és a transfermarkt.de út is üres.
+  Az Obscura-render (valódi Chrome, 1 render) ugyanazt az üres táblát adja
+  (36 oldalszintű spieler-link, 0 tábla-sor) → nem JS-render hiány, hanem
+  a szerver-renderelt táblák eltűntek/blokkoltak. A 2026-11-11-i spike
+  85 soros GB1-mintája **nem reprodukálható**. Adapter előtt új,
+  consent-kompatibilis hozzáférési út kell; addig a forrás **nem
+  beköthető**. Az opt-in spike: `rust/crates/ingest/tests/transfermarkt_live.rs`.
+
 - **Adoptációs rang:** 5.
 
 ### worldfootball — WorldFootball.net

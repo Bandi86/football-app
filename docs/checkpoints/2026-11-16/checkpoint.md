@@ -438,3 +438,25 @@
 - [x] Kapuk: teszt-DB reset → `check-foundation.sh` OK (46 tábla) →
       `cargo test --workspace -- --test-threads=1` mind zöld →
       clippy `-D warnings` + `fmt --check` tiszta → teszt-DB visszaállítva.
+
+## S17 — Forrás-újramérés: Transfermarkt jelenleg nem beköthető (2026-11-17)
+
+- [x] **Transfermarkt újramérés (blokkoló):** a GB1/ES1 sérüléslista és a
+      GB1 góllövőlista üres `<tbody>`-t ad (GB1 sérülés 1 sor, ES1 0,
+      góllövő 0); a `?ajax=yw1`, a `/plus/1` és a .de domain is üres; az
+      Obscura-render ugyanazt adja (0 tábla-sor). A 2026-11-11-i 85 soros
+      minta nem reprodukálható → a szerver-renderelt táblák eltűntek.
+      Opt-in spike: `rust/crates/ingest/tests/transfermarkt_live.rs`;
+      katalógus-státusz frissítve (új, consent-kompatibilis hozzáférési út
+      kell az adapter előtt).
+- [x] **Tipplap DOM ellenőrzés (2026-11-17):** `/kalkulator/labdarugas/{nap}`
+      200, 497 KB; dátum-guard él (`<select id="dates">` selected option =
+      kért nap); desktop tábla `#calcTableDesktop`; sorok `data-event` ID-vel,
+      név az `a[data-event-name]` szövegében, odds a `td[data-name=H|D|V]`
+      alatti `<strong data-odds>` szövegében; kickoff `MM.DD.` + `HH:MM`
+      (HU helyi idő), liga-fejléc `th.tleft` (magyar cím). A HU csapat- és
+      versenynevek miatt a kanonikus kapcsoláshoz crosswalk (alias-seed)
+      kell — enélkül duplikált entitások keletkeznének; ezért a Tipplap
+      adapter a crosswalk-szelet után jön.
+- [ ] Következő döntési pont a userrel: crosswalk-enabler (v1 alias-seed)
+      vagy ESPN licenc-döntés, illetve footballdata ligabővítés.
