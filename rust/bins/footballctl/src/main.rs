@@ -126,6 +126,16 @@ enum BackfillAction {
         #[arg(long)]
         apply: bool,
     },
+    /// v1 pilot-előkészítés: csapat-illesztés és odds-mezők (read-only, írás nélkül).
+    V1Pilot {
+        /// A v1 tournament azonosítója (pl. 27 = Eliteserien).
+        #[arg(long)]
+        tournament: i64,
+        #[arg(long, default_value_t = 2015)]
+        from_year: i32,
+        #[arg(long, default_value_t = 2026)]
+        to_year: i32,
+    },
     /// v1 (football_app) lefedettség a v2-höz képest — read-only riport.
     V1Inventory {
         #[arg(long, default_value_t = 2000)]
@@ -488,6 +498,118 @@ async fn main() -> Result<()> {
             }
         }
         Command::Backfill { action } => match action {
+            BackfillAction::V1Pilot {
+                tournament,
+                from_year,
+                to_year,
+            } => {
+                let user = std::env::var("USER").unwrap_or_else(|_| "postgres".into());
+                let v1_url = format!("postgres://{user}@127.0.0.1/football_app");
+                let v1 = PgPoolOptions::new()
+                    .max_connections(2)
+                    .connect(&v1_url)
+                    .await
+                    .context("v1 adatbázis kapcsolat (football_app)")?;
+                let (name, matches, with_odds): (String, i64, i64) = sqlx::query_as(
+                    "SELECT t.name, count(*)::bigint,
+                            count(*) FILTER (WHERE EXISTS (
+                                SELECT 1 FROM match_odds o WHERE o.match_id=m.id))::bigint
+                     FROM matches m
+                     JOIN tournaments t ON t.id=m.tournament_id
+                     JOIN seasons s ON s.id=m.season_id
+                     WHERE t.id=$1 AND s.year_start BETWEEN $2 AND $3
+                     GROUP BY 1",
+                )
+                .bind(tournament)
+                .bind(from_year)
+                .bind(to_year)
+                .fetch_optional(&v1)
+                .await
+                .context("v1 tournament összesítés")?
+                .unwrap_or(("(nincs ilyen tournament)".into(), 0, 0));
+                println!(
+                    "v1 {}: {} meccs, {} oddsszal ({:.1}%)",
+                    name,
+                    matches,
+                    with_odds,
+                    if matches > 0 {
+                        with_odds as f64 / matches as f64 * 100.0
+                    } else {
+                        0.0
+                    }
+                );
+
+                let v1_teams: Vec<(String, String, String)> = sqlx::query_as(
+                    "SELECT DISTINCT t.name, coalesce(c.iso2,''), coalesce(t.gender,'M')
+                     FROM teams t
+                     JOIN matches m ON m.home_team_id=t.id OR m.away_team_id=t.id
+                     JOIN seasons s ON s.id=m.season_id
+                     LEFT JOIN countries c ON c.id=t.country_id
+                     WHERE m.tournament_id=$1 AND s.year_start BETWEEN $2 AND $3",
+                )
+                .bind(tournament)
+                .bind(from_year)
+                .bind(to_year)
+                .fetch_all(&v1)
+                .await
+                .context("v1 csapatok")?;
+
+                let v2 = identity_repo::all_team_entities(&pool).await?;
+                let mut by_key: HashMap<(String, String), usize> = HashMap::new();
+                for row in &v2 {
+                    let key = (
+                        football_domain::identity::fold_name(&row.canonical_name),
+                        row.country_code.clone().unwrap_or_default(),
+                    );
+                    *by_key.entry(key).or_insert(0) += 1;
+                }
+                let mut resolved = 0usize;
+                let mut unresolved: Vec<String> = Vec::new();
+                for (name, iso2, gender) in &v1_teams {
+                    let key = (football_domain::identity::fold_name(name), iso2.clone());
+                    if by_key.get(&key) == Some(&1) {
+                        resolved += 1;
+                    } else {
+                        let _ = gender;
+                        unresolved.push(format!("{name} ({iso2})"));
+                    }
+                }
+                println!(
+                    "csapatok: {} egyedi, v2-ben egyértelműen illeszkedő: {} ({:.1}%)",
+                    v1_teams.len(),
+                    resolved,
+                    if v1_teams.is_empty() {
+                        0.0
+                    } else {
+                        resolved as f64 / v1_teams.len() as f64 * 100.0
+                    }
+                );
+                if !unresolved.is_empty() {
+                    println!("illesztetlen minta (max 20):");
+                    for name in unresolved.iter().take(20) {
+                        println!("  {name}");
+                    }
+                }
+
+                let markets: Vec<(String, String, i64)> = sqlx::query_as(
+                    "SELECT o.market, o.outcome, count(*)::bigint
+                     FROM match_odds o
+                     JOIN matches m ON m.id=o.match_id
+                     JOIN seasons s ON s.id=m.season_id
+                     WHERE m.tournament_id=$1 AND s.year_start BETWEEN $2 AND $3
+                     GROUP BY 1,2 ORDER BY 3 DESC LIMIT 8",
+                )
+                .bind(tournament)
+                .bind(from_year)
+                .bind(to_year)
+                .fetch_all(&v1)
+                .await
+                .context("v1 odds-piacok")?;
+                println!("odds-piacok (v1):");
+                for (market, outcome, count) in markets {
+                    println!("  {market} {outcome}: {count}");
+                }
+            }
             BackfillAction::V1Inventory {
                 from_year,
                 to_year,

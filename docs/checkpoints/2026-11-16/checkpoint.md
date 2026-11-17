@@ -707,3 +707,10 @@
 - [ ] **Következő:** pilot import egy verseny-szezonra (v1 → v2
       normalizált sorok, trust medium), coverage/duplikátum/trust
       ellenőrzés; a teljes leltár a checkpoint 2026-11-18 listájában.
+- [x] **Pilot dry-run (`backfill v1-pilot`):** Eliteserien (id 27):
+      4 010 meccs, 3 933 oddsszal (98,1%); Ekstraklasa (id 28): 4 562
+      meccs, 4 177 oddsszal (91,6%); a csapatok 0%-a létezik v2-ben (új
+      ligák) → az importnak a **kétfázisú bootstrapot** kell használnia
+      (linker-review → approve-create → újrafuttatás), nem közvetlen
+      név-illesztést; a v1 odds-piacok: `1X2 H/D/A` (AH/OU is van, a
+      pilot csak 1X2-t visz).
