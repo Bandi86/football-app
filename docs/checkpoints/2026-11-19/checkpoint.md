@@ -119,8 +119,10 @@
 - [x] Teljes kapu-lánc: teszt-DB reset → foundation → workspace tesztek
       (`--test-threads=1`, 0 failed) → clippy `-D warnings` → fmt →
       binárisok `--features obscura` → teszt-DB reset. (Eredmény: zöld.)
-- [ ] Commit + push (a felhasználó „minden mehet” jóváhagyásával, a
-      2026-11-18 checklist 6. pontja szerint).
+- [x] Commit + push: **`e22727d`** → origin/main (02d5a23..e22727d),
+      a felhasználó „minden mehet” jóváhagyásával, a 2026-11-18 checklist
+      6. pontja szerint. A repo git-identitása visszaállítva a korábbi
+      commitokéhoz (Bandi86).
 
 ## Következő döntési pontok
 
