@@ -296,7 +296,7 @@ pub async fn team_entities_by_normalized_name(
 ) -> Result<Vec<EntityRow>> {
     let sql = format!(
         "SELECT {ENTITY_COLUMNS} {ENTITY_JOIN}
-         WHERE e.kind = 'team' AND lower(e.canonical_name) = $1
+         WHERE e.kind = 'team' AND (lower(e.canonical_name) = $1 OR lower(t.name) = $1)
          ORDER BY e.canonical_name"
     );
     let rows = sqlx::query(&sql)

@@ -11,7 +11,7 @@
 //! `InvalidInput` (fail-closed). A jegyzet nélküli elutasítás szintén
 //! `InvalidInput` („A jegyzet nem lehet üres.”).
 
-use football_domain::identity::{IdentityContext, context_matches};
+use football_domain::identity::{IdentityContext, context_matches, normalize_name};
 use football_storage::repositories::identity as repo;
 use serde_json::json;
 use sqlx::PgPool;
@@ -152,23 +152,44 @@ pub async fn approve_create_with(
     let source_id = row.source_id.ok_or(IdentityError::InvalidInput(
         "A review-sorhoz nem tartozik forrás, kézi döntés nem lehetséges.".into(),
     ))?;
-    let entity_id = Uuid::now_v7();
-
     let mut tx = pool
         .begin()
         .await
         .map_err(|e| IdentityError::Db(e.to_string()))?;
 
-    sqlx::query("INSERT INTO core.entity (id, kind, canonical_name) VALUES ($1,$2,$3)")
-        .bind(entity_id)
-        .bind(&row.entity_kind)
-        .bind(&row.proposed_name)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| IdentityError::Db(e.to_string()))?;
+    // Ha már létezik pontosan egy azonos normalizált nevű, kontextus-egyező
+    // csapat-entitás, azt használjuk új entitás létrehozása helyett. Enélkül
+    // a párhuzamos v1 review-sorok (két v1 team id, ugyanaz a név) duplikált
+    // entitásokat hoznának létre (Hansa Rostock, Magdeburg stb.).
+    let ctx = (row.entity_kind == "team").then(|| context_from_json(&row.context));
+    let mut existing_entity: Option<Uuid> = None;
+    if let Some(ctx) = &ctx {
+        let normalized = normalize_name(&row.proposed_name);
+        let entities = repo::team_entities_by_normalized_name(pool, &normalized)
+            .await
+            .map_err(db_err)?;
+        let hits: Vec<_> = entities
+            .iter()
+            .filter(|e| context_matches(ctx, &e.context()))
+            .collect();
+        if hits.len() == 1 {
+            existing_entity = Some(hits[0].entity_id);
+        }
+    }
+    let entity_id = existing_entity.unwrap_or_else(Uuid::now_v7);
 
-    if row.entity_kind == "team" {
-        let ctx = context_from_json(&row.context);
+    if existing_entity.is_none() {
+        sqlx::query("INSERT INTO core.entity (id, kind, canonical_name) VALUES ($1,$2,$3)")
+            .bind(entity_id)
+            .bind(&row.entity_kind)
+            .bind(&row.proposed_name)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| IdentityError::Db(e.to_string()))?;
+    }
+
+    if row.entity_kind == "team" && existing_entity.is_none() {
+        let ctx = ctx.as_ref().expect("team kontextus");
         let country_id: Option<Uuid> = match ctx.country_code.as_deref() {
             Some(country_code) => {
                 // Ismeretlen országkódnál az entitás-létrehozás pótolja a

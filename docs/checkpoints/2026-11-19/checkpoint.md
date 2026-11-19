@@ -383,7 +383,7 @@ ezeket teljesen tartalmazza, és lokálisan, hálózat nélkül olvasható.
   verseny id-ját, nevét és országát viszi; a manifest rögzíti.
 
 **Eredmény (mért).**
-- Összes meccs: **231 580 → 265 129** (+33 549).
+- Összes meccs: **231 580 → 265 129** (+33 549 az import után); a csapat-merge-ek utáni fixture-rekonciliáció **9 985 duplikátumot** vont össze, így a tiszta végállapot **255 127** (+23 547).
 - 2. Bundesliga 1993/94: 72 → 375; 1994/95: 110 → 374; 1995/96: 110 → 358;
   1996/97: 56 → 320; 1997/98: 132 → 382; 1998/99: 132 → 366.
 - NB I 1995/96–2005/06: 2 517 meccs; Eliteserien 1993–2005: 2 134;
@@ -396,6 +396,30 @@ ezeket teljesen tartalmazza, és lokálisan, hálózat nélkül olvasható.
 - `reverify 1993-01-01..2006-06-30`: **107 174 meccs, 0 hiba**;
   `withheld 0`, `integrity verdict: OK` (0 duplikátum, 0 árva provenance,
   0 függő review, 0 failed job, 0 breaker).
-- Coverage (top-300 szezon): **148 529 meccs**, 286/300 szezon ≥99%
+- Coverage (top-300 szezon): **140 491 meccs**, 285/300 szezon ≥99%
   eredmény; a maradék 14 a folyó 2026/27 és a COVID-csonkolt 2019/20.
 - Swift kliens: `swift test` **25/25 zöld**.
+
+### S29b — identitás- és fixture-rekonciliáció
+
+- **Gyökérok**: a linker csak `core.entity.canonical_name`-re illesztett, a
+  `core.team.name`-re nem; ráadásul az ékezetes/török nevek (Fenerbahçe vs
+  Fenerbahce, Beşiktaş vs Besiktas) és a párhuzamos review-sorok külön
+  entitást hoztak létre. Javítás: a névkeresés a csapatnév-re is illeszt, az
+  `approve_create` a pontosan egyező meglévő entitást használja, a merge
+  név-ellenőrzése `fold_name` (ékezet-független, török betűk is).
+- **173 duplikált csapatcsoport** (346 entitás) összevonva, köztük Ajax,
+  Feyenoord, Porto, Benfica, Galatasaray, Trabzonspor, Beşiktaş; a „Res.”/
+  „II”/U19 csapatok külön entitások maradtak. Új tesztek: GB-alrégió
+  ekvivalencia, török fold, azonos entitás újrahasznosítása, ékezet-merge.
+- A csapat-merge-ek **13 064 fixture-duplikátumot** hoztak felszínre; 13 047
+  biztonságos merge után **17 kockázatos pár** maradt (fordított hazai/vendég
+  vagy eltérő eredmény). Mind a 17-et harmadik forrással (DFB Datencenter,
+  Wikipedia, TFF, Transfermarkt, flashscore/RSSSF) ellenőriztük, a kanonikus
+  meccset auditáltan helyreállítottuk (csapat-sorrend + eredmény), majd a
+  dedupe biztonságosan összevonta — **0 duplikált csoport**.
+- A megmaradt anyagi konfliktusokat `resolve-conflict --field match` zárta
+  (5 meccs, dokumentált indoklással); a két hükmen meccs félidőeredménye
+  `NULL` (nem ismert, nem kitalált).
+- **Végállapot**: 255 127 meccs, 249 749 eredmény, withheld **0**,
+  `integrity verdict: OK`, 107 000+ újraellenőrzött meccs 0 hibával.

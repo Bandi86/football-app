@@ -1,6 +1,6 @@
 use football_domain::identity::{
     Candidate, FUZZY_THRESHOLD, IdentityContext, Resolution, ResolveMethod, context_matches,
-    normalize_name, token_overlap,
+    fold_name, normalize_name, token_overlap,
 };
 use uuid::Uuid;
 
@@ -105,4 +105,12 @@ fn gb_subdivision_country_codes_are_equivalent() {
         ..gb
     };
     assert!(!context_matches(&scot, &de));
+}
+
+#[test]
+fn fold_name_handles_turkish_diacritics() {
+    assert_eq!(fold_name("Beşiktaş"), "besiktas");
+    assert_eq!(fold_name("Gençlerbirliği"), "genclerbirligi");
+    assert_eq!(fold_name("İstanbulspor"), "istanbulspor");
+    assert_eq!(fold_name("Eskişehirspor"), "eskisehirspor");
 }

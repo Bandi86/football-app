@@ -558,7 +558,10 @@ async fn load_pair(
     if survivor.3.is_some() || duplicate.3.is_some() {
         bail!("valamelyik entitás már merge-ölt");
     }
-    if require_same_name && survivor.1.trim().to_lowercase() != duplicate.1.trim().to_lowercase() {
+    if require_same_name
+        && football_domain::identity::fold_name(&survivor.1)
+            != football_domain::identity::fold_name(&duplicate.1)
+    {
         bail!(
             "eltérő név ({} vs {}): a merge csak azonos nevű duplikátumra megy",
             survivor.1,

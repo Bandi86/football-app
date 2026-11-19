@@ -516,3 +516,44 @@ async fn approve_create_with_allows_missing_country() {
         .unwrap();
     assert_eq!(status, "approved");
 }
+
+#[tokio::test]
+async fn approve_create_reuses_an_identical_existing_team() {
+    // A v1-ben két team id is viselheti ugyanazt a nevet; a review-k
+    // jóváhagyása nem hozhat létre második azonos entitást.
+    let pool = test_pool().await;
+    let source_id = seed_source(&pool, "demo-synthetic").await;
+    let de = seed_country(&pool, "DE", "Germany").await;
+    let existing = seed_team(&pool, "Hansa Rostock", Some(de), "male", "senior", "senior").await;
+    let queue_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO identity.review_queue
+         (id, source_id, entity_kind, source_entity_id, candidate_entity_ids,
+          reason, proposed_name, context)
+         VALUES ($1,$2,'team','v1t-dup',$3,'no_exact_match','Hansa Rostock',$4)",
+    )
+    .bind(queue_id)
+    .bind(source_id)
+    .bind(serde_json::json!([]))
+    .bind(serde_json::json!({
+        "country_code": "DE",
+        "gender": "male",
+        "age_group": "senior",
+        "branch": "senior"
+    }))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let entity_id = review::approve_create(&pool, queue_id, "cli", Some("duplikátum"))
+        .await
+        .unwrap();
+    assert_eq!(entity_id, existing, "a meglévő entitást kell használni");
+    let teams: i64 = sqlx::query_scalar("SELECT count(*) FROM core.team WHERE name=$1")
+        .bind("Hansa Rostock")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(teams, 1, "nem jöhet létre második csapat");
+    assert_eq!(ref_count(&pool, source_id, "v1t-dup").await, 1);
+}

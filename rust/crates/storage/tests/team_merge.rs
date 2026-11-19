@@ -276,3 +276,54 @@ async fn merge_team_moves_children_and_archives_duplicate() {
     .unwrap_err();
     assert!(format!("{err:#}").contains("már merge-ölt"), "{err:#}");
 }
+
+#[tokio::test]
+async fn merge_accepts_accent_only_name_difference() {
+    // A v1 "Fenerbahce" / footballdata "Fenerbahçe" ugyanaz a klub; az
+    // ékezet-eltérés nem lehet akadálya a duplikátum-merge-nek.
+    let pool = test_pool().await;
+    let country = Uuid::now_v7();
+    sqlx::query("INSERT INTO core.country (id, code, name) VALUES ($1,'TR','Turkiye')")
+        .bind(country)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut entities = Vec::new();
+    for name in ["Fenerbahce", "Fenerbahçe"] {
+        let entity = Uuid::now_v7();
+        sqlx::query("INSERT INTO core.entity (id, kind, canonical_name) VALUES ($1,'team',$2)")
+            .bind(entity)
+            .bind(name)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO core.team (id, entity_id, country_id, name, gender, age_group, branch)
+             VALUES ($1,$2,$3,$4,'male','senior','senior')",
+        )
+        .bind(Uuid::now_v7())
+        .bind(entity)
+        .bind(country)
+        .bind(name)
+        .execute(&pool)
+        .await
+        .unwrap();
+        entities.push(entity);
+    }
+
+    merge_team(
+        &pool,
+        entities[0],
+        entities[1],
+        "ékezet-variáns duplikátum (S29)",
+    )
+    .await
+    .unwrap();
+    let merged: Option<Uuid> =
+        sqlx::query_scalar("SELECT merged_into_id FROM core.entity WHERE id=$1")
+            .bind(entities[1])
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(merged, Some(entities[0]));
+}
