@@ -195,8 +195,9 @@ A felhasználó a spec szerint jóváhagyta („igen dolgozhatsz tovabb”).
       `cargo test --workspace -- --test-threads=1` **0 failed** (11 új S26
       teszt is) → clippy `-D warnings` tiszta → fmt tiszta → binárisok
       `--features obscura` → teszt-DB reset. **MINDEN KAPU ZÖLD.**
-- [ ] Commit + push (a felhasználó „minden mehet” / „igen dolgozhatsz
-      tovabb” jóváhagyásával).
+- [x] Commit + push: **`091269e`** → origin/main (486aad4..091269e),
+      a felhasználó „minden mehet” / „igen dolgozhatsz tovabb”
+      jóváhagyásával. 9 fájl, +1212/−13 sor.
 
 ### Backlog (S26 után, külön szeletek)
 
