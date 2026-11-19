@@ -21,6 +21,10 @@ pub struct VerificationContext<'a> {
     pub source_trust: &'a [SourceTrust],
     pub odds_values: &'a [SourceOdds],
     pub odds_tolerance: f64,
+    /// Feloldott konfliktusok mezőkulcsai (`fact.conflict`, resolved_*).
+    /// A `match` kulcs a teljes anyagi összevetést feloldja (tételes review
+    /// döntése); egy konkrét mezőkulcs (pl. `kickoff_at`) csak azt a mezőt.
+    pub resolved_fields: &'a [String],
 }
 
 pub trait VerificationRule: Send + Sync {

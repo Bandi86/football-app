@@ -210,3 +210,90 @@ A felhasználó a spec szerint jóváhagyta („igen dolgozhatsz tovabb”).
    (forrás-prioritás: footballdata; a v1 sorok withhold/törlés döntése).
 3. **Gimnastic** kétértelmű variáns (U19 vs senior): emberi döntés.
 4. Top-up pass (S23 checklist 0) szükségességének újramérése.
+
+## S27 — A nyitott pontok lezárása (2026-11-19, folytatás)
+
+A felhasználó kérése: „foglalkozz az 5 nem kész dologgal először részletesen,
+aztán pedig a javasoltakkal sorrendben egymás után".
+
+### 1. tétel — 37 withheld konfliktus
+
+- [x] **Mechanizmus**: `MaterialConflictRule` minden BLOCKER-hez `fact.conflict`
+      sort ír (`field_key='match'`), amit a következő reverify újra megnyit.
+      Új út: `VerificationContext.resolved_fields` + `load_resolved_fields` —
+      a feloldott konfliktusok (resolved_auto/manual) maszkolják a mezőt;
+      `footballctl conflicts --status ...` / `resolve-conflict --match-id
+      --field --winner --reason` (a győztes megfigyelésnek a provenance-ban
+      kell lennie; indoklás kötelező; `ops.audit_event` minden döntésről).
+- [x] **22 tiszta kickoff-eltérés** feloldva (footballdata győztes; v1 időzóna-
+      eltolás; eredmény mindenhol azonos) — mindegyik audítálva.
+- [x] **1 valódi eredménykonfliktus**: Bastia–Le Mans 2026-05-09, a v1
+      `awarded` pont nélkül, a footballdata `finished 0-2`. Web-igazolás:
+      ESPN gameId 747760, FotMob 28tig0, LeagueDay 2026 (LFP 2026-05-13:
+      a félbeszakadt meccs 0-2-es állása megmaradt). Kanonikus eredmény
+      0-2 (ht 0-1), `ops.audit_event` + `match_result_revision`.
+- [x] **14 valódi eredményhiány withheld maradt** (7 `awarded` v1-sor pont
+      nélkül + 7 `finished` forrás nélküli eredménnyel) — ezek nem
+      konfliktusok, hanem adathiányok; fail-closed, nem kell őket erőltetni.
+- [x] Újraellenőrzés: 37 → **14 withheld**, reverify 0 hiba.
+
+### 2. tétel — 33 kockázatos fixture-pár
+
+- [x] **31 Eliteserien pár**: a v1 DB minden esetben tartalmazza a
+      footballdata eredményével egyező sort (31/31), és 3 mintát webes
+      forrás is igazol (Molde–Lillestrøm 3-3 / BBC+Wikipedia,
+      Tromsø–Viking 0-2 / ESPN, Viking–Lillestrøm 0-3 / BBC).
+      Új CLI opció: `dedupe fixtures --review-note "<indoklás>"` — csak
+      dokumentált review-val engedi az eltérő eredményű párok merge-ét,
+      az indoklás az `ops.dedupe_archive`-ba kerül. **31 merge**, 0 hiba.
+- [x] **2 dátumon-átnyúló pár**: a régi straddling-lekérdezés hiányos
+      csapat-pár join miatt 2 hamis párt mutatott; javítva (m1+m2 párra is
+      szűr). Az egyetlen valós pár: UCSA–Zhytomyr 2 16.11 → 17.11
+      elhalasztás (Soccerway/Flashscore igazolt); **1 review-merge**.
+- [x] Maradék kockázatos pár: **0**; `dedupe fixtures` dry-run 0 csoport.
+
+### 3. tétel — „verseny-entitás fragmentáció"
+
+- [x] **A feltételezés nem igazolódott**: az Eliteserien egyetlen entitás;
+      a „League One" és „Scottish League One" entitásoknak **0** átfedő
+      fixture-párja van (valóban külön angol/scotch versenyek). A duplikátumok
+      oka a v1 import **„II" suffixes csapat-variánsa** volt:
+      Vålerenga II/Tromsø II/Lillestrøm II/Stabæk II (1189 meccs),
+      amelyek ugyanazokat a senior fixture-öket írták le (azonos nap,
+      ellenfél, eredmény; webes minta: 2021-12-05 Molde 3-3 Lillestrøm).
+      A 4 entitás `--via-alias` merge-e után `dedupe fixtures --apply`:
+      **1089 fixture-merge**; Eliteserien 2015 350 → **242**, 2021 349 →
+      241, 2022 326 → 242. Verseny-crosswalkra nincs szükség.
+
+### 4. tétel — Gimnastic kétértelműség
+
+- [x] A v2 „Gimnastic" variáns 2001-es meccsei (Santander, Burgos, Eibar,
+      Leganés) dátumra és ellenfélre pontosan egyeznek a v1 **Gimnàstic
+      Tarragona** sorokkal; a Manresa U19-nek 0 2001-es meccse van.
+      Merge `--via-alias` bizonyítékkal: 332 meccs, 0 új duplikátum.
+
+### 5. tétel — daemon frissítés
+
+- [ ] A bináris újraépülve (`--features obscura`), az agent telepítése
+      jóváhagyás-kötött lépés — lásd lent.
+
+### Javasoltak, sorrendben
+
+- [x] **1. Verseny-crosswalk** → a 3. tétel vizsgálata szerint nem kell
+      (0 átfedő pár); a valódi okot (II variánsok) a 3. tétel kezelte.
+- [x] **2. Konfliktus-döntések** → az 1. tétel.
+- [x] **3. Top-up pass**: a 726 backfill job mind `done`, 0 failed; korai
+      szezonok lefedettsége teljes (PL 1993/94 és 1994/95 462/462 match =
+      22 csapat × 42 forduló; 1995/96-tól 380/380). Újra nem kell requeue.
+      Coverage újramérés: 300 liga-szezon, 139 758 meccs; PL 2015/16
+      380/100%/100%; lezárt szezonok közül csak a 6 pandemic-szezon
+      <99% eredmény (valós hiány).
+
+### Állapot a lezáráskor
+
+- Meccs-szám: 242 493 → **231 580**. Árva provenance: **0**.
+- Reverify (1993–2027): 231 580 meccs, **0 hiba**, 14 withheld
+  (valódi eredményhiány), 31 683 verified + 199 883 provisional.
+- Kapu-lánc: teszt-DB reset → foundation → workspace test → clippy → fmt →
+  bináris build → reset: **MINDEN KAPU ZÖLD**.
+- Commit/push: csak a fenti lépések után (lásd a commit-hash sort).

@@ -35,7 +35,7 @@ use football_ingest::observe::insert_observation;
 use football_storage::object_store::ObjectStore;
 use football_storage::repositories::trust;
 use football_storage::repositories::worker::{self as repo, LedgerEntry, RawCapture};
-use football_verification::conflict::load_material_values;
+use football_verification::conflict::{load_material_values, load_resolved_fields};
 use football_verification::engine::{VerificationContext, VerificationEngine};
 use football_verification::gate::{evaluate_and_persist_gate, local_publish_date};
 use football_verification::odds::evaluate_odds_trust;
@@ -616,6 +616,7 @@ pub async fn verify_and_publish(
         )
         .await?;
         let odds_values = trust::load_match_odds(pool, materialized.match_id).await?;
+        let resolved_fields = load_resolved_fields(pool, materialized.match_id).await?;
         let context = VerificationContext {
             snapshot: &materialized.snapshot,
             home_identity_exact,
@@ -625,6 +626,7 @@ pub async fn verify_and_publish(
             source_trust: &source_trust,
             odds_values: &odds_values,
             odds_tolerance: ODDS_TOLERANCE_DEFAULT,
+            resolved_fields: &resolved_fields,
         };
         let report = VerificationEngine::run(&rules, &context);
         persist_report(pool, materialized.match_id, &report, RULE_SET_VERSION).await?;
@@ -764,6 +766,7 @@ pub async fn reverify_match(pool: &PgPool, match_id: Uuid) -> Result<()> {
         .collect();
     let source_trust = trust::trust_for_sources(pool, &codes).await?;
     let odds_values = trust::load_match_odds(pool, match_id).await?;
+    let resolved_fields = load_resolved_fields(pool, match_id).await?;
     let duplicate_match_count =
         repo::count_duplicate_matches(pool, match_id, home, away, kickoff_at).await?;
     let context = VerificationContext {
@@ -775,6 +778,7 @@ pub async fn reverify_match(pool: &PgPool, match_id: Uuid) -> Result<()> {
         source_trust: &source_trust,
         odds_values: &odds_values,
         odds_tolerance: ODDS_TOLERANCE_DEFAULT,
+        resolved_fields: &resolved_fields,
     };
     let report = VerificationEngine::run(&default_rules(), &context);
     persist_report(pool, match_id, &report, RULE_SET_VERSION).await?;

@@ -23,6 +23,7 @@ use football_storage::repositories::identity as identity_repo;
 use football_storage::repositories::identity_merge;
 use football_storage::repositories::trust;
 use football_storage::repositories::worker as worker_repo;
+use football_verification::conflict::load_resolved_fields;
 use football_verification::engine::{VerificationContext, VerificationEngine};
 use football_verification::gate::evaluate_and_persist_gate;
 use football_verification::odds::evaluate_odds_trust;
@@ -77,6 +78,11 @@ enum DedupeAction {
         /// Merge-ek felső korlátja (kötegelt futtatáshoz).
         #[arg(long)]
         limit: Option<usize>,
+        /// Felülvizsgált kockázatos párok merge-e: a megadott indoklás
+        /// az archívumba kerül. Csak akkor használd, ha a források
+        /// közül a túlélő eredményét külső bizonyítékkal ellenőrizted.
+        #[arg(long)]
+        review_note: Option<String>,
     },
 }
 
@@ -142,6 +148,25 @@ enum Command {
         to: NaiveDate,
         #[arg(long)]
         limit: Option<i64>,
+    },
+    /// Konfliktusok listája (alap: feloldatlan).
+    Conflicts {
+        #[arg(long, default_value = "unresolved")]
+        status: String,
+        #[arg(long, default_value_t = 50)]
+        limit: i64,
+    },
+    /// Konfliktus tételes feloldása: a győztes megfigyelés a meccs
+    /// provenance-láncából származzon; minden döntés auditált.
+    ResolveConflict {
+        #[arg(long)]
+        match_id: Uuid,
+        #[arg(long, default_value = "match")]
+        field: String,
+        #[arg(long)]
+        winner: Uuid,
+        #[arg(long)]
+        reason: String,
     },
     /// Történelmi backfill jobok tervezése (S23).
     Backfill {
@@ -346,6 +371,7 @@ async fn main() -> Result<()> {
                 let home_identity_exact = materialized.identity_exact;
                 let away_identity_exact = materialized.identity_exact;
                 let odds_values = trust::load_match_odds(&pool, materialized.match_id).await?;
+                let resolved_fields = load_resolved_fields(&pool, materialized.match_id).await?;
                 let context = VerificationContext {
                     snapshot: &materialized.snapshot,
                     home_identity_exact,
@@ -355,6 +381,7 @@ async fn main() -> Result<()> {
                     source_trust: &source_trust,
                     odds_values: &odds_values,
                     odds_tolerance: ODDS_TOLERANCE_DEFAULT,
+                    resolved_fields: &resolved_fields,
                 };
                 let report = VerificationEngine::run(&rules, &context);
                 let run_id =
@@ -533,6 +560,7 @@ async fn main() -> Result<()> {
                 competition,
                 apply,
                 limit,
+                review_note,
             } => {
                 let groups = football_storage::repositories::dedupe::duplicate_fixture_groups(
                     &pool,
@@ -567,7 +595,7 @@ async fn main() -> Result<()> {
                         let results_ok = !m.has_result
                             || !survivor.has_result
                             || (m.home_ft == survivor.home_ft && m.away_ft == survivor.away_ft);
-                        if mirrored || !results_ok {
+                        if mirrored || (!results_ok && review_note.is_none()) {
                             risky += 1;
                             println!(
                                 "KOCKÁZAT [{}] {} — {} vs {} | {}: kickoff {} / {} | eredmény {:?}-{:?} / {:?}-{:?} | forrás {} / {} | ok: {}",
@@ -601,27 +629,48 @@ async fn main() -> Result<()> {
                                 }
                             }
                             let outcome: Result<()> = async {
-                                let same =
+                                let same = if review_note.is_some() {
+                                    football_storage::repositories::dedupe::same_fixture_identity(
+                                        &pool,
+                                        survivor.match_id,
+                                        m.match_id,
+                                    )
+                                    .await?
+                                } else {
                                     football_storage::repositories::dedupe::is_same_fixture(
                                         &pool,
                                         survivor.match_id,
                                         m.match_id,
                                     )
-                                    .await?;
+                                    .await?
+                                };
                                 anyhow::ensure!(
                                     same,
                                     "a pár nem ugyanaz a fixture: {} / {}",
                                     survivor.match_id,
                                     m.match_id
                                 );
+                                let note = match review_note.as_ref() {
+                                    Some(review) => format!(
+                                        "S26 felülvizsgált fixture-rekonciliáció: {} | kickoff {} → {} | eltérő eredmény a forrásokban: {:?}-{:?} vs {:?}-{:?} | a túlélő eredményét külső forrás igazolta",
+                                        review,
+                                        m.kickoff_at,
+                                        survivor.kickoff_at,
+                                        survivor.home_ft,
+                                        survivor.away_ft,
+                                        m.home_ft,
+                                        m.away_ft
+                                    ),
+                                    None => format!(
+                                        "S26 fixture-rekonciliáció: kickoff {} → {} (forrás-prioritás), eredmény egyezik",
+                                        m.kickoff_at, survivor.kickoff_at
+                                    ),
+                                };
                                 football_storage::repositories::dedupe::merge_duplicate(
                                     &pool,
                                     survivor.match_id,
                                     m.match_id,
-                                    &format!(
-                                        "S26 fixture-rekonciliáció: kickoff {} → {} (forrás-prioritás), eredmény egyezik",
-                                        m.kickoff_at, survivor.kickoff_at
-                                    ),
+                                    &note,
                                 )
                                 .await?;
                                 Ok(())
@@ -639,8 +688,9 @@ async fn main() -> Result<()> {
                 }
                 // Dátumon átnyúló párok (kickoff <24h, de más UTC-nap) — a
                 // nap-kulcsú csoportosítás ezeket nem látja; külön lista.
-                let straddling: Vec<(String, String, String, String, String)> = sqlx::query_as(
-                    "WITH g AS (
+                let straddling: Vec<(String, String, String, String, String, Uuid, Uuid)> =
+                    sqlx::query_as(
+                        "WITH g AS (
                         SELECT competition_id, season_id,
                                LEAST(home_team_id, away_team_id) h,
                                GREATEST(home_team_id, away_team_id) a,
@@ -651,19 +701,50 @@ async fn main() -> Result<()> {
                            AND min(kickoff_at)::date <> max(kickoff_at)::date
                            AND max(kickoff_at) - min(kickoff_at) < interval '24 hours'
                     )
-                    SELECT c.name, th.name, ta.name, g.k1::text, g.k2::text
+                    SELECT c.name, th.name, ta.name, g.k1::text, g.k2::text,
+                           m1.id, m2.id
                       FROM g
                       JOIN core.competition c ON c.id = g.competition_id
-                      JOIN core.match m ON m.competition_id = g.competition_id
-                       AND m.season_id = g.season_id AND m.kickoff_at = g.k1
-                      JOIN core.team th ON th.id = m.home_team_id
-                      JOIN core.team ta ON ta.id = m.away_team_id",
-                )
-                .fetch_all(&pool)
-                .await?;
-                for (comp, home, away, k1, k2) in &straddling {
+                      JOIN core.match m1 ON m1.competition_id = g.competition_id
+                       AND m1.season_id = g.season_id AND m1.kickoff_at = g.k1
+                       AND LEAST(m1.home_team_id,m1.away_team_id)=g.h
+                       AND GREATEST(m1.home_team_id,m1.away_team_id)=g.a
+                      JOIN core.match m2 ON m2.competition_id = g.competition_id
+                       AND m2.season_id = g.season_id AND m2.kickoff_at = g.k2
+                       AND LEAST(m2.home_team_id,m2.away_team_id)=g.h
+                       AND GREATEST(m2.home_team_id,m2.away_team_id)=g.a
+                      JOIN core.team th ON th.id = m1.home_team_id
+                      JOIN core.team ta ON ta.id = m1.away_team_id",
+                    )
+                    .fetch_all(&pool)
+                    .await?;
+                for (comp, home, away, k1, k2, id1, id2) in &straddling {
                     risky += 1;
                     println!("KOCKÁZAT [dátumon átnyúló] {comp}: {home} vs {away} | {k1} / {k2}");
+                    if let Some(review) = review_note.as_ref() {
+                        if apply {
+                            // A későbbi kickoff a halasztott/átütemezett fixture.
+                            let same = football_storage::repositories::dedupe::same_fixture_identity_any_day(
+                                &pool, *id2, *id1,
+                            )
+                            .await?;
+                            if !same {
+                                println!("  kihagyva: nem azonos fixture ({id1} / {id2})");
+                                continue;
+                            }
+                            football_storage::repositories::dedupe::merge_duplicate(
+                                &pool,
+                                *id2,
+                                *id1,
+                                &format!(
+                                    "S26 felülvizsgált dátumon-átnyúló fixture: {review} | korábbi {k1} → halasztott {k2}"
+                                ),
+                            )
+                            .await?;
+                            merges += 1;
+                            risky -= 1;
+                        }
+                    }
                 }
                 println!(
                     "fixture-csoportok: {}, biztonságos pár: {}, kockázatos: {}, merge-ek: {}{}",
@@ -932,6 +1013,38 @@ async fn main() -> Result<()> {
             } else {
                 println!("(nincs adat a szűrésre)");
             }
+        }
+        Command::Conflicts { status, limit } => {
+            let rows: Vec<(Uuid, String, String, String)> = sqlx::query_as(
+                "SELECT c.subject_id, c.field_key, c.status,
+                        concat_ws(' — ', ht.name, at.name)
+                 FROM fact.conflict c
+                 JOIN core.match m ON m.id=c.subject_id
+                 JOIN core.team ht ON ht.id=m.home_team_id
+                 JOIN core.team at ON at.id=m.away_team_id
+                 WHERE c.subject_kind='match' AND c.status=$1
+                 ORDER BY c.opened_at DESC LIMIT $2",
+            )
+            .bind(&status)
+            .bind(limit)
+            .fetch_all(&pool)
+            .await?;
+            println!("meccskonfliktusok ({status}): {}", rows.len());
+            for (id, field, state, pair) in rows {
+                println!("  {id} | {field} | {state} | {pair}");
+            }
+        }
+        Command::ResolveConflict {
+            match_id,
+            field,
+            winner,
+            reason,
+        } => {
+            let id = football_verification::conflict::resolve_conflict(
+                &pool, match_id, &field, winner, &reason,
+            )
+            .await?;
+            println!("feloldva: {id} | meccs {match_id} | mező {field} | győztes {winner}");
         }
         Command::Backfill { action } => match action {
             BackfillAction::V1Import {

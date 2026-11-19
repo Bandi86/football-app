@@ -53,6 +53,7 @@ async fn conflicting_sources_produce_blocker_and_withheld_gate() {
         source_trust: &[],
         odds_values: &[],
         odds_tolerance: 0.0,
+        resolved_fields: &[],
     };
     let report = VerificationEngine::run(&default_rules(), &context);
 
@@ -72,4 +73,90 @@ async fn conflicting_sources_produce_blocker_and_withheld_gate() {
     .await
     .unwrap();
     assert_eq!(state, football_domain::PublishState::Withheld);
+}
+
+#[tokio::test]
+async fn resolved_material_conflict_no_longer_blocks_the_rule() {
+    let pool = test_pool().await;
+    let temp = tempfile::tempdir().unwrap();
+    let store = ObjectStore::new(temp.path()).unwrap();
+    let fixture_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../tests/fixtures/fixture_a_day.json");
+    let conflict_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../tests/fixtures/fixture_c_conflict.json");
+    FixtureAdapter::ingest(&pool, &store, &fixture_path)
+        .await
+        .unwrap();
+    FixtureAdapter::ingest(&pool, &store, &conflict_path)
+        .await
+        .unwrap();
+    let fixture_a: FixtureSource =
+        serde_json::from_slice(&std::fs::read(&fixture_path).unwrap()).unwrap();
+    let day_a = Canonicalizer::materialize(
+        &pool,
+        &football_ingest::normalized::NormalizedDay::from(&fixture_a),
+    )
+    .await
+    .unwrap();
+    let match_id = day_a.matches[0].match_id;
+    let winner: uuid::Uuid = sqlx::query_scalar(
+        "SELECT observation_id FROM fact.provenance
+          WHERE subject_kind='match' AND subject_id=$1 LIMIT 1",
+    )
+    .bind(match_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    // Üres indoklás és idegen megfigyelés: fail-closed.
+    assert!(
+        football_verification::conflict::resolve_conflict(&pool, match_id, "match", winner, "  ",)
+            .await
+            .is_err()
+    );
+    assert!(
+        football_verification::conflict::resolve_conflict(
+            &pool,
+            match_id,
+            "match",
+            uuid::Uuid::now_v7(),
+            "idegen megfigyelés",
+        )
+        .await
+        .is_err()
+    );
+
+    football_verification::conflict::resolve_conflict(
+        &pool,
+        match_id,
+        "match",
+        winner,
+        "S26: forrásprioritás alapján a megfigyelés nyert (teszt)",
+    )
+    .await
+    .unwrap();
+    let fields = football_verification::conflict::load_resolved_fields(&pool, match_id)
+        .await
+        .unwrap();
+    assert!(fields.iter().any(|f| f == "match"));
+
+    let values = load_material_values(&pool, match_id).await.unwrap();
+    let context = VerificationContext {
+        snapshot: &day_a.matches[0].snapshot,
+        home_identity_exact: true,
+        away_identity_exact: true,
+        duplicate_match_count: 0,
+        source_values: &values,
+        source_trust: &[],
+        odds_values: &[],
+        odds_tolerance: 0.0,
+        resolved_fields: &fields,
+    };
+    let report = VerificationEngine::run(&default_rules(), &context);
+    assert!(
+        !report
+            .findings
+            .iter()
+            .any(|f| f.rule_key == "MATERIAL_SOURCE_CONFLICT")
+    );
 }

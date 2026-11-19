@@ -475,3 +475,52 @@ pub async fn is_same_fixture(pool: &PgPool, survivor: Uuid, duplicate: Uuid) -> 
     .await?;
     Ok(same)
 }
+
+/// Felülvizsgált kockázatos párok azonossága: verseny+szezon+csapat-pár+UTC-nap,
+/// eredmény-őr nélkül. Csak akkor használandó, ha a túlélő eredményét külső
+/// bizonyíték igazolta (a hívó `--review-note` indoklást ír az archívumba).
+pub async fn same_fixture_identity(pool: &PgPool, survivor: Uuid, duplicate: Uuid) -> Result<bool> {
+    let same: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1 FROM core.match s JOIN core.match d ON d.id=$2
+             WHERE s.id=$1
+               AND s.competition_id=d.competition_id
+               AND s.season_id=d.season_id
+               AND s.kickoff_at::date=d.kickoff_at::date
+               AND s.home_team_id=d.home_team_id
+               AND s.away_team_id=d.away_team_id
+        )",
+    )
+    .bind(survivor)
+    .bind(duplicate)
+    .fetch_one(pool)
+    .await?;
+    Ok(same)
+}
+
+/// Dátumon átnyúló, felülvizsgált fixture-pár azonossága: verseny+szezon+
+/// csapat-pár, UTC-nap nélkül. Kizárólag akkor használandó, ha a két időpont
+/// 24 órán belül van és a review bizonyítja a halasztást (a CLI a jegyzetet
+/// az archívumba írja).
+pub async fn same_fixture_identity_any_day(
+    pool: &PgPool,
+    survivor: Uuid,
+    duplicate: Uuid,
+) -> Result<bool> {
+    let same: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1 FROM core.match s JOIN core.match d ON d.id=$2
+             WHERE s.id=$1
+               AND s.competition_id=d.competition_id
+               AND s.season_id=d.season_id
+               AND s.home_team_id=d.home_team_id
+               AND s.away_team_id=d.away_team_id
+               AND abs(extract(epoch FROM (s.kickoff_at - d.kickoff_at))) < 86400
+        )",
+    )
+    .bind(survivor)
+    .bind(duplicate)
+    .fetch_one(pool)
+    .await?;
+    Ok(same)
+}

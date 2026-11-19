@@ -64,6 +64,7 @@ fn ctx<'a>(
         source_trust,
         odds_values: &[],
         odds_tolerance: 0.0,
+        resolved_fields: &[],
     }
 }
 

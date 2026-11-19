@@ -91,14 +91,18 @@ impl VerificationRule for MaterialConflictRule {
         if c.source_values.len() < 2 {
             return vec![];
         }
+        // Feloldott konfliktus: a `match` kulcsú döntés a teljes anyagi
+        // összevetést feloldja; mezőszintű döntés csak az adott mezőt maszkolja.
+        let resolved =
+            |field: &str| -> bool { c.resolved_fields.iter().any(|f| f == "match" || f == field) };
         let first = &c.source_values[0];
         let conflicting = c.source_values.iter().skip(1).any(|other| {
-            other.home_team_id != first.home_team_id
-                || other.away_team_id != first.away_team_id
-                || other.kickoff_at != first.kickoff_at
-                || other.status != first.status
-                || other.home_ft != first.home_ft
-                || other.away_ft != first.away_ft
+            (other.home_team_id != first.home_team_id && !resolved("home_team_id"))
+                || (other.away_team_id != first.away_team_id && !resolved("away_team_id"))
+                || (other.kickoff_at != first.kickoff_at && !resolved("kickoff_at"))
+                || (other.status != first.status && !resolved("status"))
+                || (other.home_ft != first.home_ft && !resolved("home_ft"))
+                || (other.away_ft != first.away_ft && !resolved("away_ft"))
         });
         if conflicting {
             vec![Finding::blocker(

@@ -5,7 +5,7 @@
 use chrono::{TimeZone, Utc};
 use football_storage::object_store::StoredArtifact;
 use football_storage::repositories::dedupe::{
-    duplicate_fixture_groups, is_same_fixture, merge_duplicate,
+    duplicate_fixture_groups, is_same_fixture, merge_duplicate, same_fixture_identity,
 };
 use football_storage::repositories::worker::{RawCapture, persist_raw};
 use football_storage::test_support::test_pool;
@@ -325,4 +325,18 @@ async fn date_and_competition_filters_apply() {
     .await
     .unwrap();
     assert!(miss_date.is_empty());
+}
+
+#[tokio::test]
+async fn reviewed_identity_match_ignores_result_disagreement() {
+    let pool = test_pool().await;
+    let a = Utc.with_ymd_and_hms(2015, 10, 4, 12, 0, 0).unwrap();
+    let b = Utc.with_ymd_and_hms(2015, 10, 4, 15, 0, 0).unwrap();
+    let (_c, _s, _h, _a, id_a, id_b) =
+        seed_fixture_pair(&pool, a, b, Some((1, 1)), Some((4, 0)), false).await;
+    // A normál őr elutasítja az eltérő eredményű párt...
+    assert!(!is_same_fixture(&pool, id_a, id_b).await.unwrap());
+    // ...a felülvizsgált azonosság-őr viszont elfogadja (a CLI --review-note
+    // útja, ahol a túlélő eredményét külső bizonyíték igazolta).
+    assert!(same_fixture_identity(&pool, id_a, id_b).await.unwrap());
 }

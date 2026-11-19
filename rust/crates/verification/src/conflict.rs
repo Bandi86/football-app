@@ -117,3 +117,84 @@ fn required_str<'a>(payload: &'a serde_json::Value, field: &str) -> Result<&'a s
         .and_then(serde_json::Value::as_str)
         .with_context(|| format!("hiányzó mező: {field}"))
 }
+
+/// A meccs feloldott konfliktusainak mezőkulcsai (a szabálymotor maszkolához).
+pub async fn load_resolved_fields(pool: &PgPool, match_id: Uuid) -> Result<Vec<String>> {
+    let fields: Vec<String> = sqlx::query_scalar(
+        "SELECT field_key FROM fact.conflict
+          WHERE subject_kind='match' AND subject_id=$1
+            AND status IN ('resolved_auto','resolved_manual')",
+    )
+    .bind(match_id)
+    .fetch_all(pool)
+    .await
+    .context("feloldott konfliktusok lekérése")?;
+    Ok(fields)
+}
+
+/// Konfliktus tételes feloldása (review-döntés): a győztes megfigyelésnek a
+/// meccs provenance-láncában kell lennie. A döntés auditált; a következő
+/// reverify a maszkolás miatt már nem blokkol a feloldott mezőn.
+pub async fn resolve_conflict(
+    pool: &PgPool,
+    match_id: Uuid,
+    field_key: &str,
+    winner_observation_id: Uuid,
+    reason: &str,
+) -> Result<Uuid> {
+    if reason.trim().is_empty() {
+        anyhow::bail!("a konfliktus feloldásához kötelező indoklás");
+    }
+    let mut tx = pool.begin().await?;
+    let linked: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1 FROM fact.provenance p
+             WHERE p.subject_kind='match' AND p.subject_id=$1
+               AND p.observation_id=$2
+        )",
+    )
+    .bind(match_id)
+    .bind(winner_observation_id)
+    .fetch_one(&mut *tx)
+    .await
+    .context("győztes megfigyelés ellenőrzése")?;
+    if !linked {
+        anyhow::bail!("a győztes megfigyelés nem tartozik a meccs provenance-láncához");
+    }
+    let conflict_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO fact.conflict
+           (id, subject_kind, subject_id, field_key, severity, status,
+            winner_observation_id, opened_at, resolved_at, resolution_reason)
+         VALUES ($1,'match',$2,$3,'material','resolved_manual',$4,now(),now(),$5)
+         ON CONFLICT (subject_kind, subject_id, field_key) DO UPDATE SET
+           status='resolved_manual',
+           winner_observation_id=EXCLUDED.winner_observation_id,
+           resolved_at=now(),
+           resolution_reason=EXCLUDED.resolution_reason",
+    )
+    .bind(conflict_id)
+    .bind(match_id)
+    .bind(field_key)
+    .bind(winner_observation_id)
+    .bind(reason)
+    .execute(&mut *tx)
+    .await
+    .context("konfliktus feloldása")?;
+    let audit_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO ops.audit_event (id, actor, action, subject_kind, subject_id, detail)
+         VALUES ($1,'cli','conflict_resolve','match',$2,$3)",
+    )
+    .bind(audit_id)
+    .bind(match_id)
+    .bind(serde_json::json!({
+        "field_key": field_key,
+        "winner_observation_id": winner_observation_id,
+        "reason": reason,
+    }))
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(conflict_id)
+}

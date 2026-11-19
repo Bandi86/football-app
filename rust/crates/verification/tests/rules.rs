@@ -36,6 +36,7 @@ fn valid_match_has_no_blockers() {
         source_trust: &[],
         odds_values: &[],
         odds_tolerance: 0.0,
+        resolved_fields: &[],
     };
     let report = VerificationEngine::run(&default_rules(), &context);
     assert!(report.findings.is_empty());
@@ -53,6 +54,7 @@ fn unresolved_team_identity_is_blocker() {
         source_trust: &[],
         odds_values: &[],
         odds_tolerance: 0.0,
+        resolved_fields: &[],
     };
     let report = VerificationEngine::run(&default_rules(), &context);
     assert!(
@@ -82,6 +84,7 @@ fn duplicate_natural_key_is_blocker() {
         source_trust: &[],
         odds_values: &[],
         odds_tolerance: 0.0,
+        resolved_fields: &[],
     };
     let report = VerificationEngine::run(&default_rules(), &context);
     assert!(
