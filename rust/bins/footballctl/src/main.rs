@@ -125,6 +125,16 @@ enum Command {
         #[arg(long)]
         to: Option<i32>,
     },
+    /// Napi integritás-riport (read-only): duplikátumok, árva hivatkozások,
+    /// review/gate/job/breaker állomány. Kemény hiba esetén exit 1.
+    Integrity {
+        #[arg(long)]
+        from: Option<NaiveDate>,
+        #[arg(long)]
+        to: Option<NaiveDate>,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
     /// Saját Elo-számítás a lezárt meccsekből (fact.club_elo, own-elo).
     Elo {
         /// A pillanatkép dátuma (alap: ma).
@@ -760,6 +770,32 @@ async fn main() -> Result<()> {
                 );
             }
         },
+        Command::Integrity { from, to, json } => {
+            let r = football_storage::repositories::integrity::report(&pool, from, to).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&r)?);
+            } else {
+                println!("duplikált kickoff-csoport: {}", r.duplicate_kickoff_groups);
+                println!("duplikált fixture-csoport: {}", r.duplicate_fixture_groups);
+                println!("árva provenance: {}", r.orphan_provenance);
+                println!("aktív ref összevont entitásra: {}", r.active_refs_to_merged);
+                println!("függő review: {}", r.pending_reviews);
+                println!("withheld gate: {}", r.withheld_gates);
+                println!("failed job: {}", r.failed_jobs);
+                println!("nyitott breaker: {}", r.open_breakers);
+                println!(
+                    "verdict: {}",
+                    if r.has_hard_failures() {
+                        "FAIL (kemény integritási hiba)"
+                    } else {
+                        "OK"
+                    }
+                );
+            }
+            if r.has_hard_failures() {
+                anyhow::bail!("integritási riport: kemény hiba");
+            }
+        }
         Command::Elo { as_of } => {
             let as_of = as_of.unwrap_or_else(|| Utc::now().date_naive());
             let results: Vec<(Uuid, Uuid, i16, i16)> = sqlx::query_as(
