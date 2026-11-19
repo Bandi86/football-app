@@ -76,3 +76,33 @@ fn fuzzy_threshold_is_candidate_only() {
     assert!(matches!(r, Resolution::Candidates { .. }));
     assert_eq!(ResolveMethod::ManualReview.as_db_str(), "manual_review");
 }
+
+#[test]
+fn gb_subdivision_country_codes_are_equivalent() {
+    // A v1 import skót/walesi alrégió-kódot ad (GB-SCT/GB-WLS), a
+    // footballdata GB-t — azonos csapatnév mellett ez nem lehet két entitás.
+    let scot = IdentityContext {
+        country_code: Some("GB-SCT".into()),
+        gender: Some("male".into()),
+        age_group: Some("senior".into()),
+        branch: Some("senior".into()),
+    };
+    let gb = IdentityContext {
+        country_code: Some("GB".into()),
+        gender: Some("male".into()),
+        age_group: Some("senior".into()),
+        branch: Some("senior".into()),
+    };
+    assert!(context_matches(&scot, &gb));
+    let wls = IdentityContext {
+        country_code: Some("GB-WLS".into()),
+        ..gb.clone()
+    };
+    assert!(context_matches(&wls, &gb));
+    // Más ország továbbra sem egyezik.
+    let de = IdentityContext {
+        country_code: Some("DE".into()),
+        ..gb
+    };
+    assert!(!context_matches(&scot, &de));
+}

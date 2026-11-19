@@ -348,3 +348,16 @@ eredményhiányt forráskutatással és audítált revízióval zártam le.
 - demo-synthetic napi failed job + nyitott breaker (zaj, tisztítás).
 - fotmob failed jobok (robots tiltás) — várt állapot, jelölés.
 - további S24 kliens-szeletek, S25 monitoring.
+
+## S28b — Üzemzaj tisztítása + v1 gap-fill indítás
+
+- [x] **demo-synthetic** kikapcsolva (`ops.source_policy.enabled=false`),
+      a 6 napi failed job `cancelled`, a breaker sor törölve — a worker tick
+      `blocked=1` jelzése megszűnt (`blocked=0`), auditálva.
+- [x] **fotmob** (robots) és a régi buildes **soccerway** failed jobok,
+      valamint a halott `/tegnap/` route egyetlen pending jobja `cancelled`
+      — failed job 0, a napi integritás-riport tiszta.
+- [x] **v1 gap-fill**: a korai szezonokban a footballdata CSV-k hiányosak
+      (pl. 2. Bundesliga 1996/97: v2 56 vs v1 306 meccs). A v1-import
+      backfill (lokális, read-only v1) pótolja: elsőként a 2. Bundesliga
+      1996–1997 (612 meccs, 25 csapat) importja fut.

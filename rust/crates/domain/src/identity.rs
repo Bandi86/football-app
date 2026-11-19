@@ -62,8 +62,27 @@ fn field_matches(a: &Option<String>, b: &Option<String>) -> bool {
     }
 }
 
+/// Brit tagország-kódok (GB-WLS/GB-SCT/GB-ENG/GB-NIR) a GB-vel egyenértékűek
+/// az identitás-kontextusban: a v1 import alrégió-kódot ad, a footballdata
+/// GB-t — azonos csapatnév mellett ez nem jelenthet külön entitást.
+pub fn normalize_country_code(code: &str) -> String {
+    let upper = code.to_ascii_uppercase();
+    if upper.starts_with("GB-") {
+        "GB".to_string()
+    } else {
+        upper
+    }
+}
+
+fn country_matches(a: &Option<String>, b: &Option<String>) -> bool {
+    match (a, b) {
+        (Some(x), Some(y)) => normalize_country_code(x) == normalize_country_code(y),
+        _ => true,
+    }
+}
+
 pub fn context_matches(a: &IdentityContext, b: &IdentityContext) -> bool {
-    field_matches(&a.country_code, &b.country_code)
+    country_matches(&a.country_code, &b.country_code)
         && field_matches(&a.gender, &b.gender)
         && field_matches(&a.age_group, &b.age_group)
         && field_matches(&a.branch, &b.branch)
