@@ -170,7 +170,7 @@ pub fn by_localized_title(title: &str) -> Option<(&'static str, &'static str)> {
         ("cook-szigetek", "CK", "Cook Islands"),
         ("szent kitts és nevis", "KN", "Saint Kitts and Nevis"),
         ("szent lucia", "LC", "Saint Lucia"),
-        ("szint maarten", "SX", "Sint Maarten"),
+        ("sint maarten", "SX", "Sint Maarten"),
         ("zöld-foki köztársaság", "CV", "Cape Verde"),
         ("kajmán-szigetek", "KY", "Cayman Islands"),
         ("libéria", "LR", "Liberia"),
@@ -217,11 +217,39 @@ pub fn by_localized_title(title: &str) -> Option<(&'static str, &'static str)> {
         ("egye nlítői guinea", "GQ", "Equatorial Guinea"),
         ("egyenlítői guinea", "GQ", "Equatorial Guinea"),
         ("nigéria", "NG", "Nigeria"),
+        // Nemzetközi meccseken felbukkanó lokalizált nevek, amelyek eddig
+        // ország nélkül maradtak (review-felhalmazódás):
+        ("jamaika", "JM", "Jamaica"),
+        ("francia guyana", "GF", "French Guiana"),
+        ("saint martin", "MF", "Saint Martin"),
+        (
+            "szent vincent és a grenadine-szigetek",
+            "VC",
+            "St. Vincent and the Grenadines",
+        ),
+        (
+            "saint vincent és a grenadine-szigetek",
+            "VC",
+            "St. Vincent and the Grenadines",
+        ),
+        ("új-kaledónia", "NC", "New Caledonia"),
     ];
-    pairs
-        .iter()
-        .find(|(name, _, _)| key.contains(&fold(name)))
-        .map(|(_, cc, cn)| (*cc, *cn))
+    // A leghosszabb illeszkedő név nyer (nem az első a táblában): a
+    // részstring-egyezés különben ország-ütközéseket ad — „jordánia” ⊃ „dánia”
+    // (JO→DK), „szomália” ⊃ „mali” (SO→ML), „fehéroroszország” ⊃ „oroszország”
+    // (BY→RU), „dominikai köztársaság” ⊃ „dominika” (DO→DM). Azonos hosszban
+    // a tábla sorrendje dönt (determinisztikus).
+    let mut best: Option<(usize, &'static str, &'static str)> = None;
+    for (name, cc, cn) in pairs {
+        let needle = fold(name);
+        if key.contains(&needle) {
+            let len = needle.len();
+            if best.is_none_or(|(best_len, _, _)| len > best_len) {
+                best = Some((len, cc, cn));
+            }
+        }
+    }
+    best.map(|(_, cc, cn)| (cc, cn))
 }
 
 /// Angol országnevek (nemzetközi meccsek csapatnevei) → (ISO, angol név).
@@ -508,6 +536,9 @@ pub fn by_english_name(name: &str) -> Option<(&'static str, &'static str)> {
         ("panama", "PA", "Panama"),
         ("curacao", "CW", "Curacao"),
         ("aruba", "AW", "Aruba"),
+        ("french guiana", "GF", "French Guiana"),
+        ("saint martin", "MF", "Saint Martin"),
+        ("new caledonia", "NC", "New Caledonia"),
     ];
     let key = fold(name);
     pairs
@@ -534,8 +565,11 @@ pub fn is_international_text(text: &str) -> bool {
 }
 
 /// Kontinens/világ zászló → nemzetközi verseny (a csapatnév ország).
+///
+/// egzakt (foldolt) egyezés, NEM részstring: a „Dél-Afrika” és „Közép-Afrika”
+/// zászló-cím tartalmazza az „afrika” szót, de ország-zászlók, nem kontinensé.
 pub fn is_continent_flag(title: &str) -> bool {
-    let key = title.trim().to_lowercase();
+    let key = fold(title);
     [
         "europe",
         "európa",
@@ -557,5 +591,119 @@ pub fn is_continent_flag(title: &str) -> bool {
         "international",
     ]
     .iter()
-    .any(|needle| key.contains(needle))
+    .any(|needle| key == fold(needle))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Ország-ütközési regressziók: a rövidebb név részstringje a hosszabbnak,
+    /// és a tábla sorrendje korábban eldöntötte, melyik nyer (rosszul).
+    #[test]
+    fn longest_match_wins_over_substring_collisions() {
+        // jordánia ⊃ dánia → JO (volt: DK, élő hiba 2026-11-19)
+        assert_eq!(by_localized_title("Jordánia"), Some(("JO", "Jordan")));
+        assert_eq!(by_localized_title("Dánia"), Some(("DK", "Denmark")));
+        // szomália ⊃ mali → SO (volt: ML)
+        assert_eq!(by_localized_title("Szomália"), Some(("SO", "Somalia")));
+        assert_eq!(by_localized_title("Mali"), Some(("ML", "Mali")));
+        // fehéroroszország ⊃ oroszország → BY (volt: RU)
+        assert_eq!(
+            by_localized_title("Fehéroroszország"),
+            Some(("BY", "Belarus"))
+        );
+        assert_eq!(by_localized_title("Oroszország"), Some(("RU", "Russia")));
+        // dominikai köztársaság ⊃ dominika → DO (volt: DM)
+        assert_eq!(
+            by_localized_title("Dominikai Köztársaság"),
+            Some(("DO", "Dominican Republic"))
+        );
+        assert_eq!(by_localized_title("Dominika"), Some(("DM", "Dominica")));
+        // románia ⊃ omán → RO (a tábla sorrendje eddig védett, törékeny volt)
+        assert_eq!(by_localized_title("Románia"), Some(("RO", "Romania")));
+        // nigéria ⊃ niger → NG
+        assert_eq!(by_localized_title("Nigéria"), Some(("NG", "Nigeria")));
+        assert_eq!(by_localized_title("Niger"), Some(("NE", "Niger")));
+        // kongói dk ⊃ kongó → CD
+        assert_eq!(by_localized_title("Kongói DK"), Some(("CD", "DR Congo")));
+        assert_eq!(by_localized_title("Kongó"), Some(("CG", "Congo")));
+        // észak-írország ⊃ írország → GB
+        assert_eq!(
+            by_localized_title("Észak-Írország"),
+            Some(("GB", "Northern Ireland"))
+        );
+        assert_eq!(by_localized_title("Írország"), Some(("IE", "Ireland")));
+    }
+
+    #[test]
+    fn decorated_titles_still_resolve() {
+        assert_eq!(
+            by_localized_title("Anglia - Premier League"),
+            Some(("GB", "England"))
+        );
+        assert_eq!(
+            by_localized_title("  Spanyolország  "),
+            Some(("ES", "Spain"))
+        );
+        assert_eq!(by_localized_title("Ismeretlen Terület"), None);
+        assert_eq!(by_localized_title(""), None);
+    }
+
+    /// A nemzetközi meccseken ország nélkül maradt lokalizált nevek pótlása.
+    #[test]
+    fn previously_missing_localized_names() {
+        assert_eq!(by_localized_title("Jamaika"), Some(("JM", "Jamaica")));
+        assert_eq!(
+            by_localized_title("Francia Guyana"),
+            Some(("GF", "French Guiana"))
+        );
+        assert_eq!(
+            by_localized_title("Saint Martin"),
+            Some(("MF", "Saint Martin"))
+        );
+        assert_eq!(
+            by_localized_title("Saint Vincent és a Grenadine-szigetek"),
+            Some(("VC", "St. Vincent and the Grenadines"))
+        );
+        // A holland oldal (Sint Maarten) külön entitás marad.
+        assert_eq!(
+            by_localized_title("Sint Maarten"),
+            Some(("SX", "Sint Maarten"))
+        );
+        assert_eq!(
+            by_english_name("French Guiana"),
+            Some(("GF", "French Guiana"))
+        );
+        assert_eq!(
+            by_english_name("Saint Martin"),
+            Some(("MF", "Saint Martin"))
+        );
+        assert_eq!(by_english_name("Jamaica"), Some(("JM", "Jamaica")));
+        assert_eq!(
+            by_localized_title("Új-Kaledónia"),
+            Some(("NC", "New Caledonia"))
+        );
+        assert_eq!(
+            by_english_name("New Caledonia"),
+            Some(("NC", "New Caledonia"))
+        );
+    }
+
+    /// A kontinens-zászló egzakt egyezés: az „afrika” részstring miatt a
+    /// Dél-Afrika / Közép-Afrika ország-zászló nem lehet nemzetközi jelző.
+    #[test]
+    fn continent_flag_is_exact_not_substring() {
+        assert!(is_continent_flag("Afrika"));
+        assert!(is_continent_flag("Európa"));
+        assert!(is_continent_flag("Ázsia"));
+        assert!(is_continent_flag("Dél-Amerika"));
+        assert!(is_continent_flag("Világ"));
+        assert!(is_continent_flag("Europe"));
+        assert!(!is_continent_flag("Dél-Afrika"));
+        assert!(!is_continent_flag("Közép-Afrika"));
+        assert!(!is_continent_flag("Dánia"));
+        assert!(!is_continent_flag("Jordánia"));
+        assert!(!is_continent_flag(""));
+    }
 }
