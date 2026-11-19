@@ -213,3 +213,78 @@ async fn day_filter_supports_competition_window() {
     let windowed = fetch_day(&pool, &base(7)).await.unwrap();
     assert_eq!(windowed.len(), 2, "a provisional továbbra is kimarad");
 }
+
+#[tokio::test]
+async fn extra_time_only_result_counts_with_et_score() {
+    let pool = test_pool().await;
+    let seed = seed(&pool).await;
+    // ET-only eredmény (mint a Soccerway hosszabbításos meccsei): a táblában
+    // a jogerős ET állásnak kell számítania, nem veszhet el.
+    let existing: Vec<(Uuid, String)> = sqlx::query_as(
+        "SELECT t.id, t.name FROM core.team t JOIN core.competition c ON c.country_id=t.country_id
+          WHERE c.id=$1 ORDER BY t.name LIMIT 2",
+    )
+    .bind(seed.competition_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let (home, away) = (existing[0].0, existing[1].0);
+    let date = NaiveDate::from_ymd_opt(2026, 11, 10).unwrap();
+    let before = fetch_competition_teams(&pool, seed.competition_id, date, "Europe/Budapest", 7)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|t| t.team_id == home)
+        .unwrap();
+    let kickoff = Utc.with_ymd_and_hms(2026, 11, 10, 18, 0, 0).unwrap();
+    let id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO core.match
+         (id, competition_id, season_id, home_team_id, away_team_id, kickoff_at,
+          competition_timezone, status)
+         VALUES ($1,$2,(SELECT id FROM core.season WHERE competition_id=$2 LIMIT 1),
+                 $3,$4,$5,'Europe/Budapest','finished')",
+    )
+    .bind(id)
+    .bind(seed.competition_id)
+    .bind(home)
+    .bind(away)
+    .bind(kickoff)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO core.match_result (match_id, home_ft, away_ft, home_et, away_et, validity)
+         VALUES ($1,NULL,NULL,3,2,'valid')",
+    )
+    .bind(id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO ops.publish_gate
+         (id, match_id, publish_date, state, rule_set_version, blockers, evaluated_at)
+         VALUES ($1,$2,$3,'verified_publish','verification-1.1','[]',now())",
+    )
+    .bind(Uuid::now_v7())
+    .bind(id)
+    .bind((kickoff + chrono::Duration::hours(2)).date_naive())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let teams = fetch_competition_teams(
+        &pool,
+        seed.competition_id,
+        NaiveDate::from_ymd_opt(2026, 11, 10).unwrap(),
+        "Europe/Budapest",
+        7,
+    )
+    .await
+    .unwrap();
+    let h = teams.iter().find(|t| t.team_id == home).expect("hazai");
+    assert_eq!(h.played, before.played + 1, "ET-meccs beleszámít");
+    assert_eq!(h.goals_for, before.goals_for + 3);
+    assert_eq!(h.goals_against, before.goals_against + 2);
+    assert_eq!(h.wins, before.wins + 1);
+}

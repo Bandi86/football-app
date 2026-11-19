@@ -96,8 +96,8 @@ pub async fn fetch_competition_detail(
     let row = sqlx::query_as::<_, CompetitionDetailRow>(
         "WITH gated AS (
              SELECT m.id,
-                    COALESCE(r.home_ft, r.home_et) AS hf,
-                    COALESCE(r.away_ft, r.away_et) AS af
+                    COALESCE(r.home_et, r.home_ft) AS hf,
+                    COALESCE(r.away_et, r.away_ft) AS af
              FROM core.match m
              JOIN ops.publish_gate g ON g.match_id = m.id
                AND g.publish_date = (m.kickoff_at AT TIME ZONE $3)::date
@@ -174,8 +174,8 @@ pub async fn fetch_competition_teams(
     let rows = sqlx::query_as::<_, CompetitionTeamRow>(
         "WITH gated AS (
              SELECT m.home_team_id AS home_id, m.away_team_id AS away_id,
-                    COALESCE(r.home_ft, r.home_et) AS hf,
-                    COALESCE(r.away_ft, r.away_et) AS af
+                    COALESCE(r.home_et, r.home_ft) AS hf,
+                    COALESCE(r.away_et, r.away_ft) AS af
              FROM core.match m
              JOIN ops.publish_gate g ON g.match_id = m.id
                AND g.publish_date = (m.kickoff_at AT TIME ZONE $3)::date
@@ -184,8 +184,8 @@ pub async fn fetch_competition_teams(
                AND (m.kickoff_at AT TIME ZONE $3)::date
                      BETWEEN $2 - ($4::int) AND $2 + ($4::int)
                AND g.state = 'verified_publish'
-               AND COALESCE(r.home_ft, r.home_et) IS NOT NULL
-               AND COALESCE(r.away_ft, r.away_et) IS NOT NULL
+               AND COALESCE(r.home_et, r.home_ft) IS NOT NULL
+               AND COALESCE(r.away_et, r.away_ft) IS NOT NULL
          ), appearances AS (
              SELECT home_id AS team_id, hf AS goals_for, af AS goals_against FROM gated
              UNION ALL

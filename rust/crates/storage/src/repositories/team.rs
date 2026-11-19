@@ -96,8 +96,8 @@ pub async fn fetch_team_detail(
     let row = sqlx::query_as::<_, TeamDetailRow>(
         "WITH results AS (
              SELECT m.id, m.home_team_id, m.away_team_id,
-                    COALESCE(r.home_ft, r.home_et) AS hf,
-                    COALESCE(r.away_ft, r.away_et) AS af
+                    COALESCE(r.home_et, r.home_ft) AS hf,
+                    COALESCE(r.away_et, r.away_ft) AS af
              FROM core.match m
              JOIN ops.publish_gate g ON g.match_id = m.id
                AND g.publish_date = (m.kickoff_at AT TIME ZONE $3)::date
@@ -106,8 +106,8 @@ pub async fn fetch_team_detail(
                AND (m.kickoff_at AT TIME ZONE $3)::date
                      BETWEEN $2 - ($4::int) AND $2 + ($4::int)
                AND g.state = 'verified_publish'
-               AND COALESCE(r.home_ft, r.home_et) IS NOT NULL
-               AND COALESCE(r.away_ft, r.away_et) IS NOT NULL
+               AND COALESCE(r.home_et, r.home_ft) IS NOT NULL
+               AND COALESCE(r.away_et, r.away_ft) IS NOT NULL
          ), spelled AS (
              SELECT home_team_id AS tid, hf AS gf, af AS ga
              FROM results WHERE home_team_id = $1
