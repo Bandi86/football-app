@@ -46,6 +46,17 @@ pub struct MatchSnapshot {
     pub result: Option<MatchResultSnapshot>,
 }
 
+/// A meccs jogerős végeredménye: hosszabbításnál az ET állás (a forrás
+/// gyakran csak ezt közli, FT nélkül), egyébként a rendes játékidejű állás.
+/// Tizenegyespárbajnál az ET állás a döntő (a tizenegyesek külön mező).
+pub fn final_score(result: &MatchResultSnapshot) -> Option<(i16, i16)> {
+    if let (Some(home), Some(away)) = (result.home_et, result.away_et) {
+        Some((home, away))
+    } else {
+        result.home_ft.zip(result.away_ft)
+    }
+}
+
 pub fn result_consistency_findings(snapshot: &MatchSnapshot) -> Vec<Finding> {
     let Some(result) = snapshot.result.as_ref() else {
         if snapshot.status.requires_result() {
@@ -60,11 +71,11 @@ pub fn result_consistency_findings(snapshot: &MatchSnapshot) -> Vec<Finding> {
 
     let mut findings = vec![];
 
-    if snapshot.status.requires_result() && (result.home_ft.is_none() || result.away_ft.is_none()) {
+    if snapshot.status.requires_result() && final_score(result).is_none() {
         findings.push(Finding::blocker(
             "MATCH_RESULT_REQUIRED",
             "result",
-            "Lezárt meccshez hiányzik a rendes játékidejű eredmény.",
+            "Lezárt meccshez hiányzik az érvényes eredmény (rendes játékidő vagy hosszabbítás).",
         ));
     }
 

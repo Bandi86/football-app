@@ -6,7 +6,7 @@ pub mod trust;
 pub mod verification;
 
 pub use match_state::{
-    MatchResultSnapshot, MatchSnapshot, MatchStatus, result_consistency_findings,
+    MatchResultSnapshot, MatchSnapshot, MatchStatus, final_score, result_consistency_findings,
 };
 pub use verification::{
     Finding, PublishState, Severity, VerificationReport, VerificationStatus, evaluate_publish_state,

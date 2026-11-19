@@ -84,3 +84,41 @@ fn empty_report_is_verified_and_visible() {
     );
     assert!(PublishState::VerifiedPublish.default_visible());
 }
+
+#[test]
+fn extra_time_only_result_is_valid_for_a_finished_match() {
+    // A Soccerway hosszabbítás utáni meccseknél csak az ET állást közli
+    // (pl. New Mexico – Sacramento 2026-11-17: 1-2 hosszabbításban).
+    let result = MatchResultSnapshot {
+        home_ft: None,
+        away_ft: None,
+        home_ht: None,
+        away_ht: None,
+        home_et: Some(1),
+        away_et: Some(2),
+        home_pens: None,
+        away_pens: None,
+    };
+    assert_eq!(football_domain::final_score(&result), Some((1, 2)));
+    assert!(result_consistency_findings(&snapshot(MatchStatus::Finished, Some(result))).is_empty());
+}
+
+#[test]
+fn missing_ft_and_et_is_still_a_blocker() {
+    let result = MatchResultSnapshot {
+        home_ft: None,
+        away_ft: None,
+        home_ht: None,
+        away_ht: None,
+        home_et: None,
+        away_et: None,
+        home_pens: None,
+        away_pens: None,
+    };
+    let findings = result_consistency_findings(&snapshot(MatchStatus::Finished, Some(result)));
+    assert!(
+        findings
+            .iter()
+            .any(|f| f.rule_key == "MATCH_RESULT_REQUIRED")
+    );
+}
