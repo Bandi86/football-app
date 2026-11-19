@@ -274,8 +274,10 @@ aztán pedig a javasoltakkal sorrendben egymás után".
 
 ### 5. tétel — daemon frissítés
 
-- [ ] A bináris újraépülve (`--features obscura`), az agent telepítése
-      jóváhagyás-kötött lépés — lásd lent.
+- [x] A bináris újraépülve (`--features obscura`); az agent telepítése
+      a felhasználó jóváhagyásával lefutott (`agent-install-s27.log`), launchd
+      `hu.bandi86.football.v2` újraindult (**pid 66856**). Az új bináris
+      tartalmazza a `--review-note` és a konfliktus-feloldás kódját.
 
 ### Javasoltak, sorrendben
 
@@ -296,4 +298,5 @@ aztán pedig a javasoltakkal sorrendben egymás után".
   (valódi eredményhiány), 31 683 verified + 199 883 provisional.
 - Kapu-lánc: teszt-DB reset → foundation → workspace test → clippy → fmt →
   bináris build → reset: **MINDEN KAPU ZÖLD**.
-- Commit/push: csak a fenti lépések után (lásd a commit-hash sort).
+- [x] Commit + push: **`57f100b`** → origin/main (2034ee0..57f100b), a
+      felhasználó „foglalkozz az 5 nem kész dologgal" felhatalmazásával.
