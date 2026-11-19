@@ -140,3 +140,72 @@
 - Dedupe: `ops.dedupe_archive` (108 sor, teljes payload).
 - Review-elutasítások: `identity.review_queue` (státusz + note, visszaállítható).
 - Verseny-ország revízió: `ops.audit_event` + UPDATE vissza DK-ra (ha kellene).
+## S26 — Kereszt-forrás kickoff-rekonciliáció (2026-11-19, jóváhagyva, lefutott)
+
+Spec: `docs/superpowers/specs/2026-11-19-s26-kickoff-reconciliation-design.md`,
+terv: `docs/superpowers/plans/2026-11-19-s26-kickoff-reconciliation.md`.
+A felhasználó a spec szerint jóváhagyta („igen dolgozhatsz tovabb”).
+
+### Implementáció (commit-per-green)
+
+- [x] **S26a/b — storage**: `duplicate_fixture_groups` (verseny + szezon +
+      csapat-pár + UTC-nap kulcs, opcionális dátum/verseny szűrő),
+      `is_same_fixture` őr (azonos orientáció + egyező vagy egyik oldalon
+      hiányzó eredmény; tükrözött/eltérő → false). A `merge_duplicate`
+      archívum gate-payloadja `jsonb_agg` (több gate-sor esetén is helyes).
+      Teszt: `storage/tests/dedupe_fixtures.rs` **6/6 zöld**.
+- [x] **S26c — CLI**: `footballctl dedupe fixtures [--from --to --competition
+      --apply --limit]`, dry-run alap; a kockázatos párokat tételesen listáz
+      (kickoffok, eredmények, források, ok), a dátumon átnyúló párokat külön
+      query-vel jelzi.
+- [x] **S26e — alias-variáns csapat-merge**: `merge_team_via_alias` (kötelező
+      bizonyíték-szöveg; az áldozat neve reviewed aliasként rögzítődik a
+      túlélőn, method `import`, reviewed_by `cli:s26e`); a kontextus-őr a
+      brit alrégió-kódokat (GB-WLS/GB-SCT/GB-ENG/GB-NIR) GB-vel egyenértékűnek
+      tekinti. CLI: `identity merge-team --via-alias <bizonyíték>`. Teszt:
+      `storage/tests/team_merge_alias.rs` **5/5 zöld** (szigorú név-őr,
+      alias-merge, bizonyíték-követelmény, kontextus-eltérés, GB-alrégió).
+
+### Élő futtatás (dev DB, auditálva)
+
+- [x] **Fixture-merge 3 körben: 4 660 + 3 634 + 1 493 = 9 787 merge**,
+      0 kihagyva a biztonságos pároknál. Összes meccs: 242 493 → **232 701**.
+      Árva provenance: **0**. `ops.dedupe_archive`: 11 054+ sor.
+- [x] **Csapat-variáns merge: 44** (39 v1-alias bizonyítékú + Erzurum BB
+      iker + Erzurumspor + Cardiff/Swansea/Wrexham GB-WLS párok).
+      `ops.entity_merge_archive`: 45. A v1 `team_aliases` (read-only) adta a
+      bizonyítékot; 2 kétértelmű variáns kimaradva (Gimnastic → 2 jelölt).
+- [x] **Kockázatos lista (nem nyúlt hozzá): 31 Eliteserien eltérő eredményű
+      pár** (v1-import vs footballdata; a v1 sorok vélhetően rossz dátumú/
+      eredményű fixture-ök) + **2 Persha Liga dátumon átnyúló pár**.
+      Tételes döntésük külön review lépés.
+- [x] **Coverage újramérés**: 300 liga-szezon, 139 843 meccs (volt 149 414).
+      **Premier League 2015/16: 380 meccs, 100% eredmény, 100% odds** ✓
+      (volt 760). Lezárt szezonban eredmény <99% csak a pandemic-szezonok
+      (2019/20 Ligue 1/2, League One/Two, National League; 2020/21 National
+      League) — valós, csonka szezonok. Eliteserien 2015: 357 (a maradék
+      többlet verseny-entitás fragmentáció, lásd backlog).
+- [x] `reverify --from 2015-01-01 --to 2027-12-31`: **104 102 meccs
+      újraellenőrizve, 0 hiba**; gate: 82 847 provisional + 21 218 verified
+      + **37 withheld**. A 37 `MATERIAL_SOURCE_CONFLICT` (források eltérő
+      kickoffja a merge után is konfliktusként jelenik meg — a túlélő-
+      prioritás az archívumban rögzült, de a verification réteg nem ismeri;
+      feloldásuk külön konfliktus-döntési lépés, follow-up).
+- [x] Teljes kapu-lánc az S26 kódra: teszt-DB reset → foundation →
+      `cargo test --workspace -- --test-threads=1` **0 failed** (11 új S26
+      teszt is) → clippy `-D warnings` tiszta → fmt tiszta → binárisok
+      `--features obscura` → teszt-DB reset. **MINDEN KAPU ZÖLD.**
+- [ ] Commit + push (a felhasználó „minden mehet” / „igen dolgozhatsz
+      tovabb” jóváhagyásával).
+
+### Backlog (S26 után, külön szeletek)
+
+1. **Verseny-entitás fragmentáció**: a v1 import verseny-nevei eltérnek a
+   footballdata kanonikus nevektől (pl. „Scottish League One” vs „League
+   One”, Eliteserien kettős entitás) — a fixture-kulcs verseny-szkópolt,
+   ezért ezeket nem látja. Verseny-crosswalk (S21 szótár kiterjesztése a
+   v1 nevekre) + merge eszköz kell.
+2. **31 Eliteserien + 2 Persha Liga kockázatos pár**: tételes review
+   (forrás-prioritás: footballdata; a v1 sorok withhold/törlés döntése).
+3. **Gimnastic** kétértelmű variáns (U19 vs senior): emberi döntés.
+4. Top-up pass (S23 checklist 0) szükségességének újramérése.

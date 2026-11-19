@@ -175,7 +175,8 @@ pub async fn merge_duplicate(
         "INSERT INTO ops.dedupe_archive (id, merged_at, survivor_id, duplicate_id, note, payload)
          SELECT $1, now(), $2, $3, $4, jsonb_build_object(
             'match', (SELECT to_jsonb(m) FROM core.match m WHERE m.id = $3),
-            'gate', (SELECT to_jsonb(g) FROM ops.publish_gate g WHERE g.match_id = $3),
+            'gate', (SELECT COALESCE(jsonb_agg(to_jsonb(g)), '[]'::jsonb)
+                       FROM ops.publish_gate g WHERE g.match_id = $3),
             'result', (SELECT to_jsonb(r) FROM core.match_result r WHERE r.match_id = $3),
             'provenance', (SELECT COALESCE(jsonb_agg(to_jsonb(p)), '[]'::jsonb)
                              FROM fact.provenance p
@@ -314,4 +315,163 @@ pub async fn merge_duplicate(
 
     tx.commit().await?;
     Ok(audit_id)
+}
+
+// ---------------------------------------------------------------------------
+// S26 — Fixture-szintű rekonciliáció: azonos verseny + szezon + csapat-pár +
+// UTC-nap, de eltérő kickoff (a v1 import és a footballdata backfill párhuzamos
+// sorai). A kulcs szándékosan nem tartalmaz kickoffot; az auto-merge őr az
+// orientáció-helyes eredmény-egyezés (vagy az egyik eredmény hiánya).
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+pub struct FixtureMatchRow {
+    pub match_id: Uuid,
+    pub competition_id: Uuid,
+    pub competition_name: String,
+    pub season_id: Uuid,
+    pub season_label: String,
+    pub home_team_id: Uuid,
+    pub away_team_id: Uuid,
+    pub home_name: String,
+    pub away_name: String,
+    pub kickoff_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+    pub provenance_count: i64,
+    pub has_result: bool,
+    pub has_odds: bool,
+    pub gate_state: Option<String>,
+    /// A provenance-láncon keresztüli forrás-kódok (vesszővel), a túlélő-
+    /// prioritáshoz (footballdata > v1-import).
+    pub source_codes: String,
+    pub home_ft: Option<i16>,
+    pub away_ft: Option<i16>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FixtureGroup {
+    pub key: String,
+    pub matches: Vec<FixtureMatchRow>,
+}
+
+/// Fixture-szintű duplikált csoportok (competition + season + csapat-pár +
+/// UTC-nap). Opcionális dátumtartomány és verseny-név szűrő.
+pub async fn duplicate_fixture_groups(
+    pool: &PgPool,
+    from: Option<chrono::NaiveDate>,
+    to: Option<chrono::NaiveDate>,
+    competition: Option<&str>,
+) -> Result<Vec<FixtureGroup>> {
+    let rows = sqlx::query_as::<_, FixtureMatchRow>(
+        "WITH keyed AS (
+            SELECT m.id, m.competition_id, m.season_id, m.home_team_id, m.away_team_id,
+                   m.kickoff_at, m.created_at,
+                   LEAST(m.home_team_id, m.away_team_id) AS lo,
+                   GREATEST(m.home_team_id, m.away_team_id) AS hi,
+                   m.kickoff_at::date AS kd
+              FROM core.match m
+        ),
+        grp AS (
+            SELECT competition_id, season_id, lo, hi, kd
+              FROM keyed
+             GROUP BY 1, 2, 3, 4, 5
+            HAVING count(*) > 1
+        )
+        SELECT k.id AS match_id, k.competition_id, c.name AS competition_name,
+               k.season_id, s.label AS season_label,
+               k.home_team_id, k.away_team_id, h.name AS home_name, a.name AS away_name,
+               k.kickoff_at, k.created_at,
+               (SELECT count(*) FROM fact.provenance p
+                 WHERE p.subject_kind = 'match' AND p.subject_id = k.id)::bigint AS provenance_count,
+               EXISTS (SELECT 1 FROM core.match_result r WHERE r.match_id = k.id) AS has_result,
+               EXISTS (SELECT 1 FROM fact.odds_snapshot o WHERE o.match_id = k.id) AS has_odds,
+               g.state AS gate_state,
+               COALESCE((SELECT string_agg(DISTINCT src.code, ',' ORDER BY src.code)
+                           FROM fact.provenance p
+                           JOIN stage.observation o ON o.id = p.observation_id
+                           JOIN ops.source src ON src.id = o.source_id
+                          WHERE p.subject_kind = 'match' AND p.subject_id = k.id), '') AS source_codes,
+               r.home_ft, r.away_ft
+          FROM keyed k
+          JOIN grp ON grp.competition_id = k.competition_id AND grp.season_id = k.season_id
+                  AND grp.lo = k.lo AND grp.hi = k.hi AND grp.kd = k.kd
+          JOIN core.competition c ON c.id = k.competition_id
+          JOIN core.season s ON s.id = k.season_id
+          JOIN core.team h ON h.id = k.home_team_id
+          JOIN core.team a ON a.id = k.away_team_id
+          LEFT JOIN core.match_result r ON r.match_id = k.id
+          LEFT JOIN LATERAL (
+              SELECT state FROM ops.publish_gate
+               WHERE match_id = k.id ORDER BY publish_date DESC LIMIT 1
+          ) g ON true
+         WHERE ($1::date IS NULL OR k.kd >= $1)
+           AND ($2::date IS NULL OR k.kd <= $2)
+           AND ($3::text IS NULL OR c.name = $3)
+         ORDER BY k.kd, c.name, s.label, h.name, a.name, k.created_at",
+    )
+    .bind(from)
+    .bind(to)
+    .bind(competition)
+    .fetch_all(pool)
+    .await?;
+
+    let mut order: Vec<String> = Vec::new();
+    let mut by_key: std::collections::HashMap<String, Vec<FixtureMatchRow>> =
+        std::collections::HashMap::new();
+    for row in rows {
+        let (lo, hi) = if row.home_team_id < row.away_team_id {
+            (row.home_team_id, row.away_team_id)
+        } else {
+            (row.away_team_id, row.home_team_id)
+        };
+        let key = format!(
+            "{}|{}|{}|{}|{}",
+            row.competition_id,
+            row.season_id,
+            lo,
+            hi,
+            row.kickoff_at.date_naive()
+        );
+        if !by_key.contains_key(&key) {
+            order.push(key.clone());
+        }
+        by_key.entry(key).or_default().push(row);
+    }
+    let groups = order
+        .into_iter()
+        .map(|key| FixtureGroup {
+            matches: by_key.remove(&key).unwrap_or_default(),
+            key,
+        })
+        .collect();
+    Ok(groups)
+}
+
+/// Auto-merge őr fixture-párra: azonos verseny/szezon/csapat-pár/UTC-nap,
+/// AZONOS orientáció (tükrözött pár → false, kézi döntés), és az eredmények
+/// egyeznek vagy az egyik hiányzik. Eltérő eredmény → false (fail-closed).
+pub async fn is_same_fixture(pool: &PgPool, survivor: Uuid, duplicate: Uuid) -> Result<bool> {
+    let same: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1
+              FROM core.match s
+              JOIN core.match d ON d.id = $2
+              LEFT JOIN core.match_result rs ON rs.match_id = s.id
+              LEFT JOIN core.match_result rd ON rd.match_id = d.id
+             WHERE s.id = $1
+               AND s.competition_id = d.competition_id
+               AND s.season_id = d.season_id
+               AND s.kickoff_at::date = d.kickoff_at::date
+               AND s.home_team_id = d.home_team_id
+               AND s.away_team_id = d.away_team_id
+               AND (rs.match_id IS NULL OR rd.match_id IS NULL
+                    OR (rs.home_ft IS NOT DISTINCT FROM rd.home_ft
+                        AND rs.away_ft IS NOT DISTINCT FROM rd.away_ft))
+        )",
+    )
+    .bind(survivor)
+    .bind(duplicate)
+    .fetch_one(pool)
+    .await?;
+    Ok(same)
 }

@@ -60,6 +60,24 @@ enum DedupeAction {
         #[arg(long)]
         deny: Option<String>,
     },
+    /// S26: fixture-szintű rekonciliáció — azonos verseny+szezon+csapat-pár+
+    /// UTC-nap, eltérő kickoff (v1 import vs footballdata). Auto-merge csak
+    /// azonos orientációnál és egyező (vagy egyik oldalon hiányzó) eredménynél;
+    /// a kockázatos párok listázódnak, nem íródnak. Dry-run alapból.
+    Fixtures {
+        #[arg(long)]
+        from: Option<NaiveDate>,
+        #[arg(long)]
+        to: Option<NaiveDate>,
+        /// Verseny kanonikus neve (pontos egyezés).
+        #[arg(long)]
+        competition: Option<String>,
+        #[arg(long)]
+        apply: bool,
+        /// Merge-ek felső korlátja (kötegelt futtatáshoz).
+        #[arg(long)]
+        limit: Option<usize>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -260,6 +278,11 @@ enum IdentityAction {
         note: String,
         #[arg(long)]
         apply: bool,
+        /// S26e: alias-variáns merge (eltérő nevek). A bizonyíték-szöveg
+        /// kötelező (pl. „v1 team_aliases: 'Man City' -> 'Manchester City'”);
+        /// az áldozat neve reviewed aliasként rögzítődik a túlélőn.
+        #[arg(long)]
+        via_alias: Option<String>,
     },
     CrosswalkCheck,
 }
@@ -503,6 +526,157 @@ async fn main() -> Result<()> {
                         }
                     );
                 }
+            }
+            DedupeAction::Fixtures {
+                from,
+                to,
+                competition,
+                apply,
+                limit,
+            } => {
+                let groups = football_storage::repositories::dedupe::duplicate_fixture_groups(
+                    &pool,
+                    from,
+                    to,
+                    competition.as_deref(),
+                )
+                .await?;
+                let mut merges = 0usize;
+                let mut safe = 0usize;
+                let mut risky = 0usize;
+                'groups: for group in &groups {
+                    // Túlélő: footballdata-provenance előbb, tie-break a
+                    // legkorábbi created_at (S26 spec 3. pont).
+                    let survivor = group
+                        .matches
+                        .iter()
+                        .min_by_key(|m| {
+                            (
+                                !m.source_codes.split(',').any(|c| c == "footballdata"),
+                                m.created_at,
+                            )
+                        })
+                        .expect("csoport nem üres");
+                    for m in group
+                        .matches
+                        .iter()
+                        .filter(|m| m.match_id != survivor.match_id)
+                    {
+                        let mirrored = m.home_team_id == survivor.away_team_id
+                            && m.away_team_id == survivor.home_team_id;
+                        let results_ok = !m.has_result
+                            || !survivor.has_result
+                            || (m.home_ft == survivor.home_ft && m.away_ft == survivor.away_ft);
+                        if mirrored || !results_ok {
+                            risky += 1;
+                            println!(
+                                "KOCKÁZAT [{}] {} — {} vs {} | {}: kickoff {} / {} | eredmény {:?}-{:?} / {:?}-{:?} | forrás {} / {} | ok: {}",
+                                group.key,
+                                m.competition_name,
+                                m.home_name,
+                                m.away_name,
+                                m.kickoff_at.date_naive(),
+                                survivor.kickoff_at,
+                                m.kickoff_at,
+                                survivor.home_ft,
+                                survivor.away_ft,
+                                m.home_ft,
+                                m.away_ft,
+                                survivor.source_codes,
+                                m.source_codes,
+                                if mirrored {
+                                    "tükrözött orientáció"
+                                } else {
+                                    "eltérő eredmény"
+                                }
+                            );
+                            continue;
+                        }
+                        safe += 1;
+                        if apply {
+                            if let Some(lim) = limit {
+                                if merges >= lim {
+                                    println!("merge-limit elérve: {lim}");
+                                    break 'groups;
+                                }
+                            }
+                            let outcome: Result<()> = async {
+                                let same =
+                                    football_storage::repositories::dedupe::is_same_fixture(
+                                        &pool,
+                                        survivor.match_id,
+                                        m.match_id,
+                                    )
+                                    .await?;
+                                anyhow::ensure!(
+                                    same,
+                                    "a pár nem ugyanaz a fixture: {} / {}",
+                                    survivor.match_id,
+                                    m.match_id
+                                );
+                                football_storage::repositories::dedupe::merge_duplicate(
+                                    &pool,
+                                    survivor.match_id,
+                                    m.match_id,
+                                    &format!(
+                                        "S26 fixture-rekonciliáció: kickoff {} → {} (forrás-prioritás), eredmény egyezik",
+                                        m.kickoff_at, survivor.kickoff_at
+                                    ),
+                                )
+                                .await?;
+                                Ok(())
+                            }
+                            .await;
+                            match outcome {
+                                Ok(()) => merges += 1,
+                                Err(err) => {
+                                    risky += 1;
+                                    println!("  kihagyva: {err:#}");
+                                }
+                            }
+                        }
+                    }
+                }
+                // Dátumon átnyúló párok (kickoff <24h, de más UTC-nap) — a
+                // nap-kulcsú csoportosítás ezeket nem látja; külön lista.
+                let straddling: Vec<(String, String, String, String, String)> = sqlx::query_as(
+                    "WITH g AS (
+                        SELECT competition_id, season_id,
+                               LEAST(home_team_id, away_team_id) h,
+                               GREATEST(home_team_id, away_team_id) a,
+                               min(kickoff_at) k1, max(kickoff_at) k2
+                          FROM core.match
+                         GROUP BY 1, 2, 3, 4
+                        HAVING count(*) = 2
+                           AND min(kickoff_at)::date <> max(kickoff_at)::date
+                           AND max(kickoff_at) - min(kickoff_at) < interval '24 hours'
+                    )
+                    SELECT c.name, th.name, ta.name, g.k1::text, g.k2::text
+                      FROM g
+                      JOIN core.competition c ON c.id = g.competition_id
+                      JOIN core.match m ON m.competition_id = g.competition_id
+                       AND m.season_id = g.season_id AND m.kickoff_at = g.k1
+                      JOIN core.team th ON th.id = m.home_team_id
+                      JOIN core.team ta ON ta.id = m.away_team_id",
+                )
+                .fetch_all(&pool)
+                .await?;
+                for (comp, home, away, k1, k2) in &straddling {
+                    risky += 1;
+                    println!("KOCKÁZAT [dátumon átnyúló] {comp}: {home} vs {away} | {k1} / {k2}");
+                }
+                println!(
+                    "fixture-csoportok: {}, biztonságos pár: {}, kockázatos: {}, merge-ek: {}{}",
+                    groups.len(),
+                    safe,
+                    risky,
+                    merges,
+                    if apply {
+                        ""
+                    } else {
+                        " (dry-run — --apply a végrehajtáshoz)"
+                    }
+                );
             }
         },
         Command::Elo { as_of } => {
@@ -1299,8 +1473,10 @@ async fn identity_command(pool: &sqlx::PgPool, action: IdentityAction) -> Result
             to,
             note,
             apply,
+            via_alias,
         } => {
-            let preview = identity_merge::merge_team_preview(pool, to, from).await?;
+            let preview =
+                identity_merge::merge_team_preview(pool, to, from, via_alias.is_none()).await?;
             println!(
                 "merge: {} ← {} | meccsek: {} | lehetséges duplikált meccs: {} | alias: {} | ref: {} | tabella: {} | szezon-stat: {} | asset: {}",
                 preview.survivor_name,
@@ -1317,7 +1493,12 @@ async fn identity_command(pool: &sqlx::PgPool, action: IdentityAction) -> Result
                 println!("dry-run: nincs írás (--apply a merge-hez)");
                 return Ok(());
             }
-            let report = identity_merge::merge_team(pool, to, from, &note).await?;
+            let report = match via_alias {
+                Some(evidence) => {
+                    identity_merge::merge_team_via_alias(pool, to, from, &evidence).await?
+                }
+                None => identity_merge::merge_team(pool, to, from, &note).await?,
+            };
             println!(
                 "merge kész: meccsek {} | alias {} (eldobva {}) | ref {} | tabella {} (eldobva {}) | szezon-stat {} (eldobva {}) | asset {} (eldobva {}) | merge utáni duplikált meccsek: {}",
                 report.matches_moved,

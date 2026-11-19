@@ -128,10 +128,16 @@ pub async fn merge_team_preview(
     pool: &PgPool,
     survivor_entity: Uuid,
     duplicate_entity: Uuid,
+    require_same_name: bool,
 ) -> Result<TeamMergePreview> {
     let mut conn = pool.acquire().await?;
-    let (survivor_team, survivor_name, dup_team, dup_name) =
-        load_pair(&mut conn, survivor_entity, duplicate_entity).await?;
+    let (survivor_team, survivor_name, dup_team, dup_name) = load_pair(
+        &mut conn,
+        survivor_entity,
+        duplicate_entity,
+        require_same_name,
+    )
+    .await?;
     drop(conn);
 
     let count1 = |sql: &'static str, a: Uuid| async move {
@@ -229,10 +235,73 @@ pub async fn merge_team(
     duplicate_entity: Uuid,
     note: &str,
 ) -> Result<TeamMergeReport> {
+    merge_team_impl(pool, survivor_entity, duplicate_entity, note, None).await
+}
+
+/// S26e — alias-variáns merge: a nevek eltérhetnek, ha az áldozat neve a
+/// túlélő **reviewed aliasaként** rögzítődik (pl. v1 team_aliases-bizonyíték:
+/// „Man City” → „Manchester City”). A bizonyíték-szöveg kötelező, az archívum
+/// note-jába és az auditba kerül; a kontextus-egyezés továbbra is kötött.
+pub async fn merge_team_via_alias(
+    pool: &PgPool,
+    survivor_entity: Uuid,
+    duplicate_entity: Uuid,
+    evidence: &str,
+) -> Result<TeamMergeReport> {
+    if evidence.trim().is_empty() {
+        bail!("alias-variáns merge-hez kötelező a bizonyíték (pl. v1 team_aliases sor)");
+    }
+    let note = format!("S26e alias-variáns merge — bizonyíték: {evidence}");
+    merge_team_impl(
+        pool,
+        survivor_entity,
+        duplicate_entity,
+        &note,
+        Some(evidence),
+    )
+    .await
+}
+
+async fn merge_team_impl(
+    pool: &PgPool,
+    survivor_entity: Uuid,
+    duplicate_entity: Uuid,
+    note: &str,
+    alias_evidence: Option<&str>,
+) -> Result<TeamMergeReport> {
     let mut tx = pool.begin().await?;
 
-    let (survivor_team, survivor_name, dup_team, dup_name) =
-        load_pair(&mut tx, survivor_entity, duplicate_entity).await?;
+    let (survivor_team, survivor_name, dup_team, dup_name) = load_pair(
+        &mut tx,
+        survivor_entity,
+        duplicate_entity,
+        alias_evidence.is_none(),
+    )
+    .await?;
+
+    // 0. Alias-variáns út: az áldozat kanonikus neve reviewed aliasként
+    //    rögzítődik a túlélőn (a linker ezután feloldja a forrás-nevet).
+    if alias_evidence.is_some() {
+        sqlx::query(
+            "INSERT INTO identity.alias
+               (id, entity_id, alias, lang, country_code, gender, age_group, branch,
+                status, method, reviewed_by, reviewed_at)
+             SELECT $1, $2, e.canonical_name, 'en', c.code, t.gender, t.age_group, t.branch,
+                    'reviewed', 'import', 'cli:s26e', now()
+               FROM core.entity e
+               JOIN core.team t ON t.entity_id = e.id
+               LEFT JOIN core.country c ON c.id = t.country_id
+              WHERE e.id = $3
+             ON CONFLICT (entity_id, alias, lang, country_code, gender, age_group, branch)
+             DO NOTHING",
+        )
+        .bind(Uuid::now_v7())
+        .bind(survivor_entity)
+        .bind(duplicate_entity)
+        .execute(&mut *tx)
+        .await
+        .context("reviewed alias rögzítése (S26e)")?;
+    }
 
     // 1. Archívum: a teljes előtte-állapot (visszaállítási út).
     sqlx::query(
@@ -417,6 +486,7 @@ pub async fn merge_team(
         "duplicate_name": dup_name,
         "survivor_name": survivor_name,
         "note": note,
+        "alias_evidence": alias_evidence,
     }))
     .execute(&mut *tx)
     .await?;
@@ -438,12 +508,14 @@ pub async fn merge_team(
     })
 }
 
-/// Betölti és ellenőrzi a párost: azonos kind, azonos normalizált név,
-/// azonos kontextus, egyik sem merge-ölt. Visszaadja a team-id-ket és neveket.
+/// Betölti és ellenőrzi a párost: azonos kind, azonos kontextus, egyik sem
+/// merge-ölt. `require_same_name`: azonos normalizált név (S19 szabály);
+/// alias-variáns úton (S26e) a név-kötés helyett reviewed alias készül.
 async fn load_pair(
     conn: &mut sqlx::PgConnection,
     survivor_entity: Uuid,
     duplicate_entity: Uuid,
+    require_same_name: bool,
 ) -> Result<(Uuid, String, Uuid, String)> {
     type EntityRow = (Uuid, String, String, Option<Uuid>); // id, név, kind, merged_into
     type TeamRow = (
@@ -486,7 +558,7 @@ async fn load_pair(
     if survivor.3.is_some() || duplicate.3.is_some() {
         bail!("valamelyik entitás már merge-ölt");
     }
-    if survivor.1.trim().to_lowercase() != duplicate.1.trim().to_lowercase() {
+    if require_same_name && survivor.1.trim().to_lowercase() != duplicate.1.trim().to_lowercase() {
         bail!(
             "eltérő név ({} vs {}): a merge csak azonos nevű duplikátumra megy",
             survivor.1,
@@ -507,7 +579,19 @@ async fn load_pair(
         .context("áldozat team lekérés")?
         .with_context(|| format!("nincs csapat-sor az áldozathoz: {duplicate_entity}"))?;
 
-    let same_context = survivor_team.1 == dup_team.1
+    // Ország-összehasonlítás: a brit tagország-kódok (GB-WLS/GB-SCT/GB-ENG/
+    // GB-NIR) a GB-vel egyenértékűek — a v1 import sokszor alrégió-kódot adott,
+    // a footballdata GB-t (pl. Swansea City: GB-WLS vs Swansea: GB).
+    let norm_cc = |cc: &Option<String>| -> Option<String> {
+        cc.as_ref().map(|c| {
+            if c.starts_with("GB-") {
+                "GB".to_string()
+            } else {
+                c.clone()
+            }
+        })
+    };
+    let same_context = norm_cc(&survivor_team.1) == norm_cc(&dup_team.1)
         && survivor_team.2 == dup_team.2
         && survivor_team.3 == dup_team.3
         && survivor_team.4 == dup_team.4;

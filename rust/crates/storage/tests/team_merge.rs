@@ -182,7 +182,7 @@ async fn merge_team_moves_children_and_archives_duplicate() {
     assert_eq!(groups.len(), 1);
     assert_eq!(groups[0].teams.len(), 2);
 
-    let preview = merge_team_preview(&pool, seed.survivor_entity, seed.duplicate_entity)
+    let preview = merge_team_preview(&pool, seed.survivor_entity, seed.duplicate_entity, true)
         .await
         .unwrap();
     assert_eq!(preview.matches_moved, 1);
