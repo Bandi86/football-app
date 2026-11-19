@@ -361,3 +361,41 @@ eredményhiányt forráskutatással és audítált revízióval zártam le.
       (pl. 2. Bundesliga 1996/97: v2 56 vs v1 306 meccs). A v1-import
       backfill (lokális, read-only v1) pótolja: elsőként a 2. Bundesliga
       1996–1997 (612 meccs, 25 csapat) importja fut.
+
+## S29 — v1 gap-fill: korai szezonok pótlása (1993–2005)
+
+**Probléma.** A footballdata CSV-k 1993–2005 között több ligában hiányosak
+(2. Bundesliga 1996/97: 56 meccs a 306-ból; NB I, Eliteserien, Superliga,
+Ekstraklasa korai szezonjai részben vagy teljesen hiányoztak). A v1 DB
+ezeket teljesen tartalmazza, és lokálisan, hálózat nélkül olvasható.
+
+**Megoldás.**
+- `backfill v1-import` második kör: az ismeretlen csapatok az első körben
+  review-ba kerülnek, `identity approve-create-all` után újra kell futtatni,
+  különben csak az ismert csapatok meccsei anyagiasodnak.
+- **GB-alrégió javítás** (`domain::identity::context_matches`): a v1
+  `GB-SCT`/`GB-WLS` kódja egyenértékű a `GB`-vel, így a linker nem hoz létre
+  duplikált Aberdeen/Celtic/Rangers entitásokat. A 12 létrejött GB-SCT
+  duplikátumot auditáltan összevontuk a GB entitásokba.
+- **`--target-competition <uuid>`** a v1-importhoz: ha a v1 versenynév
+  eltér a v2-től (pl. „La Liga 2” → „LaLiga 2”), a meccsek a meglévő v2
+  entitásba töltődnek, nem jön létre új verseny. A payload a cél
+  verseny id-ját, nevét és országát viszi; a manifest rögzíti.
+
+**Eredmény (mért).**
+- Összes meccs: **231 580 → 265 129** (+33 549).
+- 2. Bundesliga 1993/94: 72 → 375; 1994/95: 110 → 374; 1995/96: 110 → 358;
+  1996/97: 56 → 320; 1997/98: 132 → 382; 1998/99: 132 → 366.
+- NB I 1995/96–2005/06: 2 517 meccs; Eliteserien 1993–2005: 2 134;
+  Scottish Premiership 1994–2005: 2 387; Ekstraklasa, Superliga, Ligue 2,
+  Süper Lig, Primeira Liga, Eredivisie, Serie B, 2. Liga: szintén pótolva.
+- **6 `awarded` török/ lengyel meccs** eredménye webes forrásból, auditáltan:
+  Fenerbahçe–Gaziantepspor 3-0, Vanspor–Antalyaspor 0-3,
+  Samsunspor–Kocaelispor 3-0, Rizespor–Trabzonspor 0-3,
+  Beşiktaş–Samsunspor 0-4, GKS Katowice–Odra Wodzisław 0-3 (walkower).
+- `reverify 1993-01-01..2006-06-30`: **107 174 meccs, 0 hiba**;
+  `withheld 0`, `integrity verdict: OK` (0 duplikátum, 0 árva provenance,
+  0 függő review, 0 failed job, 0 breaker).
+- Coverage (top-300 szezon): **148 529 meccs**, 286/300 szezon ≥99%
+  eredmény; a maradék 14 a folyó 2026/27 és a COVID-csonkolt 2019/20.
+- Swift kliens: `swift test` **25/25 zöld**.

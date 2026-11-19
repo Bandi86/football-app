@@ -215,6 +215,10 @@ enum BackfillAction {
         from_year: i32,
         #[arg(long, default_value_t = 2026)]
         to_year: i32,
+        /// Meglévő v2 verseny UUID: a v1 versenynév helyett ide tölti
+        /// (pl. v1 "La Liga 2" → v2 "LaLiga 2"), így nem jön létre új entitás.
+        #[arg(long)]
+        target_competition: Option<uuid::Uuid>,
         #[arg(long)]
         apply: bool,
     },
@@ -1087,9 +1091,19 @@ async fn main() -> Result<()> {
                 tournament,
                 from_year,
                 to_year,
+                target_competition,
                 apply,
             } => {
-                run_v1_import(&pool, &store, tournament, from_year, to_year, apply).await?;
+                run_v1_import(
+                    &pool,
+                    &store,
+                    tournament,
+                    from_year,
+                    to_year,
+                    target_competition,
+                    apply,
+                )
+                .await?;
             }
             BackfillAction::V1Pilot {
                 tournament,
@@ -1930,6 +1944,7 @@ async fn run_v1_import(
     tournament: i64,
     from_year: i32,
     to_year: i32,
+    target_competition: Option<uuid::Uuid>,
     apply: bool,
 ) -> Result<()> {
     let user = std::env::var("USER").unwrap_or_else(|_| "postgres".into());
@@ -2036,8 +2051,25 @@ async fn run_v1_import(
     }
 
     let captured_at = Utc::now();
-    let comp_country = iso2.clone().unwrap_or_default();
-    let comp_country_name = country_name.clone().unwrap_or_default();
+    let mut comp_country = iso2.clone().unwrap_or_default();
+    let mut comp_country_name = country_name.clone().unwrap_or_default();
+    let mut comp_name = name.clone();
+    let mut comp_id: Option<uuid::Uuid> = None;
+    if let Some(target) = target_competition {
+        let (tname, tcode, tcountry): (String, String, String) = sqlx::query_as(
+            "SELECT c.name, coalesce(k.code,''), coalesce(k.name,'')
+             FROM core.competition c LEFT JOIN core.country k ON k.id=c.country_id
+             WHERE c.id=$1",
+        )
+        .bind(target)
+        .fetch_one(pool)
+        .await
+        .context("target competition")?;
+        comp_id = Some(target);
+        comp_name = tname;
+        comp_country = tcode;
+        comp_country_name = tcountry;
+    }
     let mut observations: Vec<football_ingest::adapter::Observation> = Vec::new();
     let mut skipped_status = 0usize;
     let mut skipped_team = 0usize;
@@ -2122,8 +2154,8 @@ async fn run_v1_import(
                 "round_label": null,
                 "competition_timezone": "UTC",
                 "competition": {
-                    "id": null,
-                    "name": name.clone(),
+                    "id": comp_id,
+                    "name": comp_name.clone(),
                     "country_code": comp_country.clone(),
                     "country_name": comp_country_name.clone(),
                     "tier": 1,
@@ -2170,7 +2202,7 @@ async fn run_v1_import(
 
     println!(
         "v1 import terv: {} (ország: {}) | {} meccs, {} csapat, {} oddsolt meccs, kihagyva: {} státusz, {} csapat-hiány",
-        name,
+        comp_name,
         if comp_country.is_empty() {
             "-"
         } else {
@@ -2192,6 +2224,7 @@ async fn run_v1_import(
         "source": "football_app (v1, read-only)",
         "tournament_id": tournament,
         "tournament": name,
+        "target_competition": comp_id,
         "from_year": from_year,
         "to_year": to_year,
         "matches": matches.len(),
