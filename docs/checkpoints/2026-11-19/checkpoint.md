@@ -383,7 +383,7 @@ ezeket teljesen tartalmazza, és lokálisan, hálózat nélkül olvasható.
   verseny id-ját, nevét és országát viszi; a manifest rögzíti.
 
 **Eredmény (mért).**
-- Összes meccs: **231 580 → 265 129** (+33 549 az import után); a csapat-merge-ek utáni fixture-rekonciliáció **9 985 duplikátumot** vont össze, így a tiszta végállapot **255 127** (+23 547).
+- Összes meccs: **231 580 → 265 129** (+33 549 az import után); a csapat-merge-ek utáni fixture-rekonciliáció **9 985 duplikátumot** vont össze, így a tiszta végállapot **255 724** (+23 547).
 - 2. Bundesliga 1993/94: 72 → 375; 1994/95: 110 → 374; 1995/96: 110 → 358;
   1996/97: 56 → 320; 1997/98: 132 → 382; 1998/99: 132 → 366.
 - NB I 1995/96–2005/06: 2 517 meccs; Eliteserien 1993–2005: 2 134;
@@ -421,5 +421,15 @@ ezeket teljesen tartalmazza, és lokálisan, hálózat nélkül olvasható.
 - A megmaradt anyagi konfliktusokat `resolve-conflict --field match` zárta
   (5 meccs, dokumentált indoklással); a két hükmen meccs félidőeredménye
   `NULL` (nem ismert, nem kitalált).
-- **Végállapot**: 255 127 meccs, 249 749 eredmény, withheld **0**,
+- **Végállapot**: 255 724 meccs, 250 346 eredmény, withheld **0**,
   `integrity verdict: OK`, 107 000+ újraellenőrzött meccs 0 hibával.
+
+### S29c — Persha Liga pótlás
+
+- A v1 116-os versenye (Persha Liga, UA) 2004/05–2005/06: **597 meccs**
+  importálva a meglévő v2 entitásba (`--target-competition`), 24 új csapat
+  jóváhagyva. A 11 `awarded` meccsből 10 a Polissya Zhytomyr téli
+  fizetésképtelensége miatti műszaki győzelem (3-0), 1 a Mykolaiv–Hazovyk
+  műszaki győzelme (RSSSF `+:-`), mind auditálva.
+- Végállapot: **255 724 meccs / 250 346 eredmény**, withheld **0**,
+  integritás OK; a top-300 liga-szezon 140 491 meccs, 285/300 ≥99%.
