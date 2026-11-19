@@ -300,3 +300,51 @@ aztán pedig a javasoltakkal sorrendben egymás után".
   bináris build → reset: **MINDEN KAPU ZÖLD**.
 - [x] Commit + push: **`57f100b`** → origin/main (2034ee0..57f100b), a
       felhasználó „foglalkozz az 5 nem kész dologgal" felhatalmazásával.
+
+## S28 — A 13 withheld meccs lezárása (2026-11-19, autonóm folytatás)
+
+A felhasználó 3-4 órás autonóm munkát engedélyezett; a 13 valódi
+eredményhiányt forráskutatással és audítált revízióval zártam le.
+
+### Eredmények
+
+- [x] **7 „awarded" meccs** ítélt eredménye rögzítve, két-két független
+      forrással:
+      Real Zaragoza–Reus 1-0, Córdoba–Reus 1-0, Osasuna–Reus 1-0
+      (2018-19 Segunda División, Reus kizárása utáni w/o; Wikipedia +
+      FotMob/Global Sports Archive/Transfermarkt),
+      Ümraniyespor–Gaziantep 3-0 (2022-23 Süper Lig, Gaziantep visszalépés;
+      Wikipedia),
+      Brescia–Cosenza 0-3 (2022-23 Serie B, field invasion; Wikipedia +
+      Flashscore),
+      Troyes–Valenciennes 0-1 (2023-24 Ligue 2; Flashscore + Wikipedia),
+      Salernitana–Sampdoria 0-3 (2024-25 Serie B play-off, összesítés 0-5;
+      Flashscore + Fox Sports + Corriere dello Sport).
+- [x] **6 „finished" meccs valójában elhalasztott** (Sky Sports/ESPN):
+      Crawley–Barnet, Port Vale–Northampton, Bradford–Barnsley,
+      Notts County–Blackpool, Mansfield–Leyton Orient (2026-09-26),
+      KFUM Oslo–HamKam (2026-10-25, nov. 1-re halasztva) → státusz
+      `postponed`, eredmény nélkül.
+- [x] Minden érintett meccsre `ops.audit_event` (`match_result_revision`,
+      forrásokkal); a reverify az érintett időszakokra lefutott
+      (1629 + 2844 + 634 + 58 + 3014 meccs, 0 hiba).
+- [x] **Withheld: 13 → 0.** Gate-állomány: 199 887 provisional +
+      31 693 verified, 0 withheld. Integritás-riport: 0 hard failure.
+
+### Kód
+
+- [x] `domain::final_score()`: hosszabbításnál az ET állás a jogerős
+      eredmény; a `MATCH_RESULT_REQUIRED` csak akkor blokkol, ha sem FT,
+      sem ET pár nincs. (2 új teszt.)
+- [x] A tabella/csapat-összesítők `COALESCE(et, ft)` sorrendre váltottak
+      (korábban FT-first volt, elrontotta az ET-meccseket); új teszt.
+- [x] `footballctl integrity [--from --to] [--json]`: read-only napi
+      integritás-riport (duplikátumok, árva provenance, összevont
+      entitásra mutató aktív ref, review/gate/job/breaker); kemény hiba
+      esetén exit 1. 2 új teszt.
+
+### Nyitott (következő szeletek)
+
+- demo-synthetic napi failed job + nyitott breaker (zaj, tisztítás).
+- fotmob failed jobok (robots tiltás) — várt állapot, jelölés.
+- további S24 kliens-szeletek, S25 monitoring.
