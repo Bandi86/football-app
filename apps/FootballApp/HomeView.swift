@@ -194,7 +194,7 @@ struct HomeView: View {
             if leagues.isEmpty, featuredOnly, !groups(feed.matches, featured: false).isEmpty {
                 featuredEmptyHint
             } else {
-                MatchListView(leagues: leagues, focusedMatch: focusedMatchID) { id in
+                MatchListView(leagues: leagues, logos: model.logos, focusedMatch: focusedMatchID) { id in
                     if let uuid = UUID(uuidString: id) {
                         selected = SelectedMatch(id: uuid)
                     }

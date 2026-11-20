@@ -50,7 +50,10 @@
       "home_elo": 1650.5,
       "away_elo": 1480.25,
       "odds_captured_at": "2026-11-20T17:20:00Z",
-      "odds_trust_state": "trusted"
+      "odds_trust_state": "trusted",
+      "kickoff_precision": "exact",
+      "round_label": "5. forduló",
+      "competition_logo": "hu/nb1.png"
     },
     {
       "id": "22222222-2222-2222-2222-222222222222",
@@ -84,7 +87,10 @@
       "home_elo": null,
       "away_elo": null,
       "odds_captured_at": null,
-      "odds_trust_state": null
+      "odds_trust_state": null,
+      "kickoff_precision": "date_only",
+      "round_label": null,
+      "competition_logo": null
     }
   ]
 }

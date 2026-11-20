@@ -137,7 +137,7 @@ async fn seed(pool: &PgPool) -> Seed {
         Some((1, 1)),
     )
     .await;
-    // Ablakon kívüli, provisional: nem számít.
+    // Provisional: a napi feed megjeleníti (S42).
     seed_match(
         team_ids[1],
         team_ids[2],
@@ -209,9 +209,9 @@ async fn day_filter_supports_competition_window() {
         team_id: None,
     };
     let day = fetch_day(&pool, &base(0)).await.unwrap();
-    assert_eq!(day.len(), 2);
+    assert_eq!(day.len(), 3, "verified + provisional együtt jelenik meg");
     let windowed = fetch_day(&pool, &base(7)).await.unwrap();
-    assert_eq!(windowed.len(), 2, "a provisional továbbra is kimarad");
+    assert_eq!(windowed.len(), 3);
 }
 
 #[tokio::test]

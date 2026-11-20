@@ -74,6 +74,8 @@ public enum AccessibilityLabels {
         awayScore: Int?,
         publishState: PublishState,
         dayLabel: String? = nil,
+        kickoffNote: String? = nil,
+        round: String? = nil,
         odds: String? = nil
     ) -> String {
         let score: String
@@ -82,12 +84,15 @@ public enum AccessibilityLabels {
         } else {
             score = "eredmény még nincs"
         }
-        let kickoff = [dayLabel, time]
+        let kickoff = [dayLabel, kickoffNote ?? time]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .joined(separator: " ")
         var parts = [home + " – " + away, kickoff, statusLabel(for: status), score,
                      publishLabel(publishState)]
+        if let round, !round.isEmpty {
+            parts.append(round)
+        }
         if let odds, !odds.isEmpty {
             parts.append("odds \(odds)")
         }

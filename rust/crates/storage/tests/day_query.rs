@@ -12,7 +12,7 @@ struct MatchBase {
 }
 
 #[tokio::test]
-async fn default_day_contains_only_verified_publish_matches() {
+async fn default_day_contains_publishable_matches() {
     let pool = test_pool().await;
     let base = seed_match_base(&pool).await;
     let match_id = seed_match(
@@ -27,6 +27,13 @@ async fn default_day_contains_only_verified_publish_matches() {
         &base,
         "provisional_publish",
         Utc.with_ymd_and_hms(2026, 11, 9, 19, 0, 0).unwrap(),
+    )
+    .await;
+    let withheld_id = seed_match(
+        &pool,
+        &base,
+        "withheld",
+        Utc.with_ymd_and_hms(2026, 11, 9, 20, 0, 0).unwrap(),
     )
     .await;
 
@@ -44,9 +51,11 @@ async fn default_day_contains_only_verified_publish_matches() {
     .await
     .unwrap();
 
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].match_id, match_id);
-    assert_ne!(rows[0].match_id, provisional_id);
+    assert_eq!(rows.len(), 2);
+    let ids: Vec<_> = rows.iter().map(|row| row.match_id).collect();
+    assert!(ids.contains(&match_id));
+    assert!(ids.contains(&provisional_id));
+    assert!(!ids.contains(&withheld_id));
 
     let all = fetch_day(
         &pool,
@@ -61,7 +70,7 @@ async fn default_day_contains_only_verified_publish_matches() {
     )
     .await
     .unwrap();
-    assert_eq!(all.len(), 2);
+    assert_eq!(all.len(), 3);
 }
 
 #[tokio::test]

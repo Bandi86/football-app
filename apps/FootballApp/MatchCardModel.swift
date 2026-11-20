@@ -40,6 +40,10 @@ struct MatchCardModel: Identifiable {
     /// A kezdés napja magyar rövid formában (pl. „nov. 20.").
     let dayLabel: String
     let time: String
+    /// „exact" vagy „date_only" — utóbbinál a kezdés ideje still placeholder.
+    let kickoffPrecision: String
+    /// A forduló nyers címkéje az API-ból (pl. „17", „1/8", „final").
+    let roundLabel: String?
     let status: String
     let publishState: PublishState
     let homeScore: Int?
@@ -107,6 +111,37 @@ struct MatchCardModel: Identifiable {
 
     var minuteText: String? { minute.map { "\($0)'" } }
 
+    /// Csak pontos kezdésnél mutatunk időt; a `date_only` sorok placeholder
+    /// időt kaptak az ingesttől, azt nem szabad valódi kezdésként kijelezni.
+    var hasExactKickoff: Bool { kickoffPrecision != "date_only" }
+
+    var timeDisplay: String { hasExactKickoff ? time : "" }
+
+    /// A kezdés-oszlop második sora, ha nincs pontos idő.
+    var kickoffNote: String? { hasExactKickoff ? nil : "időpont egyeztetés alatt" }
+
+    /// Forduló-felirat: a numerikus címkéből „17. forduló", a kupa-kódokból
+    /// magyar elnevezés, minden másból a nyers címke.
+    var roundText: String? {
+        guard let raw = roundLabel?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else { return nil }
+        let folded = raw.folding(options: [.diacriticInsensitive, .caseInsensitive],
+                                 locale: Locale(identifier: "hu_HU"))
+            .trimmingCharacters(in: .whitespaces)
+        if folded.allSatisfy({ $0.isNumber }) { return "\(folded). forduló" }
+        switch folded {
+        case "final": return "Döntő"
+        case "1/2", "semi final", "semi-finals", "elődöntő": return "Elődöntő"
+        case "1/4", "quarter final", "quarter-final", "negyeddöntő": return "Negyeddöntő"
+        case "1/8", "round of 16", "nyolcaddöntő": return "Nyolcaddöntő"
+        case "1/16", "round of 32": return "Tizenhatoddöntő"
+        case "1st round", "round 1", "1. forduló": return "1. forduló"
+        default:
+            if folded.hasPrefix("group stage") { return "Csoportkör" }
+            return raw
+        }
+    }
+
     /// Csak az 1X2 piac látszik a kártyán; ha nincs egyik odds sem, a blokk rejtve.
     var hasOdds: Bool {
         guard let odds else { return false }
@@ -164,6 +199,8 @@ struct MatchCardModel: Identifiable {
             away: match.away,
             dayLabel: dayLabel(for: match.kickoffAt),
             time: timeLabel(for: match.kickoffAt),
+            kickoffPrecision: match.kickoffPrecision ?? "exact",
+            roundLabel: match.roundLabel,
             status: match.status,
             publishState: match.publishState,
             homeScore: match.homeScore,
@@ -194,6 +231,7 @@ struct MatchCardModel: Identifiable {
     static func from(_ match: SampleMatch) -> MatchCardModel {
         MatchCardModel(
             id: match.id, home: match.home, away: match.away, dayLabel: "", time: match.time,
+            kickoffPrecision: "exact", roundLabel: nil,
             status: match.status, publishState: .unknown, homeScore: match.homeScore, awayScore: match.awayScore,
             homeHt: match.homeHt, awayHt: match.awayHt, homeEt: match.homeEt, awayEt: match.awayEt,
             homePens: match.homePens, awayPens: match.awayPens, minute: match.minute,

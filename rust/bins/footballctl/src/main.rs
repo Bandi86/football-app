@@ -34,6 +34,8 @@ use sqlx::postgres::PgPoolOptions;
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
+mod competitions;
+
 /// S2b-2: a TRUST_LEVEL + odds trust szabálykészlet verziója (a tickével azonos).
 const RULE_SET_VERSION: &str = "verification-1.2";
 
@@ -110,6 +112,25 @@ enum DedupeAction {
 }
 
 #[derive(Subcommand)]
+enum CompetitionsAction {
+    /// S42: a forrás-szavazatokból javítja a versenyek országát, a versenynevet
+    /// és a rossz országú meccseket a helyes cél-versenybe/szezonba sorolja át.
+    /// Alapból dry-run (csak riport); `--apply` egy tranzakcióban ír, minden
+    /// változás `ops.audit_event` sort kap.
+    RepairCountries {
+        /// A helyi (Europe/Budapest) intervallum első napja, zárt.
+        #[arg(long)]
+        from: NaiveDate,
+        /// Az intervallum utolsó napja, zárt.
+        #[arg(long)]
+        to: NaiveDate,
+        /// Tényleges végrehajtás (alapból csak terv).
+        #[arg(long)]
+        apply: bool,
+    },
+}
+
+#[derive(Subcommand)]
 enum Command {
     Migrate,
     IngestFixture {
@@ -138,6 +159,11 @@ enum Command {
     Dedupe {
         #[command(subcommand)]
         action: DedupeAction,
+    },
+    /// S42: verseny-ország javítás a kiválasztott kickoff-megfigyelésekből.
+    Competitions {
+        #[command(subcommand)]
+        action: CompetitionsAction,
     },
     /// Liga-szezon lefedettségi riport (S23).
     Coverage {
@@ -1004,6 +1030,11 @@ async fn main() -> Result<()> {
                         " (dry-run — --apply a végrehajtáshoz)"
                     }
                 );
+            }
+        },
+        Command::Competitions { action } => match action {
+            CompetitionsAction::RepairCountries { from, to, apply } => {
+                competitions::run_repair_countries(&pool, from, to, apply).await?;
             }
         },
         Command::Integrity { from, to, json } => {

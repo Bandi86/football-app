@@ -164,4 +164,36 @@ final class MatchCardModelTests: XCTestCase {
         XCTAssertEqual(card.phaseLabel, "FT")
         XCTAssertEqual(card.scoreText, "0 – 0")
     }
+    func testDateOnlyKickoffHidesTheTimeAndShowsANote() throws {
+        let matches = try decode("""
+        {"date":"2026-11-20","timezone":"Europe/Budapest","matches":[
+          {"id":"00000000-0000-0000-0000-000000000301","kickoff_at":"2026-11-20T12:00:00Z",
+           "kickoff_precision":"date_only",
+           "status":"scheduled","home":"Fluminense","away":"Sao Paulo",
+           "home_score":null,"away_score":null,"publish_state":"verified_publish","blockers":[]}
+        ]}
+        """)
+        let card = MatchCardModel.from(matches[0])
+        XCTAssertFalse(card.hasExactKickoff)
+        XCTAssertEqual(card.timeDisplay, "")
+        XCTAssertEqual(card.kickoffNote, "időpont egyeztetés alatt")
+    }
+
+    func testNumericRoundLabelBecomesHungarianRound() throws {
+        let matches = try decode("""
+        {"date":"2026-11-20","timezone":"Europe/Budapest","matches":[
+          {"id":"00000000-0000-0000-0000-000000000302","kickoff_at":"2026-11-20T17:00:00Z",
+           "round_label":"17",
+           "status":"scheduled","home":"A","away":"B",
+           "home_score":null,"away_score":null,"publish_state":"verified_publish","blockers":[]},
+          {"id":"00000000-0000-0000-0000-000000000303","kickoff_at":"2026-11-20T18:00:00Z",
+           "round_label":"final",
+           "status":"scheduled","home":"C","away":"D",
+           "home_score":null,"away_score":null,"publish_state":"verified_publish","blockers":[]}
+        ]}
+        """)
+        XCTAssertEqual(MatchCardModel.from(matches[0]).roundText, "17. forduló")
+        XCTAssertEqual(MatchCardModel.from(matches[1]).roundText, "Döntő")
+    }
+
 }

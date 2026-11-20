@@ -173,6 +173,46 @@ pub fn canonical_country_code(code: &str) -> String {
     upper
 }
 
+/// Ország-kód + ország-név együttes kanonizálása (S42).
+///
+/// A források a brit hazai nemzeteket gyakran `GB` kóddal, de a hazai névvel
+/// adják meg („Anglia", „Skócia", „Wales", „Észak-Írország"). ilyenkor a
+/// kódot a hazai nemzet alrégió-kódjára oldjuk, hogy az angol bajnokság ne
+/// „Egyesült Királyság" alatt jelenjen meg. Más országoknál a kód dönt.
+pub fn canonical_country_code_with_name(code: &str, name: &str) -> String {
+    let base = canonical_country_code(code);
+    if base != "GB" {
+        return base;
+    }
+    let folded = fold_name(name);
+    let has = |needles: &[&str]| needles.iter().any(|needle| folded.contains(needle));
+    if has(&[
+        "england",
+        "anglia",
+        "angleterre",
+        "inghilterra",
+        "inglaterra",
+    ]) {
+        return "GB-ENG".to_string();
+    }
+    if has(&["scotland", "skocia", "schottland", "ecosse", "escocia"]) {
+        return "GB-SCT".to_string();
+    }
+    if has(&["wales", "walesi", "pays de galles", "galles"]) {
+        return "GB-WLS".to_string();
+    }
+    if has(&[
+        "northern ireland",
+        "eszak-irorszag",
+        "eszak irorszag",
+        "nordirland",
+        "irlande du nord",
+    ]) {
+        return "GB-NIR".to_string();
+    }
+    base
+}
+
 /// ISO 3166-1 alpha-3 → alpha-2 (a labdarúgásban gyakori kódokkal, illetve a
 /// futball-specifikus rövidítésekkel, pl. `GER`, `NED`, `NIG`, `UAE`).
 fn iso3_to_iso2(code: &str) -> Option<&'static str> {
@@ -711,6 +751,28 @@ pub fn names_likely_same(a: &str, b: &str) -> bool {
         return true;
     }
     false
+}
+
+#[cfg(test)]
+mod s42_country_tests {
+    use super::*;
+
+    #[test]
+    fn gb_home_nations_resolve_from_the_country_name() {
+        assert_eq!(canonical_country_code_with_name("GB", "Anglia"), "GB-ENG");
+        assert_eq!(canonical_country_code_with_name("GB", "England"), "GB-ENG");
+        assert_eq!(canonical_country_code_with_name("GB", "Skócia"), "GB-SCT");
+        assert_eq!(canonical_country_code_with_name("GB", "Wales"), "GB-WLS");
+        assert_eq!(
+            canonical_country_code_with_name("GB", "Észak-Írország"),
+            "GB-NIR"
+        );
+        assert_eq!(
+            canonical_country_code_with_name("GB", "Egyesült Királyság"),
+            "GB"
+        );
+        assert_eq!(canonical_country_code_with_name("DE", "Németország"), "DE");
+    }
 }
 
 #[cfg(test)]

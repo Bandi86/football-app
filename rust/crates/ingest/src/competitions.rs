@@ -440,6 +440,37 @@ fn resolve_country_name(name: &str) -> Option<(&'static str, &'static str)> {
     crate::countries::by_english_name(name).or_else(|| crate::countries::by_localized_title(name))
 }
 
+/// Ország-specifikus verseny-név felülírás (S42).
+///
+/// A források néha egy másik ország hazai kupáját/ligáját a maguk általános
+/// versenynevével adják meg: a kínai FA Kupát „FA Cup" néven (ami a GB
+/// szótárral brit kupára oldódna), a szlovák kupát szintén „FA Cup"/„Cup"
+/// alakban, a chilei/bolíviai első osztályt pedig „La Liga"/„Primera División"
+/// néven (ami az ES spanyol ligára oldódna). Ilyenkor a megfigyelt nevet a
+/// cél-ország specifikus nevére kell cserélni.
+///
+/// A globális szótár ([`canonicalize`]) változatlanul marad; ez a függvény csak
+/// arra az esetre ad választ, amikor az ország önmagában eldönti a nevet.
+/// `None` = nincs ország-specifikus szabály, jöhet a szótár.
+pub fn country_specific_name(country_code: &str, observed_name: &str) -> Option<&'static str> {
+    let country = football_domain::identity::canonical_country_code(country_code);
+    if country.is_empty() {
+        return None;
+    }
+    let folded = fold_name(observed_name);
+    if folded.is_empty() {
+        return None;
+    }
+    let mentions = |needles: &[&str]| needles.iter().any(|needle| folded.contains(needle));
+    let is_cup = mentions(&["cup", "kupa"]);
+    match country.as_str() {
+        "CN" if is_cup => Some("Chinese FA Cup"),
+        "SK" if is_cup => Some("Slovak Cup"),
+        "CL" | "BO" if mentions(&["la liga", "primera division"]) => Some("Primera División"),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -562,6 +593,57 @@ mod tests {
         let missing_es = canonicalize(&comp("La Liga", "", ""));
         assert_eq!(missing_es.country_code, "ES");
         assert_eq!(missing_es.country_name, "Spain");
+    }
+
+    #[test]
+    fn country_specific_cup_names() {
+        // A kínai FA Kupát a források „FA Cup" néven adják: a szótár GB-ra
+        // oldaná, az ország-specifikus név viszont CN-re mutat.
+        assert_eq!(
+            country_specific_name("CN", "FA Cup"),
+            Some("Chinese FA Cup")
+        );
+        assert_eq!(
+            country_specific_name("CN", "Chinese FA Cup"),
+            Some("Chinese FA Cup")
+        );
+        assert_eq!(
+            country_specific_name("CN", "Kínai Kupa"),
+            Some("Chinese FA Cup")
+        );
+        // Szlovák kupa ugyanígy „FA Cup"/„Cup" alakban.
+        assert_eq!(country_specific_name("SK", "FA Cup"), Some("Slovak Cup"));
+        assert_eq!(
+            country_specific_name("SK", "Slovnaft Cup"),
+            Some("Slovak Cup")
+        );
+        assert_eq!(country_specific_name("SK", "2. liga"), None);
+        // Ország-specifikus szabály nélkül a szótár dönt.
+        assert_eq!(country_specific_name("GB", "FA Cup"), None);
+        assert_eq!(country_specific_name("ES", "La Liga"), None);
+        assert_eq!(country_specific_name("", "FA Cup"), None);
+        assert_eq!(country_specific_name("CN", ""), None);
+    }
+
+    #[test]
+    fn country_specific_primera_division_names() {
+        for code in ["CL", "CHI"] {
+            assert_eq!(
+                country_specific_name(code, "La Liga"),
+                Some("Primera División")
+            );
+            assert_eq!(
+                country_specific_name(code, "Primera Division"),
+                Some("Primera División")
+            );
+        }
+        assert_eq!(
+            country_specific_name("BO", "Primera Division"),
+            Some("Primera División")
+        );
+        // Nem első osztály: nincs felülírás.
+        assert_eq!(country_specific_name("CL", "Copa Chile"), None);
+        assert_eq!(country_specific_name("BO", "Copa Bolivia"), None);
     }
 }
 

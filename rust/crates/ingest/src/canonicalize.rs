@@ -108,17 +108,17 @@ impl Canonicalizer {
 
         // S9: a verseny országa ismeretlen lehet (kupa/nemzetközi) — ilyenkor
         // NULL; csak ismert kódnál hozunk létre ország-sort.
-        let country_id: Option<Uuid> = if competition.country_code.trim().is_empty() {
+        // S42: a brit hazai nemzeteket a forrás `GB` kóddal, de a hazai névvel
+        // adja („Anglia", „Skócia", „Wales"); a kódot a névvel együtt oldjuk
+        // fel, hogy ne „Egyesült Királyság" alá kerüljön az angol liga.
+        let canonical_country = football_domain::identity::canonical_country_code_with_name(
+            &competition.country_code,
+            &competition.country_name,
+        );
+        let country_id: Option<Uuid> = if canonical_country.is_empty() {
             None
         } else {
-            Some(
-                upsert_country(
-                    &mut tx,
-                    &competition.country_code,
-                    &competition.country_name,
-                )
-                .await?,
-            )
+            Some(upsert_country(&mut tx, &canonical_country, &competition.country_name).await?)
         };
         let source_id: Uuid = sqlx::query_scalar("SELECT id FROM ops.source WHERE code=$1")
             .bind(&day.source_code)

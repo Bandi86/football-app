@@ -363,7 +363,9 @@ impl ResearchAdapter {
                         "name": comp_name,
                         "country_code": country_code,
                         "country_name": country_name,
-                        "tier": 1,
+                        // Ismeretlen tier: a kanonikus versenyszótár tudja
+                        // csak megmondani (a forrás 1-es tierje mindenre igaz).
+                        "tier": 0,
                         "priority": 30,
                     },
                     "season": { "label": season_label },

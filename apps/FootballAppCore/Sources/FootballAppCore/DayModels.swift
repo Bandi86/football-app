@@ -48,6 +48,9 @@ public struct OddsSnapshot: Decodable, Equatable, Sendable {
 public struct DayMatch: Decodable, Equatable, Identifiable, Sendable {
     public let id: UUID
     public let kickoffAt: Date
+    /// „exact" vagy „date_only": utóbbinál a kezdés ideje still placeholder,
+    /// ezért a felület nem mutat időt. Régi válaszokban hiányozhat.
+    public let kickoffPrecision: String?
     public let status: String
     public let home: String
     public let away: String
@@ -61,6 +64,8 @@ public struct DayMatch: Decodable, Equatable, Identifiable, Sendable {
     public let countryName: String?
     public let tier: Int?
     public let priority: Int?
+    /// A forduló nyers címkéje (pl. „17", „1/8", „final").
+    public let roundLabel: String?
     public let homeHt: Int?
     public let awayHt: Int?
     public let homeEt: Int?
@@ -76,12 +81,14 @@ public struct DayMatch: Decodable, Equatable, Identifiable, Sendable {
     public let oddsTrustState: String?
     public let homeLogo: String?
     public let awayLogo: String?
+    public let competitionLogo: String?
     public let homeElo: Double?
     public let awayElo: Double?
 
     enum CodingKeys: String, CodingKey {
         case id
         case kickoffAt = "kickoff_at"
+        case kickoffPrecision = "kickoff_precision"
         case status
         case home
         case away
@@ -94,6 +101,7 @@ public struct DayMatch: Decodable, Equatable, Identifiable, Sendable {
         case countryCode = "country_code"
         case countryName = "country_name"
         case tier, priority
+        case roundLabel = "round_label"
         case homeHt = "home_ht"
         case awayHt = "away_ht"
         case homeEt = "home_et"
@@ -109,6 +117,7 @@ public struct DayMatch: Decodable, Equatable, Identifiable, Sendable {
         case oddsTrustState = "odds_trust_state"
         case homeLogo = "home_logo"
         case awayLogo = "away_logo"
+        case competitionLogo = "competition_logo"
         case homeElo = "home_elo"
         case awayElo = "away_elo"
     }

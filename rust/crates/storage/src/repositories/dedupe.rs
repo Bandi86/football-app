@@ -259,11 +259,15 @@ fn variant_pair(
     let same_teams = (a.home_team_id == b.home_team_id && a.away_team_id == b.away_team_id)
         || (a.home_team_id == b.away_team_id && a.away_team_id == b.home_team_id);
     if same_teams {
-        // Ugyanaz a két csapat 12 órán belül: azonos versenyen belül ezt a
-        // pontos duplikátum-út kezeli; különböző verseny-entitás alatt vi-
-        // szont ez a legerősebb bizonyíték ugyanarra a fixture-re (pl.
-        // „Primera RFEF - 2. csoport" / „Primera Federacion - Group 2").
-        return allow_cross_competition && a.competition_id != b.competition_id;
+        // Ugyanaz a két csapat 12 órán belül. Azonos versenyen belül az azonos
+        // kickoffú párt a pontos duplikátum-út kezeli; ha a kickoff eltér (a
+        // források eltérő időt adnak ugyanarra a fixture-re), az ide tartozik.
+        // Különböző verseny-entitás alatt ez a legerősebb bizonyíték ugyanarra
+        // a fixture-re (pl. „Primera RFEF - 2. csoport" / „Primera Federacion").
+        if a.competition_id == b.competition_id {
+            return a.kickoff_at != b.kickoff_at;
+        }
+        return allow_cross_competition;
     }
     let normal = names_likely_same(&a.home_name, &b.home_name)
         && names_likely_same(&a.away_name, &b.away_name);
@@ -408,11 +412,12 @@ fn strict_variant_pair_mergeable(
     if !competitions_compatible(s, d, allow_cross_competition) {
         return false;
     }
-    // Azonos nap kell; a kickoff vagy pontosan egyezik, vagy pontosan 2 órával
-    // tér el (a források egy része nyáron is CEST-eltolást használt novemberben —
-    // mért adathiba a 2026-11-17-es U17/U19 sorokon).
+    // Azonos nap kell, és a kickoff legfeljebb 2 órával térhet el: a források
+    // egy része nyáron is CEST-eltolást használt novemberben (mért adathiba a
+    // 2026-11-17-es U17/U19 sorokon), mások 30-60 perces kerekítéssel adnak
+    // kezdést (pl. egyiptomi kupa 16:00 vs 17:00 ugyanarra a fixture-re).
     let delta = (s.kickoff_at - d.kickoff_at).num_minutes().abs();
-    if delta != 0 && delta != 120 {
+    if delta > 120 {
         return false;
     }
     let normal = names_strictly_same(&s.home_name, &d.home_name)
@@ -928,6 +933,18 @@ mod tests {
     }
 
     #[test]
+    fn variant_pair_same_teams_same_competition_with_different_kickoff() {
+        let a = row(1);
+        let mut b = row(2);
+        b.home_team_id = a.home_team_id;
+        b.away_team_id = a.away_team_id;
+        b.kickoff_at = a.kickoff_at + chrono::Duration::minutes(60);
+        assert!(variant_pair(&a, &b, false));
+        assert!(variant_pair_mergeable(&a, &b, false));
+        assert!(strict_variant_pair_mergeable(&a, &b, false));
+    }
+
+    #[test]
     fn variant_pair_same_teams_flip_with_result_is_manual() {
         let a = row(1);
         let mut b = row(2);
@@ -1061,7 +1078,7 @@ mod tests {
     }
 
     #[test]
-    fn strict_pair_accepts_zero_or_two_hour_delta_only() {
+    fn strict_pair_accepts_up_to_two_hour_delta() {
         let a = row(1);
         let mut b = row(2);
         b.competition_id = Uuid::from_u128(200);
@@ -1075,7 +1092,12 @@ mod tests {
         let mut one_hour = row(4);
         one_hour.competition_id = Uuid::from_u128(200);
         one_hour.kickoff_at = at(20, 19);
-        assert!(!strict_variant_pair_mergeable(&a, &one_hour, true));
+        assert!(strict_variant_pair_mergeable(&a, &one_hour, true));
+
+        let mut three_hours = row(5);
+        three_hours.competition_id = Uuid::from_u128(200);
+        three_hours.kickoff_at = at(20, 23);
+        assert!(!strict_variant_pair_mergeable(&a, &three_hours, true));
     }
 
     #[test]

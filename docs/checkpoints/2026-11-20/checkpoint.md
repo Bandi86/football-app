@@ -900,3 +900,83 @@ kártyán, minden más a részletes nézetben; az adathibák rendszerszintű jav
       szelet csak a látható zászlókat és a brit hazai nemzeteket rendezte.
 - [ ] Történelmi competition-ország újracímkézés (CN/SK FA Kupa) és a
       csapat-ország INT/rokon hibák szélesebb revíziója.
+
+## S42 — a napi lista alapjai: teljes nap, verseny-ország, forduló, logók
+
+A felhasználó visszajelzése (m01633) szerint az alapok még hiányosak: „első
+osztály" mindenhol, invalid kezdésidő, egyiptomi kupa-duplikátum, hiányzó
+meccsek, logók, országok szétválasztása, kínai FA Kupa, fordulójelzés. Ez a
+szelet ezeket a rendszerszintű okokat javítja.
+
+### Változások
+
+- [x] Napi feed: a `day` lekérdezés alapból a `verified_publish` **és**
+      `provisional_publish` sorokat adja (`rust/crates/storage/src/
+      repositories/day.rs`); a `?include=all` továbbra is mindent mutat.
+      2026-11-20: 267 sor (90 verified + 177 provisional; a 2 withheld
+      szándékosan kimarad).
+- [x] `date_only` kezdés: `kickoff_precision` bekerült a day API-ba; a kártya
+      ilyenkor nem mutat hamis időt, hanem „időpont egyeztetés alatt" jelzést
+      (Fluminense–São Paulo 12:00Z placeholdere).
+- [x] Forduló: `round_label` a day API-ban és a kártyán („13. forduló",
+      „Döntő", „Nyolcaddöntő"); 2026-11-20-on 148/267 meccsnél van forrásadat.
+- [x] Osztálycímke: a research adapter most `tier=0`-t ad (ismeretlen), a
+      kanonikus szótár adja az ismert tier/priority értékeket; a UI a hamis
+      „1. osztály" feliratot elhagyta — a fejléc csak az országot mutatja.
+- [x] Országok: `canonical_country_code_with_name` (domain) + ingest
+      kanonizálás GB-ENG / GB-SCT / GB-WLS / GB-NIR; a GB versenyek forrás-
+      országneve (Anglia / Skócia / Wales) alapján sorolódnak be; a DB-ben az
+      `ENG` sor átkódolva `GB-ENG`-re (auditált SQL, `identity_country_revision`).
+- [x] Verseny-ország javítás: új `footballctl competitions repair-countries`
+      CLI (szavazat + brit hazai nemzet guard); alkalmazva 2026-11-13..27:
+      40 audit sor, Chinese FA Cup [CN] (Beijing Guoan–Shanghai Port),
+      Slovak Cup [SK] 2, Primera División [BO] 2 / [CL] 6, FA Cup [GB] 0,
+      27 angol verseny GB→GB-ENG.
+- [x] Egyiptomi kupa duplikátum: 3 csapat-entitás összevonva (auditált SQL,
+      `identity_team_merge`), majd `dedupe variants --date 2026-11-20 --apply`
+      → 1 merge; a 16:00-s sor maradt.
+- [x] Dedupe: a szigorú név-variáns most ≤120 perc kickoff-eltérést fogad el
+      (a források 30–60 percet kerekítenek); azonos csapatpár azonos versenyen
+      belül eltérő kickoffal is merge-elhető.
+- [x] Logók: `scripts/import-v1-megapack-logos.py` (v1 megapack csapat- és
+      ligalogók, ISO3→ISO2 ország-család, rövidített név egyeztetés,
+      content-addressed másolás, `ops.asset`). Eredmény: 1955 csapat + 560
+      legacy + 75 verseny illesztve; a napi feedben 270/521 csapat és
+      64/268 meccs verseny-logóval; a fájlok a daemon adatkönyvtárába is
+      átmásolva (`~/Library/Application Support/FootballAppV2/agent/data`).
+- [x] Kártya/UI: csapatcímer a csapatnév mellett, ligalogó a szekció-
+      fejlécben (fallback zászló), forduló és date_only jelzés; a
+      `LeagueGroup` a csoport logóját bármely tagból választja.
+- [x] Tesztek: a `day-response.json` kontrakt-fixture és a Rust DTO teszt
+      frissítve (`kickoff_precision`, `round_label`, `competition_logo`);
+      a UI fixture valós állapotot tükröz (date_only, final, GB-ENG szekció);
+      a UI-tesztek Tab-sorrendje robusztus (nem fix Tab-szám), új assertion a
+      date_only jelzésre és a fordulóra.
+
+### Adatműveletek és visszaállítás
+
+- [x] Mentés az apply előtt: `/tmp/football_v2_dev_20261120_pre_s42_apply.dump`
+      (543 MB, `pg_dump -Fc -Z 5`); visszaállítás `pg_restore`-ral.
+- [x] Auditált írások: `competition_country_repair` (40), `identity_team_merge`
+      (1), `identity_country_revision` (1); a logó-import `ops.asset` sorokat
+      szúr be (forrás `v1-megapack`, licence ismeretlen).
+
+### Kapuk
+
+- [x] `cargo fmt --all --check` OK; `cargo clippy --workspace --all-targets
+      -- -D warnings` tiszta; `cargo test --workspace -- --test-threads=1`
+      exit 0.
+- [x] Swift Core 55/55, app unit 43/43, UI 8/8 PASSED, `xcodebuild build`
+      BUILD SUCCEEDED.
+- [x] Daemon újraépítve + telepítve (port 65493), `/v1/health` 200,
+      `/v1/day/2026-11-20` 267 sor, 0 önmaga-meccs, 0 azonos csapatpárú
+      duplikátum.
+
+### Nyitott / következő
+
+- [ ] Csapat-entitás duplikátumok összevonása (research vs v1-import; pl.
+      „Ath Bilbao" / „Athletic Bilbao") — ez emeli a logó-lefedettséget.
+- [ ] `core.country` ISO3→ISO2 sorok összevonása (S41d); addig az API ISO3
+      kódot ad, a UI katalógus fordítja zászlóra/névre.
+- [ ] Verseny-logó forrás bővítése (a v1-nek csak 96 ligája van; a La Liga
+      logója hiányzik), és a fordulójelzés kitöltése a hiányzó meccseknél.

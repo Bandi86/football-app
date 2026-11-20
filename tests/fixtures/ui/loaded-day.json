@@ -18,7 +18,9 @@
       "country_code": "HU",
       "country_name": "Magyarország",
       "tier": 1,
-      "priority": 1
+      "priority": 1,
+      "kickoff_precision": "date_only",
+      "round_label": "17"
     },
     {
       "id": "22222222-2222-2222-2222-222222222222",
@@ -35,7 +37,29 @@
       "country_code": "HU",
       "country_name": "Magyarország",
       "tier": 1,
-      "priority": 1
+      "priority": 1,
+      "kickoff_precision": "exact",
+      "round_label": "final",
+      "competition_logo": "/v1/asset/assets/aa/bb/cccc.webp"
+    },
+    {
+      "id": "44444444-4444-4444-4444-444444444444",
+      "kickoff_at": "2026-11-20T19:00:00Z",
+      "kickoff_precision": "exact",
+      "status": "scheduled",
+      "home": "Arsenal",
+      "away": "Chelsea",
+      "home_score": null,
+      "away_score": null,
+      "publish_state": "verified_publish",
+      "blockers": [],
+      "competition_id": "55555555-5555-5555-5555-555555555555",
+      "competition_name": "Premier League",
+      "country_code": "GB-ENG",
+      "country_name": "Anglia",
+      "tier": 1,
+      "priority": 1,
+      "round_label": "12"
     }
   ]
 }

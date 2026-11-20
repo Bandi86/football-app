@@ -43,6 +43,7 @@ enum MatchFilter: String, CaseIterable, Identifiable {
 /// A fókusz vizuális jelzése a kártya körüli borostyán keret.
 struct MatchListView: View {
     let leagues: [LeagueGroup]
+    let logos: LogoStore
     let focusedMatch: String?
     let onSelect: (String) -> Void
 
@@ -79,6 +80,7 @@ struct MatchListView: View {
                             ForEach(leagues) { league in
                                 LeagueSectionView(
                                     league: league,
+                                    logos: logos,
                                     isWide: isWide,
                                     focusedMatch: focusedMatch,
                                     onSelect: onSelect
@@ -102,6 +104,7 @@ struct MatchListView: View {
 
 private struct LeagueSectionView: View {
     let league: LeagueGroup
+    let logos: LogoStore
     let isWide: Bool
     let focusedMatch: String?
     let onSelect: (String) -> Void
@@ -115,8 +118,12 @@ private struct LeagueSectionView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Text(league.flag)
-                    .font(.system(size: 20))
+                if let logo = league.logo {
+                    CompetitionLogo(path: logo, store: logos, fallbackFlag: league.countryCode)
+                } else {
+                    Text(league.flag)
+                        .font(.system(size: 20))
+                }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(league.name)
                         .font(.appText(15, weight: .semibold))
@@ -142,7 +149,7 @@ private struct LeagueSectionView: View {
 
             VStack(spacing: 0) {
                 ForEach(Array(sortedMatches.enumerated()), id: \.element.id) { index, match in
-                    MatchItemRow(match: match, isWide: isWide,
+                    MatchItemRow(match: match, logos: logos, isWide: isWide,
                                  focusedMatch: focusedMatch, onSelect: onSelect)
                         .id(match.id)
                     if index < sortedMatches.count - 1 {
@@ -165,6 +172,7 @@ private struct LeagueSectionView: View {
 /// a részletes nézetben él.
 private struct MatchItemRow: View {
     let match: MatchCardModel
+    let logos: LogoStore
     let isWide: Bool
     let focusedMatch: String?
     let onSelect: (String) -> Void
@@ -172,7 +180,7 @@ private struct MatchItemRow: View {
 
     /// A kezdés-oszlop szélessége: a dátum, az idő és az állapotjelzés alatt
     /// egy vonalban marad. Fix, mert ez az oszlop minden sornál ugyanaz.
-    private let kickoffWidth: CGFloat = 82
+    private let kickoffWidth: CGFloat = 96
 
     var body: some View {
         Group {
@@ -199,6 +207,8 @@ private struct MatchItemRow: View {
                 awayScore: match.finalScore?.away,
                 publishState: match.publishState,
                 dayLabel: match.dayLabel.isEmpty ? nil : match.dayLabel,
+                kickoffNote: match.kickoffNote,
+                round: match.roundText,
                 odds: match.oddsAccessibilityText
             )
         )
@@ -255,9 +265,16 @@ private struct MatchItemRow: View {
                     .foregroundStyle(AppTheme.secondaryText)
                     .lineLimit(1)
             }
-            Text(match.time)
-                .font(.system(size: 13, weight: .semibold).monospacedDigit())
-                .foregroundStyle(AppTheme.primaryText)
+            if let note = match.kickoffNote {
+                Text(note)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .lineLimit(2)
+            } else {
+                Text(match.timeDisplay)
+                    .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(AppTheme.primaryText)
+            }
             if let phase = match.phaseLabel {
                 HStack(spacing: 4) {
                     if match.isLive { LiveDot() }
@@ -276,18 +293,29 @@ private struct MatchItemRow: View {
         .frame(width: kickoffWidth, alignment: .leading)
     }
 
-    /// Csak a két csapatnév; logó, pozíció és ELO nem kerül a kártyára.
+    /// Két csapatnév a címerrel; a forduló-jelzés a nevek alatt.
     private var teamsColumn: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(match.home)
-                .font(.appText(15, weight: .semibold))
-                .foregroundStyle(AppTheme.primaryText)
-            Text(match.away)
-                .font(.appText(15, weight: .medium))
-                .foregroundStyle(AppTheme.primaryText.opacity(0.9))
+            teamLine(match.home, logo: match.homeLogo, weight: .semibold)
+            teamLine(match.away, logo: match.awayLogo, weight: .medium)
+            if let round = match.roundText {
+                Text(round)
+                    .font(.system(size: 10, weight: .medium))
+                    .tracking(0.4)
+                    .foregroundStyle(AppTheme.secondaryText)
+            }
         }
         .lineLimit(1)
         .minimumScaleFactor(0.8)
+    }
+
+    private func teamLine(_ name: String, logo: String?, weight: Font.Weight) -> some View {
+        HStack(spacing: 8) {
+            CrestLogo(name: name, path: logo, store: logos, size: 18)
+            Text(name)
+                .font(.appText(15, weight: weight))
+                .foregroundStyle(AppTheme.primaryText.opacity(weight == .semibold ? 1 : 0.9))
+        }
     }
 
     private var scoreColumn: some View {

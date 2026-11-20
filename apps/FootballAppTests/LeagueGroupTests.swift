@@ -292,4 +292,23 @@ final class LeagueGroupTests: XCTestCase {
         XCTAssertEqual(groups[0].tier, 1)
         XCTAssertEqual(groups[0].priority, 20)
     }
+    func testSectionSubtitleIsOnlyTheCountryAndCarriesTheCompetitionLogo() throws {
+        let matches = try decode("""
+        {"date":"2026-11-20","timezone":"Europe/Budapest","matches":[
+          {"id":"00000000-0000-0000-0000-000000000401","kickoff_at":"2026-11-20T17:00:00Z",
+           "status":"scheduled","home":"Ath Bilbao","away":"Espanol",
+           "home_score":null,"away_score":null,"publish_state":"verified_publish","blockers":[],
+           "competition_id":"00000000-0000-0000-0000-0000000000b1","competition_name":"La Liga",
+           "country_code":"ES","country_name":"Spain","tier":1,"priority":6,
+           "competition_logo":"/v1/asset/assets/aa/bb/cccc.webp","round_label":"17"}
+        ]}
+        """)
+        let groups = LeagueGroup.fromDay(matches)
+        XCTAssertEqual(groups.count, 1)
+        // A hamis „1. osztály" helyett csak az ország marad a fejlécben.
+        XCTAssertEqual(groups[0].subtitle, "SPANYOLORSZÁG")
+        XCTAssertEqual(groups[0].logo, "/v1/asset/assets/aa/bb/cccc.webp")
+        XCTAssertEqual(groups[0].matches[0].roundText, "17. forduló")
+    }
+
 }

@@ -27,6 +27,7 @@ pub struct DayResponse {
 pub struct DayMatch {
     pub id: uuid::Uuid,
     pub kickoff_at: chrono::DateTime<chrono::Utc>,
+    pub kickoff_precision: String,
     pub status: String,
     pub home: String,
     pub away: String,
@@ -41,6 +42,7 @@ pub struct DayMatch {
     pub country_name: Option<String>,
     pub tier: i16,
     pub priority: i32,
+    pub round_label: Option<String>,
     pub home_ht: Option<i16>,
     pub away_ht: Option<i16>,
     pub home_et: Option<i16>,
@@ -55,6 +57,7 @@ pub struct DayMatch {
     pub odds_source: Option<String>,
     pub home_logo: Option<String>,
     pub away_logo: Option<String>,
+    pub competition_logo: Option<String>,
     pub home_elo: Option<f64>,
     pub away_elo: Option<f64>,
     pub odds_captured_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -125,6 +128,7 @@ pub fn map_match(row: football_storage::repositories::day::DayMatchRow) -> DayMa
     DayMatch {
         id: row.match_id,
         kickoff_at: row.kickoff_at,
+        kickoff_precision: row.kickoff_precision,
         status: row.status,
         home: row.home_name,
         away: row.away_name,
@@ -138,6 +142,7 @@ pub fn map_match(row: football_storage::repositories::day::DayMatchRow) -> DayMa
         country_name: row.country_name,
         tier: row.tier,
         priority: row.priority,
+        round_label: row.round_label,
         home_ht: row.home_ht,
         away_ht: row.away_ht,
         home_et: row.home_et,
@@ -153,6 +158,7 @@ pub fn map_match(row: football_storage::repositories::day::DayMatchRow) -> DayMa
         odds_trust_state: row.odds_trust_state,
         home_logo: row.home_logo,
         away_logo: row.away_logo,
+        competition_logo: row.competition_logo,
         home_elo: row.home_elo,
         away_elo: row.away_elo,
     }

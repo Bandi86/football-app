@@ -20,6 +20,7 @@ pub struct DayFilter {
 pub struct DayMatchRow {
     pub match_id: Uuid,
     pub kickoff_at: DateTime<Utc>,
+    pub kickoff_precision: String,
     pub status: String,
     pub home_name: String,
     pub away_name: String,
@@ -33,6 +34,7 @@ pub struct DayMatchRow {
     pub country_name: Option<String>,
     pub tier: i16,
     pub priority: i32,
+    pub round_label: Option<String>,
     pub home_ht: Option<i16>,
     pub away_ht: Option<i16>,
     pub home_et: Option<i16>,
@@ -48,6 +50,7 @@ pub struct DayMatchRow {
     pub odds_trust_state: Option<String>,
     pub home_logo: Option<String>,
     pub away_logo: Option<String>,
+    pub competition_logo: Option<String>,
     pub home_elo: Option<f64>,
     pub away_elo: Option<f64>,
 }
@@ -57,6 +60,7 @@ pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatch
         "SELECT
             m.id AS match_id,
             m.kickoff_at,
+            m.kickoff_precision,
             m.status,
             home.name AS home_name,
             away.name AS away_name,
@@ -70,6 +74,7 @@ pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatch
             co.name AS country_name,
             c.tier,
             c.priority,
+            m.round_label,
             r.home_ht, r.away_ht, r.home_et, r.away_et, r.home_pens, r.away_pens,
             sh.position AS home_position,
             sa.position AS away_position,
@@ -80,6 +85,7 @@ pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatch
             o.trust_state AS odds_trust_state,
             hl.logo AS home_logo,
             al.logo AS away_logo,
+            cl.logo AS competition_logo,
             he.elo AS home_elo,
             ae.elo AS away_elo
          FROM core.match m
@@ -135,6 +141,16 @@ pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatch
              LIMIT 1
          ) al ON true
          LEFT JOIN LATERAL (
+             SELECT CASE WHEN a.storage_key IS NOT NULL
+                         THEN '/v1/asset/' || a.storage_key
+                         ELSE a.url END AS logo
+             FROM ops.asset a
+             WHERE a.entity_kind = 'competition' AND a.kind = 'logo'
+               AND a.entity_id = c.entity_id
+             ORDER BY (a.storage_key IS NULL), a.captured_at DESC
+             LIMIT 1
+         ) cl ON true
+         LEFT JOIN LATERAL (
              SELECT e.elo::double precision AS elo
              FROM fact.club_elo e
              WHERE e.club_entity_id = m.home_team_id AND e.as_of <= $1
@@ -154,7 +170,8 @@ pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatch
                  BETWEEN $1 - ($5::int) AND $1 + ($5::int)
            AND ($4::uuid IS NULL OR m.competition_id = $4)
            AND ($6::uuid IS NULL OR m.home_team_id = $6 OR m.away_team_id = $6)
-           AND ($3::boolean OR g.state = 'verified_publish')
+           AND ($3::boolean
+               OR g.state IN ('verified_publish', 'provisional_publish'))
          ORDER BY m.kickoff_at, home.name, away.name",
     )
     .bind(filter.date)

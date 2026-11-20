@@ -36,32 +36,29 @@ struct LeagueGroup: Identifiable {
     let id: String
     let name: String
     let country: String
+    let countryCode: String?
     let flag: String
+    /// A verseny logója (API-ból, opcionális); hiánynál a zászló a fejlécben.
+    let logo: String?
     let tier: Int
     let priority: Int
     let matches: [MatchCardModel]
 
-    var divisionLabel: String {
-        switch tier {
-        case 1: return "1. osztály"
-        case 2: return "2. osztály"
-        default: return "Kupa"
-        }
-    }
-
-    /// A fejléc második sora: nemzetközi versenynél nincs ország.
+    /// A fejléc második sora: csak az ország. Osztály-/kupa-címkét nem
+    /// találgatunk: a források tierje megbízhatatlan, a hamis „1. osztály"
+    /// pedig rosszabb, mint a címke hiánya.
     var subtitle: String {
         if country == "Ismeretlen" || country.isEmpty {
-            return tier <= 0 ? "NEMZETKÖZI · KUPA" : "NEMZETKÖZI"
+            return "NEMZETKÖZI"
         }
-        return "\(country.uppercased()) · \(divisionLabel.uppercased())"
+        return country.uppercased()
     }
 
     func filtering(_ filter: MatchFilter) -> LeagueGroup? {
         let kept = matches.filter { filter.matches(status: $0.status) }
         guard !kept.isEmpty else { return nil }
-        return LeagueGroup(id: id, name: name, country: country, flag: flag,
-                           tier: tier, priority: priority, matches: kept)
+        return LeagueGroup(id: id, name: name, country: country, countryCode: countryCode,
+                           flag: flag, logo: logo, tier: tier, priority: priority, matches: kept)
     }
 
     /// Kiemelt kör: a top-5 + NB I/II (priority ≤ 10) versenyei.
@@ -125,7 +122,9 @@ struct LeagueGroup: Identifiable {
                 id: key,
                 name: canonical.name,
                 country: display.name,
+                countryCode: first.countryCode,
                 flag: display.flag,
+                logo: ordered.compactMap(\.competitionLogo).first,
                 // Egy liga két entitása eltérő tier/priority értékkel jöhet:
                 // a csoport a legjobb (legkisebb) értékeket örökli.
                 tier: ordered.compactMap(\.tier).min() ?? 1,
@@ -144,8 +143,9 @@ struct LeagueGroup: Identifiable {
     static func fromSample(_ leagues: [SampleLeague]) -> [LeagueGroup] {
         leagues.map { league in
             LeagueGroup(
-                id: league.id, name: league.name, country: league.country, flag: league.flag,
-                tier: league.tier, priority: league.priority,
+                id: league.id, name: league.name, country: league.country,
+                countryCode: nil, flag: league.flag,
+                logo: nil, tier: league.tier, priority: league.priority,
                 matches: league.matches.map(MatchCardModel.from)
             )
         }
