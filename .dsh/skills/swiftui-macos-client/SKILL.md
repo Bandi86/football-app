@@ -121,6 +121,9 @@ formázás (dátum, szám, odds) és a magyar szövegek visszaolvasása a szelet
    a kimenetben `** TEST SUCCEEDED **`; a vizuális ellenőrzéshez a futó app ablakát
    `CGWindowList` + `screencapture -l<windowID>` módszerrel lehet elmenteni, illetve
    `./scripts/app-window-shot.sh` segítségével.
+6. Élő app olvasása/vezérlése: `swift scripts/ax-press.swift <app> <leírás> --list` (AX-fa kiírása),
+   illetve `swift scripts/ax-press.swift FootballApp "Következő nap"` (AXPress, ugyanaz mint az emberi
+   kattintás). Előfeltétel: a futtató folyamatnak Accessibility-engedélye legyen.
 
 ## 9. Csapdák
 

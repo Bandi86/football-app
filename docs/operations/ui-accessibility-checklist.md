@@ -80,5 +80,9 @@ Tanulságok (a harness dokumentálva):
   AX-vezérléséhez.
 - Vizuális igazolás (2026-11-20 12:07): a futó app ablaka `screencapture -l442` módszerrel
   elmentve; a kezdőlap valós adattal (41 meccs, Ligue 1/Bundesliga/La Liga, odds) renderelődik.
+- AX-vezérlés igazolva (2026-11-20 12:11): `scripts/ax-press.swift FootballApp "Következő nap"`
+  → `AXPress result: 0`, utána a fejléc „november 21.” / „HOLNAP” / „90 meccs” lett
+  (`/tmp/app-after-next.png`); az AX-fa olvasható (gombok magyar leírással, meccskártyák
+  VoiceOver-címkéi). Ezzel a harness látja, olvassa és vezérli is az appot.
 - A SwiftUI fázis DoD-je részben zárt; a fennmaradó pontok az S30h harness bővítésével
   (megjelenés, fókusz, részleges adat) zárhatók.

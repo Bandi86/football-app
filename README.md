@@ -141,6 +141,14 @@ A UI-harness a VoiceOver által is használt akadálymentességi címkéket, a b
 és a betöltött/üres/offline állapotokat ellenőrzi; részletek a
 [`docs/operations/ui-accessibility-checklist.md`](docs/operations/ui-accessibility-checklist.md) fájlban.
 
+A futó kliens olvasásához/vezérléséhez (Accessibility-engedéllyel):
+
+```bash
+swift scripts/ax-press.swift FootballApp --list        # AX-fa: gombok, kártyacímkék
+swift scripts/ax-press.swift FootballApp "Következő nap"  # AXPress, emberi kattintással egyenértékű
+./scripts/app-window-shot.sh /tmp/ablak.png            # a futó ablak PNG-mentése
+```
+
 ## Adatvédelem és közzététel
 
 Ez egy nyilvános repó. Ne kerüljön bele:

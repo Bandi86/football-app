@@ -201,8 +201,11 @@ profiljában; utána jöhet a következő kód-szelet.
   betöltött nap címkéi (csapatok, idő, státusz, eredmény, publikációs állapot), üres nap,
   daemon-offline hiba, billentyűparancsok (Cmd+→ / Cmd+T / Cmd+← valódi napi váltást okoz).
 - [x] Swift Core tesztek: **34/34 zöld** (új `RuntimeInfoLoaderTests` esetekkel).
-- [x] Vizualis igazolás harness oldalról: `CGWindowList` + `screencapture -l<windowID>` működik
+- [x] Vizuális igazolás harness oldalról: `CGWindowList` + `screencapture -l<windowID>` működik
   (a futó app ablaka elmentve, kezdőlap valós adattal: 41 meccs, Ligue 1/Bundesliga/La Liga).
+- [x] AX-vezérlés igazolva: `scripts/ax-press.swift FootballApp "Következő nap"` → `AXPress result: 0`,
+  a fejléc „november 21.” / „HOLNAP” / „90 meccs” lett; az AX-fa (gombok, kártyacímkék) olvasható.
+  A felhasználó kérése (m00389: „tudnad az appot vezérelni látni használni”) ezzel teljesült.
 - [ ] Nem ellenőrzött: a teszt-runnerből készített screenshot TCC miatt nem működik
   („Failed to create screenshot”); a tényleges VoiceOver-hang, Tab-fókusz és fókuszcsapda,
   világos/sötét + Reduced Motion + kontraszt, részleges adat állapot továbbra is nyitott.

@@ -28,11 +28,13 @@ adatőszinteségi követelményei szerint.
 2. Új címke: `AccessibilityLabels.swift` + unit teszt (ne nézetbe szórt string).
 3. `apps/project.yml` változásakor `cd apps && xcodegen generate`; a `.xcodeproj`-ot ne szerkeszd.
 4. Futtasd: Core `swift test`, majd app `xcodebuild test` — `DEVELOPER_DIR` kötelező.
-5. Ha a UI-t érintette: előbb `./scripts/run-ui-tests.sh` (automatizált címke/billentyű/állapot
+5. Élő app olvasása/vezérlése: `swift scripts/ax-press.swift FootballApp <leírás> --list` (AX-fa),
+   `... FootballApp "Következő nap"` (AXPress), `./scripts/app-window-shot.sh` (ablakkép).
+6. Ha a UI-t érintette: előbb `./scripts/run-ui-tests.sh` (automatizált címke/billentyű/állapot
    tesztek, fixture-szerverrel). Emberi ellenőrzés csak a hangzó VoiceOver-beszédre, a Tab-fókusz
    láthatóságára, a világos/sötét + Reduced Motion + kontrasztra és a részleges adat állapotára kell;
    az eredmény a checkpointba kerül, a `docs/operations/ui-accessibility-checklist.md` szerint.
-6. Handoff ([`README.md`](README.md) 5. pont).
+7. Handoff ([`README.md`](README.md) 5. pont).
 
 ## Bizonyíték
 
