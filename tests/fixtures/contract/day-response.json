@@ -2,6 +2,15 @@
   "date": "2026-11-20",
   "timezone": "Europe/Budapest",
   "refreshed_at": "2026-11-20T17:30:00Z",
+  "gaps": {
+    "missing_kickoff": 1,
+    "open_past": 0,
+    "missing_result": 0,
+    "missing_team_logo": 1,
+    "missing_competition_logo": 2,
+    "missing_odds": 1,
+    "withheld": 0
+  },
   "matches": [
     {
       "id": "11111111-1111-1111-1111-111111111111",

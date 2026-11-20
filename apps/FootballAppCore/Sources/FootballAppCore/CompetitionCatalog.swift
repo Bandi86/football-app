@@ -38,6 +38,7 @@ public enum CompetitionCatalog {
         let normalizedName = fold(raw)
         let countryKeys = [fold(iso2), fold(rawCode), fold(displayName)].filter { !$0.isEmpty }
         let canonicalName = alias(for: normalizedName, countryKeys: countryKeys)
+            ?? womensCanonical(raw)
             ?? (raw.isEmpty ? (displayName.isEmpty ? "Nemzetközi" : displayName) : raw)
         let countryKey = iso2.isEmpty ? fold(displayName) : iso2
         return Canonical(name: canonicalName, key: "\(countryKey)|\(fold(canonicalName))")
@@ -83,6 +84,32 @@ public enum CompetitionCatalog {
         ("liga profesional clausura play off", "AR", "Liga Profesional: Clausura Playoff"),
         ("liga profesional clausura playoff", "AR", "Liga Profesional: Clausura Playoff"),
     ]
+
+    /// Női liga jelölése: a források `Women's ...`, `... Women`, `... - női`,
+    /// `... Femenine` alakban küldik ugyanazt a bajnokságot. A listán a női
+    /// liga egyszer, egyértelmű „ (női)" utótaggal jelenjen meg.
+    static func womensCanonical(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let normalized = fold(trimmed)
+        if normalized.contains("noi)") { return trimmed }
+        let markers = ["women's", "womens", "women", "noi", "női", "femenine", "feminine", "féminine"]
+        var base = trimmed
+        var found = false
+        for marker in markers {
+            if let range = base.range(of: marker, options: [.caseInsensitive, .diacriticInsensitive]) {
+                base.removeSubrange(range)
+                found = true
+            }
+        }
+        guard found else { return nil }
+        base = base.replacingOccurrences(of: "  ", with: " ")
+        base = base.replacingOccurrences(of: "()", with: " ")
+        base = base.replacingOccurrences(of: "  ", with: " ")
+        base = base.trimmingCharacters(in: CharacterSet(charactersIn: " -–—:·()"))
+        guard !base.isEmpty else { return nil }
+        return "\(base) (női)"
+    }
 
     private static func alias(for normalized: String, countryKeys: [String]) -> String? {
         for entry in aliases where entry.name == normalized {

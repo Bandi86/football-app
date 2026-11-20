@@ -1108,3 +1108,76 @@ zászlaja. Cél: a 2026-11-20-i 246–267 soros napi lista teljes auditja
       Yemen–Malaysia, CD/CG Ligue 1 sorok) — forrás-oldali eredmény-konfliktus,
       kézi ellenőrzés kell.
 - [ ] A hét többi napjának (11-22…11-29) egyenkénti tematikus auditja.
+
+## S44 — női ligák, lezáratlan/kezdés nélküli meccsek, napi hiány-panel
+
+Bemenet: a felhasználó észrevétele (2026-11-20 este) — a Toulouse–Marseille
+kétszer szerepelt (férfi és női), a női bajnokság kezelése nem egyértelmű;
+korábbi napokon lezáratlan és kezdésidő nélküli meccsek vannak; kér egy
+napi „hiány" panelt a v1 mintájára.
+
+### Változások
+
+- [x] Női csapat-identitás javítása (auditált SQL, `/tmp/s44_women3.sql`):
+      13 érintett meccs a női versenyekben; a férfi entitást használó női
+      csapatok cseréje (Toulouse → „Toulouse (W)", Brighton → meglévő női
+      entitás, új „West Ham (W)" és „Saint Malo (W)"), a W-jelölésű csapatok
+      `gender='female', branch='women'`. Eredmény: női versenyben nem-female
+      csapat 0.
+- [x] Női verseny-merge-ek + egységes név: „A-League (női)",
+      „Bundesliga (női)", „IWL (női)", „Liga MX (női) - Apertura - Play Offs",
+      „Première Ligue (női)", „WE League (női)"; a tévesen összevont
+      AFC Asian Cup U17 visszaállítva (22 meccs, audit
+      `competition_merge_restore`).
+- [x] Lezáratlan meccsek: 22 meccs lezárva a forrás `finished`
+      megfigyeléséből (`core.match.status`, `core.match_result`; audit
+      `match_status_revision`). A többi lejárt meccsnél a forrás nem adott
+      eredményt (a footballdata napi kvótája kimerült; a budget visszaállítva
+      60-ra).
+- [x] `date_only` kezdésidők felmérése: 11-20: 11, a héten összesen 90;
+      pontosabb (exact) forrás-observation nincs, ezért a UI helyesen
+      „időpont egyeztetés alatt" jelzést ad.
+- [x] API: `DayResponse.gaps` — `fetch_day_gaps` (storage) számolja a
+      kezdésidő nélküli, 3 órán túl lejárt-lezáratlan, eredmény nélküli,
+      csapat-/verseny-logó nélküli, odds nélküli és withheld sorokat;
+      kontrakt-fixture frissítve.
+- [x] Swift: `DayGaps` modell + „Hiányzó adatok" kártya a nap fejlécében
+      (accessibility: `day.gaps`), és a női ligák UI-kanonizálása
+      (`CompetitionCatalog.womensCanonical`: „Women's …"/„… - női"/„… Femenine"
+      → „… (női)"; a férfi és női liga külön kulcs).
+
+### Adatműveletek / visszaállítás
+
+- [x] Mentés: `/tmp/football_v2_dev_20261120_pre_neutral_dedupe.dump` (571 MB).
+- [x] Minden DB-írás `ops.audit_event` sorral: `identity_team_revision`,
+      `identity_match_revision`, `match_status_revision`,
+      `competition_merge`, `competition_merge_restore`.
+
+### Eredmény / bizonyíték
+
+- [x] `/v1/day/2026-11-20`: 245 meccs; `gaps`: 11 kezdésidő nélkül,
+      106 lejárt-lezáratlan (3 órán túl), 0 eredmény nélküli, 165 csapatlogó
+      nélkül, 186 ligalogó nélkül, 97 odds nélkül, 0 withheld.
+- [x] Női szekciók a napon: „A-League (női)", „IWL (női)",
+      „Première Ligue (női)" (a maradék „A-Liga Women" a UI-kanonizálással
+      „A-Liga (női)" lesz).
+- [x] Képernyőkép: `/tmp/s44_gaps.png` — a „Hiányzó adatok" kártya a nap
+      fejlécében, alatta a szokásos lista.
+
+### Kapuk
+
+- [x] `cargo fmt --all --check` OK; `cargo clippy --workspace --all-targets
+      -- -D warnings` tiszta; `cargo test --workspace -- --test-threads=1`
+      exit 0.
+- [x] `cargo test -p football-api --test day_contract` 1 passed.
+- [x] Swift Core: 59 teszt / 12 suite zöld; app build BUILD SUCCEEDED;
+      UI-tesztek 8/8 PASSED.
+
+### Nyitott
+
+- [ ] 8 withheld (11-17/11-19): a két forrás eredménye eltér — kézi ellenőrzés.
+- [ ] A lejárt, eredmény nélküli meccsek pótlása csak forrásból lehetséges
+      (footballdata napi kvóta); újrapróbálás a kvóta reset után.
+- [ ] Logó-lefedettség (165/245 csapatlogó nélküli, 186 ligalogó nélküli):
+      a v1 megapack csak 96 ligát fed; további forrás/egyeztetés kell.
+- [ ] 11-22…11-29 napok egyenkénti tematikus auditja.

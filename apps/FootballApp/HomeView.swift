@@ -178,6 +178,10 @@ struct HomeView: View {
                       counts: filterCounts, countries: allCountries,
                       compact: width < 1_000)
 
+            if case .loaded(let feed) = model.state, let gaps = feed.gaps, !gaps.isEmpty {
+                DayGapsCard(gaps: gaps)
+            }
+
             content
         }
     }
@@ -842,5 +846,65 @@ private struct MonthCalendar: View {
                 .overlay(Circle().strokeBorder(AppTheme.hairline))
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// A nap hiány-mutatói: mi hiányzik ahhoz, hogy a nap teljes legyen.
+private struct DayGapsCard: View {
+    let gaps: DayGaps
+
+    private struct Item: Identifiable {
+        let id: String
+        let label: String
+        let count: Int
+    }
+
+    private var items: [Item] {
+        var list: [Item] = []
+        func add(_ key: String, _ label: String, _ count: Int) {
+            if count > 0 { list.append(Item(id: key, label: label, count: count)) }
+        }
+        add("kickoff", "kezdésidő nélkül", gaps.missingKickoff)
+        add("open", "lejárt, nincs eredmény", gaps.openPast)
+        add("result", "eredmény nélkül", gaps.missingResult)
+        add("teamlogo", "csapatlogó nélkül", gaps.missingTeamLogo)
+        add("complogo", "ligalogó nélkül", gaps.missingCompetitionLogo)
+        add("odds", "odds nélkül", gaps.missingOdds)
+        add("withheld", "visszatartva", gaps.withheld)
+        return list
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(AppTheme.accent)
+            Text("Hiányzó adatok")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(AppTheme.secondaryText)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(items) { item in
+                        HStack(spacing: 4) {
+                            Text("\(item.count)")
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                                .foregroundStyle(AppTheme.primaryText)
+                            Text(item.label)
+                                .font(.system(size: 11))
+                                .foregroundStyle(AppTheme.secondaryText)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(AppTheme.surface, in: Capsule())
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 8)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("day.gaps")
+        .accessibilityLabel("Hiányzó adatok: " + items.map { "\($0.count) \($0.label)" }.joined(separator: ", "))
     }
 }

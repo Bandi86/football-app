@@ -114,6 +114,15 @@ fn day_response_matches_contract_fixture() {
         date: NaiveDate::from_ymd_opt(2026, 11, 20).unwrap(),
         timezone: "Europe/Budapest",
         refreshed_at: Some(timestamp("2026-11-20T17:30:00Z")),
+        gaps: football_api::routes::day::DayGaps {
+            missing_kickoff: 1,
+            open_past: 0,
+            missing_result: 0,
+            missing_team_logo: 1,
+            missing_competition_logo: 2,
+            missing_odds: 1,
+            withheld: 0,
+        },
         matches: vec![full_match(), minimal_match()],
     };
 

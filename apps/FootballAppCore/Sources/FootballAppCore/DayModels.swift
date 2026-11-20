@@ -123,14 +123,53 @@ public struct DayMatch: Decodable, Equatable, Identifiable, Sendable {
     }
 }
 
+/// Napi hiány-mutatók (a nap adatminőségének áttekintéséhez).
+public struct DayGaps: Decodable, Equatable, Sendable {
+    public let missingKickoff: Int
+    public let openPast: Int
+    public let missingResult: Int
+    public let missingTeamLogo: Int
+    public let missingCompetitionLogo: Int
+    public let missingOdds: Int
+    public let withheld: Int
+
+    public init(missingKickoff: Int = 0, openPast: Int = 0, missingResult: Int = 0,
+                missingTeamLogo: Int = 0, missingCompetitionLogo: Int = 0,
+                missingOdds: Int = 0, withheld: Int = 0) {
+        self.missingKickoff = missingKickoff
+        self.openPast = openPast
+        self.missingResult = missingResult
+        self.missingTeamLogo = missingTeamLogo
+        self.missingCompetitionLogo = missingCompetitionLogo
+        self.missingOdds = missingOdds
+        self.withheld = withheld
+    }
+
+    public var isEmpty: Bool {
+        missingKickoff + openPast + missingResult + missingTeamLogo
+            + missingCompetitionLogo + missingOdds + withheld == 0
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case missingKickoff = "missing_kickoff"
+        case openPast = "open_past"
+        case missingResult = "missing_result"
+        case missingTeamLogo = "missing_team_logo"
+        case missingCompetitionLogo = "missing_competition_logo"
+        case missingOdds = "missing_odds"
+        case withheld
+    }
+}
+
 public struct DayResponse: Decodable, Sendable {
     public let date: String
     public let timezone: String
     public let refreshedAt: Date?
+    public let gaps: DayGaps?
     public let matches: [DayMatch]
 
     enum CodingKeys: String, CodingKey {
-        case date, timezone, matches
+        case date, timezone, matches, gaps
         case refreshedAt = "refreshed_at"
     }
 }
@@ -138,10 +177,12 @@ public struct DayResponse: Decodable, Sendable {
 /// Egy nap teljes válasza: a batch-frissítés ideje + a meccsek.
 public struct DayFeed: Equatable, Sendable {
     public let refreshedAt: Date?
+    public let gaps: DayGaps?
     public let matches: [DayMatch]
 
-    public init(refreshedAt: Date?, matches: [DayMatch]) {
+    public init(refreshedAt: Date?, gaps: DayGaps? = nil, matches: [DayMatch]) {
         self.refreshedAt = refreshedAt
+        self.gaps = gaps
         self.matches = matches
     }
 }

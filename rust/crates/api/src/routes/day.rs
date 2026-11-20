@@ -20,7 +20,34 @@ pub struct DayResponse {
     pub timezone: &'static str,
     /// A nap legutóbbi gate-kiértékelésének ideje (batch-frissítés jelzés).
     pub refreshed_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Napi hiány-mutatók (idő nélküli, lezáratlan, eredmény/logó/odds nélküli, withheld).
+    pub gaps: DayGaps,
     pub matches: Vec<DayMatch>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct DayGaps {
+    pub missing_kickoff: i64,
+    pub open_past: i64,
+    pub missing_result: i64,
+    pub missing_team_logo: i64,
+    pub missing_competition_logo: i64,
+    pub missing_odds: i64,
+    pub withheld: i64,
+}
+
+impl From<football_storage::repositories::day::DayGaps> for DayGaps {
+    fn from(g: football_storage::repositories::day::DayGaps) -> Self {
+        Self {
+            missing_kickoff: g.missing_kickoff,
+            open_past: g.open_past,
+            missing_result: g.missing_result,
+            missing_team_logo: g.missing_team_logo,
+            missing_competition_logo: g.missing_competition_logo,
+            missing_odds: g.missing_odds,
+            withheld: g.withheld,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -108,6 +135,23 @@ pub async fn day(
         AppError::internal("A napi lista lekérdezése sikertelen.")
     })?;
 
+    let gaps = football_storage::repositories::day::fetch_day_gaps(
+        &state.pool,
+        &DayFilter {
+            date,
+            timezone: "Europe/Budapest".into(),
+            include_all: false,
+            competition_id: None,
+            window_days: 0,
+            team_id: None,
+        },
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!(error=%e, "napi hiány-mutatók lekérdezése");
+        AppError::internal("A napi hiány-mutatók lekérdezése sikertelen.")
+    })?;
+
     let refreshed_at = fetch_day_refreshed_at(&state.pool, date)
         .await
         .map_err(|e| {
@@ -119,6 +163,7 @@ pub async fn day(
         date,
         timezone: "Europe/Budapest",
         refreshed_at,
+        gaps: gaps.into(),
         matches: rows.into_iter().map(map_match).collect(),
     }))
 }

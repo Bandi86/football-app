@@ -81,4 +81,29 @@ struct CompetitionCatalogTests {
             name: nil, countryCode: nil, countryName: nil)
         #expect(international.name == "Nemzetközi")
     }
+
+    @Test("A női liga egyszer, (női) utótaggal jelenik meg — angol és magyar jelöléssel is")
+    func womensLeaguesGetAMarker() {
+        let english = CompetitionCatalog.canonical(
+            name: "Women's WE League", countryCode: "JP", countryName: "Japán")
+        #expect(english.name == "WE League (női)")
+        let hungarian = CompetitionCatalog.canonical(
+            name: "A-Liga - női", countryCode: "DK", countryName: "Dánia")
+        #expect(hungarian.name == "A-Liga (női)")
+        let french = CompetitionCatalog.canonical(
+            name: "Premiere Ligue Femenine", countryCode: "FR", countryName: "Franciaország")
+        #expect(french.name == "Premiere Ligue (női)")
+        let alreadyMarked = CompetitionCatalog.canonical(
+            name: "Bundesliga (női)", countryCode: "DE", countryName: "Németország")
+        #expect(alreadyMarked.name == "Bundesliga (női)")
+    }
+
+    @Test("A női és a férfi liga külön szekció marad")
+    func womensLeagueDoesNotMergeWithMens() {
+        let mens = CompetitionCatalog.canonical(
+            name: "Ligue 1", countryCode: "FR", countryName: "Franciaország")
+        let womens = CompetitionCatalog.canonical(
+            name: "Premiere Ligue Femenine", countryCode: "FR", countryName: "Franciaország")
+        #expect(mens.key != womens.key)
+    }
 }

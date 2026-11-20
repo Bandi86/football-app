@@ -198,3 +198,77 @@ pub async fn fetch_day_refreshed_at(
     .await?;
     Ok(value)
 }
+
+/// Napi hiány-mutatók (a nap adatminőségének áttekintéséhez).
+#[derive(Debug, Clone, Default, FromRow, serde::Serialize)]
+pub struct DayGaps {
+    /// Kezdésidő nélküli (date_only) meccsek.
+    pub missing_kickoff: i64,
+    /// Kezdés elmúlt, de a meccs nincs lezárva.
+    pub open_past: i64,
+    /// Lezárt meccs eredmény nélkül.
+    pub missing_result: i64,
+    /// Legalább egyik csapatlogó hiányzik.
+    pub missing_team_logo: i64,
+    /// Verseny-logó hiányzik.
+    pub missing_competition_logo: i64,
+    /// Nincs odds-snapshot.
+    pub missing_odds: i64,
+    /// A napon visszatartott (withheld) meccsek.
+    pub withheld: i64,
+}
+
+/// A nap hiány-mutatói a publishable (verified/provisional) meccsekre.
+pub async fn fetch_day_gaps(pool: &PgPool, filter: &DayFilter) -> Result<DayGaps> {
+    let gaps = sqlx::query_as::<_, DayGaps>(
+        "WITH base AS (
+            SELECT m.id, m.kickoff_at, m.kickoff_precision, m.status, r.home_ft,
+                   hl.logo IS NOT NULL AS has_home_logo,
+                   al.logo IS NOT NULL AS has_away_logo,
+                   cl.logo IS NOT NULL AS has_comp_logo,
+                   EXISTS (SELECT 1 FROM fact.odds_snapshot o WHERE o.match_id = m.id) AS has_odds
+            FROM core.match m
+            JOIN core.competition c ON c.id = m.competition_id
+            JOIN ops.publish_gate g ON g.match_id = m.id
+              AND g.publish_date = (m.kickoff_at AT TIME ZONE $2)::date
+            LEFT JOIN core.match_result r ON r.match_id = m.id
+            LEFT JOIN LATERAL (
+                SELECT a.storage_key AS logo FROM ops.asset a
+                WHERE a.entity_kind = 'team' AND a.kind = 'logo' AND a.entity_id = m.home_team_id
+                ORDER BY (a.storage_key IS NULL), a.captured_at DESC LIMIT 1
+            ) hl ON true
+            LEFT JOIN LATERAL (
+                SELECT a.storage_key AS logo FROM ops.asset a
+                WHERE a.entity_kind = 'team' AND a.kind = 'logo' AND a.entity_id = m.away_team_id
+                ORDER BY (a.storage_key IS NULL), a.captured_at DESC LIMIT 1
+            ) al ON true
+            LEFT JOIN LATERAL (
+                SELECT a.storage_key AS logo FROM ops.asset a
+                WHERE a.entity_kind = 'competition' AND a.kind = 'logo' AND a.entity_id = c.entity_id
+                ORDER BY (a.storage_key IS NULL), a.captured_at DESC LIMIT 1
+            ) cl ON true
+            WHERE (m.kickoff_at AT TIME ZONE $2)::date
+                    BETWEEN $1 - ($4::int) AND $1 + ($4::int)
+              AND ($3::uuid IS NULL OR m.competition_id = $3)
+              AND g.state IN ('verified_publish', 'provisional_publish')
+        )
+        SELECT
+            count(*) FILTER (WHERE kickoff_precision = 'date_only') AS missing_kickoff,
+            count(*) FILTER (WHERE kickoff_at < now() - interval '3 hours'
+                AND status NOT IN ('finished','postponed','canceled','abandoned','awarded')) AS open_past,
+            count(*) FILTER (WHERE status = 'finished' AND home_ft IS NULL) AS missing_result,
+            count(*) FILTER (WHERE NOT has_home_logo OR NOT has_away_logo) AS missing_team_logo,
+            count(*) FILTER (WHERE NOT has_comp_logo) AS missing_competition_logo,
+            count(*) FILTER (WHERE NOT has_odds) AS missing_odds,
+            (SELECT count(*) FROM ops.publish_gate gw
+              WHERE gw.publish_date = $1 AND gw.state = 'withheld') AS withheld
+        FROM base",
+    )
+    .bind(filter.date)
+    .bind(&filter.timezone)
+    .bind(filter.competition_id)
+    .bind(filter.window_days)
+    .fetch_one(pool)
+    .await?;
+    Ok(gaps)
+}
