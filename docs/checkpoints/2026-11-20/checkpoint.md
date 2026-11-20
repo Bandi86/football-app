@@ -597,3 +597,5 @@ bemutatott bizonyíték alapján a **B — app-szintű Tab-sorrend** irányt vá
 - [ ] A 2026-11-17-i tükrözött pár (áldozatnál eredmény) kézi eldöntése.
 - [ ] Rendszeres napi futtatás beépítése a napi láncba (a keletkezés
       megelőzése az S37d identitás-seed feladata).
+- [x] CI: `82cdf86` push után a **44757839540** futás mindkét jobja zöld
+      (Rust domain/storage/API/worker + Swift kliens).
