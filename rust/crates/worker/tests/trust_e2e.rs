@@ -237,7 +237,7 @@ async fn demo_two_medium_sources_verified_with_verified_odds() {
     assert_eq!(
         count(
             &pool,
-            "SELECT count(*) FROM ops.publish_gate WHERE rule_set_version='verification-1.2'"
+            "SELECT count(*) FROM ops.publish_gate WHERE rule_set_version='verification-1.3'"
         )
         .await,
         2

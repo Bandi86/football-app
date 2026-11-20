@@ -592,7 +592,18 @@ fn name_tokens(name: &str) -> Vec<String> {
         .collect()
 }
 
+/// Források rövidítései ugyanarra a klubnévre (S43: "Sheffield Weds" = "Sheffield Wednesday").
+fn expand_abbreviation(token: &str) -> &str {
+    match token {
+        "utd" => "united",
+        "weds" => "wednesday",
+        "ath" | "athl" => "athletic",
+        _ => token,
+    }
+}
+
 fn token_equal(a: &str, b: &str) -> bool {
+    let (a, b) = (expand_abbreviation(a), expand_abbreviation(b));
     if a == b {
         return true;
     }
@@ -683,8 +694,12 @@ pub fn names_strictly_same(a: &str, b: &str) -> bool {
     if ta.is_empty() || tb.is_empty() {
         return false;
     }
-    let subset_exact = |x: &[String], y: &[String]| x.iter().all(|t| y.iter().any(|o| o == t));
-    if subset_exact(&ta, &tb) || subset_exact(&tb, &ta) {
+    // A token-egyezés a rövidítés-feloldást is használja (S43: "Sheffield Weds" =
+    // "Sheffield Wednesday"), de a prefix/elgépelés-szabályokat nem, mert azok
+    // országneveket nyelném el ("Dominica" / "Dominican Republic").
+    let token_exact = |a: &str, b: &str| expand_abbreviation(a) == expand_abbreviation(b);
+    let subset = |x: &[String], y: &[String]| x.iter().all(|t| y.iter().any(|o| token_exact(t, o)));
+    if subset(&ta, &tb) || subset(&tb, &ta) {
         return true;
     }
     // Egytokenes oldal: monogram (pl. "tns" = the new saints).
@@ -939,5 +954,17 @@ mod tests {
         assert_eq!(ctx.age_group.as_deref(), Some("youth"));
         assert_eq!(ctx.gender.as_deref(), Some("female"));
         assert_eq!(ctx.branch.as_deref(), Some("women"));
+    }
+
+    #[test]
+    fn club_abbreviations_match_full_names() {
+        assert!(names_likely_same("Sheffield Weds", "Sheffield Wednesday"));
+        assert!(names_likely_same("Southend Utd", "Southend United"));
+        assert!(names_likely_same("Ath Bilbao", "Athletic Bilbao"));
+        // A rövidítés-feloldás nem nyeli el a valóban más nevet.
+        assert!(!names_likely_same(
+            "Sheffield United",
+            "Sheffield Wednesday"
+        ));
     }
 }

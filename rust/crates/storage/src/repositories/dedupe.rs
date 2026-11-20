@@ -269,6 +269,18 @@ fn variant_pair(
         }
         return allow_cross_competition;
     }
+    // Azonos versenyen belül, legfeljebb 60 perccel eltérő kickoff mellett, ha az
+    // egyik oldal biztosan ugyanaz a csapat (azonos id vagy szigorú név-egyezés),
+    // a másik oldal sem lehet más: egy csapat nem játszhat két meccset egyszerre.
+    if a.competition_id == b.competition_id && delta <= 60 {
+        let same_home =
+            a.home_team_id == b.home_team_id || names_strictly_same(&a.home_name, &b.home_name);
+        let same_away =
+            a.away_team_id == b.away_team_id || names_strictly_same(&a.away_name, &b.away_name);
+        if same_home || same_away {
+            return true;
+        }
+    }
     let normal = names_likely_same(&a.home_name, &b.home_name)
         && names_likely_same(&a.away_name, &b.away_name);
     let flipped = names_likely_same(&a.home_name, &b.away_name)
@@ -370,6 +382,19 @@ fn variant_pair_mergeable(
         // Tükrözött variáns: az áldozat eredménye elveszne — kézi döntés kell.
         return !(flipped && d.has_result && !s.has_result);
     }
+    // Azonos verseny + ≤60 perc: ha az egyik oldal biztosan ugyanaz a csapat,
+    // a másik oldal sem lehet más (egy csapat nem játszhat két meccset egyszerre).
+    if s.competition_id == d.competition_id
+        && (s.kickoff_at - d.kickoff_at).num_minutes().abs() <= 60
+    {
+        let same_home =
+            s.home_team_id == d.home_team_id || names_strictly_same(&s.home_name, &d.home_name);
+        let same_away =
+            s.away_team_id == d.away_team_id || names_strictly_same(&s.away_name, &d.away_name);
+        if same_home || same_away {
+            return true;
+        }
+    }
     let normal = names_likely_same(&s.home_name, &d.home_name)
         && names_likely_same(&s.away_name, &d.away_name);
     let flipped = names_likely_same(&s.home_name, &d.away_name)
@@ -419,6 +444,15 @@ fn strict_variant_pair_mergeable(
     let delta = (s.kickoff_at - d.kickoff_at).num_minutes().abs();
     if delta > 120 {
         return false;
+    }
+    if s.competition_id == d.competition_id && delta <= 60 {
+        let same_home =
+            s.home_team_id == d.home_team_id || names_strictly_same(&s.home_name, &d.home_name);
+        let same_away =
+            s.away_team_id == d.away_team_id || names_strictly_same(&s.away_name, &d.away_name);
+        if same_home || same_away {
+            return true;
+        }
     }
     let normal = names_strictly_same(&s.home_name, &d.home_name)
         && names_strictly_same(&s.away_name, &d.away_name);

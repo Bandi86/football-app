@@ -126,6 +126,25 @@ final class LeagueGroupTests: XCTestCase {
         """
     }
 
+    private func roundMatchJSON(
+        id: String,
+        competitionId: String,
+        competitionName: String,
+        countryCode: String?,
+        roundLabel: String?
+    ) -> String {
+        func literal(_ value: String?) -> String {
+            value.map { "\"\($0)\"" } ?? "null"
+        }
+        return """
+        {"id":"\(id)","kickoff_at":"2026-11-11T18:00:00Z","status":"scheduled","home":"A","away":"B",
+         "home_score":null,"away_score":null,"publish_state":"verified_publish","blockers":[],
+         "competition_id":"\(competitionId)","competition_name":"\(competitionName)",
+         "country_code":\(literal(countryCode)),"country_name":null,
+         "tier":1,"priority":6,"round_label":\(literal(roundLabel))}
+        """
+    }
+
     private func groups(_ matches: [String]) throws -> [LeagueGroup] {
         let json = """
         {"date":"2026-11-11","timezone":"Europe/Budapest","matches":[\(matches.joined(separator: ","))]}
@@ -309,6 +328,81 @@ final class LeagueGroupTests: XCTestCase {
         XCTAssertEqual(groups[0].subtitle, "SPANYOLORSZÁG")
         XCTAssertEqual(groups[0].logo, "/v1/asset/assets/aa/bb/cccc.webp")
         XCTAssertEqual(groups[0].matches[0].roundText, "17. forduló")
+        XCTAssertEqual(groups[0].roundSummary, "17. forduló")
+    }
+
+    // MARK: - Forduló a szekciófejlécben
+
+    func testRoundSummaryAppearsOnceForUniformRound() throws {
+        let leagueId = "00000000-0000-0000-0000-0000000000d1"
+        let groups = try groups([
+            roundMatchJSON(id: "00000000-0000-0000-0000-000000000d11",
+                           competitionId: leagueId, competitionName: "NB I",
+                           countryCode: "HUN", roundLabel: "13"),
+            // Trimmelt, azonos forduló: a foldolás után ugyanaz.
+            roundMatchJSON(id: "00000000-0000-0000-0000-000000000d12",
+                           competitionId: leagueId, competitionName: "NB I",
+                           countryCode: "HUN", roundLabel: " 13 "),
+            // Az ismeretlen címke nem rontja el az egyértelmű fordulót.
+            roundMatchJSON(id: "00000000-0000-0000-0000-000000000d13",
+                           competitionId: leagueId, competitionName: "NB I",
+                           countryCode: "HUN", roundLabel: nil),
+        ])
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups[0].roundSummary, "13. forduló")
+        // A kártya saját forduló-felirata megmarad (az accessibility labelhez).
+        XCTAssertEqual(groups[0].matches[0].roundText, "13. forduló")
+        XCTAssertEqual(groups[0].matches[2].roundText, nil)
+    }
+
+    func testRoundSummaryIsNilForMixedRounds() throws {
+        let leagueId = "00000000-0000-0000-0000-0000000000d2"
+        let groups = try groups([
+            roundMatchJSON(id: "00000000-0000-0000-0000-000000000d21",
+                           competitionId: leagueId, competitionName: "NB I",
+                           countryCode: "HUN", roundLabel: "13"),
+            roundMatchJSON(id: "00000000-0000-0000-0000-000000000d22",
+                           competitionId: leagueId, competitionName: "NB I",
+                           countryCode: "HUN", roundLabel: "final"),
+        ])
+        XCTAssertEqual(groups.count, 1)
+        // Egy szekcióban két forduló van: nem találgatunk, nincs fejléc-címke.
+        XCTAssertNil(groups[0].roundSummary)
+        XCTAssertEqual(groups[0].matches.map(\.roundText), ["13. forduló", "Döntő"])
+    }
+
+    func testRoundSummaryIsNilWithoutRoundLabels() throws {
+        let leagueId = "00000000-0000-0000-0000-0000000000d3"
+        let groups = try groups([
+            roundMatchJSON(id: "00000000-0000-0000-0000-000000000d31",
+                           competitionId: leagueId, competitionName: "NB I",
+                           countryCode: "HUN", roundLabel: nil),
+            roundMatchJSON(id: "00000000-0000-0000-0000-000000000d32",
+                           competitionId: leagueId, competitionName: "NB I",
+                           countryCode: "HUN", roundLabel: "   "),
+        ])
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertNil(groups[0].roundSummary)
+    }
+
+    func testRoundSummaryFoldsCupLabelsAndUsesTheSharedMapping() throws {
+        let leagueId = "00000000-0000-0000-0000-0000000000d4"
+        let grouped = try groups([
+            roundMatchJSON(id: "00000000-0000-0000-0000-000000000d41",
+                           competitionId: leagueId, competitionName: "Kupadöntő",
+                           countryCode: "HUN", roundLabel: "Final"),
+            roundMatchJSON(id: "00000000-0000-0000-0000-000000000d42",
+                           competitionId: leagueId, competitionName: "Kupadöntő",
+                           countryCode: "HUN", roundLabel: "final"),
+        ])
+        XCTAssertEqual(grouped[0].roundSummary, "Döntő")
+
+        let last16 = try groups([
+            roundMatchJSON(id: "00000000-0000-0000-0000-000000000d43",
+                           competitionId: "00000000-0000-0000-0000-0000000000d5",
+                           competitionName: "Kupa", countryCode: "HUN", roundLabel: "1/8"),
+        ])
+        XCTAssertEqual(last16[0].roundSummary, "Nyolcaddöntő")
     }
 
 }

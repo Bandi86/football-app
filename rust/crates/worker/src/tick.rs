@@ -56,7 +56,7 @@ const CLAIM_LIMIT: i64 = 10;
 // Browser-render (Obscura) 10–45 s között fut; a HTTP-források ennél jóval
 // gyorsabbak. A hosszabb plafon a renderelt forrásokat nem vágja le.
 const FETCH_TIMEOUT_SECS: u64 = 60;
-const RULE_SET_VERSION: &str = "verification-1.2";
+const RULE_SET_VERSION: &str = "verification-1.3";
 const PUBLISH_TIMEZONE: &str = "Europe/Budapest";
 
 /// Egy tick kör összesítése: feldolgozott (done), blokkolt (kapuk/cancelled)

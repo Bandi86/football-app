@@ -120,14 +120,23 @@ struct MatchCardModel: Identifiable {
     /// A kezdés-oszlop második sora, ha nincs pontos idő.
     var kickoffNote: String? { hasExactKickoff ? nil : "időpont egyeztetés alatt" }
 
-    /// Forduló-felirat: a numerikus címkéből „17. forduló", a kupa-kódokból
-    /// magyar elnevezés, minden másból a nyers címke.
-    var roundText: String? {
-        guard let raw = roundLabel?.trimmingCharacters(in: .whitespacesAndNewlines),
+    /// A nyers fordulócímke egységesített kulcsa: ékezet- és kis/nagybetű-
+    /// független, trimmelt alak. `nil`, ha nincs használható címke.
+    static func foldedRoundLabel(_ raw: String?) -> String? {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
               !raw.isEmpty else { return nil }
-        let folded = raw.folding(options: [.diacriticInsensitive, .caseInsensitive],
-                                 locale: Locale(identifier: "hu_HU"))
+        return raw.folding(options: [.diacriticInsensitive, .caseInsensitive],
+                           locale: Locale(identifier: "hu_HU"))
             .trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Forduló-felirat: a numerikus címkéből „17. forduló", a kupa-kódokból
+    /// magyar elnevezés, minden másból a nyers címke. A csoportszintű
+    /// összesítés (`LeagueGroup.roundSummary`) is ezt a mappinget használja.
+    static func roundText(for rawLabel: String?) -> String? {
+        guard let raw = rawLabel?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty,
+              let folded = foldedRoundLabel(raw) else { return nil }
         if folded.allSatisfy({ $0.isNumber }) { return "\(folded). forduló" }
         switch folded {
         case "final": return "Döntő"
@@ -141,6 +150,9 @@ struct MatchCardModel: Identifiable {
             return raw
         }
     }
+
+    /// A kártya forduló-felirata a nyers címkéből.
+    var roundText: String? { Self.roundText(for: roundLabel) }
 
     /// Csak az 1X2 piac látszik a kártyán; ha nincs egyik odds sem, a blokk rejtve.
     var hasOdds: Bool {

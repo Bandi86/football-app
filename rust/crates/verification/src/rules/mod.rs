@@ -96,13 +96,23 @@ impl VerificationRule for MaterialConflictRule {
         let resolved =
             |field: &str| -> bool { c.resolved_fields.iter().any(|f| f == "match" || f == field) };
         let first = &c.source_values[0];
+        // A források különböző időpontokban készült pillanatképek: a régebbi
+        // forrás `scheduled`/üres eredménye nem anyagi ellentmondás, ha a
+        // frissebb már eredményt közöl. Ezért csak a valóban összevethető
+        // értékeket tekintjük konfliktusnak: azonos státusz mellett eltérő
+        // eredmény, illetve a fixture-identitás (csapat, kickoff) eltérése.
         let conflicting = c.source_values.iter().skip(1).any(|other| {
+            let both_have_result = first.home_ft.is_some()
+                && first.away_ft.is_some()
+                && other.home_ft.is_some()
+                && other.away_ft.is_some();
+            let result_differs = both_have_result
+                && (other.home_ft != first.home_ft || other.away_ft != first.away_ft);
+            let kickoff_off_by = (other.kickoff_at - first.kickoff_at).num_minutes().abs() > 120;
             (other.home_team_id != first.home_team_id && !resolved("home_team_id"))
                 || (other.away_team_id != first.away_team_id && !resolved("away_team_id"))
-                || (other.kickoff_at != first.kickoff_at && !resolved("kickoff_at"))
-                || (other.status != first.status && !resolved("status"))
-                || (other.home_ft != first.home_ft && !resolved("home_ft"))
-                || (other.away_ft != first.away_ft && !resolved("away_ft"))
+                || (kickoff_off_by && !resolved("kickoff_at"))
+                || (result_differs && !resolved("home_ft") && !resolved("away_ft"))
         });
         if conflicting {
             vec![Finding::blocker(
@@ -473,5 +483,62 @@ mod tests {
             None,
             Some("GB")
         )));
+    }
+
+    fn source_values(
+        code: &str,
+        status: MatchStatus,
+        home_ft: Option<i16>,
+        away_ft: Option<i16>,
+    ) -> SourceMaterialValues {
+        SourceMaterialValues {
+            source_code: code.to_string(),
+            home_team_id: uuid::Uuid::nil(),
+            away_team_id: uuid::Uuid::nil(),
+            kickoff_at: Utc.with_ymd_and_hms(2026, 11, 20, 17, 0, 0).unwrap(),
+            status,
+            home_ft,
+            away_ft,
+        }
+    }
+
+    #[test]
+    fn stale_scheduled_source_does_not_conflict_with_a_newer_result() {
+        // A régi pillanatkép szerint még nem kezdődött el, a frissebb szerint
+        // már lejátszották: ez időbeli eltérés, nem anyagi konfliktus.
+        let snapshot = snapshot();
+        let values = vec![
+            source_values("openfoot", MatchStatus::Scheduled, None, None),
+            source_values("research", MatchStatus::Finished, Some(1), Some(2)),
+        ];
+        let report = VerificationEngine::run(
+            &[Box::new(MaterialConflictRule)],
+            &context(&snapshot, &values, &[], &[], &[], None, None),
+        );
+        assert!(
+            !report
+                .findings
+                .iter()
+                .any(|finding| finding.rule_key == "MATERIAL_SOURCE_CONFLICT")
+        );
+    }
+
+    #[test]
+    fn two_finished_sources_with_different_results_still_conflict() {
+        let snapshot = snapshot();
+        let values = vec![
+            source_values("a", MatchStatus::Finished, Some(1), Some(2)),
+            source_values("b", MatchStatus::Finished, Some(0), Some(0)),
+        ];
+        let report = VerificationEngine::run(
+            &[Box::new(MaterialConflictRule)],
+            &context(&snapshot, &values, &[], &[], &[], None, None),
+        );
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| finding.rule_key == "MATERIAL_SOURCE_CONFLICT")
+        );
     }
 }

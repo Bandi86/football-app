@@ -111,10 +111,19 @@ impl Canonicalizer {
         // S42: a brit hazai nemzeteket a forrás `GB` kóddal, de a hazai névvel
         // adja („Anglia", „Skócia", „Wales"); a kódot a névvel együtt oldjuk
         // fel, hogy ne „Egyesült Királyság" alá kerüljön az angol liga.
-        let canonical_country = football_domain::identity::canonical_country_code_with_name(
+        // Ha a forrás csak az ország nevét adja (pl. openfoot: "Iran", üres kóddal),
+        // a névből oldjuk fel a kódot, hogy ne NULL országú verseny keletkezzen.
+        let mut canonical_country = football_domain::identity::canonical_country_code_with_name(
             &competition.country_code,
             &competition.country_name,
         );
+        if canonical_country.is_empty()
+            && !competition.country_name.trim().is_empty()
+            && let Some((code, _)) = crate::countries::by_english_name(&competition.country_name)
+                .or_else(|| crate::countries::by_localized_title(&competition.country_name))
+        {
+            canonical_country = football_domain::identity::canonical_country_code(code);
+        }
         let country_id: Option<Uuid> = if canonical_country.is_empty() {
             None
         } else {

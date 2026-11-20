@@ -40,6 +40,20 @@ final class FootballAppUITests: XCTestCase {
 
         XCTAssertTrue(finished.label.contains("Ellenőrzött publikáció"), finished.label)
         XCTAssertTrue(finished.label.contains("Döntő"), finished.label)
+
+        // A forduló a szekciófejlécben jelenik meg, egyszer: a Premier League
+        // egyetlen fordulós szekciójában „12. forduló", a vegyes fordulójú
+        // NB I fejlécében viszont nem tippelünk.
+        let premier = element("league.section.GB|premier league", in: app)
+        XCTAssertTrue(premier.waitForExistence(timeout: 10), "a Premier League szekciófejléc hiányzik")
+        // A kombinált fejléc a szöveget a value attribútumban hordozza.
+        let premierText = premier.value as? String ?? ""
+        XCTAssertTrue(premierText.contains("12. forduló"), premierText)
+
+        let nbOne = element("league.section.HU|nb i", in: app)
+        XCTAssertTrue(nbOne.waitForExistence(timeout: 10), "az NB I szekciófejléc hiányzik")
+        let nbOneText = nbOne.value as? String ?? ""
+        XCTAssertFalse(nbOneText.contains("forduló"), nbOneText)
     }
 
     // MARK: - Részleges / bizonytalan adat
@@ -304,4 +318,3 @@ final class FootballAppUITests: XCTestCase {
     }
 
 }
-

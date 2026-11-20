@@ -54,6 +54,20 @@ struct LeagueGroup: Identifiable {
         return country.uppercased()
     }
 
+    /// A szekciófejléc forduló-felirata. Csak akkor jelenik meg, ha a csoport
+    /// minden ismert fordulócímkéje ugyanaz (ékezet- és kis/nagybetű-független
+    /// összevetéssel); többféle fordulónál vagy hiányzó adatnál `nil`, mert
+    /// egy szekcióban több forduló van, és nem találgatunk. A felirat a
+    /// kártyáéval azonos mappingból jön (`MatchCardModel.roundText`).
+    var roundSummary: String? {
+        let foldedLabels = matches.compactMap { MatchCardModel.foldedRoundLabel($0.roundLabel) }
+        guard let first = foldedLabels.first,
+              foldedLabels.allSatisfy({ $0 == first }) else { return nil }
+        return matches.first {
+            MatchCardModel.foldedRoundLabel($0.roundLabel) == first
+        }?.roundText
+    }
+
     func filtering(_ filter: MatchFilter) -> LeagueGroup? {
         let kept = matches.filter { filter.matches(status: $0.status) }
         guard !kept.isEmpty else { return nil }

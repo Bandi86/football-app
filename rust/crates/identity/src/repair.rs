@@ -45,7 +45,7 @@ const PUBLISH_TIMEZONE: &str = "Europe/Budapest";
 
 /// A gate szabálykészletének fallback értéke, ha még egyetlen gate-sor sincs
 /// a környezetben (a worker `RULE_SET_VERSION` konstansával egyezik).
-const FALLBACK_RULE_SET_VERSION: &str = "verification-1.2";
+const FALLBACK_RULE_SET_VERSION: &str = "verification-1.3";
 
 /// Egy jelentésben legfeljebb ennyi változás-részletet adunk vissza.
 const MAX_REPORT_CHANGES: usize = 50;

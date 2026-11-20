@@ -76,6 +76,49 @@ import Testing
         #expect(CountryCatalog.display(code: "NGA", name: nil).name == "Nigéria")
     }
 
+    @Test func addedIso3AliasesMatchTheirIso2Flag() {
+        // A feed ISO3-at küld (pl. BUL), a katalógus ISO2-re oldja; a zászló
+        // és a név ugyanaz kell legyen, mint a hivatalos párnál.
+        let pairs: [(alias: String, canonical: String)] = [
+            ("BUL", "BG"), ("ROM", "RO"), ("KSA", "SA"), ("KVX", "XK"),
+            ("GEO", "GE"),
+        ]
+        for pair in pairs {
+            let alias = CountryCatalog.display(code: pair.alias, name: nil)
+            let canonical = CountryCatalog.display(code: pair.canonical, name: nil)
+            #expect(alias.flag != CountryCatalog.unknownFlag, "\(pair.alias) fehér zászlót kapott")
+            #expect(alias == canonical, "\(pair.alias) eltér \(pair.canonical)-tól")
+            #expect(CountryCatalog.iso2(for: pair.alias) == pair.canonical)
+        }
+
+        // A konkrét hiba: Bulgária a feedben BUL, eddig fehér zászló volt.
+        let bulgaria = CountryCatalog.display(code: "BUL", name: "Bulgária")
+        #expect(bulgaria.flag == "🇧🇬")
+        #expect(bulgaria.name == "Bulgária")
+    }
+
+    @Test func everyFeedAliasResolvesToTheSameDisplayAsItsCanonicalCode() {
+        // A felhasználó által jelzett teljes alias-készlet: a feed ISO3/FIFA
+        // alakjai ugyanazt a zászlót és nevet adják, mint a kanonikus kód.
+        let pairs: [(alias: String, canonical: String)] = [
+            ("BUL", "BG"), ("ROM", "RO"), ("CHI", "CL"), ("MAS", "MY"),
+            ("IDN", "ID"), ("KSA", "SA"), ("UAE", "AE"), ("BIH", "BA"),
+            ("GEO", "GE"), ("CYP", "CY"), ("MKD", "MK"), ("SMR", "SM"),
+            ("KVX", "XK"), ("MNE", "ME"), ("NIG", "NE"), ("BOT", "BW"),
+            ("BFA", "BF"), ("LBY", "LY"), ("TAN", "TZ"), ("VIE", "VN"),
+            ("SIN", "SG"), ("HKG", "HK"), ("PAR", "PY"), ("URY", "UY"),
+            ("DEN", "DK"), ("NED", "NL"), ("SUI", "CH"), ("GRE", "GR"),
+            ("GER", "DE"), ("POR", "PT"), ("IRL", "IE"), ("SCO", "GB-SCT"),
+            ("WAL", "GB-WLS"), ("ENG", "GB-ENG"), ("NIR", "GB-NIR"),
+        ]
+        for pair in pairs {
+            let alias = CountryCatalog.display(code: pair.alias, name: nil)
+            let canonical = CountryCatalog.display(code: pair.canonical, name: nil)
+            #expect(alias.flag != CountryCatalog.unknownFlag, "\(pair.alias) fehér zászlót kapott")
+            #expect(alias == canonical, "\(pair.alias) eltér \(pair.canonical)-tól")
+        }
+    }
+
     @Test func requiredCountryCodesAllResolve() {
         let codes = ["IDN", "MAS", "VIE", "ALB", "UAE", "GER", "DEU", "ESP", "HUN",
                      "BOT", "KEN", "SIN", "TAN", "CHI", "PAR", "NIG", "PAN", "PER",

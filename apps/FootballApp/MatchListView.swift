@@ -115,6 +115,15 @@ private struct LeagueSectionView: View {
         league.matches.sorted { ($0.time, $0.id) < ($1.time, $1.id) }
     }
 
+    /// A fejléc egyetlen kiolvasott címkéje: liga, ország, opcionális forduló
+    /// és a meccsszám. A forduló csak akkor kerül bele, ha a csoport egységes.
+    private var sectionAccessibilityLabel: String {
+        var parts = [league.name, league.subtitle]
+        if let round = league.roundSummary { parts.append(round) }
+        parts.append("\(league.matches.count) meccs")
+        return parts.joined(separator: ", ")
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
@@ -128,10 +137,21 @@ private struct LeagueSectionView: View {
                     Text(league.name)
                         .font(.appText(15, weight: .semibold))
                         .foregroundStyle(AppTheme.primaryText)
-                    Text(league.subtitle)
-                        .font(.appLabel())
-                        .tracking(1.2)
-                        .foregroundStyle(AppTheme.secondaryText)
+                    HStack(spacing: 6) {
+                        Text(league.subtitle)
+                            .font(.appLabel())
+                            .tracking(1.2)
+                            .foregroundStyle(AppTheme.secondaryText)
+                        if let round = league.roundSummary {
+                            Text("·")
+                                .font(.appLabel())
+                                .foregroundStyle(AppTheme.secondaryText.opacity(0.6))
+                                .accessibilityHidden(true)
+                            Text(round)
+                                .font(.appLabel(10))
+                                .foregroundStyle(AppTheme.secondaryText)
+                        }
+                    }
                 }
                 Spacer()
                 Text("\(league.matches.count) meccs")
@@ -142,7 +162,7 @@ private struct LeagueSectionView: View {
             .padding(.vertical, 12)
             .background(AppTheme.surface)
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(league.name), \(league.subtitle), \(league.matches.count) meccs")
+            .accessibilityLabel(sectionAccessibilityLabel)
             .accessibilityIdentifier("league.section.\(league.id)")
 
             Rectangle().fill(AppTheme.hairline).frame(height: 1)
@@ -293,17 +313,12 @@ private struct MatchItemRow: View {
         .frame(width: kickoffWidth, alignment: .leading)
     }
 
-    /// Két csapatnév a címerrel; a forduló-jelzés a nevek alatt.
+    /// Két csapatnév a címerrel. A forduló-jelzés a szekciófejlécben él,
+    /// a kártyán csak a meccs adatai maradnak.
     private var teamsColumn: some View {
         VStack(alignment: .leading, spacing: 4) {
             teamLine(match.home, logo: match.homeLogo, weight: .semibold)
             teamLine(match.away, logo: match.awayLogo, weight: .medium)
-            if let round = match.roundText {
-                Text(round)
-                    .font(.system(size: 10, weight: .medium))
-                    .tracking(0.4)
-                    .foregroundStyle(AppTheme.secondaryText)
-            }
         }
         .lineLimit(1)
         .minimumScaleFactor(0.8)

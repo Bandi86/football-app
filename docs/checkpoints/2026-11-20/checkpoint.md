@@ -980,3 +980,75 @@ szelet ezeket a rendszerszintű okokat javítja.
       kódot ad, a UI katalógus fordítja zászlóra/névre.
 - [ ] Verseny-logó forrás bővítése (a v1-nek csak 96 ligája van; a La Liga
       logója hiányzik), és a fordulójelzés kitöltése a hiányzó meccseknél.
+
+## S43 — napi lista: valós ligák, forduló a fejlécben, duplikátum- és logó-kör
+
+Induló állapot: a felhasználó szerint az angol Championship alatt skót/NIFL
+csapatok voltak, a League One és a National League duplikált, sok ligában
+maradt duplikáció, a fordulószám többször szerepelt, Bulgáriának nem volt
+zászlaja. Cél: a 2026-11-20-i 246–267 soros napi lista teljes auditja
+(liga, zászló, név, időpont), a forduló egyszer, a szekciófejlécben.
+
+### Változások
+
+- [x] Championship szétvágása: a 3 kevert sor átmozgatva a Scottish
+      Championship (GB-SCT) és a NIFL Championship (GB-NIR) alá; a GB-ENG
+      Championship alatt 0 nem angol csapat maradt.
+- [x] Duplikált verseny-entitások merge-e (audit `competition_merge`):
+      CZ FNL, DK 1. Division, DK A-Liga Women, DK Superliga, IN Indian Super
+      League, MY Super League, NIFL Premiership + 45 azonos (ország, név)
+      verseny; a maradék GB kódú angol versenyek GB-ENG-re állítva,
+      a téves „Premiership" (Cliftonville–Glentoran) NIFL Premiership alá.
+- [x] Csapat-merge 2 körben (123 + 162 merge, seed kizárva; survivor: több
+      meccs → logó → korábbi): `core.team` 4781 → 4497; önmaga-meccs 0.
+- [x] Ország-merge: ISO3→ISO2 52 pár + INT→XX; `core.country` 250 → 201;
+      magyar országnevek 131 UPDATE; GB-ENG sor („Anglia") létrejött.
+- [x] Meccs-duplikátumok: 12 általános + 5 kézi pár merge (`dedupe pair` CLI),
+      köztük a hét angol/olasz/ukrán/orosz/cseh/dán példányai; a férfi–női
+      Toulouse-pár szándékosan érintetlen (hamis pozitív).
+- [x] Kickoff: a research ±1 órás eltéréseit a hét 16 meccsénél openfoot
+      időre igazítottuk, a kickoff-provenance kiválasztást átbillentve
+      (audit `match_kickoff_revision`); a két önmaga-meccs csapata javítva
+      (Jordan U23 létrehozva, Switzerland U17 → Czech Republic U17).
+- [x] Anyagi konfliktus szabály: elavult státusz/üres eredmény nem konfliktus,
+      kickoff-eltérés csak >120 percnél; RULE_SET_VERSION → `verification-1.3`
+      (worker, identity, footballctl); reverify 1890 meccs, withheld 3 (CD/CG,
+      forrás-instabil országkód — helyesen visszatartva).
+- [x] UI: a forduló a szekciófejlécbe került („ORSZÁG · 13. forduló"), a
+      kártyáról lekerült; a csapatnevek mellett címer, a fejlécben ligalogó
+      vagy zászló; 4 új ISO3-alias (BUL→BG, ROM→RO, KSA→SA, KVX→XK).
+- [x] Tesztek: domain 9, storage 14→18, verification 11, identity 8; a
+      rövidítés-feloldás („Sheffield Weds" = „Sheffield Wednesday") nem nyeli
+      el az országneveket („Dominica" ≠ „Dominican Republic"); a hétvégi
+      név-variáns dry-run minden napra tiszta.
+
+### Adatműveletek és visszaállítás
+
+- [x] Mentések: `/tmp/football_v2_dev_20261120_pre_s43.dump` (543 MB),
+      `/tmp/football_v2_dev_20261120_pre_s42_apply.dump`; visszaállítás
+      `pg_restore`-ral. Minden írás tranzakciós és auditált
+      (`identity_team_merge`, `competition_merge`, `identity_country_merge`,
+      `match_kickoff_revision`, `identity_match_revision`,
+      `competition_match_reassign`).
+
+### Kapuk
+
+- [x] `cargo fmt --all --check` OK; `cargo clippy --workspace --all-targets
+      -- -D warnings` tiszta; `cargo test --workspace -- --test-threads=1`
+      exit 0.
+- [x] Swift Core 57/57, app unit 50/50, UI 8/8 PASSED; `xcodebuild build`
+      BUILD SUCCEEDED; a futó app a friss binárisból (`/tmp/s43_final1.png`,
+      `/tmp/s43_gb3.png`).
+- [x] Daemon újraépítve + telepítve (port 56709), `/v1/health` 200,
+      `/v1/day/2026-11-20` 246 sor, 121 szekció, 0 önmaga-meccs,
+      0 azonos csapatpárú duplikátum, 138 forduló, 83/246 meccsnél mindkét
+      csapatlogó, 11 date_only.
+
+### Nyitott / következő
+
+- [ ] A research +1 órás kickoff-eltolásának gyökér-oka az ingest adapterben
+      (a napi DB-javítás megtörtént, a forrás-oldali normalizálás még nyitott).
+- [ ] A CD/CG 3 withheld forrás-instabil országkódja (soccerway kódváltás).
+- [ ] A hét többi napjának (11-21…11-27) egyenkénti duplikátum-auditja.
+- [ ] Verseny-logó lefedettség (a v1-nek csak 96 ligája van; a napi 121
+      szekcióból 64 kap logót) és a csapatlogó-lefedettség további emelése.

@@ -915,7 +915,7 @@ async fn unresolved_match_is_withheld_on_budapest_publish_date() {
     let (state, rule_set_version, blockers, publish_date) =
         gate_row(&pool, match_id).await.expect("withheld gate-sor");
     assert_eq!(state, "withheld");
-    assert_eq!(rule_set_version, "verification-1.2");
+    assert_eq!(rule_set_version, "verification-1.3");
     assert_eq!(publish_date, day(2026, 11, 21));
     let blocker = &blockers[0];
     assert_eq!(blocker["rule"], "IDENTITY_UNRESOLVED");

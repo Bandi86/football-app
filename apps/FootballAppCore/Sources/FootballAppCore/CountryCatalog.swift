@@ -116,21 +116,27 @@ public enum CountryCatalog {
 
     // MARK: - Táblák
 
-    /// Nem ISO, de a labdarúgó-forrásokban előforduló alpha-3 variánsok.
-    /// A NIG a FIFA-jelölés szerint Niger (NE); Nigéria a NGA (NG).
+    /// Nem ISO, de a labdarúgó-forrásokban előforduló alpha-3 variánsok
+    /// (FIFA- és történelmi jelölések). A NIG a FIFA-jelölés szerint Niger
+    /// (NE); Nigéria a NGA (NG). A BUL/ROM/KSA/KVX a hivatalos ISO-készletből
+    /// hiányzó, de a feedekben használt alakok.
     private static let iso3Aliases: [String: String] = [
         "ALG": "DZ",
         "BOT": "BW",
+        "BUL": "BG",
         "CHI": "CL",
         "CRO": "HR",
         "DEN": "DK",
         "GER": "DE",
         "GRE": "GR",
+        "KSA": "SA",
+        "KVX": "XK",
         "MAS": "MY",
         "NED": "NL",
         "NIG": "NE",
         "PAR": "PY",
         "POR": "PT",
+        "ROM": "RO",
         "RSA": "ZA",
         "SIN": "SG",
         "SUI": "CH",

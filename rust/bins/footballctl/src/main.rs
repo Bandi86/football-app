@@ -37,7 +37,7 @@ use uuid::Uuid;
 mod competitions;
 
 /// S2b-2: a TRUST_LEVEL + odds trust szabálykészlet verziója (a tickével azonos).
-const RULE_SET_VERSION: &str = "verification-1.2";
+const RULE_SET_VERSION: &str = "verification-1.3";
 
 #[derive(Parser)]
 #[command(name = "footballctl")]
@@ -85,6 +85,17 @@ enum DedupeAction {
         /// Alapból kikapcsolva.
         #[arg(long)]
         cross_competition: bool,
+    },
+    /// Kézi, ellenőrzött pár merge: a megadott két meccs közül a `survivor`
+    /// marad, a `duplicate` archiválva törlődik. Csak akkor használd, ha a
+    /// pár valóban ugyanaz a fixture (pl. eltérő verseny-entitás miatt maradt ki).
+    Pair {
+        #[arg(long)]
+        survivor: Uuid,
+        #[arg(long)]
+        duplicate: Uuid,
+        #[arg(long)]
+        note: String,
     },
     /// S26: fixture-szintű rekonciliáció — azonos verseny+szezon+csapat-pár+
     /// UTC-nap, eltérő kickoff (v1 import vs footballdata). Auto-merge csak
@@ -685,6 +696,17 @@ async fn main() -> Result<()> {
                         }
                     );
                 }
+            }
+            DedupeAction::Pair {
+                survivor,
+                duplicate,
+                note,
+            } => {
+                let audit = football_storage::repositories::dedupe::merge_duplicate(
+                    &pool, survivor, duplicate, &note,
+                )
+                .await?;
+                println!("merge kész: {audit} | túlélő {survivor} | áldozat {duplicate}");
             }
             DedupeAction::Variants {
                 date,
