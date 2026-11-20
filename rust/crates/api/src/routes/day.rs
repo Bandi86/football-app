@@ -7,14 +7,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::AppState;
 use crate::auth::{Scope, authorize};
-use crate::error::AppError;
+use crate::error::{ApiError, AppError};
 
 #[derive(Debug, Deserialize)]
 pub struct DayQuery {
     pub include: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct DayResponse {
     pub date: NaiveDate,
     pub timezone: &'static str,
@@ -23,7 +23,7 @@ pub struct DayResponse {
     pub matches: Vec<DayMatch>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct DayMatch {
     pub id: uuid::Uuid,
     pub kickoff_at: chrono::DateTime<chrono::Utc>,
@@ -33,6 +33,7 @@ pub struct DayMatch {
     pub home_score: Option<i16>,
     pub away_score: Option<i16>,
     pub publish_state: String,
+    #[schema(value_type = Vec<football_domain::verification::Finding>)]
     pub blockers: serde_json::Value,
     pub competition_id: uuid::Uuid,
     pub competition_name: String,
@@ -48,6 +49,7 @@ pub struct DayMatch {
     pub away_pens: Option<i16>,
     pub home_position: Option<i16>,
     pub away_position: Option<i16>,
+    #[schema(value_type = Option<football_domain::trust::OddsValues>)]
     pub odds: Option<serde_json::Value>,
     pub market_count: Option<i32>,
     pub odds_source: Option<String>,
@@ -59,6 +61,23 @@ pub struct DayMatch {
     pub odds_trust_state: Option<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/day/{date}",
+    tag = "nap",
+    summary = "Egy nap ellenőrzött meccslistája (Europe/Budapest nap szerint)",
+    params(
+        ("date" = String, Path, description = "Naptári nap, YYYY-MM-DD"),
+        ("include" = Option<String>, Query, description = "`all` esetén a visszatartott meccsek is szerepelnek")
+    ),
+    responses(
+        (status = 200, body = DayResponse),
+        (status = 400, body = ApiError),
+        (status = 401, body = ApiError),
+        (status = 500, body = ApiError)
+    ),
+    security(("bearer" = []))
+)]
 pub async fn day(
     State(state): State<AppState>,
     headers: HeaderMap,

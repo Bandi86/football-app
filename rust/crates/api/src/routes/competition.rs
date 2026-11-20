@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::auth::{Scope, authorize};
-use crate::error::AppError;
+use crate::error::{ApiError, AppError};
 use crate::routes::day::{DayMatch, map_match};
 
 const TIMEZONE: &str = "Europe/Budapest";
@@ -33,13 +33,27 @@ pub struct DetailQuery {
     pub window: Option<i64>,
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct CompetitionDetailResponse {
     pub detail: CompetitionDetailRow,
     pub matches: Vec<DayMatch>,
     pub teams: Vec<CompetitionTeamRow>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/competitions",
+    tag = "verseny",
+    summary = "Az adott nap versenyei meccsszámlálókkal",
+    params(("date" = String, Query, description = "Naptári nap, YYYY-MM-DD")),
+    responses(
+        (status = 200, body = Vec<CompetitionListRow>),
+        (status = 400, body = ApiError),
+        (status = 401, body = ApiError),
+        (status = 500, body = ApiError)
+    ),
+    security(("bearer" = []))
+)]
 pub async fn competitions(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -55,6 +69,25 @@ pub async fn competitions(
     Ok(Json(rows))
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/competition/{id}",
+    tag = "verseny",
+    summary = "Verseny-adatlap: összesítők, környékbeli meccsek, csapatmérlegek",
+    params(
+        ("id" = String, Path, description = "Verseny UUID"),
+        ("date" = String, Query, description = "Naptári nap, YYYY-MM-DD"),
+        ("window" = Option<i64>, Query, description = "Ablak napokban (0–30, alap 7)")
+    ),
+    responses(
+        (status = 200, body = CompetitionDetailResponse),
+        (status = 400, body = ApiError),
+        (status = 401, body = ApiError),
+        (status = 404, body = ApiError),
+        (status = 500, body = ApiError)
+    ),
+    security(("bearer" = []))
+)]
 pub async fn competition_detail(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -105,6 +138,20 @@ pub async fn competition_detail(
 }
 
 /// A verseny szezon-listája (meccs/eredmény/odds darabszámokkal).
+#[utoipa::path(
+    get,
+    path = "/v1/competition/{id}/seasons",
+    tag = "verseny",
+    summary = "A verseny szezonjai meccs/eredmény/odds darabszámmal",
+    params(("id" = String, Path, description = "Verseny UUID")),
+    responses(
+        (status = 200, body = Vec<CompetitionSeasonRow>),
+        (status = 400, body = ApiError),
+        (status = 401, body = ApiError),
+        (status = 500, body = ApiError)
+    ),
+    security(("bearer" = []))
+)]
 pub async fn competition_seasons(
     State(state): State<AppState>,
     headers: HeaderMap,

@@ -8,7 +8,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct MatchDetailRow {
     pub id: Uuid,
     pub kickoff_at: DateTime<Utc>,
@@ -54,12 +54,14 @@ pub struct MatchDetailRow {
     pub away_fouls: Option<i32>,
     pub home_xg: Option<f64>,
     pub away_xg: Option<f64>,
+    #[schema(value_type = Option<football_domain::trust::OddsValues>)]
     pub odds: Option<serde_json::Value>,
     pub market_count: Option<i32>,
     pub odds_source: Option<String>,
     pub odds_captured_at: Option<DateTime<Utc>>,
     pub odds_trust_state: Option<String>,
     pub gate_state: Option<String>,
+    #[schema(value_type = Option<Vec<football_domain::verification::Finding>>)]
     pub gate_blockers: Option<serde_json::Value>,
     pub gate_evaluated_at: Option<DateTime<Utc>>,
     pub gate_rule_set_version: Option<String>,

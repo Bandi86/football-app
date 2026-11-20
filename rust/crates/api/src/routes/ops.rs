@@ -9,9 +9,9 @@ use serde::Serialize;
 
 use crate::AppState;
 use crate::auth::{Scope, authorize};
-use crate::error::AppError;
+use crate::error::{ApiError, AppError};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct OpsStatus {
     pub pending_jobs: i64,
     pub leased_jobs: i64,
@@ -22,7 +22,7 @@ pub struct OpsStatus {
 }
 
 /// Read-only integritás-pillanatkép a napi adatminőségről (S30).
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct OpsIntegrity {
     pub verdict: String,
     pub duplicate_kickoff_groups: i64,
@@ -35,7 +35,7 @@ pub struct OpsIntegrity {
     pub open_breakers: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct OpsSource {
     pub source_slug: String,
     pub mode: String,
@@ -45,6 +45,18 @@ pub struct OpsSource {
     pub breaker_state: String,
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/ops/status",
+    tag = "ops",
+    summary = "Üzemeltetési állapot és integritás-verdikt (ops-token)",
+    responses(
+        (status = 200, body = OpsStatus),
+        (status = 401, body = ApiError),
+        (status = 500, body = ApiError)
+    ),
+    security(("bearer" = []))
+)]
 pub async fn status(
     State(state): State<AppState>,
     headers: HeaderMap,

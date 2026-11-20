@@ -8,6 +8,7 @@ rust-version.workspace = true
 chrono.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+utoipa.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]

@@ -83,15 +83,16 @@ pub async fn generate_jobs(
                     );
                     continue;
                 }
-                if let Some(interval) = event.interval_minutes {
-                    if interval != 1440 && interval != 10080 {
-                        tracing::warn!(
-                            source = %policy.source_slug,
-                            interval,
-                            "nem engedett interval_minutes (1440/10080), a sablon kihagyva"
-                        );
-                        continue;
-                    }
+                if let Some(interval) = event.interval_minutes
+                    && interval != 1440
+                    && interval != 10080
+                {
+                    tracing::warn!(
+                        source = %policy.source_slug,
+                        interval,
+                        "nem engedett interval_minutes (1440/10080), a sablon kihagyva"
+                    );
+                    continue;
                 }
                 if let Some(offset) = event.offset_minutes {
                     let Some(matches) = &kickoff_matches else {

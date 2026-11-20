@@ -79,24 +79,24 @@ pub fn result_consistency_findings(snapshot: &MatchSnapshot) -> Vec<Finding> {
         ));
     }
 
-    if let (Some(home_ht), Some(home_ft)) = (result.home_ht, result.home_ft) {
-        if home_ht > home_ft {
-            findings.push(Finding::blocker(
-                "HT_GREATER_THAN_FT",
-                "home_ht",
-                "A hazai félidőeredmény nem lehet nagyobb a rendes játékidejű eredménynél.",
-            ));
-        }
+    if let (Some(home_ht), Some(home_ft)) = (result.home_ht, result.home_ft)
+        && home_ht > home_ft
+    {
+        findings.push(Finding::blocker(
+            "HT_GREATER_THAN_FT",
+            "home_ht",
+            "A hazai félidőeredmény nem lehet nagyobb a rendes játékidejű eredménynél.",
+        ));
     }
 
-    if let (Some(away_ht), Some(away_ft)) = (result.away_ht, result.away_ft) {
-        if away_ht > away_ft {
-            findings.push(Finding::blocker(
-                "HT_GREATER_THAN_FT",
-                "away_ht",
-                "A vendég félidőeredmény nem lehet nagyobb a rendes játékidejű eredménynél.",
-            ));
-        }
+    if let (Some(away_ht), Some(away_ft)) = (result.away_ht, result.away_ft)
+        && away_ht > away_ft
+    {
+        findings.push(Finding::blocker(
+            "HT_GREATER_THAN_FT",
+            "away_ht",
+            "A vendég félidőeredmény nem lehet nagyobb a rendes játékidejű eredménynél.",
+        ));
     }
 
     if (result.home_pens.is_some() || result.away_pens.is_some())

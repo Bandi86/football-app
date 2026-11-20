@@ -2,7 +2,7 @@
 
 Helyi, macOS-re tervezett futball-adatplatform. A cél nem egy újabb tippoldal, hanem egy **visszakövethető, ellenőrzött és elemzésre alkalmas adatrendszer**, amelyre később predikciós és papíralapú fogadásszimulációs rétegek épülhetnek.
 
-> **Állapot (2026-11-20):** a kanonikus adatbázis **287 664 meccs**, a 2006–2026-os szezonokra **189 310 meccs / 96,7% eredmény / 86,1% odds**; **withheld 0, duplikált fixture 0, árva provenance 0, feloldatlan konfliktus 0**, `footballctl integrity` → `OK`. A v1 gap-fill most 1993–2026-ra teljes (11 korábbi és 11 újabb liga; kétkörös bootstrap, forrás-ellenőrzött fixture- és eredményrevíziókkal, minden módosítás auditálva). Az identitás ékezet- és GB-alrégió-toleráns. A napi worker-daemon (launchd, `hu.bandi86.football.v2`) a repó buildjével fut (S31d-ben újratelepítve), a SwiftUI kliens **37/37 Core + 26/26 app + 5/5 UI** tesztje zöld, a VoiceOver-címkék közös, tesztelt forrásból jönnek. Kész a kapulánc, az observáció-vezérelt kanonikus út, az Elo/odds/statisztika adapterek, a Versenyek/Csapatok oldal, a meccs-részletező, az Üzemeltetés nézet integritás-kártyája, az automatizált XCUITest UI-harness, a GitHub Actions CI és a nap-végpont API↔Swift kontrakt; nyitott: a tényleges VoiceOver-felolvasás és Tab-fókusz, a teljes OpenAPI-dokumentum, a soccerway JS dayPicker és az asset-licence döntés.
+> **Állapot (2026-11-20):** a kanonikus adatbázis **287 664 meccs**, a 2006–2026-os szezonokra **189 310 meccs / 96,7% eredmény / 86,1% odds**; **withheld 0, duplikált fixture 0, árva provenance 0, feloldatlan konfliktus 0**, `footballctl integrity` → `OK`. A v1 gap-fill most 1993–2026-ra teljes (11 korábbi és 11 újabb liga; kétkörös bootstrap, forrás-ellenőrzött fixture- és eredményrevíziókkal, minden módosítás auditálva). Az identitás ékezet- és GB-alrégió-toleráns. A napi worker-daemon (launchd, `hu.bandi86.football.v2`) a repó buildjével fut (S31d-ben újratelepítve), a SwiftUI kliens **37/37 Core + 26/26 app + 5/5 UI** tesztje zöld, a VoiceOver-címkék közös, tesztelt forrásból jönnek. Kész a kapulánc, az observáció-vezérelt kanonikus út, az Elo/odds/statisztika adapterek, a Versenyek/Csapatok oldal, a meccs-részletező, az Üzemeltetés nézet integritás-kártyája, az automatizált XCUITest UI-harness, a GitHub Actions CI (S32b-ben a Swift feladat már zöld; a Rust feladat első hibái javítva, a zöld futás igazolása folyamatban), a nap-végpont API↔Swift kontrakt és a teljes OpenAPI-dokumentum (`GET /openapi.json`); nyitott: a tényleges VoiceOver-felolvasás (emberi fül kell hozzá) és a Tab-fókusz, valamint a soccerway JS dayPicker.
 
 ## Mi ez a projekt?
 
@@ -174,8 +174,18 @@ Két oldal méri ugyanahhoz a fájlhoz:
   ugyanezt a payloadot hiánytalanul dekódolják-e.
 
 Mezőátnevezés vagy típusváltás így nem tud csendben elcsúszni a két oldal között.
-A teljes OpenAPI-dokumentum (minden végpontra) külön döntés — a generálás módja (utoipa vs. kézi)
-még nincs eldöntve; a kontrakt-teszt addig is a kliens által használt végpontot fedi.
+
+## OpenAPI
+
+A teljes HTTP-szerződés a **`GET /openapi.json`** útvonalon olvasható (OpenAPI 3.1, token nélkül — séma, nem adat).
+A dokumentum `utoipa` derive-okból **fordítás időben** épül: a handlerek `#[utoipa::path(...)]`, a válasz- és
+sor-típusok `utoipa::ToSchema` annotációt kapnak, ezért a leírás nem tud csendben elszakadni a szerializált
+mezőktől, és nincs generált artifact a repóban.
+
+A szerződést tesztek őrzik (`rust/crates/api/tests/openapi.rs`): mind a 11 dokumentált útvonal valóban routol
+(ellenőrzött negatív kontrollal), minden `$ref` feloldható, a `DayResponse`/`DayMatch` séma mezői pontosan a
+`tests/fixtures/contract/day-response.json` kulcsai, a bearer séma deklarálva van, és a `GET /openapi.json`
+token nélkül 200-at ad. A döntés és indoklása: [docs/decisions/2026-11-20-openapi.md](docs/decisions/2026-11-20-openapi.md).
 
 ## Adatvédelem és közzététel
 

@@ -303,3 +303,73 @@ mérése (S31a) azért nem látott fókuszt, mert nem volt fókuszálható elem.
 - [ ] Nem ellenőrzött: `shift+Tab` körbeérése csak UI-tesztben futott (élőben nem), és a fókuszgyűrű
   megjelenése világos/sötét témában (a kliens szándékosan csak sötét palettát használ).
 - Következő döntési pont: push + a CI első valós futása (S32b).
+
+## S32b — a CI első valós futása
+
+Induló állapot: `06da09a` push után elindult az első valós GitHub Actions futás; a workflow eddig
+csak actionlinttel és helyi lépésfuttatással volt ellenőrizve.
+
+- [x] Run `44730897063`: a **Swift feladat zöld** (Core tesztek, `xcodegen`, app unit tesztek) — ez az
+  első valós CI-siker a kliens oldalon.
+- [x] Ugyanabban a futásban a **Rust feladat piros** lett a `sqlx-cli` telepítésénél:
+  `error: invalid value '0.8' for '--version <VERSION>': unexpected end of input while parsing minor
+  version number` (a cargo a `0.8`-at nem fogadja el, csak `^0.8`-at).
+- [x] `8dc5a97` javítás: `cargo install sqlx-cli --version ^0.8 --no-default-features --features
+  rustls,postgres --locked`, és a `Swatinem/rust-cache` `workspaces: rust -> target` beállítása (a
+  workspace a `rust/` alatt van, ezért a cache eddig nem találta a `Cargo.toml`-t).
+  `actionlint -no-color .github/workflows/ci.yml` → exit 0.
+- [x] `77c3138` javítás: a nap-lista két rendezése `($0.time, $0.id) < ($1.time, $1.id)` tiebreak-et
+  kapott, mert a Swift rendezés nem stabil, és az azonos kezdésű meccsek sorrendje UI-teszt-flake-et
+  okozott. Újrafuttatott UI-tesztek: **6/6 zöld** (`** TEST SUCCEEDED **`).
+- [x] Push `06da09a..77c3138`; a második futás (`44731298004`) Swift feladata zöld, a Rust feladat
+  viszont a storage-tesztekben elhasalt (lásd S32c).
+- [ ] Nem ellenőrzött: zöld Rust feladat a GitHub Actionsön (a javítás pusholva, a futás még nem ért véget).
+
+## S32c — időbélyeg-pontosság a storage-tesztekben
+
+Induló állapot: a második CI-futás Rust feladata 6 storage-tesztet buktatott el:
+`left: Some(2026-11-20T11:55:44.689002Z)` vs `right: Some(...689002024Z)`.
+
+- [x] Ok: a PostgreSQL `timestamptz` **mikroszekundum** felbontású, a `chrono::Utc::now()` viszont
+  nanoszekundumot ad; a `trunc_subsecs` nélküli érték a DB-n át kerekítve jön vissza. macOS-en az óra
+  gyakorlatilag µs-felbontású, ezért helyben zöld volt, a Linux-os CI nanoszekundummal buktatta el.
+- [x] Javítás: `rust/crates/storage/tests/worker_repos.rs` mind a 13 `let now = Utc::now();` sora
+  `let now = Utc::now().trunc_subsecs(6);`, import: `use chrono::{Duration, SubsecRound, Utc};`.
+- [x] Átnézve a többi pontos időbélyeg-egyenlőség: `rust/crates/worker/tests/scheduler.rs:173`
+  `base_time()`-ja egész másodperc (`.nanosecond() == 0`), ezért érintetlen; más ilyen assertion nincs.
+- [x] `./scripts/db-reset.sh` (csak `TEST_DATABASE_URL`, 13 migráció) exit 0 → `./scripts/check-foundation.sh`
+  exit 0: **114 domain+storage teszt zöld**, `clippy -D warnings` és `fmt --check` tiszta.
+- [x] `cargo build -p footballd -p footballctl --features obscura` → `Finished ... in 13.41s`.
+- [x] Teljes munkaterület: `cargo test --workspace -- --test-threads=1` → **307 teszt, 0 hiba**
+  (`/tmp/ws-tests.log`); `cargo test -p football-api --test openapi` → 4/4.
+- [ ] Nem ellenőrzött: a javított storage-tesztek Linuxon (CI) — helyben zöldek, de a hiba csak Linuxon
+  jelentkezett; a zöld CI-futás a bizonyíték.
+
+## S33 — teljes OpenAPI-dokumentum
+
+Induló állapot: a nap-végpont kontraktja kész volt (S31c), de teljes OpenAPI-dokumentum nem létezett,
+és a generálás módja nyitott döntés volt.
+
+- [x] Döntés: **utoipa 6** derive-alapú dokumentum a `GET /openapi.json` útvonalon, token nélkül
+  (séma, nem adat); nincs generált artifact a repóban. Indoklás és következmények:
+  `docs/decisions/2026-11-20-openapi.md`.
+- [x] `rust-version` 1.85 → **1.88** (az utoipa 6 MSRV-je); a `utoipa` workspace-függőség a
+  `domain`/`storage`/`api` crate-ekben (a domain csak fordítás idejű séma-annotációt kap, I/O-t nem).
+- [x] `#[utoipa::path(...)]` mind a 11 handleren (tagek: health/nap/meccs/verseny/csapat/asset/ops;
+  `security(("bearer" = []))` a health kivételével), `ToSchema` a válasz- és sor-típusokon.
+  A `serde_json::Value` mezők `#[schema(value_type = ...)]`-ot kaptak (Finding/Severity/OddsValues),
+  így nem maradt üres `{}` séma.
+- [x] `rust/crates/api/src/openapi.rs`: `ApiDoc` (info, 11 teljes modulútvonalú path, components,
+  `BearerAuth` modifier), `document()` handler; `lib.rs`-ben `pub mod openapi;` és a route.
+- [x] Tesztek: `cargo test -p football-api --lib openapi` → 2/2; `rust/crates/api/tests/openapi.rs`
+  4/4 (minden dokumentált útvonal routol negatív kontrollal, minden `$ref` feloldható, a nap-séma
+  mezői pontosan a `tests/fixtures/contract/day-response.json` kulcsai, `GET /openapi.json` token
+  nélkül 200).
+- [x] A munka közben a clippy 1.99 `collapsible_if` lintjei miatt let-chain átírások történtek
+  (`domain/match_state.rs`, `identity/linker.rs`, `ingest/demo.rs`, `ingest/http.rs`,
+  `worker/scheduler.rs`, `worker/tick.rs`, `bins/footballctl/main.rs`); viselkedés nem változott,
+  a teljes tesztkészlet zöld.
+- [x] README: új „## OpenAPI” szakasz és frissített állapotsor; döntési dokumentum a `docs/decisions/` alatt.
+- [ ] Nem ellenőrzött: a **futó** daemon még a korábbi buildet futtatja, ezért az élő `GET /openapi.json`
+  válasz ebből a buildből nem lett ellenőrizve; a daemon újratelepítése külön döntés.
+- Következő döntési pont: push után a zöld CI-futás igazolása, majd Tab-fókusz app-oldali mérés.

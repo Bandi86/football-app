@@ -82,16 +82,15 @@ impl SourceAdapter for DemoAdapter {
                     got: local_date.to_string(),
                 });
             }
-            if let Some(r) = &m.result {
-                if r.home_et.is_some()
+            if let Some(r) = &m.result
+                && (r.home_et.is_some()
                     || r.away_et.is_some()
                     || r.home_pens.is_some()
-                    || r.away_pens.is_some()
-                {
-                    return Err(ParseError::Parse(
-                        "AET/pens állás nem írható 90 perces eredményként (S2a fail-closed)".into(),
-                    ));
-                }
+                    || r.away_pens.is_some())
+            {
+                return Err(ParseError::Parse(
+                    "AET/pens állás nem írható 90 perces eredményként (S2a fail-closed)".into(),
+                ));
             }
         }
 

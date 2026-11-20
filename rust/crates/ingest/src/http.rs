@@ -76,10 +76,10 @@ impl Fetcher for RustHttpFetcher {
         }
         // Előellenőrzés Content-Length alapján: ha a deklarált méret meghaladja
         // a plafont, a törzs letöltését el sem kezdjük.
-        if let Some(declared) = response.content_length() {
-            if declared > limits.max_bytes {
-                return Err(FetchError::Oversize(declared));
-            }
+        if let Some(declared) = response.content_length()
+            && declared > limits.max_bytes
+        {
+            return Err(FetchError::Oversize(declared));
         }
         let content_type = response
             .headers()

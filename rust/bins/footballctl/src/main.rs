@@ -641,13 +641,14 @@ async fn main() -> Result<()> {
                             continue;
                         }
                         safe += 1;
+                        if apply
+                            && let Some(lim) = limit
+                            && merges >= lim
+                        {
+                            println!("merge-limit elérve: {lim}");
+                            break 'groups;
+                        }
                         if apply {
-                            if let Some(lim) = limit {
-                                if merges >= lim {
-                                    println!("merge-limit elérve: {lim}");
-                                    break 'groups;
-                                }
-                            }
                             let outcome: Result<()> = async {
                                 let same = if review_note.is_some() {
                                     football_storage::repositories::dedupe::same_fixture_identity(
@@ -741,18 +742,18 @@ async fn main() -> Result<()> {
                 for (comp, home, away, k1, k2, id1, id2) in &straddling {
                     risky += 1;
                     println!("KOCKÁZAT [dátumon átnyúló] {comp}: {home} vs {away} | {k1} / {k2}");
-                    if let Some(review) = review_note.as_ref() {
-                        if apply {
-                            // A későbbi kickoff a halasztott/átütemezett fixture.
-                            let same = football_storage::repositories::dedupe::same_fixture_identity_any_day(
+                    if apply && let Some(review) = review_note.as_ref() {
+                        // A későbbi kickoff a halasztott/átütemezett fixture.
+                        let same =
+                            football_storage::repositories::dedupe::same_fixture_identity_any_day(
                                 &pool, *id2, *id1,
                             )
                             .await?;
-                            if !same {
-                                println!("  kihagyva: nem azonos fixture ({id1} / {id2})");
-                                continue;
-                            }
-                            football_storage::repositories::dedupe::merge_duplicate(
+                        if !same {
+                            println!("  kihagyva: nem azonos fixture ({id1} / {id2})");
+                            continue;
+                        }
+                        football_storage::repositories::dedupe::merge_duplicate(
                                 &pool,
                                 *id2,
                                 *id1,
@@ -761,9 +762,8 @@ async fn main() -> Result<()> {
                                 ),
                             )
                             .await?;
-                            merges += 1;
-                            risky -= 1;
-                        }
+                        merges += 1;
+                        risky -= 1;
                     }
                 }
                 println!(

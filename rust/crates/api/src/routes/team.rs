@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::auth::{Scope, authorize};
-use crate::error::AppError;
+use crate::error::{ApiError, AppError};
 use crate::routes::day::{DayMatch, map_match};
 
 const TIMEZONE: &str = "Europe/Budapest";
@@ -31,12 +31,29 @@ pub struct TeamDetailQuery {
     pub window: Option<i64>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct TeamDetailResponse {
     pub detail: TeamDetailRow,
     pub matches: Vec<DayMatch>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/teams",
+    tag = "csapat",
+    summary = "Csapatkereső (név-részletre), utolsó 30 nap mérlegével",
+    params(
+        ("query" = Option<String>, Query, description = "Név-részlet, kis/nagybetűtől független"),
+        ("date" = Option<String>, Query, description = "Viszonyítási nap, YYYY-MM-DD (alap: ma)")
+    ),
+    responses(
+        (status = 200, body = Vec<TeamListRow>),
+        (status = 400, body = ApiError),
+        (status = 401, body = ApiError),
+        (status = 500, body = ApiError)
+    ),
+    security(("bearer" = []))
+)]
 pub async fn teams(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -58,6 +75,25 @@ pub async fn teams(
     Ok(Json(rows))
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/team/{id}",
+    tag = "csapat",
+    summary = "Csapat-adatlap: mérleg, Elo és a környékbeli meccsek",
+    params(
+        ("id" = String, Path, description = "Csapat UUID"),
+        ("date" = Option<String>, Query, description = "Viszonyítási nap, YYYY-MM-DD (alap: ma)"),
+        ("window" = Option<i64>, Query, description = "Ablak napokban (0–90, alap 30)")
+    ),
+    responses(
+        (status = 200, body = TeamDetailResponse),
+        (status = 400, body = ApiError),
+        (status = 401, body = ApiError),
+        (status = 404, body = ApiError),
+        (status = 500, body = ApiError)
+    ),
+    security(("bearer" = []))
+)]
 pub async fn team_detail(
     State(state): State<AppState>,
     headers: HeaderMap,

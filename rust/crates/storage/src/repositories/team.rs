@@ -6,7 +6,7 @@ use chrono::NaiveDate;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct TeamListRow {
     pub team_id: Uuid,
     pub name: String,
@@ -68,7 +68,7 @@ pub async fn fetch_teams(
     Ok(rows)
 }
 
-#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct TeamDetailRow {
     pub team_id: Uuid,
     pub name: String,

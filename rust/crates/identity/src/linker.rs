@@ -68,17 +68,15 @@ pub async fn resolve(
         if let Some(target_source) = repo::source_id_by_code(pool, &cw.right_source)
             .await
             .map_err(db)?
-        {
-            if let Some((entity_id, _)) =
+            && let Some((entity_id, _)) =
                 repo::active_ref(pool, target_source, entity_kind, &cw.right_external_id)
                     .await
                     .map_err(db)?
-            {
-                return Ok(Resolution::Exact {
-                    entity_id,
-                    method: ResolveMethod::CrosswalkChain,
-                });
-            }
+        {
+            return Ok(Resolution::Exact {
+                entity_id,
+                method: ResolveMethod::CrosswalkChain,
+            });
         }
     }
 
@@ -93,13 +91,13 @@ pub async fn resolve(
         .filter(|a| context_matches(ctx, &a.context()))
         .map(|a| a.entity_id)
         .collect();
-    if alias_entities.len() == 1 {
-        if let Some(&entity_id) = alias_entities.iter().next() {
-            return Ok(Resolution::Exact {
-                entity_id,
-                method: ResolveMethod::ReviewedAlias,
-            });
-        }
+    if alias_entities.len() == 1
+        && let Some(&entity_id) = alias_entities.iter().next()
+    {
+        return Ok(Resolution::Exact {
+            entity_id,
+            method: ResolveMethod::ReviewedAlias,
+        });
     }
 
     // 4. egzakt normalizált név + kontextus (pontosan 1)

@@ -567,10 +567,10 @@ fn raw_display_name(bytes: &[u8], source_slug: &str) -> String {
     let value: Option<serde_json::Value> = serde_json::from_slice(bytes).ok();
     let field =
         |key: &str| -> Option<String> { value.as_ref()?.get(key)?.as_str().map(str::to_string) };
-    if field("source_code").as_deref() == Some(source_slug) {
-        if let Some(name) = field("source_display_name") {
-            return name;
-        }
+    if field("source_code").as_deref() == Some(source_slug)
+        && let Some(name) = field("source_display_name")
+    {
+        return name;
     }
     source_slug.to_string()
 }

@@ -35,7 +35,7 @@ pub struct SourceTrust {
 
 /// A kanonikus 7 odds-mező értékei. A hiányzó piac/kulcs `None` (a hiányzó
 /// adat NULL elve: a forrás nem ad BTTS-t → nincs érték, nem hiba).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, utoipa::ToSchema)]
 pub struct OddsValues {
     pub home: Option<f64>,
     pub draw: Option<f64>,

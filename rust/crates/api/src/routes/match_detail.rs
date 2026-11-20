@@ -8,8 +8,23 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::auth::{Scope, authorize};
-use crate::error::AppError;
+use crate::error::{ApiError, AppError};
 
+#[utoipa::path(
+    get,
+    path = "/v1/match/{id}",
+    tag = "meccs",
+    summary = "Egy kanonikus meccs teljes, ellenőrzött képe",
+    params(("id" = String, Path, description = "Meccs UUID")),
+    responses(
+        (status = 200, body = MatchDetailRow),
+        (status = 400, body = ApiError),
+        (status = 401, body = ApiError),
+        (status = 404, body = ApiError),
+        (status = 500, body = ApiError)
+    ),
+    security(("bearer" = []))
+)]
 pub async fn match_detail(
     State(state): State<AppState>,
     headers: HeaderMap,

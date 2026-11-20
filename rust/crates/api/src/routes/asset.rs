@@ -10,7 +10,7 @@ use axum::response::{IntoResponse, Response};
 
 use crate::AppState;
 use crate::auth::{Scope, authorize};
-use crate::error::AppError;
+use crate::error::{ApiError, AppError};
 
 fn is_hex(value: &str, len: usize) -> bool {
     value.len() == len && value.bytes().all(|b| b.is_ascii_hexdigit())
@@ -42,6 +42,21 @@ fn valid_key(key: &str) -> bool {
     is_hex(sha, 64) && content_type(parts[3]).is_some()
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/asset/{key}",
+    tag = "asset",
+    summary = "Tartalom-címzett asset-blob (logó, zászló)",
+    params(("key" = String, Path, description = "assets/<aa>/<bb>/<sha256>.<ext>")),
+    responses(
+        (status = 200, description = "A blob bájtjai", content_type = "image/*"),
+        (status = 400, body = ApiError),
+        (status = 401, body = ApiError),
+        (status = 404, body = ApiError),
+        (status = 500, body = ApiError)
+    ),
+    security(("bearer" = []))
+)]
 pub async fn asset(
     State(state): State<AppState>,
     headers: HeaderMap,
