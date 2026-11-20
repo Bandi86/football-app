@@ -563,3 +563,22 @@ bemutatott bizonyíték alapján a **B — app-szintű Tab-sorrend** irányt vá
 - [ ] Nem ellenőrzött: az éles hatás a daemon újratelepítése előtt (a felhasználó
   kérésére egy telepítés jön az S37b után); a meglévő variáns-duplikátumok
   merge-elése (S37c); a tipplap-események csapat-identitás feloldása (S37d).
+
+### S37b — éles mérés (daemon újratelepítve)
+
+- Az `install-footballd-agent.sh` a `rust/target/debug/footballd`-t másolja; a
+  S37b kód csak új `cargo build -p footballd --features obscura` + telepítés
+  után került a daemonba (a 15:25-ös telepítés még a régi binárist vitte ki).
+- Kényszerített tipplap refresh (kézi `ops.job`, `entity_key='s37b-check-3'`;
+  a napi keret ehhez átmenetileg 10 volt, utána visszaállt 8-ra):
+  **24 meccs-szintű forrás-híd** íródott (`entity_kind='match'`, mind
+  `confidence=1.0`, azaz natural-key egyezés), a kanonikus meccsszám nem nőtt
+  (131), azaz a linkelés nem gyártott duplikátumot.
+- **A várttól elmaradó hatás, mérve**: a mai odds-lefedettség változatlan
+  **29/131**, mert a tipplap-sorok többsége még a csapat-identitásnál elakad
+  (`ismeretlen csapat` → review, a meccs kimarad), és így el sem jut a
+  meccs-linkelésig. A v1 ezt esemény-szintű linkeléssel kerülte meg (a tipplap
+  esemény kanonikus csapat nélkül is a meccshez kerül). Ezért a következő,
+  lefedettséget ténylegesen emelő szelet: **esemény-szintű tipplap-linkelés**
+  (a találati szabályok a v1 `link_events.py`-ból) + **identitás-seed** a v1
+  crosswalkból (S37d).

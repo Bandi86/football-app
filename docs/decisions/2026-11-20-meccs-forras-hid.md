@@ -51,3 +51,13 @@ tipplap-oddsok elmaradásának (29/131) fő oka.
 - `cargo test -p football-domain --test identity_rules`: 8/8 (új:
   `club_name_variants_are_likely_the_same_team`).
 - Teljes kapu: 320 passed / 0 failed; `check-foundation` exit 0; fmt/clippy tiszta.
+
+## Utólagos éles mérés (2026-11-20, daemon újratelepítés után)
+
+- 24 meccs-szintű híd keletkezett egy kényszerített tipplap refreshből, mind
+  `confidence=1.0` (natural-key egyezés); a napi meccsszám nem nőtt → nincs új
+  duplikátum.
+- Az odds-lefedettség nem javult (29/131): a tipplap-sorok nagy része a
+  csapat-identitásnál kimarad, tehát a meccs-linkelésig el sem jut. A tényleges
+  lefedettség-emeléshez esemény-szintű linkelés kell (v1 `link_events.py`
+  szabályai) + identitás-seed (S37d) — ez a következő szelet.
