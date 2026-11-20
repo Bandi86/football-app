@@ -203,7 +203,8 @@ private struct MatchItemRow: View {
                 time: match.time,
                 status: match.status,
                 homeScore: match.homeScore,
-                awayScore: match.awayScore
+                awayScore: match.awayScore,
+                publishState: match.publishState
             )
         )
         .accessibilityAddTraits(.isButton)

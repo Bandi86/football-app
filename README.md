@@ -72,12 +72,14 @@ A projekt tudása a repóban él, nem egy külső profilban:
 ## Tervezett repository-szerkezet
 
 ```text
-apps/FootballApp/       SwiftUI macOS kliens (későbbi fázis)
+apps/FootballApp/       SwiftUI macOS kliens (nézetek)
+apps/FootballAppCore/   kliens-üzleti logika (Swift Package, tesztelt)
+apps/FootballAppUITests/ XCUITest akadálymentességi/viselkedési tesztek
 rust/
   crates/               domain, storage, ingest, verification, api, worker
   bins/                 footballd, footballctl
 db/migrations/          ellenőrzött PostgreSQL migrációk
-tests/fixtures/         parser- és integrációs fixture-ök
+tests/fixtures/         parser-, integrációs és UI-fixture-ök (tests/fixtures/ui)
 .dsh/skills/            projekt-specifikus skillek (automatikus katalógus)
 agents/                 szerepkártyák és handoff-protokoll
 docs/                   specifikációk és üzemeltetési dokumentáció
@@ -112,6 +114,32 @@ cargo --version
 rustfmt --version
 cargo clippy --version
 ```
+
+## Kliens (SwiftUI) ellenőrzése
+
+Az Xcode-projekt generált (XcodeGen), ezért előbb:
+
+```bash
+cd apps && xcodegen generate && cd ..
+```
+
+Fordítás és unit-tesztek (a `DEVELOPER_DIR` kötelező, mert az `xcode-select` a CommandLineTools-ra mutat):
+
+```bash
+cd apps/FootballAppCore && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test && cd ../..
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test \
+    -project apps/FootballApp.xcodeproj -scheme FootballApp -destination 'platform=macOS'
+```
+
+Automatizált UI-tesztek (determinisztikus fixture-szerverrel, futó daemon nélkül):
+
+```bash
+./scripts/run-ui-tests.sh
+```
+
+A UI-harness a VoiceOver által is használt akadálymentességi címkéket, a billentyűparancsokat
+és a betöltött/üres/offline állapotokat ellenőrzi; részletek a
+[`docs/operations/ui-accessibility-checklist.md`](docs/operations/ui-accessibility-checklist.md) fájlban.
 
 ## Adatvédelem és közzététel
 

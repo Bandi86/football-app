@@ -40,15 +40,45 @@ A lista a spec §3.6/§3.7 és §17 (Definition of Done) teljesülését szolgá
 5. Állapotok: betöltés, üres szűrő, hiba, daemon-offline és részleges adat külön szöveggel jelenik meg.
 6. A magyar felületi szövegeket olvasd vissza (ékezetek, dátum- és odds-formátum).
 
-## Státusz (2026-11-20)
+## S30h — automatizált ellenőrzés (2026-11-20, futott)
 
-- Felhasználói visszajelzés (m00389): az app fut, a kezdőlapon adatok vannak, hibát nem lát;
-  a 2–6. pontot (VoiceOver-felolvasás, billentyűzet, megjelenés/kontraszt, állapotok, magyar
-  visszaolvasás) még nem próbálta.
-- A kézi lista 2–6. pontja tehát **továbbra sem igazolt**. A vizuális igazolás (képernyőkép)
-  most már lehetséges, az AX-vezérléshez a `DeepSeek Harness` Accessibility-kapcsolója kell.
-- Terv (S30h): automatizált XCUITest-harness a `apps/`-ban (új `FootballAppUITests` cél), amely a
-  VoiceOver által használt akadálymentességi címkéket olvassa, billentyűparancsokat küld, és
-  fixture `runtime.json`-nal determinisztikus betöltés/üres/hiba/offline állapotot állít elő:
-  ezzel a 2–6. pontok ismételhetően, emberi kézi ellenőrzés nélkül futnak.
-- A SwiftUI fázis DoD-je **még nem zárt**; a kód-oldali címkék és billentyűparancsok megvannak.
+Új, ismételhető harness: `apps/FootballAppUITests` (XCUITest) + `scripts/run-ui-tests.sh`
++ `scripts/ui-fixture-server.py` + `tests/fixtures/ui/*.json`. A szerver determinisztikus
+napi adatot szolgál ki, a teszt `FOOTBALL_APP_RUNTIME_FILE` környezeti változóval erre
+irányítja az appot, így futó daemon nélkül is ellenőrizhető a UI.
+
+Futott eredmény (2026-11-20 12:09): `** TEST SUCCEEDED **`, 4/4 teszt zöld:
+
+1. `testLoadedDaySpeaksTeamsStatusScoreAndPublishState` — a meccskártya akadálymentességi
+   címkéje tartalmazza a csapatokat, az időt, a státuszt (Ütemezett/Lezárt), az eredményt
+   (2 – 1), a hiányzó eredmény kimondását („eredmény még nincs”) és a publikációs
+   minőségi állapotot (Ideiglenes/Ellenőrzött publikáció).
+2. `testEmptyDayShowsEmptyState` — üres napon „Nincs meccs ezen a napon.” jelenik meg.
+3. `testMissingRuntimeShowsDaemonOfflineError` — hiányzó `runtime.json` esetén a
+   daemon-offline hibaüzenet jelenik meg.
+4. `testKeyboardShortcutsMoveBetweenDays` — Cmd+→ (HOLNAP), Cmd+T (MA), Cmd+← (TEGNAP)
+   valóban napi váltást okoz.
+
+Tanulságok (a harness dokumentálva):
+- A macOS UI-test runner sandboxja miatt a teszt nem nyithat saját socketet (`socket()` → EPERM),
+  ezért a fixture-szerver külön folyamat; a `runtime.json`-t a runner a saját temp könyvtárába írja.
+- A UI-teszteknél a `CODE_SIGNING_ALLOWED=NO` megöli a runnert — aláírás nélkül nem fut.
+- A SwiftUI `Text` az AX-fában **üres `label`-lel, a `value` attribútumban** hordozza a szöveget,
+  ezért a tesztek `value CONTAINS` predikátummal keresnek.
+- A teszt-runnerből készített screenshot TCC miatt nem működik („Image creation failed”);
+  a vizuális igazolás a harness oldaláról `CGWindowList` + `screencapture -l<windowID>` úton megy,
+  kényelmesen: `./scripts/app-window-shot.sh [kimenet.png]`.
+
+## Státusz (2026-11-20, S30h után)
+
+- Automatikusan igazolt: 1. pont (VoiceOver-címkék tartalma, kártya + publikációs állapot),
+  3. pont billentyűparancsai (Cmd+←/→/T), 5. pont három állapota (betöltött, üres, daemon-offline),
+  valamint a magyar címkék visszaolvasása unit-tesztekkel.
+- Továbbra is emberi/egyéb ellenőrzést igényel: tényleges VoiceOver-felolvasás (hang), Tab-fókusz
+  láthatósága és fókuszcsapda, világos/sötét + Reduced Motion + kontraszt, részleges adat állapot,
+  Cmd+R vizuális frissítés, valamint a `DeepSeek Harness` Accessibility-engedélye az app közvetlen
+  AX-vezérléséhez.
+- Vizuális igazolás (2026-11-20 12:07): a futó app ablaka `screencapture -l442` módszerrel
+  elmentve; a kezdőlap valós adattal (41 meccs, Ligue 1/Bundesliga/La Liga, odds) renderelődik.
+- A SwiftUI fázis DoD-je részben zárt; a fennmaradó pontok az S30h harness bővítésével
+  (megjelenés, fókusz, részleges adat) zárhatók.

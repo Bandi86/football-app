@@ -61,7 +61,7 @@ import Testing
     @Test func matchCardLabelUsesDisplayTimeAndNeverReadsMissingResultAsZero() {
         let withScore = AccessibilityLabels.matchCardLabel(
             home: "Ferencváros", away: "Győr", time: "18:00", status: "finished",
-            homeScore: 2, awayScore: 1
+            homeScore: 2, awayScore: 1, publishState: .verifiedPublish
         )
         #expect(withScore.contains("Ferencváros – Győr, 18:00"))
         #expect(withScore.contains("2 – 1"))
@@ -69,9 +69,11 @@ import Testing
 
         let withoutScore = AccessibilityLabels.matchCardLabel(
             home: "Újpest", away: "Győr", time: "20:45", status: "scheduled",
-            homeScore: nil, awayScore: nil
+            homeScore: nil, awayScore: nil, publishState: .provisionalPublish
         )
         #expect(withoutScore.contains("eredmény még nincs"))
         #expect(!withoutScore.contains("0 – 0"))
+        #expect(withoutScore.contains("Ideiglenes publikáció"))
+        #expect(withScore.contains("Ellenőrzött publikáció"))
     }
 }

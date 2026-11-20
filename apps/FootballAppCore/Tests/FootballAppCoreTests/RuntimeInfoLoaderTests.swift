@@ -33,4 +33,19 @@ import Testing
             try RuntimeInfoLoader(fileURL: url).load()
         }
     }
+
+    @Test func environmentOverrideWins() {
+        let url = RuntimeInfoLoader.resolveDefaultURL(environment: [
+            RuntimeInfoLoader.environmentKey: "/tmp/football-ui-fixture/runtime.json"
+        ])
+        #expect(url.path == "/tmp/football-ui-fixture/runtime.json")
+    }
+
+    @Test func emptyEnvironmentOverrideFallsBackToHomePath() {
+        let url = RuntimeInfoLoader.resolveDefaultURL(environment: [
+            RuntimeInfoLoader.environmentKey: ""
+        ])
+        #expect(url.path.hasSuffix("Library/Application Support/FootballAppV2/runtime.json"))
+        #expect(url.path.hasPrefix(FileManager.default.homeDirectoryForCurrentUser.path))
+    }
 }

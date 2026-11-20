@@ -25,6 +25,17 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: hu.bandi86.FootballApp
         SWIFT_VERSION: "6.0"
+  FootballAppUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - FootballAppUITests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: FootballApp
+    dependencies:
+      - target: FootballApp
   FootballAppTests:
     type: bundle.unit-test
     platform: macOS
@@ -43,3 +54,4 @@ schemes:
     test:
       targets:
         - FootballAppTests
+        - FootballAppUITests

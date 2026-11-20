@@ -69,7 +69,8 @@ public enum AccessibilityLabels {
         time: String,
         status: String,
         homeScore: Int?,
-        awayScore: Int?
+        awayScore: Int?,
+        publishState: PublishState
     ) -> String {
         let score: String
         if let homeScore, let awayScore {
@@ -77,7 +78,8 @@ public enum AccessibilityLabels {
         } else {
             score = "eredmény még nincs"
         }
-        return "\(home) – \(away), \(time), \(statusLabel(for: status)), \(score)"
+        return "\(home) – \(away), \(time), \(statusLabel(for: status)), \(score), "
+            + "\(publishLabel(publishState))"
     }
 
     /// Kattintás- és tesztstabil azonosító soronként.

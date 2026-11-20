@@ -182,3 +182,32 @@ profiljában; utána jöhet a következő kód-szelet.
   Xcode app **24/24**, záró db-reset.
 - Következő döntési pont: S30h (automatizált UI-harness); ehhez egyetlen emberi lépés az
   AX-kapcsoló bekapcsolása, utána a harness önállóan fut.
+
+## S30h — Automatizált UI-ellenőrzés (XCUITest harness)
+
+- Cél: a `docs/operations/ui-accessibility-checklist.md` 2–6. pontjának kiváltása ismételhető,
+  emberi kézi ellenőrzés nélküli automatizált UI-teszttel, hogy a SwiftUI fázis DoD zárható legyen.
+- [x] Új `FootballAppUITests` cél (`bundle.ui-testing`, `TEST_TARGET_NAME: FootballApp`) a
+  `apps/project.yml`-ban és a séma teszt-céljai között; `xcodegen generate` zöld.
+- [x] `FOOTBALL_APP_RUNTIME_FILE` környezeti felülírás a `RuntimeInfoLoader`-ben
+  (`resolveDefaultURL(environment:)`), hogy a teszt determinisztikus `runtime.json`-t adjon az appnak.
+- [x] `scripts/ui-fixture-server.py` + `scripts/run-ui-tests.sh` + `tests/fixtures/ui/{loaded-day,empty-day}.json`:
+  a fixture-szerver külön folyamat (a UI-test runner sandboxja `socket()` → EPERM miatt nem nyithat
+  socketet), a runner a saját temp könyvtárába írja a `runtime.json`-t.
+- [x] `AccessibilityLabels.matchCardLabel` megkapja a `publishState` paramétert, és kimondja a
+  publikációs minőségi állapotot; `MatchCardModel.publishState` hozzáadva (DayMatch-ból, mintaadatnál
+  `.unknown`); a `MatchListView` átadja. Unit-tesztek frissítve.
+- [x] Futott UI-tesztek (2026-11-20 12:09): `** TEST SUCCEEDED **`, **4/4 zöld** —
+  betöltött nap címkéi (csapatok, idő, státusz, eredmény, publikációs állapot), üres nap,
+  daemon-offline hiba, billentyűparancsok (Cmd+→ / Cmd+T / Cmd+← valódi napi váltást okoz).
+- [x] Swift Core tesztek: **34/34 zöld** (új `RuntimeInfoLoaderTests` esetekkel).
+- [x] Vizualis igazolás harness oldalról: `CGWindowList` + `screencapture -l<windowID>` működik
+  (a futó app ablaka elmentve, kezdőlap valós adattal: 41 meccs, Ligue 1/Bundesliga/La Liga).
+- [ ] Nem ellenőrzött: a teszt-runnerből készített screenshot TCC miatt nem működik
+  („Failed to create screenshot”); a tényleges VoiceOver-hang, Tab-fókusz és fókuszcsapda,
+  világos/sötét + Reduced Motion + kontraszt, részleges adat állapot továbbra is nyitott.
+- Tanulságok (dokumentálva a checklistben): a `CODE_SIGNING_ALLOWED=NO` megöli a UI-test runnert;
+  a SwiftUI `Text` AX-ban üres `label`, a szöveg a `value` attribútumban van (`value CONTAINS`).
+- Futtatott kapu: lásd a szelet záró ellenőrzését (Rust kapu-lánc + Core 34/34 + app 24/24 + UI 4/4).
+- Következő döntési pont: a fennmaradó akadálymentességi pontok automatizálása (megjelenés/fókusz),
+  CI workflow, OpenAPI↔Swift kontrakt-teszt, vagy a futó daemon frissítése.

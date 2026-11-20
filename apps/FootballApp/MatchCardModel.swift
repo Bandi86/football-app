@@ -22,6 +22,7 @@ struct MatchCardModel: Identifiable {
     let away: String
     let time: String
     let status: String
+    let publishState: PublishState
     let homeScore: Int?
     let awayScore: Int?
     let homeHt: Int?
@@ -72,6 +73,7 @@ struct MatchCardModel: Identifiable {
             away: match.away,
             time: timeFormatter.string(from: match.kickoffAt),
             status: match.status,
+            publishState: match.publishState,
             homeScore: match.homeScore,
             awayScore: match.awayScore,
             homeHt: match.homeHt,
@@ -100,7 +102,7 @@ struct MatchCardModel: Identifiable {
     static func from(_ match: SampleMatch) -> MatchCardModel {
         MatchCardModel(
             id: match.id, home: match.home, away: match.away, time: match.time,
-            status: match.status, homeScore: match.homeScore, awayScore: match.awayScore,
+            status: match.status, publishState: .unknown, homeScore: match.homeScore, awayScore: match.awayScore,
             homeHt: match.homeHt, awayHt: match.awayHt, homeEt: match.homeEt, awayEt: match.awayEt,
             homePens: match.homePens, awayPens: match.awayPens, minute: match.minute,
             odds: match.odds, markets: match.markets, oddsSource: SampleData.oddsSource,

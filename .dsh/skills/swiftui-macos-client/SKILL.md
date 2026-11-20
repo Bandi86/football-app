@@ -117,12 +117,22 @@ formázás (dátum, szám, odds) és a magyar szövegek visszaolvasása a szelet
 3. Manuális ellenőrzés (ha UI-t érint): indított app, mit láttál, mit olvasott fel a VoiceOver,
    Tab-ciklus, világos/sötét, üres/hiba/offline állapot — rögzítve a checkpointban.
 4. Ha a kapu nem futott le, a szelet nem „kész”: mondd ki, mi maradt ellenőrizetlen.
+5. Automata UI-bizonyíték: `./scripts/run-ui-tests.sh` (fixture-szerver + `FootballAppUITests`),
+   a kimenetben `** TEST SUCCEEDED **`; a vizuális ellenőrzéshez a futó app ablakát
+   `CGWindowList` + `screencapture -l<windowID>` módszerrel lehet elmenteni, illetve
+   `./scripts/app-window-shot.sh` segítségével.
 
 ## 9. Csapdák
 
 - `xcodebuild` `DEVELOPER_DIR` nélkül elbukik (lásd 1. pont).
 - A scheme **nem** futtatja a Core teszteket → a két parancs külön kell.
 - A `.xcodeproj` és az `Info.plist` generált: kézi szerkesztés elveszik.
-- A `CODE_SIGNING_ALLOWED=NO` nélkül a teszt-futtatás aláírás miatt akadhat el CI-szerű környezetben.
+- A `CODE_SIGNING_ALLOWED=NO` **megöli** a UI-test runnert („Test crashed with signal kill before
+  establishing connection”); UI-teszthez alap (ad-hoc) aláírással futtass, ne kapcsold ki az aláírást.
+- A macOS UI-test runner sandboxjában `socket()` → `EPERM`: a teszt nem indíthat saját HTTP-szervert.
+  A fixture-szerver ezért külön folyamat (`scripts/ui-fixture-server.py`), a `runtime.json`-t a runner
+  a saját temp könyvtárába írja.
+- A SwiftUI `Text` az AX-fában üres `label`-lel, a szöveget `value`-ban hordozza → UI-tesztben
+  `staticTexts.matching(NSPredicate(format: "value CONTAINS %@"))`, ne `staticTexts["…"]`.
 - A kliens soha nem kap DB-hozzáférést és nem tartalmaz domain-szabályt (az `api` crate kivétel:
   ott is tilos üzleti szabály a handlerben).
