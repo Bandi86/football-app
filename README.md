@@ -2,7 +2,7 @@
 
 Helyi, macOS-re tervezett futball-adatplatform. A cél nem egy újabb tippoldal, hanem egy **visszakövethető, ellenőrzött és elemzésre alkalmas adatrendszer**, amelyre később predikciós és papíralapú fogadásszimulációs rétegek épülhetnek.
 
-> **Állapot (2026-11-20):** a kanonikus adatbázis **287 664 meccs**, a 2006–2026-os szezonokra **189 310 meccs / 96,7% eredmény / 86,1% odds**; **withheld 0, duplikált fixture 0, árva provenance 0, feloldatlan konfliktus 0**, `footballctl integrity` → `OK`. A v1 gap-fill most 1993–2026-ra teljes (11 korábbi és 11 újabb liga; kétkörös bootstrap, forrás-ellenőrzött fixture- és eredményrevíziókkal, minden módosítás auditálva). Az identitás ékezet- és GB-alrégió-toleráns. A napi worker-daemon (launchd, `hu.bandi86.football.v2`) a repó buildjével fut (S31d-ben újratelepítve), a SwiftUI kliens **37/37 Core + 26/26 app + 5/5 UI** tesztje zöld, a VoiceOver-címkék közös, tesztelt forrásból jönnek. Kész a kapulánc, az observáció-vezérelt kanonikus út, az Elo/odds/statisztika adapterek, a Versenyek/Csapatok oldal, a meccs-részletező, az Üzemeltetés nézet integritás-kártyája, az automatizált XCUITest UI-harness, a GitHub Actions CI (S32b–S32c, első teljes zöld futás: `44733358476`), a nap-végpont API↔Swift kontrakt, a teljes OpenAPI-dokumentum (`GET /openapi.json`) és az app-szintű Tab-sorrend (S34: felső navigáció → fejléc → szűrők → kártyák, saját fókuszgyűrűvel, 7/7 UI-teszttel); nyitott: a tényleges VoiceOver-felolvasás (emberi fül kell hozzá), a Tab-kör kiterjesztése a natív menükre/naptár-popoverre/részletezőre, valamint a soccerway JS dayPicker.
+> **Állapot (2026-11-20):** a kanonikus adatbázis **287 664 meccs**, a 2006–2026-os szezonokra **189 310 meccs / 96,7% eredmény / 86,1% odds**; **withheld 0, duplikált fixture 0, árva provenance 0, feloldatlan konfliktus 0**, `footballctl integrity` → `OK`. A v1 gap-fill most 1993–2026-ra teljes (11 korábbi és 11 újabb liga; kétkörös bootstrap, forrás-ellenőrzött fixture- és eredményrevíziókkal, minden módosítás auditálva). Az identitás ékezet- és GB-alrégió-toleráns. A napi worker-daemon (launchd, `hu.bandi86.football.v2`) a repó buildjével fut (S31d-ben újratelepítve), a SwiftUI kliens **37/37 Core + 26/26 app + 5/5 UI** tesztje zöld, a VoiceOver-címkék közös, tesztelt forrásból jönnek. Kész a kapulánc, az observáció-vezérelt kanonikus út, az Elo/odds/statisztika adapterek, a Versenyek/Csapatok oldal, a meccs-részletező, az Üzemeltetés nézet integritás-kártyája, az automatizált XCUITest UI-harness, a GitHub Actions CI (S32b–S32c, első teljes zöld futás: `44733358476`), a nap-végpont API↔Swift kontrakt, a teljes OpenAPI-dokumentum (`GET /openapi.json`) az app-szintű Tab-sorrend (S34: felső navigáció → fejléc → szűrők → kártyák, saját fókuszgyűrűvel, 7/7 UI-teszttel) és a helyi AI-réteg (S35: `football-ai` crate, `footballctl ai search|ask`, Magnitude gemma 4 + helyi SearXNG); nyitott: a tényleges VoiceOver-felolvasás (emberi fül kell hozzá), a Tab-kör kiterjesztése a natív menükre/naptár-popoverre/részletezőre, valamint a soccerway JS dayPicker.
 
 ## Mi ez a projekt?
 
@@ -186,6 +186,29 @@ A szerződést tesztek őrzik (`rust/crates/api/tests/openapi.rs`): mind a 11 do
 (ellenőrzött negatív kontrollal), minden `$ref` feloldható, a `DayResponse`/`DayMatch` séma mezői pontosan a
 `tests/fixtures/contract/day-response.json` kulcsai, a bearer séma deklarálva van, és a `GET /openapi.json`
 token nélkül 200-at ad. A döntés és indoklása: [docs/decisions/2026-11-20-openapi.md](docs/decisions/2026-11-20-openapi.md).
+
+## Helyi AI (S35)
+
+A háttérfeladatokhoz (keresés, forrás-ellenőrzés, későbbi napi összefoglaló) a gép
+**helyi** AI-stackje használható; sem külső API, sem kulcs nem kell hozzá:
+
+- **Magnitude** (OpenAI-kompatibilis Chat Completions): `http://127.0.0.1:10100/inference/v1`,
+  aktív modell a gemma 4 E4B Artemis (Q4_0);
+- **SearXNG** (helyi metakereső, JSON): `http://127.0.0.1:8888/search?q=…&format=json`.
+
+A `football-ai` crate egy tool-call hurokban köti össze őket: a modell `web_search`
+hívást kérhet, a hívás a SearXNG-t kérdezi, és a válasz mellett a felhasznált
+forrás-URL-eket is visszaadja. CLI-ból, adatbázis nélkül:
+
+```bash
+footballctl ai search "Debrecen Paks mérkőzés" --limit 6
+footballctl ai ask "Mikor játssza a Debrecen a Paks elleni következő mérkőzését?" --max-steps 2
+```
+
+A végpontok felülírhatók a `FOOTBALL_AI_MAGNITUDE_URL`, `FOOTBALL_AI_MODEL`,
+`FOOTBALL_AI_SEARXNG_URL`, `FOOTBALL_AI_TIMEOUT_SECS`, `FOOTBALL_AI_MAX_TOOL_STEPS`
+változókkal; a default mindegyiknél a fenti lokális cím. A worker-oldali háttér-job
+bekötése külön szelet. Részletek: [docs/decisions/2026-11-20-local-ai.md](docs/decisions/2026-11-20-local-ai.md).
 
 ## Adatvédelem és közzététel
 

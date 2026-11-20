@@ -405,3 +405,33 @@ bemutatott bizonyíték alapján a **B — app-szintű Tab-sorrend** irányt vá
 - [x] Push `1e8edf4..a19ded3`; CI-futás **44736745275**: „Rust (domain, storage, API, worker)” success, „Swift kliens (Core + app unit tesztek)” success.
 - Következő döntési pont: a soccerway JS dayPicker (továbbra is ellenőrizhetetlen a forrás oldalán)
   és a Tab-kör kiterjesztése a kimaradt vezérlőkre (natív menük, naptár-popover, részletező sheet).
+
+## S35 — helyi AI-réteg (Magnitude gemma 4 + helyi SearXNG)
+
+- Kiindulás: a felhasználó leállította a billentyűzet-fókuszes munkát, és a források / napi
+  működés, illetve a shared task (`task-1`: helyi modell bekötése háttérfeladatokhoz,
+  webes kereséssel) felé irányított. A gép helyi stackje (Magnitude 0.2.17 a
+  `127.0.0.1:10100/inference/v1` címen gemma 4 E4B Artemis modellel, SearXNG a
+  `127.0.0.1:8888` címen) élőben ellenőrizve: chat-completion és tool-call is működik,
+  a SearXNG JSON-t ad, külső kulcs nélkül.
+- [x] Új crate `rust/crates/ai` (`football-ai`): `config` (env + defaultok),
+  `searxng` (JSON keresés), `magnitude` (OpenAI-kompatibilis chat kliens),
+  `agent` (tool-call hurok: `web_search` → SearXNG → `role: tool` üzenet → végleges
+  válasz, források deduplikálva); `AiError` tipizált hibák.
+- [x] `bins/footballctl`: `ai search` és `ai ask` alparancs, a DB-pool létrehozása
+  **előtti** dispatch-csel (a réteg nem igényel adatbázist); `football-ai` path-függőség.
+- [x] Tesztek: `cargo test -p football-ai` → **3 config unit + 3 wiremock integráció
+  zöld** (SearXNG mapping/limit, üres kifejezés = nincs hálózat, agent hurok forrásokkal).
+- [x] Élő smoke: `footballctl ai search "Debrecen Paks mérkőzés" --limit 3` → 3 valódi
+  találat; `footballctl ai ask "…következő mérkőzés…" --max-steps 2` → gemma 4 válasz
+  ~6,4 s alatt, 1 tool-lépés, 6 találat; a modell kimondta, hogy nem találta meg a
+  dátumot (nem hallucinált).
+- [x] Dokumentáció: `docs/decisions/2026-11-20-local-ai.md` (döntés, miért külön crate,
+  miért nincs kliens-oldali integráció, korlátok), README „Helyi AI (S35)” szakasz és
+  állapotsor, `.env.example` AI-változók (kommentelve).
+- [ ] Nem ellenőrzött: a worker-oldali háttér-job bekötése (napi forrás-összefoglaló)
+  még nem készült el; a kis E4B modell összetett több-lépéses kérdésnél bizonytalan
+  választ adhat (a hurok 4 lépésre / 700 tokenre korlátoz).
+- Következő döntési pont: a helyi AI-t a napi üzemeltetésbe kötni (pl. reggeli
+  forrás-egészség összefoglaló a worker tickből), vagy előbb a forrás-frissítési
+  policy-k (napi egyszeri discovery helyett napon belüli frissítés) javítása.

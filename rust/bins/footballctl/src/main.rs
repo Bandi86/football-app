@@ -189,6 +189,27 @@ enum Command {
         #[command(subcommand)]
         action: BackfillAction,
     },
+    /// Helyi AI (Magnitude + SearXNG) hívások; nem igényel adatbázist.
+    Ai {
+        #[command(subcommand)]
+        action: AiAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum AiAction {
+    /// Helyi SearXNG keresés nyers találatokkal.
+    Search {
+        query: String,
+        #[arg(long, default_value_t = 6)]
+        limit: usize,
+    },
+    /// Kérdés megválaszolása a helyi modell + SearXNG tool-hurokkal.
+    Ask {
+        question: String,
+        #[arg(long)]
+        max_steps: Option<usize>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -348,6 +369,11 @@ async fn main() -> Result<()> {
         .with_env_filter(EnvFilter::from_default_env())
         .init();
     let cli = Cli::parse();
+    // Az AI-parancsok csak a helyi Magnitude/SearXNG szolgáltatásokat használják,
+    // adatbázis nélkül is működniük kell, ezért a pool előtt futnak.
+    if let Command::Ai { action } = cli.command {
+        return run_ai(action).await;
+    }
     let database_url = std::env::var("DATABASE_URL").context("DATABASE_URL hiányzik")?;
     let pool = PgPoolOptions::new()
         .max_connections(4)
@@ -1503,6 +1529,8 @@ async fn main() -> Result<()> {
                 println!("asset import: {written} sor feldolgozva");
             }
         },
+        // Az AI-parancsok a pool előtt, külön ágban futottak.
+        Command::Ai { .. } => unreachable!("az AI-parancs a pool előtt fut"),
     }
 
     Ok(())
@@ -2297,5 +2325,57 @@ async fn run_v1_import(
         "v1 import kész: {} verseny-szezon csoport feldolgozva (forrás: {source_id})",
         materialized
     );
+    Ok(())
+}
+
+/// Helyi AI hívások: `search` nyers találatok, `ask` tool-hurok a modelllel.
+async fn run_ai(action: AiAction) -> Result<()> {
+    let config = football_ai::AiConfig::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+    match action {
+        AiAction::Search { query, limit } => {
+            let client = football_ai::SearxngClient::new(&config.searxng_url, config.timeout)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            let results = client
+                .search(&query, limit)
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            println!("találatok: {}", results.len());
+            for (index, result) in results.iter().enumerate() {
+                println!("{}. {}", index + 1, result.title);
+                println!("   {}", result.url);
+                if !result.content.is_empty() {
+                    println!("   {}", result.content);
+                }
+            }
+        }
+        AiAction::Ask {
+            question,
+            max_steps,
+        } => {
+            let agent = football_ai::AiAgent::new(&config).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let agent = match max_steps {
+                Some(steps) => agent.max_steps(steps),
+                None => agent,
+            };
+            let answer = agent
+                .ask(&question)
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            println!("modell: {}", agent.model_name());
+            println!("válasz:\n{}", answer.answer);
+            if !answer.sources.is_empty() {
+                println!("\nforrások:");
+                for (index, source) in answer.sources.iter().enumerate() {
+                    println!("{}. {} — {}", index + 1, source.title, source.url);
+                }
+            }
+            for step in &answer.steps {
+                println!(
+                    "\ntool: {} ({} találat) — {}",
+                    step.tool, step.results, step.query
+                );
+            }
+        }
+    }
     Ok(())
 }

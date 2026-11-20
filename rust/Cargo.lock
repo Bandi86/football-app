@@ -733,6 +733,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 
 [[package]]
+name = "football-ai"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "url",
+ "wiremock",
+]
+
+[[package]]
 name = "football-api"
 version = "0.1.0"
 dependencies = [
@@ -876,6 +890,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "football-ai",
  "football-domain",
  "football-identity",
  "football-ingest",
