@@ -207,3 +207,95 @@ pub enum Resolution {
         queue_id: Uuid,
     },
 }
+
+/// Klub-szuffixek, amelyeket a név-hasonlítás előtt elhagyunk (v1
+/// `link_names` mintája): a források hol kiírják, hol nem.
+const CLUB_TOKENS: [&str; 19] = [
+    "fc", "cf", "sc", "afc", "club", "cd", "ud", "sv", "ac", "as", "ss", "us", "ca", "fk", "sk",
+    "bk", "if", "calcio", "cfc",
+];
+
+fn name_tokens(name: &str) -> Vec<String> {
+    fold_name(name)
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty() && !CLUB_TOKENS.contains(t))
+        .map(String::from)
+        .collect()
+}
+
+fn token_equal(a: &str, b: &str) -> bool {
+    if a == b {
+        return true;
+    }
+    let (short, long) = if a.len() <= b.len() { (a, b) } else { (b, a) };
+    // Rövidítés: legalább 5 karakteres tő, ami a másik előtagja.
+    if short.len() >= 5 && long.starts_with(short) {
+        return true;
+    }
+    // Egy elgéppelés (pl. „tbilisi" ↔ „tbiliszi"), csak hosszú tokeneken.
+    if long.len() >= 6 && short.len() + 1 == long.len() {
+        return edit_distance_one(short, long);
+    }
+    false
+}
+
+fn edit_distance_one(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    let (mut i, mut j, mut edits) = (0, 0, 0);
+    while i < a.len() && j < b.len() {
+        if a[i] == b[j] {
+            i += 1;
+            j += 1;
+            continue;
+        }
+        edits += 1;
+        if edits > 1 {
+            return false;
+        }
+        if a.len() > b.len() {
+            i += 1;
+        } else {
+            j += 1;
+        }
+    }
+    edits + (a.len() - i) + (b.len() - j) <= 1
+}
+
+/// Két forrás-csapatnév nagy valószínűséggel ugyanaz a klub (S37b).
+///
+/// Önmagában nem dönt: csak a hívó kontextusával (verseny, nap, időpont)
+/// együtt használható jelölésre, ezért a kanonikalizáló csak akkor linkel,
+/// ha pontosan egy jelölt marad.
+pub fn names_likely_same(a: &str, b: &str) -> bool {
+    if fold_name(a) == fold_name(b) {
+        return true;
+    }
+    let (ta, tb) = (name_tokens(a), name_tokens(b));
+    if ta.is_empty() || tb.is_empty() {
+        return false;
+    }
+    if ta.len() == tb.len() && ta.iter().zip(&tb).all(|(x, y)| token_equal(x, y)) {
+        return true;
+    }
+    let subset = |x: &[String], y: &[String]| {
+        x.iter()
+            .all(|t| y.iter().any(|other| token_equal(t, other)))
+    };
+    if subset(&ta, &tb) || subset(&tb, &ta) {
+        return true;
+    }
+    let initials = |tokens: &[String]| {
+        tokens
+            .iter()
+            .filter_map(|t| t.chars().next())
+            .collect::<String>()
+    };
+    // „TNS" ↔ „The New Saints" mintájú monogram.
+    if ta.len() == 1 && ta[0].len() >= 3 && initials(&tb) == ta[0] {
+        return true;
+    }
+    if tb.len() == 1 && tb[0].len() >= 3 && initials(&ta) == tb[0] {
+        return true;
+    }
+    false
+}

@@ -43,7 +43,8 @@ async fn fixture_materializes_one_canonical_match_with_exact_identity_and_proven
         .await
         .unwrap();
 
-    assert_eq!(refs, 2);
+    // 2 csapat-ref + 1 meccs-szintű forrás-híd (S37b)
+    assert_eq!(refs, 3);
     assert!(provenance >= 5);
 }
 

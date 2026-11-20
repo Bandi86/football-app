@@ -484,3 +484,63 @@ async fn localised_competition_titles_merge_into_one_entity() {
     assert_eq!(name, "Kings Cup (Thailand)");
     assert_eq!(count(&pool, "SELECT count(*) FROM core.match").await, 2);
 }
+
+/// S37b: ugyanaz a meccs két forrásból, név-variáns csapatnevekkel
+/// (`Újpest` / `Újpest FC`) ne hozzon létre második kanonikus meccset,
+/// hanem a meglévőhöz linkeljen, és az odds is oda kerüljön.
+#[tokio::test]
+async fn variant_team_names_link_to_the_existing_canonical_match() {
+    let pool = test_pool().await;
+    let source_id = seed_source(&pool).await;
+    let country_id = seed_country(&pool).await;
+    seed_linked_team(&pool, source_id, country_id, "ujpest", "Újpest").await;
+    seed_linked_team(&pool, source_id, country_id, "gyor", "Győr").await;
+
+    let first = live_day(&[("ujpest", "Újpest"), ("gyor", "Győr")], "ujpest", "gyor");
+    let day1 = Canonicalizer::materialize(&pool, &first).await.unwrap();
+    let canonical_id = day1.matches[0].match_id;
+
+    seed_linked_team(&pool, source_id, country_id, "ujpest-fc", "Újpest FC").await;
+    seed_linked_team(&pool, source_id, country_id, "gyor-2", "Győr").await;
+    let mut second = live_day(
+        &[("ujpest-fc", "Újpest FC"), ("gyor-2", "Győr")],
+        "ujpest-fc",
+        "gyor-2",
+    );
+    second.matches[0].source_match_id = "m-2".into();
+    second.matches[0].odds = Some(football_ingest::normalized::NormalizedOdds {
+        market_count: Some(1),
+        quotes: vec![football_ingest::normalized::NormalizedQuote {
+            bookmaker: "primer".into(),
+            market: "1x2".into(),
+            outcome: "home".into(),
+            line: 0.0,
+            phase: "opening".into(),
+            price: 2.4,
+        }],
+    });
+    let day2 = Canonicalizer::materialize(&pool, &second).await.unwrap();
+
+    assert_eq!(
+        day2.matches[0].match_id, canonical_id,
+        "a név-variáns sor a meglévő kanonikus meccshez linkel"
+    );
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM core.match").await,
+        1,
+        "nem keletkezett második meccs"
+    );
+    let match_refs: i64 = count(
+        &pool,
+        "SELECT count(*) FROM identity.source_entity_ref WHERE entity_kind='match'",
+    )
+    .await;
+    assert_eq!(match_refs, 2, "mindkét forrás-sor meccs-hídja beíródik");
+    let quotes: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM fact.odds_quote WHERE match_id=$1 AND price=2.4")
+            .bind(canonical_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(quotes, 1, "az odds a meglévő meccshez kerül");
+}

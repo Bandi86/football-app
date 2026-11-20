@@ -25,6 +25,45 @@ pub struct MaterializedDay {
     pub matches: Vec<MaterializedMatch>,
 }
 
+/// A forrás-sor melyik kanonikus meccshez kerül (S37b).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MatchLink {
+    /// Pontos natural-key találat vagy új meccs: a kanonikus sor írható.
+    Exact { id: Uuid, reversed: bool },
+    /// Név-variáns alapján linkelt sor: a kanonikus meccs adatai
+    /// érintetlenek, csak a forrás-hozzájárulás és az odds kerül rá.
+    Variant { id: Uuid, reversed: bool },
+}
+
+impl MatchLink {
+    fn id(self) -> Uuid {
+        match self {
+            MatchLink::Exact { id, .. } | MatchLink::Variant { id, .. } => id,
+        }
+    }
+
+    fn reversed(self) -> bool {
+        match self {
+            MatchLink::Exact { reversed, .. } | MatchLink::Variant { reversed, .. } => reversed,
+        }
+    }
+
+    fn writes_canonical(self) -> bool {
+        matches!(self, MatchLink::Exact { .. })
+    }
+}
+
+/// A meccs-identitás keresésének bemenete (natural-key + név-variáns).
+struct MatchLookup<'a> {
+    competition_id: Uuid,
+    season_id: Uuid,
+    fixture: &'a NormalizedMatch,
+    home: Uuid,
+    away: Uuid,
+    home_name: &'a str,
+    away_name: &'a str,
+}
+
 impl Canonicalizer {
     /// clubelo-pillanatkép upsertje `fact.club_elo`-ba (as-of + kötelező
     /// provenance; a klub-entitás kapcsolás a crosswalk későbbi lépése).
@@ -225,6 +264,11 @@ impl Canonicalizer {
         }
 
         let mut matches = Vec::new();
+        let team_names: std::collections::HashMap<&str, &str> = day
+            .teams
+            .iter()
+            .map(|t| (t.source_entity_id.as_str(), t.name.as_str()))
+            .collect();
 
         for fixture_match in &day.matches {
             let (Some(&home), Some(&away)) = (
@@ -252,20 +296,35 @@ impl Canonicalizer {
             // `reversed`: a forrás a meccset fordított hazai/vendég oldallal
             // listázza; ilyenkor a meglévő kanonikus sor az igazság, az
             // eredmény/statisztika nem írható, az odds oldalt cserélve megy.
-            let (match_id, reversed) = match fixture_match.id {
-                Some(id) => (id, false),
+            let link = match fixture_match.id {
+                Some(id) => MatchLink::Exact {
+                    id,
+                    reversed: false,
+                },
                 None => {
                     find_or_insert_match_id(
                         &mut tx,
-                        competition_id,
-                        season_id,
-                        fixture_match,
-                        home,
-                        away,
+                        &MatchLookup {
+                            competition_id,
+                            season_id,
+                            fixture: fixture_match,
+                            home,
+                            away,
+                            home_name: team_names
+                                .get(fixture_match.home_source_entity_id.as_str())
+                                .copied()
+                                .unwrap_or_default(),
+                            away_name: team_names
+                                .get(fixture_match.away_source_entity_id.as_str())
+                                .copied()
+                                .unwrap_or_default(),
+                        },
                     )
                     .await?
                 }
             };
+            let match_id = link.id();
+            let reversed = link.reversed();
             let status = parse_status(&fixture_match.status)?;
 
             if reversed {
@@ -275,6 +334,14 @@ impl Canonicalizer {
                     home = %fixture_match.home_source_entity_id,
                     away = %fixture_match.away_source_entity_id,
                     "fordított oldalú forrás-sor: a kanonikus meccs adatai érintetlenek"
+                );
+            } else if !link.writes_canonical() {
+                tracing::warn!(
+                    source = %day.source_code,
+                    match_id = %match_id,
+                    home = %fixture_match.home_source_entity_id,
+                    away = %fixture_match.away_source_entity_id,
+                    "név-variáns forrás-sor: a kanonikus meccshez linkelve, az adatai érintetlenek (S37b)"
                 );
             } else {
                 sqlx::query(
@@ -310,6 +377,27 @@ impl Canonicalizer {
                 .execute(&mut *tx)
                 .await?;
             }
+
+            // S37b: meccs-szintű forrás-híd (eddig csak csapat-szintű volt).
+            // Név-variáns linknél alacsonyabb bizalmi szint, hogy a
+            // későbbi audit lássa, nem ID-egyezés hozta létre.
+            let ref_confidence = if link.writes_canonical() { 1.0 } else { 0.9 };
+            sqlx::query(
+                "INSERT INTO identity.source_entity_ref
+                 (id, source_id, entity_kind, source_entity_id, entity_id, method, confidence)
+                 VALUES ($1,$2,'match',$3,$4,'exact_external_id',$5)
+                 ON CONFLICT (source_id, entity_kind, source_entity_id)
+                 DO UPDATE SET entity_id = EXCLUDED.entity_id,
+                               status = 'active',
+                               confidence = EXCLUDED.confidence",
+            )
+            .bind(Uuid::now_v7())
+            .bind(source_id)
+            .bind(&fixture_match.source_match_id)
+            .bind(match_id)
+            .bind(ref_confidence)
+            .execute(&mut *tx)
+            .await?;
 
             let result = fixture_match.result.as_ref().map(|r| MatchResultSnapshot {
                 home_ft: r.home_ft,
@@ -658,13 +746,13 @@ async fn ensure_live_team(
 /// meccset írja le); megjelenítési adatként frissül.
 async fn find_or_insert_match_id(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    competition_id: Uuid,
-    season_id: Uuid,
-    m: &NormalizedMatch,
-    home: Uuid,
-    away: Uuid,
-) -> Result<(Uuid, bool)> {
-    for (h, a, reversed) in [(home, away, false), (away, home, true)] {
+    lookup: &MatchLookup<'_>,
+) -> Result<MatchLink> {
+    let (competition_id, season_id, m) = (lookup.competition_id, lookup.season_id, lookup.fixture);
+    for (h, a, reversed) in [
+        (lookup.home, lookup.away, false),
+        (lookup.away, lookup.home, true),
+    ] {
         let existing: Option<Uuid> = sqlx::query_scalar(
             "SELECT id FROM core.match
              WHERE competition_id=$1 AND season_id=$2
@@ -682,10 +770,83 @@ async fn find_or_insert_match_id(
         .fetch_optional(&mut **tx)
         .await?;
         if let Some(id) = existing {
-            return Ok((id, reversed));
+            return Ok(MatchLink::Exact { id, reversed });
         }
     }
-    Ok((Uuid::now_v7(), false))
+
+    if let Some(link) =
+        find_variant_match(tx, competition_id, m, lookup.home_name, lookup.away_name).await?
+    {
+        return Ok(link);
+    }
+
+    Ok(MatchLink::Exact {
+        id: Uuid::now_v7(),
+        reversed: false,
+    })
+}
+
+/// Név-variáns meccs-link (S37b): a különböző források ugyanazt a klubot
+/// más néven hozzák (`SV Darmstadt 98` / `Darmstadt`, `TNS` / `The New
+/// Saints`), ezért a natural-key nem talál. Ilyenkor a verseny + nap
+/// kontextusában, csapatnév-hasonlítással keresünk pontosan egy jelöltet;
+/// ha több van, a legkorábbihoz linkelünk (a duplikátumok merge-elése
+/// külön szelet, S37c), hogy ne keletkezzen harmadik sor ugyanarra a napra.
+async fn find_variant_match(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    competition_id: Uuid,
+    m: &NormalizedMatch,
+    home_name: &str,
+    away_name: &str,
+) -> Result<Option<MatchLink>> {
+    if home_name.trim().is_empty() || away_name.trim().is_empty() {
+        return Ok(None);
+    }
+    let candidates: Vec<(Uuid, chrono::DateTime<Utc>, String, String)> = sqlx::query_as(
+        "SELECT m.id, m.kickoff_at, th.name, ta.name
+         FROM core.match m
+         JOIN core.team th ON th.id = m.home_team_id
+         JOIN core.team ta ON ta.id = m.away_team_id
+         WHERE m.competition_id = $1
+           AND m.kickoff_at BETWEEN $2 - interval '12 hours' AND $2 + interval '12 hours'
+           AND m.status <> 'cancelled'
+         ORDER BY m.kickoff_at, m.id",
+    )
+    .bind(competition_id)
+    .bind(m.kickoff_at)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let mut hits = Vec::new();
+    for (id, kickoff_at, home, away) in candidates {
+        if football_domain::identity::names_likely_same(home_name, &home)
+            && football_domain::identity::names_likely_same(away_name, &away)
+        {
+            hits.push((kickoff_at, id, false));
+        } else if football_domain::identity::names_likely_same(home_name, &away)
+            && football_domain::identity::names_likely_same(away_name, &home)
+        {
+            hits.push((kickoff_at, id, true));
+        }
+    }
+    hits.sort_by_key(|(kickoff_at, id, _)| (*kickoff_at, *id));
+
+    match hits.first() {
+        None => Ok(None),
+        Some((_, id, reversed)) => {
+            if hits.len() > 1 {
+                tracing::warn!(
+                    candidates = hits.len(),
+                    match_id = %id,
+                    "több név-variáns jelölt: a legkorábbihoz linkelünk (S37b; merge: S37c)"
+                );
+            }
+            Ok(Some(MatchLink::Variant {
+                id: *id,
+                reversed: *reversed,
+            }))
+        }
+    }
 }
 
 /// Odds-fejléc upsert + a forrás quote-blokkjának teljes cseréje

@@ -532,3 +532,34 @@ bemutatott bizonyíték alapján a **B — app-szintű Tab-sorrend** irányt vá
 - [ ] Nem ellenőrzött: a S37a éles hatása (a daemon új binárison fut-e); a
   `core.country` duplikált sorainak összevonása adatművelet — külön döntés; a
   soccerway-veszteség (H4) diagnózisa és a tipplap-linkelés (S37b) még nyitott.
+
+## S37b — meccs-szintű forrás-híd és név-variáns linkelés
+
+- Kiindulás: a v2-ben a források csak csapat-szintű híddal rendelkeztek; ugyanaz
+  a meccs két forrásból külön kanonikus sorként jött létre, ha a csapatnév
+  variáns (pl. `SV Darmstadt 98` / `Darmstadt`), ezért a tipplap oddsai sem
+  találtak a meccshez (29/131 odds a v1 109/163-ával szemben).
+- [x] `identity.source_entity_ref` mostantól **meccs-szintű** hídat is ír
+  (`entity_kind='match'`, `source_entity_id` = a forrás meccs-azonosítója,
+  `method='exact_external_id'`, név-variáns linknél `confidence=0.9`).
+- [x] Név-variáns meccs-link a kanonikalizálóban
+  (`rust/crates/ingest/src/canonicalize.rs`): a natural-key keresés után, azonos
+  verseny + ±12 órás kickoff-ablakon belül csapatnév-hasonlítás
+  (`football_domain::identity::names_likely_same`); pontosan egy jelöltnél a
+  meglévő meccshez linkel (a kanonikus sor adatai érintetlenek, az odds és a
+  forrás-híd oda kerül), több jelöltnél a legkorábbihoz (a merge az S37c).
+- [x] Új domain-segédfüggvények: `name_tokens` (klub-szuffixek levágása:
+  fc/cf/sc/afc/club/cd/ud/sv/ac/…), `names_likely_same` (foldolt egyezés,
+  token-subset, monogram, egy elgépelés hosszú tokenen).
+- [x] Tesztek: `rust/crates/domain/tests/identity_rules.rs`
+  `club_name_variants_are_likely_the_same_team` (8 pozitív/negatív eset);
+  `rust/crates/ingest/tests/live_materialize.rs`
+  `variant_team_names_link_to_the_existing_canonical_match` (két forrás,
+  `Újpest` / `Újpest FC`: 1 kanonikus meccs, 2 meccs-híd, az odds a meglévőhöz).
+- [x] Kapuk: `cargo fmt --all --check` OK; `cargo clippy --workspace
+  --all-targets -- -D warnings` tiszta; `./scripts/db-reset.sh` (15 migráció) +
+  `./scripts/check-foundation.sh` exit 0 (33 „test result: ok”);
+  `cargo test --workspace -- --test-threads=1` → **320 passed, 0 failed**.
+- [ ] Nem ellenőrzött: az éles hatás a daemon újratelepítése előtt (a felhasználó
+  kérésére egy telepítés jön az S37b után); a meglévő variáns-duplikátumok
+  merge-elése (S37c); a tipplap-események csapat-identitás feloldása (S37d).

@@ -160,3 +160,24 @@ fn iso3_country_codes_are_equivalent_to_iso2() {
     // Ismeretlen kód változatlan marad.
     assert_eq!(normalize_country_code("zz"), "ZZ");
 }
+
+#[test]
+fn club_name_variants_are_likely_the_same_team() {
+    use football_domain::identity::names_likely_same;
+    // Szuffix-különbség.
+    assert!(names_likely_same("Újpest", "Újpest FC"));
+    assert!(names_likely_same("SV Darmstadt 98", "Darmstadt"));
+    // Monogram.
+    assert!(names_likely_same("TNS", "The New Saints"));
+    // Elgépelés/nyelvi alak.
+    assert!(names_likely_same("Dinamo Tbilisi", "Dinamo Tbiliszi"));
+    // Néma különbség.
+    assert!(names_likely_same("Bodö/Glimt", "Bodø / Glimt"));
+    // Negatív esetek: nem szabad összemosni.
+    assert!(!names_likely_same("Manchester United", "Manchester City"));
+    assert!(!names_likely_same("Újpest", "Győr"));
+    assert!(!names_likely_same("FC", "SC"));
+    // A meccs-párosítás a csapatnevek teljes párosán megy: a részleges
+    // egyezés (csak az egyik oldal) nem elég.
+    assert!(!names_likely_same("Real Madrid", "Real Sociedad"));
+}
