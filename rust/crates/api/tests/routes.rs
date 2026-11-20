@@ -443,6 +443,9 @@ async fn ops_status_returns_counts_and_sources() {
     assert_eq!(sources[0]["mode"], "canary");
     assert_eq!(sources[0]["enabled"], true);
     assert_eq!(sources[0]["breaker_state"], "closed");
+    assert_eq!(value["integrity"]["verdict"], "OK");
+    assert_eq!(value["integrity"]["duplicate_fixture_groups"], 0);
+    assert_eq!(value["integrity"]["withheld_gates"], 0);
 }
 
 #[tokio::test]

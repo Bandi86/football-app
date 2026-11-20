@@ -21,4 +21,18 @@ struct OpsModelsTests {
         #expect(status.sources[1].breakerState == "open")
         #expect(status.sources[1].attemptsToday == 14)
     }
+
+    @Test func decodesIntegritySnapshot() throws {
+        let json = """
+        {"pending_jobs":0,"leased_jobs":0,"quarantined":0,"pending_reviews":0,
+         "sources":[],
+         "integrity":{"verdict":"OK","duplicate_kickoff_groups":0,
+          "duplicate_fixture_groups":0,"orphan_provenance":0,"active_refs_to_merged":0,
+          "pending_reviews":0,"withheld_gates":0,"failed_jobs":2,"open_breakers":0}}
+        """.data(using: .utf8)!
+        let status = try APIDecoding.makeDecoder().decode(OpsStatus.self, from: json)
+        #expect(status.integrity?.verdict == "OK")
+        #expect(status.integrity?.failedJobs == 2)
+        #expect(status.integrity?.duplicateFixtureGroups == 0)
+    }
 }

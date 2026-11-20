@@ -18,6 +18,21 @@ pub struct OpsStatus {
     pub quarantined: i64,
     pub pending_reviews: i64,
     pub sources: Vec<OpsSource>,
+    pub integrity: OpsIntegrity,
+}
+
+/// Read-only integritás-pillanatkép a napi adatminőségről (S30).
+#[derive(Debug, Serialize)]
+pub struct OpsIntegrity {
+    pub verdict: String,
+    pub duplicate_kickoff_groups: i64,
+    pub duplicate_fixture_groups: i64,
+    pub orphan_provenance: i64,
+    pub active_refs_to_merged: i64,
+    pub pending_reviews: i64,
+    pub withheld_gates: i64,
+    pub failed_jobs: i64,
+    pub open_breakers: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -76,11 +91,33 @@ pub async fn status(
         });
     }
 
+    let integrity = football_storage::repositories::integrity::report(&state.pool, None, None)
+        .await
+        .map_err(|e| {
+            tracing::error!(error=%e, "ops status integritás");
+            AppError::internal("Az integritás-riport lekérdezése sikertelen.")
+        })?;
+
     Ok(Json(OpsStatus {
         pending_jobs: counts.jobs_pending,
         leased_jobs: counts.jobs_leased,
         quarantined: counts.quarantined,
         pending_reviews: counts.reviews_pending,
         sources,
+        integrity: OpsIntegrity {
+            verdict: if integrity.has_hard_failures() {
+                "FAIL".to_string()
+            } else {
+                "OK".to_string()
+            },
+            duplicate_kickoff_groups: integrity.duplicate_kickoff_groups,
+            duplicate_fixture_groups: integrity.duplicate_fixture_groups,
+            orphan_provenance: integrity.orphan_provenance,
+            active_refs_to_merged: integrity.active_refs_to_merged,
+            pending_reviews: integrity.pending_reviews,
+            withheld_gates: integrity.withheld_gates,
+            failed_jobs: integrity.failed_jobs,
+            open_breakers: integrity.open_breakers,
+        },
     }))
 }

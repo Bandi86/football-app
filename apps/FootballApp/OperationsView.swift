@@ -58,6 +58,9 @@ struct OperationsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     statCards(status)
+                    if let integrity = status.integrity {
+                        integritySection(integrity)
+                    }
                     sourceList(status.sources)
                 }
                 .padding(.horizontal, 48)
@@ -95,6 +98,58 @@ struct OperationsView: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(AppTheme.hairline)
         )
+    }
+
+    private func integritySection(_ integrity: OpsIntegrity) -> some View {
+        let ok = integrity.verdict == "OK"
+        let metrics: [(String, Int)] = [
+            ("Duplikátum", integrity.duplicateFixtureGroups + integrity.duplicateKickoffGroups),
+            ("Árva bizonyíték", integrity.orphanProvenance),
+            ("Withheld", integrity.withheldGates),
+            ("Failed job", integrity.failedJobs),
+        ]
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("INTEGRITÁS")
+                    .font(.system(size: 10, weight: .semibold))
+                    .tracking(1.4)
+                    .foregroundStyle(AppTheme.secondaryText)
+                Spacer()
+                Text(integrity.verdict)
+                    .font(.system(size: 11, weight: .bold).monospacedDigit())
+                    .foregroundStyle(ok ? .green : .red)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            .background(AppTheme.surface)
+
+            Rectangle().fill(AppTheme.hairline).frame(height: 1)
+
+            HStack(spacing: 0) {
+                ForEach(Array(metrics.enumerated()), id: \.offset) { index, metric in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("\(metric.1)")
+                            .font(.system(size: 20, weight: .bold).monospacedDigit())
+                            .foregroundStyle(metric.1 > 0 ? .orange : AppTheme.primaryText)
+                        Text(metric.0.uppercased())
+                            .font(.system(size: 9, weight: .semibold))
+                            .tracking(0.8)
+                            .foregroundStyle(AppTheme.secondaryText)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(14)
+                    if index < metrics.count - 1 {
+                        Rectangle().fill(AppTheme.hairline).frame(width: 1)
+                    }
+                }
+            }
+        }
+        .background(AppTheme.surfaceElevated, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(AppTheme.hairline)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private func sourceList(_ sources: [OpsSource]) -> some View {
