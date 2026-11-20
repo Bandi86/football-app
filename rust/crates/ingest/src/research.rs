@@ -295,18 +295,13 @@ impl ResearchAdapter {
             if home_key == away_key {
                 continue;
             }
-            let country_code = competition_country_code(&m.competition);
             let country_name = m
                 .competition
                 .country_name
                 .clone()
                 .or_else(|| m.competition.country.clone())
                 .unwrap_or_default();
-            let comp_name = m
-                .competition
-                .display_name
-                .clone()
-                .unwrap_or_else(|| m.competition.name.clone());
+            let (comp_name, country_code) = competition_identity(&m.competition);
             let (gender, age_group, branch) = team_context(&comp_name);
 
             for (key, team) in [(&home_key, &m.teams.home), (&away_key, &m.teams.away)] {
@@ -476,20 +471,88 @@ impl ResearchAdapter {
     }
 }
 
-fn competition_country_code(competition: &Competition) -> String {
-    let raw = competition
+/// A research `country` mezője lehet ISO3 (`GER`, `ENG`, `WAL`) vagy már
+/// normalizált kód; a v2-ben a brit hazai nemzetek versenyei GB alatt élnek.
+fn competition_country_code(raw_country: &str) -> String {
+    let raw = raw_country.trim();
+    let normalized = normalize_country_code(&raw.to_ascii_uppercase());
+    match normalized.as_str() {
+        "WAL" | "NIR" | "SCO" | "GB-SCT" | "GB-WLS" | "GB-NIR" | "ENG" => "GB".into(),
+        other => other.into(),
+    }
+}
+
+/// A research versenyneve és országa a v2 kanonikus versenyére képezve.
+///
+/// A research a `name` mezőben rövid, szponzor-szuffix nélküli nevet ad
+/// (`Ligue 1`), a `display_name` a szponzoros változatot (`Ligue 1 McDonald's`).
+/// A kanonikus név ezért elsődlegesen a `name`; a `display_name` csak fallback.
+/// A brit hazai nemzetek ligái a v2-ben GB alatt, más néven élnek (S38b).
+fn competition_identity(competition: &Competition) -> (String, String) {
+    let base_name = if competition.name.trim().is_empty() {
+        competition
+            .display_name
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .to_string()
+    } else {
+        competition.name.trim().to_string()
+    };
+    let raw_country = competition
         .country
         .as_deref()
         .map(str::trim)
-        .filter(|c| !c.is_empty())
-        .unwrap_or("XX");
-    let normalized = normalize_country_code(&raw.to_ascii_uppercase());
-    // A research a brit hazai nemzeteket külön kóddal adja; a v2-ben ezek
-    // a GB alatt élnek (a skót versenyek is).
-    match normalized.as_str() {
-        "WAL" | "NIR" | "SCO" | "GB-SCT" | "GB-WLS" | "GB-NIR" => "GB".into(),
-        other => other.into(),
+        .filter(|code| !code.is_empty())
+        .unwrap_or("INT");
+    let name = base_name.trim();
+    if let Some((canonical_name, canonical_country)) =
+        competition_alias(raw_country, &name.to_ascii_lowercase())
+    {
+        return (canonical_name.to_string(), canonical_country.to_string());
     }
+    let country_code = competition_country_code(raw_country);
+    let name = if name.is_empty() {
+        "Ismeretlen verseny".to_string()
+    } else {
+        name.to_string()
+    };
+    (name, country_code)
+}
+
+/// (research országkód, folded versenynév) → (kanonikus név, kanonikus országkód).
+///
+/// Csak dokumentált, egyértelmű átnevezések vannak itt: a brit hazai nemzetek
+/// ligái (League 1/2 → League One/Two, Premiership → Scottish/NIFL Premiership,
+/// walesi Premier League → Cymru Premier) és a spanyol LaLiga névforma.
+/// Minden más azonos néven megy tovább (nincs találgatás).
+const COMPETITION_ALIASES: &[(&str, &str, &str, &str)] = &[
+    ("ENG", "league 1", "League One", "GB"),
+    ("ENG", "league 2", "League Two", "GB"),
+    ("ENG", "league one", "League One", "GB"),
+    ("ENG", "league two", "League Two", "GB"),
+    ("WAL", "premier league", "Cymru Premier", "GB"),
+    ("WAL", "premier division", "Cymru Premier", "GB"),
+    ("SCO", "premiership", "Scottish Premiership", "GB"),
+    ("SCO", "championship", "Scottish Championship", "GB"),
+    ("SCO", "league 1", "Scottish League One", "GB"),
+    ("SCO", "league one", "Scottish League One", "GB"),
+    ("SCO", "league 2", "Scottish League Two", "GB"),
+    ("SCO", "league two", "Scottish League Two", "GB"),
+    ("SCO", "swpl 1", "SWPL 1 - női", "GB"),
+    ("NIR", "premiership", "NIFL Premiership", "GB"),
+    ("NIR", "championship", "NIFL Championship", "GB"),
+    ("ESP", "laliga", "La Liga", "ES"),
+    ("ESP", "laliga2", "LaLiga 2", "ES"),
+    ("ESP", "copa del rey - 1st round", "Copa del Rey", "ES"),
+];
+
+fn competition_alias(raw_country: &str, folded_name: &str) -> Option<(&'static str, &'static str)> {
+    let code = raw_country.trim().to_ascii_uppercase();
+    COMPETITION_ALIASES
+        .iter()
+        .find(|(country, name, _, _)| *country == code && *name == folded_name)
+        .map(|(_, _, canonical, canonical_country)| (*canonical, *canonical_country))
 }
 
 fn team_context(competition_name: &str) -> (&'static str, &'static str, &'static str) {
@@ -504,6 +567,16 @@ fn team_context(competition_name: &str) -> (&'static str, &'static str, &'static
         "dames",
         "kvinde",
         "damallsvenskan",
+        "nwsl",
+        "wsl",
+        "swpl",
+        "we league",
+        "liga f",
+        "toppserien",
+        "ncaaw",
+        "primera division femenina",
+        "a-league women",
+        "uwcl",
     ]
     .iter()
     .any(|marker| lower.contains(marker));
@@ -583,4 +656,83 @@ fn normalize_outcome(market: &str, outcome: &str) -> Option<String> {
         _ => return None,
     };
     Some(mapped.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn competition(name: &str, display: Option<&str>, country: Option<&str>) -> Competition {
+        Competition {
+            name: name.into(),
+            display_name: display.map(str::to_string),
+            country: country.map(str::to_string),
+            country_name: None,
+            round: None,
+        }
+    }
+
+    #[test]
+    fn welsh_premier_league_is_cymru_premier_not_the_english_league() {
+        let identity = competition_identity(&competition(
+            "Premier League",
+            Some("Premier League"),
+            Some("WAL"),
+        ));
+        assert_eq!(identity, ("Cymru Premier".to_string(), "GB".to_string()));
+    }
+
+    #[test]
+    fn english_and_scottish_division_names_are_canonicalised() {
+        assert_eq!(
+            competition_identity(&competition("League 1", None, Some("ENG"))),
+            ("League One".to_string(), "GB".to_string())
+        );
+        assert_eq!(
+            competition_identity(&competition("Premiership", None, Some("SCO"))),
+            ("Scottish Premiership".to_string(), "GB".to_string())
+        );
+        assert_eq!(
+            competition_identity(&competition("Premiership", None, Some("NIR"))),
+            ("NIFL Premiership".to_string(), "GB".to_string())
+        );
+    }
+
+    #[test]
+    fn spanish_laliga_names_are_canonicalised() {
+        assert_eq!(
+            competition_identity(&competition("LaLiga", None, Some("ESP"))),
+            ("La Liga".to_string(), "ES".to_string())
+        );
+        assert_eq!(
+            competition_identity(&competition("LaLiga2", None, Some("ESP"))),
+            ("LaLiga 2".to_string(), "ES".to_string())
+        );
+    }
+
+    #[test]
+    fn sponsor_suffix_of_display_name_is_not_used_when_name_exists() {
+        let identity = competition_identity(&competition(
+            "Ligue 1",
+            Some("Ligue 1 McDonald's"),
+            Some("FRA"),
+        ));
+        assert_eq!(identity, ("Ligue 1".to_string(), "FR".to_string()));
+    }
+
+    #[test]
+    fn unknown_competition_passes_through_with_normalised_country() {
+        let identity = competition_identity(&competition("FNL", None, Some("CZE")));
+        assert_eq!(identity, ("FNL".to_string(), "CZ".to_string()));
+    }
+
+    #[test]
+    fn women_and_youth_competitions_are_flagged() {
+        assert_eq!(team_context("SWPL 1").0, "female");
+        assert_eq!(team_context("WE League").0, "female");
+        assert_eq!(team_context("NWSL").0, "female");
+        assert_eq!(team_context("Premier League").0, "male");
+        assert_eq!(team_context("Premier League U18").1, "u18");
+        assert_eq!(team_context("Premier League").2, "senior");
+    }
 }

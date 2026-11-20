@@ -636,3 +636,20 @@ bemutatott bizonyíték alapján a **B — app-szintű Tab-sorrend** irányt vá
       commitban.
 - [x] API-ellenőrzés a daemonon: `/v1/day/2026-11-20` → **95 meccs, 64 oddsos,
       54 verseny** (előtte 46 / 21).
+
+## S38b — verseny-aliasok és betöltés előtti ellenőrzés
+
+- [x] Az adapter a rövid `name`-et használja elsődlegesen (a szponzoros
+      `display_name` csak fallback): a „Ligue 1 McDonald's” típusú
+      verseny-duplikátumok forrása megszűnt.
+- [x] `COMPETITION_ALIASES`: brit hazai nemzetek (ENG/WAL/SCO/NIR) ligái a v2
+      kanonikus neveire és GB alá; spanyol LaLiga forma; ország nélküli
+      bejegyzések → INT.
+- [x] Női verseny-felismerés kiegészítve jelöletlen ligákkal (SWPL, WE League,
+      Liga F, NWSL, WSL, Toppserien, NCAAW, Damallsvenskan, …).
+- [x] `scripts/precheck-research-days.py`: betöltés előtti ellenőrzés
+      (meccsek, eredmények, oddsok, napon belüli duplikátumok, kanonizált
+      versenyek, v2-hiányok).
+- [x] Tesztek: 6 új unit teszt az aliasokra/női felismerésre; a research
+      integrációs teszt (5) és a live_materialize (11) zöld.
+- [ ] A három backfill-nap (2026-11-18, -19, -21) ellenőrzött betöltése.

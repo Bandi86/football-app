@@ -64,3 +64,31 @@ megadott könyvtárból olvassa ugyanazokat a fájlokat, amelyeket a research a
 - A napi láncba bekötött automatikus dedupe-pass (S37e) a research job után
   lefut: a pontos duplikátumokat (azonos kickoff + csapatpár) a legrégebbi sor
   felé merge-eli; a 2026-11-20-i éles futásban 22 duplikátumot zárt le.
+
+## Versenynevek kanonizálása (S38b)
+
+A research `competition` blokkban a rövid `name` a szponzor-szuffix nélküli
+név (`Ligue 1`), a `display_name` a szponzoros változat (`Ligue 1 McDonald's`).
+Az adapter a `name`-et használja elsődlegesen, így a szponzoros nevek nem
+hoznak létre külön versenyt.
+
+A brit hazai nemzetek ligái a v2-ben GB alatt, más néven élnek, ezért a
+`research.rs` `COMPETITION_ALIASES` táblája kezeli őket:
+
+| research ország | research név | v2 kanonikus név |
+| --- | --- | --- |
+| ENG | League 1 / League 2 / League One / League Two | League One / League Two |
+| WAL | Premier League / Premier Division | Cymru Premier |
+| SCO | Premiership / Championship / League 1 / League 2 | Scottish Premiership / Scottish Championship / Scottish League One / Scottish League Two |
+| SCO | SWPL 1 | SWPL 1 - női |
+| NIR | Premiership / Championship | NIFL Premiership / NIFL Championship |
+| ESP | LaLiga / LaLiga2 / Copa del Rey - 1st Round | La Liga / LaLiga 2 / Copa del Rey |
+
+Az ismeretlen versenynevek változatlanul mennek tovább (nincs találgatás), az
+ország nélküli bejegyzések nemzetközi (`INT`) besorolást kapnak. A női
+versenyek felismerése kiegészült a jelöletlen ligákkal (SWPL, WE League, Liga F,
+NWSL, WSL, Toppserien, NCAAW, Damallsvenskan stb.).
+
+Betöltés előtti ellenőrzés: `python3 scripts/precheck-research-days.py
+2026-11-18 2026-11-19 2026-11-21` (meccsszám, eredmények, oddsok, napon belüli
+duplikátumok, kanonizált versenyek, a v2-ben hiányzó versenyek).

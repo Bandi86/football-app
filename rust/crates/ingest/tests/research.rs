@@ -109,7 +109,10 @@ fn day_parse_emits_teams_matches_and_referee() {
     assert_eq!(payload["result"]["away_ft"], 1);
     assert_eq!(payload["result"]["home_ht"], 1);
     assert_eq!(payload["competition"]["name"], "Premier League");
-    assert_eq!(payload["competition"]["country_code"], "ENG");
+    assert_eq!(
+        payload["competition"]["country_code"], "GB",
+        "ENG → GB (a v2 brit versenyei GB alatt élnek)"
+    );
     assert_eq!(payload["season"]["label"], "2026/27");
     assert_eq!(payload["round_label"], "Round 12");
 
@@ -120,6 +123,10 @@ fn day_parse_emits_teams_matches_and_referee() {
     assert_eq!(
         wales.payload["competition"]["country_code"], "GB",
         "WAL → GB (a v2 brit versenyei GB alatt élnek)"
+    );
+    assert_eq!(
+        wales.payload["competition"]["name"], "Cymru Premier",
+        "a walesi Premier League a Cymru Premier (S38b alias)"
     );
     assert!(
         wales.payload["result"].is_null(),
