@@ -622,10 +622,17 @@ bemutatott bizonyíték alapján a **B — app-szintű Tab-sorrend** irányt vá
 - [x] A research verseny-név-variánsai miatt keletkezett 22 pontos duplikátumot
       az S37c dedupe motor merge-elte: `dedupe matches`/`dedupe variants` → 0,
       `integrity` → OK.
-- [ ] A daemon új binárisának telepítése (a futó példány még a research-adapter
-      nélküli build) — a napi automatikus betöltéshez szükséges.
+- [x] A daemon új binárisának telepítése (`scripts/install-footballd-agent.sh`,
+      worker újraindult); a kényszerített `deploy-check-1120` jobot a daemon a
+      új binárissal dolgozta fel: 134 verseny-csoport materializálva, majd a
+      **napi automatikus dedupe-pass 22 duplikátumot merge-elt** (S37e a
+      research forrásra bekötve).
 - [ ] S38b: verseny-alias réteg (szponzor-szuffixek, walesi „Premier League”),
       hogy a duplikátumok ne is keletkezzenek; S37e: napi automatikus
       dedupe-pass a láncban.
-- [ ] Teljes kapu (fmt/clippy/db-reset/check-foundation/workspace tesztek) és
-      commit/push a szelet végén.
+- [x] Kapu: fmt OK, clippy `-D warnings` tiszta, db-reset + check-foundation
+      exit 0 (34 `test result: ok`), workspace **329 teszt, 0 hiba**.
+- [x] Commit `ae3293f` (S38) pusholva; az automatikus dedupe-pass külön
+      commitban.
+- [x] API-ellenőrzés a daemonon: `/v1/day/2026-11-20` → **95 meccs, 64 oddsos,
+      54 verseny** (előtte 46 / 21).

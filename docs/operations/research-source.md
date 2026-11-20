@@ -61,4 +61,6 @@ megadott könyvtárból olvassa ugyanazokat a fájlokat, amelyeket a research a
   szponzor-szuffixek és a walesi „Premier League” jelenleg új versenyt
   nyitnak, amit a dedupe merge zár le; a következő szelet ezt megelőző
   verseny-alias réteget ad (S38b).
-- A napi láncba még be kell kötni az automatikus dedupe-pass-t (S37e).
+- A napi láncba bekötött automatikus dedupe-pass (S37e) a research job után
+  lefut: a pontos duplikátumokat (azonos kickoff + csapatpár) a legrégebbi sor
+  felé merge-eli; a 2026-11-20-i éles futásban 22 duplikátumot zárt le.

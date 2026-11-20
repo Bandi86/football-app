@@ -33,6 +33,7 @@ use football_ingest::canonicalize::Canonicalizer;
 use football_ingest::fetch::{FetchLimits, FetchRequest, Fetcher, Fetchers};
 use football_ingest::observe::insert_observation;
 use football_storage::object_store::ObjectStore;
+use football_storage::repositories::dedupe;
 use football_storage::repositories::trust;
 use football_storage::repositories::worker::{self as repo, LedgerEntry, RawCapture};
 use football_verification::conflict::{load_material_values, load_resolved_fields};
@@ -411,6 +412,21 @@ async fn process_job(
                     verify_and_publish(pool, day).await?;
                 }
                 tracing::info!(competitions = days.len(), "napi versenyek materializálva");
+                // S37e: helyi forrás (research) után automatikus napi dedupe-pass,
+                // hogy a forrás verseny-név-variánsai ne hagyjanak duplikátumot
+                // a napi feedben. A túlélő a legrégebben létrehozott sor.
+                if policy.transport == Transport::LocalFile
+                    && let Ok(date) = chrono::NaiveDate::parse_from_str(&job.time_window, "%Y-%m-%d")
+                {
+                    match auto_dedupe_day(pool, date).await {
+                        Ok((merged, skipped)) => {
+                            tracing::info!(%date, merged, skipped, "napi dedupe pass (research)");
+                        }
+                        Err(err) => {
+                            tracing::warn!(%date, error = %err, "a napi dedupe pass nem futott le");
+                        }
+                    }
+                }
             }
         }
 
@@ -796,4 +812,39 @@ pub async fn reverify_match(pool: &PgPool, match_id: Uuid) -> Result<()> {
         trust::update_odds_trust_state(pool, match_id, odds_state).await?;
     }
     Ok(())
+}
+
+/// S37e: a nap pontos duplikátumainak automatikus merge-elése (S37c motorral).
+/// A túlélő a legkorábban létrehozott meccs (a meglévő kanonikus verseny),
+/// a pontos kulcs (azonos kickoff + azonos csapatpár) miatt biztonságos.
+async fn auto_dedupe_day(
+    pool: &sqlx::PgPool,
+    date: chrono::NaiveDate,
+) -> anyhow::Result<(usize, usize)> {
+    let groups = dedupe::duplicate_groups(pool, date).await?;
+    let mut merged = 0usize;
+    let mut skipped = 0usize;
+    for group in groups {
+        if group.matches.len() < 2 {
+            continue;
+        }
+        let mut rows = group.matches;
+        rows.sort_by_key(|row| (row.created_at, std::cmp::Reverse(row.provenance_count)));
+        let survivor = rows[0].match_id;
+        for victim in &rows[1..] {
+            if !dedupe::is_same_match(pool, survivor, victim.match_id).await? {
+                skipped += 1;
+                continue;
+            }
+            dedupe::merge_duplicate(
+                pool,
+                survivor,
+                victim.match_id,
+                "S37e automatikus napi dedupe (research ingest)",
+            )
+            .await?;
+            merged += 1;
+        }
+    }
+    Ok((merged, skipped))
 }
