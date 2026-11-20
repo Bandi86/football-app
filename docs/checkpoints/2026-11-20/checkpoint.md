@@ -500,3 +500,35 @@ bemutatott bizonyíték alapján a **B — app-szintű Tab-sorrend** irányt vá
   a döntés-dokumentum és az üzemeltetési leírás frissítve.
 - [ ] Nem ellenőrzött: teljes napos sáv-futás (a holnapi napon mérhető, hogy mind a 4 sáv
   lefut-e a kereten belül), és a csapat-identitás review-k hatása az odds-lefedettségre.
+
+## S37 — forrás-összehangolás: v1-referencia felmérése és az első javítás
+
+- Kiindulás (felhasználói kérés): a v1-ben a napi meccslista és az odds-párosítás
+  jól működött; a v2-ben a forrásokat össze kell hangolni, hogy minden nap minden
+  liga/osztály (férfi/női/ifjúsági) meccse meglegyen, ellenőrizhetően, hitelesen
+  és duplikációmentesen. A felmérés + terv készült el, majd az első konkrét javítás.
+- [x] v1 referencia felmérése (read-only): `football_app` DB és repo; napi
+  lánc (`scrappers/tipplap/daily_update.py` 474. sor sorrendje), meccs-szintű
+  linkelés (`link_events.py`), odds-párosítás, duplikáció-őrök, identitás-rétegek
+  és az `automation_decisions` ledger. v1 mai nap: 163 kanonikus meccs, ebből
+  109 oddsos (67 %), nap-lista 201 sor, 0 napi duplikátum.
+- [x] v2 mért hiányok: 131 mai meccs, 29 oddsos (22 %); meccs-szintű forrás-híd
+  nincs (0 sor); 8 valódi közeli duplikátum-pár a mai napon (pl. SV Darmstadt 98 /
+  Darmstadt, Llandudno FC / Llandudno, TNS / The New Saints, FC Gagra / Gagra);
+  a beépített dedupe csak 1 pontos-kulcsú csoportot talál; soccerway: 252 parse-olt
+  meccsből 47 van a listán; tipplap→meccs linkelés nincs (ezért 29 vs 109 odds).
+- [x] Duplikált ország-rekordok a `core.country`-ban: FR/FRA, DE/GER, HU/HUN,
+  IT/ITA, ES/ESP, GB/GB-SCT — a v1-import ISO3, az új források ISO2 kódot hoznak.
+- [x] Terv: `docs/superpowers/plans/2026-11-20-forras-osszehangolas.md` — S37a–S37g
+  szeletek, mért kiindulással, elfogadási feltételekkel.
+- [x] **S37a javítás**: `football_domain::identity::normalize_country_code` mostantól
+  ISO3 → ISO2 alias-táblát alkalmaz (FRA→FR, GER→DE, HUN→HU, ITA→IT, ESP→ES,
+  NED→NL, POR→PT, …), a GB-alrégió szabály változatlan; az ENG szándékosan külön
+  marad. Új domain-teszt: `iso3_country_codes_are_equivalent_to_iso2`.
+- [x] Kapuk: `cargo fmt --all --check` OK; `cargo clippy --workspace --all-targets
+  -- -D warnings` tiszta; `./scripts/db-reset.sh` (15 migráció) + `check-foundation`
+  exit 0 (33 „test result: ok”); `cargo test --workspace -- --test-threads=1` →
+  lásd a záró jelentést (S37a futtatás).
+- [ ] Nem ellenőrzött: a S37a éles hatása (a daemon új binárison fut-e); a
+  `core.country` duplikált sorainak összevonása adatművelet — külön döntés; a
+  soccerway-veszteség (H4) diagnózisa és a tipplap-linkelés (S37b) még nyitott.

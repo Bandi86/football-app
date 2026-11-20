@@ -68,13 +68,69 @@ fn field_matches(a: &Option<String>, b: &Option<String>) -> bool {
 /// Brit tagország-kódok (GB-WLS/GB-SCT/GB-ENG/GB-NIR) a GB-vel egyenértékűek
 /// az identitás-kontextusban: a v1 import alrégió-kódot ad, a footballdata
 /// GB-t — azonos csapatnév mellett ez nem jelenthet külön entitást.
+///
+/// Ugyanez a helyzet az ISO3 ↔ ISO2 kódokkal (S37a): a v1-import háromjegyű
+/// kódot hoz (`GER`, `ESP`, `ITA`, `FRA`, `HUN`, `NED`, `POR`), az új források
+/// kétjegyűt (`DE`, `ES`, `IT`, `FR`, `HU`, `NL`, `PT`). A `core.country`
+/// táblában mindkét kód él, ezért a kontextus-egyeztetésnek kód-függetlennek
+/// kell lennie, különben az egzakt névvel megtalált csapat is „ismeretlen”
+/// marad. Az `ENG` szándékosan NEM képeződik `GB`-re: az angol és a brit
+/// (jelenleg skótként nevezett) sor két külön ország-rekord a v2-ben.
 pub fn normalize_country_code(code: &str) -> String {
-    let upper = code.to_ascii_uppercase();
+    let upper = code.trim().to_ascii_uppercase();
     if upper.starts_with("GB-") {
-        "GB".to_string()
-    } else {
-        upper
+        return "GB".to_string();
     }
+    let iso2 = match upper.as_str() {
+        "FRA" => "FR",
+        "GER" | "DEU" => "DE",
+        "HUN" => "HU",
+        "ITA" => "IT",
+        "ESP" => "ES",
+        "NED" | "NLD" => "NL",
+        "POR" | "PRT" => "PT",
+        "SUI" | "CHE" => "CH",
+        "SWE" => "SE",
+        "DEN" | "DNK" => "DK",
+        "NOR" => "NO",
+        "CRO" | "HRV" => "HR",
+        "SRB" => "RS",
+        "POL" => "PL",
+        "GRE" | "GRC" => "GR",
+        "TUR" => "TR",
+        "BEL" => "BE",
+        "AUT" => "AT",
+        "CZE" => "CZ",
+        "SVK" => "SK",
+        "SVN" => "SI",
+        "UKR" => "UA",
+        "RUS" => "RU",
+        "ISR" => "IL",
+        "ARG" => "AR",
+        "BRA" => "BR",
+        "URU" | "URY" => "UY",
+        "COL" => "CO",
+        "CHL" => "CL",
+        "MEX" => "MX",
+        "USA" => "US",
+        "JPN" => "JP",
+        "KOR" => "KR",
+        "CHN" => "CN",
+        "AUS" => "AU",
+        "IRN" => "IR",
+        "IRQ" => "IQ",
+        "SAU" => "SA",
+        "QAT" => "QA",
+        "EGY" => "EG",
+        "MAR" => "MA",
+        "ALG" | "DZA" => "DZ",
+        "TUN" => "TN",
+        "RSA" | "ZAF" => "ZA",
+        "NGA" => "NG",
+        "GHA" => "GH",
+        other => other,
+    };
+    iso2.to_string()
 }
 
 fn country_matches(a: &Option<String>, b: &Option<String>) -> bool {

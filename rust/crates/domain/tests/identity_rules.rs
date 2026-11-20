@@ -1,6 +1,6 @@
 use football_domain::identity::{
     Candidate, FUZZY_THRESHOLD, IdentityContext, Resolution, ResolveMethod, context_matches,
-    fold_name, normalize_name, token_overlap,
+    fold_name, normalize_country_code, normalize_name, token_overlap,
 };
 use uuid::Uuid;
 
@@ -113,4 +113,50 @@ fn fold_name_handles_turkish_diacritics() {
     assert_eq!(fold_name("Gençlerbirliği"), "genclerbirligi");
     assert_eq!(fold_name("İstanbulspor"), "istanbulspor");
     assert_eq!(fold_name("Eskişehirspor"), "eskisehirspor");
+}
+
+#[test]
+fn iso3_country_codes_are_equivalent_to_iso2() {
+    // S37a: a v1-import ISO3 kódot hoz (GER/ESP/ITA/FRA/HUN), az új források
+    // ISO2-t (DE/ES/IT/FR/HU). A core.country mindkettőt tartalmazza, ezért a
+    // kontextus-egyeztetés nem bukhat el a kód alakján.
+    let pairs = [
+        ("GER", "DE"),
+        ("ESP", "ES"),
+        ("ITA", "IT"),
+        ("FRA", "FR"),
+        ("HUN", "HU"),
+        ("NED", "NL"),
+        ("POR", "PT"),
+    ];
+    for (iso3, iso2) in pairs {
+        let a = IdentityContext {
+            country_code: Some(iso3.into()),
+            gender: Some("male".into()),
+            age_group: Some("senior".into()),
+            branch: Some("senior".into()),
+        };
+        let b = IdentityContext {
+            country_code: Some(iso2.into()),
+            ..a.clone()
+        };
+        assert!(context_matches(&a, &b), "{iso3} ≠ {iso2}");
+        assert_eq!(normalize_country_code(iso3), iso2);
+        // kisbetűs/tárolt alak is ugyanaz
+        assert_eq!(normalize_country_code(&iso3.to_lowercase()), iso2);
+    }
+    // Az ENG szándékosan nem GB: külön ország-rekord a v2-ben.
+    assert_eq!(normalize_country_code("ENG"), "ENG");
+    assert!(!context_matches(
+        &IdentityContext {
+            country_code: Some("ENG".into()),
+            ..IdentityContext::default()
+        },
+        &IdentityContext {
+            country_code: Some("GB".into()),
+            ..IdentityContext::default()
+        }
+    ));
+    // Ismeretlen kód változatlan marad.
+    assert_eq!(normalize_country_code("zz"), "ZZ");
 }
