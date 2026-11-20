@@ -15,7 +15,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-python3 scripts/ui-fixture-server.py --port "$PORT_LOADED" --fixture tests/fixtures/ui/loaded-day.json &
+python3 scripts/ui-fixture-server.py --port "$PORT_LOADED" \
+    --fixture tests/fixtures/ui/loaded-day.json \
+    --detail-fixture tests/fixtures/ui/match-detail.json &
 pids+=("$!")
 python3 scripts/ui-fixture-server.py --port "$PORT_EMPTY" --fixture tests/fixtures/ui/empty-day.json &
 pids+=("$!")

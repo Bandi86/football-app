@@ -426,7 +426,7 @@ private struct HomeHeader: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 10) {
                     Text(greeting)
-                        .font(.system(size: 20))
+                        .font(.appText(15))
                         .foregroundStyle(AppTheme.secondaryText)
                     if let relativeLabel {
                         Text(relativeLabel)
@@ -443,8 +443,8 @@ private struct HomeHeader: View {
                 .animation(step(0.04), value: appeared)
 
                 Text(Self.bigDate.string(from: date))
-                    .font(.system(size: 60, weight: .bold))
-                    .tracking(-2)
+                    .font(.scoreboard(56))
+                    .tracking(-1.5)
                     .lineLimit(1)
                     .minimumScaleFactor(0.55)
                     .foregroundStyle(AppTheme.primaryText)
@@ -453,7 +453,7 @@ private struct HomeHeader: View {
                     .animation(step(0.1), value: appeared)
 
                 Text(metaText)
-                    .font(.system(size: 14))
+                    .font(.appText(12.5))
                     .foregroundStyle(AppTheme.secondaryText)
                     .opacity(appeared ? 1 : 0)
                     .offset(y: appeared ? 0 : 12)

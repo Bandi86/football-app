@@ -190,6 +190,29 @@ final class FootballAppUITests: XCTestCase {
                       "Shift+Tab üres fókuszból nem az utolsó kártyára lépett")
     }
 
+    /// A redesignált meccs-részletező a gazdag szakaszokat (statisztika,
+    /// odds-mátrix, ellenőrzés) a fixture-adatból jeleníti meg.
+    func testMatchDetailShowsRichSections() throws {
+        let app = try launch(port: Self.loadedPort)
+        app.activate()
+
+        let card = element("match.card.22222222-2222-2222-2222-222222222222", in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: 30), "a nap nem töltődött be")
+        card.click()
+
+        let sheet = element("match.detail", in: app)
+        XCTAssertTrue(sheet.waitForExistence(timeout: 20), "a részletező nem nyílt meg")
+        XCTAssertTrue(element("match.detail.odds", in: app).waitForExistence(timeout: 10),
+                      "az odds-mátrix nem jelent meg")
+        XCTAssertTrue(element("match.detail.stats", in: app).waitForExistence(timeout: 10),
+                      "a statisztika-párbaj nem jelent meg")
+        XCTAssertTrue(element("match.detail.verification", in: app).waitForExistence(timeout: 10),
+                      "az ellenőrzési sáv nem jelent meg")
+
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(waitForGone(sheet, timeout: 10), "Escape nem zárta be a részletezőt")
+    }
+
     // MARK: - Segédek
 
     /// A fókuszált kártya az AX-fában `selected` jelzést kap (ezt hirdeti a VoiceOver is).

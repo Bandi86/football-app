@@ -698,3 +698,33 @@ bemutatott bizonyíték alapján a **B — app-szintű Tab-sorrend** irányt vá
 - [x] Backfill összesítés: 11-17 277/40, 11-18 75/17, 11-19 137/38,
       11-20 311/163, 11-21 817/252 meccs/oddos; integrity OK.
 
+
+## S39 — az app vizuális újratervezése („éjféli stadion")
+
+- [x] Design-rendszer: `apps/FootballApp/Theme.swift` tokenekkel (háttér, grafit
+      felületek, borostyán hangsúly, élő zöld, hajszálvonalak, 4 pt-os rács,
+      kártya/panel/chip sugarak) és tipográfiai rétegekkel (`scoreboard`,
+      `appText`, `appLabel`, `.sectionLabel()`), `.appCard()` felülettel.
+- [x] Új komponensek `apps/FootballApp/Scoreboard.swift`: `DayMasthead`,
+      `ScoreboardHero` (nagy eredmény, címer/monogram, ELO, gate-jelzés),
+      `OddsMatrix` (1X2 / BTTS / 2,5 gól, forrás + időbélyeg), `StatsDuel`
+      (arányos borostyán sávok), `VerificationStrip` (gate, szabálykészlet,
+      blokkolók), `CrestLogo` monogram-fallbackkel.
+- [x] `MatchDetailSheet.swift` új felépítés: hero → meta-rács → periódus-chipek
+      → statisztika-párbaj → odds-mátrix → ellenőrzési sáv; 720×620 panel,
+      `match.detail.stats|odds|verification` azonosítókkal.
+- [x] Nap-nézet és kártyák tipográfiája átvéve (nagy lekerekített dátum,
+      táblázatos időpont/eredmény, ELO-chipek, csapatmonogramok; `LiveDot`
+      újrahasznosíthatóvá téve).
+- [x] Fixture: `tests/fixtures/ui/match-detail.json` (lejátszott meccs
+      statisztikával, 7 piacos oddsszal, gate-blokkolóval);
+      `scripts/ui-fixture-server.py --detail-fixture` a `/v1/match/...`
+      végpontot is kiszolgálja; `run-ui-tests.sh` ezt használja.
+- [x] Új UI-teszt `testMatchDetailShowsRichSections`: kártyára kattintás →
+      `match.detail` + odds/statisztika/ellenőrzés szakasz látható → Escape zár.
+- [x] Bizonyíték: `./scripts/run-ui-tests.sh` → **TEST SUCCEEDED**, app unit
+      26/26, UI 8/8 (új teszt 9,387 s); build figyelmeztetés nélkül; élő
+      képernyőképek `/tmp/design-day3.png`, `/tmp/design-detail2.png`,
+      `/tmp/design-detail-odds.png`.
+- [x] Dokumentáció: `docs/superpowers/specs/2026-11-20-app-design.md`.
+- [ ] Commit + push + CI (folyamatban).

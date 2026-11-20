@@ -113,16 +113,16 @@ private struct LeagueSectionView: View {
                     .font(.system(size: 20))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(league.name)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.appText(15, weight: .semibold))
                         .foregroundStyle(AppTheme.primaryText)
                     Text(league.subtitle)
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.appLabel())
                         .tracking(1.2)
                         .foregroundStyle(AppTheme.secondaryText)
                 }
                 Spacer()
                 Text("\(league.matches.count) meccs")
-                    .font(.system(size: 11.5))
+                    .font(.appLabel(10))
                     .foregroundStyle(AppTheme.secondaryText)
             }
             .padding(.horizontal, 18)
@@ -256,12 +256,12 @@ private struct MatchItemRow: View {
             HStack(spacing: 5) {
                 if group == .live { LiveDot() }
                 Text(leadingLabel)
-                    .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                    .font(.scoreboard(13, weight: .semibold))
                     .foregroundStyle(leadingColor)
             }
             if let minute = match.minute {
                 Text("\(minute)'")
-                    .font(.system(size: 11).monospacedDigit())
+                    .font(.scoreboard(11, weight: .medium))
                     .foregroundStyle(AppTheme.liveGreen.opacity(0.85))
             }
         }
@@ -270,10 +270,10 @@ private struct MatchItemRow: View {
 
     private func teamLine(_ name: String, position: Int?, logo: String?, elo: Int?) -> some View {
         HStack(spacing: 8) {
-            TeamLogo(path: logo, store: logos)
+            TeamLogo(name: name, path: logo, store: logos)
 
             Text(name)
-                .font(.system(size: 15, weight: .medium))
+                .font(.appText(15, weight: .medium))
                 .foregroundStyle(AppTheme.primaryText)
                 .lineLimit(1)
 
@@ -285,7 +285,7 @@ private struct MatchItemRow: View {
 
             if let elo {
                 Text("ELO \(elo)")
-                    .font(.system(size: 9.5, weight: .semibold).monospacedDigit())
+                    .font(.appLabel(8.5).monospacedDigit())
                     .foregroundStyle(AppTheme.secondaryText)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
@@ -304,7 +304,7 @@ private struct MatchItemRow: View {
                             .foregroundStyle(AppTheme.secondaryText)
                     }
                     Text(item.score)
-                        .font(.system(size: item.main ? 18 : 12.5, weight: item.main ? .bold : .medium).monospacedDigit())
+                        .font(.scoreboard(item.main ? 19 : 13, weight: item.main ? .bold : .medium))
                         .foregroundStyle(item.main ? AppTheme.primaryText : AppTheme.secondaryText)
                 }
             }
@@ -374,7 +374,7 @@ private struct MatchItemRow: View {
     }
 }
 
-private struct LiveDot: View {
+struct LiveDot: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var on = false
 
@@ -395,9 +395,22 @@ private struct LiveDot: View {
 /// Csapat-logó: a helyi API-ból (tokenes) vagy külső URL-ről; betöltés alatt
 /// és hiba esetén a korábbi semleges helyőrző látszik.
 private struct TeamLogo: View {
+    /// A címer nélküli csapat monogramja: a név első betűje(i), hogy a sor
+    /// üres keret helyett is kész megjelenést kapjon.
+    var name: String = ""
     let path: String?
     let store: LogoStore
     @State private var image: NSImage?
+
+    private var monogram: String {
+        let words = name.split(separator: " ")
+        if words.count >= 2 {
+            let letters = words.prefix(2).compactMap { $0.first }
+            return String(letters).uppercased()
+        }
+        guard let word = words.first else { return "?" }
+        return String(word.prefix(3)).uppercased()
+    }
 
     var body: some View {
         Group {
@@ -410,6 +423,11 @@ private struct TeamLogo: View {
             } else {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(AppTheme.surface)
+                    .overlay(
+                        Text(monogram)
+                            .font(.appLabel(8.5))
+                            .foregroundStyle(AppTheme.secondaryText)
+                    )
             }
         }
         .frame(width: 24, height: 24)

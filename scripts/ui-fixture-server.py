@@ -17,11 +17,18 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--fixture", required=True)
+    parser.add_argument("--detail-fixture", help="opcionális meccs-részletező JSON")
     args = parser.parse_args()
 
     with open(args.fixture, "rb") as handle:
         payload = handle.read()
     json.loads(payload)
+
+    detail_payload = None
+    if args.detail_fixture:
+        with open(args.detail_fixture, "rb") as handle:
+            detail_payload = handle.read()
+        json.loads(detail_payload)
 
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -29,6 +36,8 @@ def main() -> int:
         def do_GET(self):  # noqa: N802 - http.server API
             if self.path.startswith("/v1/day/"):
                 body, status = payload, 200
+            elif self.path.startswith("/v1/match/") and detail_payload is not None:
+                body, status = detail_payload, 200
             elif self.path == "/v1/health":
                 body, status = b'{"status":"ok","service":"footballd"}', 200
             else:
