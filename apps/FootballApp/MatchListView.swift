@@ -43,9 +43,13 @@ enum MatchFilter: String, CaseIterable, Identifiable {
 /// A fókusz vizuális jelzése a kártya körüli borostyán keret.
 struct MatchListView: View {
     let leagues: [LeagueGroup]
-    let logos: LogoStore
     let focusedMatch: String?
     let onSelect: (String) -> Void
+
+    /// A kártyasor elrendezésének váltópontja a rendelkezésre álló szélességben
+    /// (a kártya a 48 pt oldalpaddel ennél keskenyebb). Ez nem a kártya szélessége:
+    /// a kártya mindig kitölti a listapanelt, csak a belső elrendezés vált.
+    private static let wideLayoutThreshold: CGFloat = 800
 
     private var orderedIDs: [String] {
         leagues.flatMap { league in
@@ -67,36 +71,38 @@ struct MatchListView: View {
             .accessibilityLabel("Nincs meccs a kiválasztott szűrőben.")
             .accessibilityIdentifier("match.list.empty")
         } else {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 16) {
-                        ForEach(leagues) { league in
-                            LeagueSectionView(
-                                league: league,
-                                logos: logos,
-                                focusedMatch: focusedMatch,
-                                onSelect: onSelect
-                            )
+            GeometryReader { geometry in
+                let isWide = geometry.size.width >= Self.wideLayoutThreshold
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 16) {
+                            ForEach(leagues) { league in
+                                LeagueSectionView(
+                                    league: league,
+                                    isWide: isWide,
+                                    focusedMatch: focusedMatch,
+                                    onSelect: onSelect
+                                )
+                            }
                         }
+                        .padding(.horizontal, 48)
+                        .padding(.vertical, 16)
                     }
-                    .padding(.horizontal, 48)
-                    .padding(.vertical, 16)
-                }
-                .onChange(of: focusedMatch) { _, newValue in
-                    guard let newValue else { return }
-                    withAnimation(.easeOut(duration: 0.12)) {
-                        proxy.scrollTo(newValue, anchor: .center)
+                    .onChange(of: focusedMatch) { _, newValue in
+                        guard let newValue else { return }
+                        withAnimation(.easeOut(duration: 0.12)) {
+                            proxy.scrollTo(newValue, anchor: .center)
+                        }
                     }
                 }
             }
         }
     }
-
 }
 
 private struct LeagueSectionView: View {
     let league: LeagueGroup
-    let logos: LogoStore
+    let isWide: Bool
     let focusedMatch: String?
     let onSelect: (String) -> Void
 
@@ -136,8 +142,8 @@ private struct LeagueSectionView: View {
 
             VStack(spacing: 0) {
                 ForEach(Array(sortedMatches.enumerated()), id: \.element.id) { index, match in
-                    MatchItemRow(match: match, showPositions: league.tier != 0,
-                                 logos: logos, focusedMatch: focusedMatch, onSelect: onSelect)
+                    MatchItemRow(match: match, isWide: isWide,
+                                 focusedMatch: focusedMatch, onSelect: onSelect)
                         .id(match.id)
                     if index < sortedMatches.count - 1 {
                         Rectangle().fill(AppTheme.hairline).frame(height: 1).padding(.leading, 18)
@@ -154,70 +160,26 @@ private struct LeagueSectionView: View {
     }
 }
 
+/// A napi lista kártyája: kezdés, két csapatnév, végeredmény és 1X2 odds.
+/// Minden más adat (logó, pozíció, ELO, BTTS, 2,5, piacok, forrás, periódusok)
+/// a részletes nézetben él.
 private struct MatchItemRow: View {
     let match: MatchCardModel
-    let showPositions: Bool
-    let logos: LogoStore
+    let isWide: Bool
     let focusedMatch: String?
     let onSelect: (String) -> Void
     @State private var hover = false
 
-    private var group: MatchFilter? { MatchFilter.group(of: match.status) }
-
-    private var leadingLabel: String {
-        switch group {
-        case .live: return "ÉLŐ"
-        case .finished: return "FT"
-        default: return match.time
-        }
-    }
-
-    private var leadingColor: Color {
-        switch group {
-        case .live: return AppTheme.liveGreen
-        case .finished: return AppTheme.secondaryText
-        default: return AppTheme.primaryText
-        }
-    }
-
-    /// Az állások időben visszafelé: 11-es → 120' → 90' → HT (amelyik van).
-    private var periodResults: [(label: String, score: String, main: Bool)] {
-        var items: [(String, String)] = []
-        if let hp = match.homePens, let ap = match.awayPens {
-            items.append(("11-es", "\(hp)–\(ap)"))
-        }
-        if let eh = match.homeEt, let ee = match.awayEt {
-            items.append(("120'", "\(eh)–\(ee)"))
-        }
-        if let h = match.homeScore, let a = match.awayScore {
-            let label = (match.homeEt != nil || match.homePens != nil) ? "90'" : ""
-            items.append((label, "\(h)–\(a)"))
-        }
-        if let hh = match.homeHt, let ah = match.awayHt {
-            items.append(("HT", "\(hh)–\(ah)"))
-        }
-        return items.enumerated().map { index, item in (item.0, item.1, index == 0) }
-    }
+    /// A kezdés-oszlop szélessége: a dátum, az idő és az állapotjelzés alatt
+    /// egy vonalban marad. Fix, mert ez az oszlop minden sornál ugyanaz.
+    private let kickoffWidth: CGFloat = 82
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            HStack(alignment: .top, spacing: 16) {
-                statusColumn
-
-                VStack(alignment: .leading, spacing: 9) {
-                    teamLine(match.home, position: match.homePosition,
-                             logo: match.homeLogo, elo: match.homeElo)
-                    teamLine(match.away, position: match.awayPosition,
-                             logo: match.awayLogo, elo: match.awayElo)
-                }
-
-                Spacer(minLength: 12)
-
-                resultBlock
-            }
-
-            if match.odds != nil {
-                oddsRow
+        Group {
+            if isWide {
+                wideLayout
+            } else {
+                stackedLayout
             }
         }
         .padding(.horizontal, 18)
@@ -233,9 +195,11 @@ private struct MatchItemRow: View {
                 away: match.away,
                 time: match.time,
                 status: match.status,
-                homeScore: match.homeScore,
-                awayScore: match.awayScore,
-                publishState: match.publishState
+                homeScore: match.finalScore?.home,
+                awayScore: match.finalScore?.away,
+                publishState: match.publishState,
+                dayLabel: match.dayLabel.isEmpty ? nil : match.dayLabel,
+                odds: match.oddsAccessibilityText
             )
         )
         .accessibilityAddTraits(focusedMatch == match.id ? [.isButton, .isSelected] : [.isButton])
@@ -251,125 +215,120 @@ private struct MatchItemRow: View {
         }
     }
 
-    private var statusColumn: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 5) {
-                if group == .live { LiveDot() }
-                Text(leadingLabel)
-                    .font(.scoreboard(13, weight: .semibold))
-                    .foregroundStyle(leadingColor)
-            }
-            if let minute = match.minute {
-                Text("\(minute)'")
-                    .font(.scoreboard(11, weight: .medium))
-                    .foregroundStyle(AppTheme.liveGreen.opacity(0.85))
-            }
+    // MARK: - Elrendezések
+
+    /// Széles: kezdés | csapatok | eredmény | 1X2 egy sorban; a csapatoszlop
+    /// viszi a maradék helyet, így az eredmény és az odds jobbra igazodik.
+    private var wideLayout: some View {
+        HStack(alignment: .center, spacing: 16) {
+            kickoffColumn
+            teamsColumn
+                .frame(maxWidth: .infinity, alignment: .leading)
+            scoreColumn
+            oddsBlock
         }
-        .frame(width: 56, alignment: .leading)
     }
 
-    private func teamLine(_ name: String, position: Int?, logo: String?, elo: Int?) -> some View {
-        HStack(spacing: 8) {
-            TeamLogo(name: name, path: logo, store: logos)
+    /// Szűk: az odds a csapatok és az eredmény alá tördelve.
+    private var stackedLayout: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 16) {
+                kickoffColumn
+                teamsColumn
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                scoreColumn
+            }
+            if match.hasOdds {
+                oddsBlock
+                    .padding(.leading, kickoffWidth + 16)
+            }
+        }
+    }
 
-            Text(name)
-                .font(.appText(15, weight: .medium))
-                .foregroundStyle(AppTheme.primaryText)
-                .lineLimit(1)
+    // MARK: - Kártyaelemek
 
-            if showPositions, let position {
-                Text("(\(position))")
+    private var kickoffColumn: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            if !match.dayLabel.isEmpty {
+                Text(match.dayLabel)
                     .font(.system(size: 11, weight: .medium).monospacedDigit())
                     .foregroundStyle(AppTheme.secondaryText)
+                    .lineLimit(1)
             }
-
-            if let elo {
-                Text("ELO \(elo)")
-                    .font(.appLabel(8.5).monospacedDigit())
-                    .foregroundStyle(AppTheme.secondaryText)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(AppTheme.surface, in: Capsule())
-            }
-        }
-    }
-
-    private var resultBlock: some View {
-        VStack(alignment: .trailing, spacing: 2) {
-            ForEach(Array(periodResults.enumerated()), id: \.offset) { _, item in
-                HStack(spacing: 7) {
-                    if !item.label.isEmpty {
-                        Text(item.label)
-                            .font(.system(size: 10.5, weight: .medium))
-                            .foregroundStyle(AppTheme.secondaryText)
+            Text(match.time)
+                .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                .foregroundStyle(AppTheme.primaryText)
+            if let phase = match.phaseLabel {
+                HStack(spacing: 4) {
+                    if match.isLive { LiveDot() }
+                    Text(phase)
+                        .font(.system(size: 9.5, weight: .bold))
+                        .tracking(0.6)
+                        .foregroundStyle(match.isLive ? AppTheme.liveGreen : AppTheme.secondaryText)
+                    if let minute = match.minuteText {
+                        Text(minute)
+                            .font(.system(size: 9.5, weight: .bold).monospacedDigit())
+                            .foregroundStyle(AppTheme.liveGreen)
                     }
-                    Text(item.score)
-                        .font(.scoreboard(item.main ? 19 : 13, weight: item.main ? .bold : .medium))
-                        .foregroundStyle(item.main ? AppTheme.primaryText : AppTheme.secondaryText)
                 }
             }
         }
-        .frame(minWidth: 64, alignment: .trailing)
+        .frame(width: kickoffWidth, alignment: .leading)
     }
 
-    private var oddsRow: some View {
-        HStack(alignment: .center, spacing: 16) {
-            oddsGroup("1X2", [
-                ("1", match.odds?.home, match.winner1x2 == .home),
-                ("X", match.odds?.draw, match.winner1x2 == .draw),
-                ("2", match.odds?.away, match.winner1x2 == .away),
-            ])
-            oddsGroup("BTTS", [
-                ("I", match.odds?.bttsYes, match.bttsYesWon == true),
-                ("N", match.odds?.bttsNo, match.bttsYesWon == false),
-            ])
-            oddsGroup("2,5", [
-                ("O", match.odds?.over25, match.over25Won == true),
-                ("U", match.odds?.under25, match.over25Won == false),
-            ])
-            Spacer(minLength: 8)
-            VStack(alignment: .trailing, spacing: 1) {
-                Text("Piacok (\(match.markets)) ›")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(AppTheme.secondaryText.opacity(0.85))
-                Text("forrás: \(match.oddsSource)")
-                    .font(.system(size: 9.5))
-                    .foregroundStyle(AppTheme.secondaryText.opacity(0.6))
-            }
+    /// Csak a két csapatnév; logó, pozíció és ELO nem kerül a kártyára.
+    private var teamsColumn: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(match.home)
+                .font(.appText(15, weight: .semibold))
+                .foregroundStyle(AppTheme.primaryText)
+            Text(match.away)
+                .font(.appText(15, weight: .medium))
+                .foregroundStyle(AppTheme.primaryText.opacity(0.9))
         }
-        .padding(.leading, 72)
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
     }
 
-    private func oddsGroup(_ title: String, _ items: [(String, Double?, Bool)]) -> some View {
-        HStack(spacing: 6) {
-            Text(title)
-                .font(.system(size: 9, weight: .semibold))
-                .tracking(0.6)
-                .foregroundStyle(AppTheme.secondaryText.opacity(0.65))
-            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                oddsPill(item.0, item.1, isWinner: item.2)
+    private var scoreColumn: some View {
+        Text(match.scoreText)
+            .font(.scoreboard(19, weight: .bold))
+            .foregroundStyle(match.finalScore == nil ? AppTheme.secondaryText : AppTheme.primaryText)
+            .lineLimit(1)
+            .frame(minWidth: 56, alignment: .trailing)
+    }
+
+    /// Csak az 1X2 három pillje; BTTS, 2,5 és a piacok a részletes nézetben.
+    @ViewBuilder
+    private var oddsBlock: some View {
+        if match.hasOdds {
+            HStack(spacing: 6) {
+                ForEach(match.oddsPills) { pill in
+                    oddsPill(pill)
+                }
             }
+            .fixedSize(horizontal: true, vertical: false)
         }
     }
 
-    private func oddsPill(_ label: String, _ value: Double?, isWinner: Bool) -> some View {
+    private func oddsPill(_ pill: OddsPill) -> some View {
         HStack(spacing: 4) {
-            Text(label)
+            Text(pill.label)
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(isWinner ? AppTheme.accent : AppTheme.secondaryText)
-            Text(value.map { String(format: "%.2f", $0).replacingOccurrences(of: ".", with: ",") } ?? "–")
-                .font(.system(size: 12.5, weight: isWinner ? .bold : .medium).monospacedDigit())
-                .foregroundStyle(isWinner ? AppTheme.accent : AppTheme.primaryText.opacity(0.85))
+                .foregroundStyle(pill.isWinner ? AppTheme.accent : AppTheme.secondaryText)
+            Text(pill.value)
+                .font(.system(size: 12.5, weight: pill.isWinner ? .bold : .medium).monospacedDigit())
+                .foregroundStyle(pill.isWinner ? AppTheme.accent : AppTheme.primaryText.opacity(0.85))
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
         .background(
-            isWinner ? AppTheme.accent.opacity(0.16) : AppTheme.surface,
+            pill.isWinner ? AppTheme.accent.opacity(0.16) : AppTheme.surface,
             in: RoundedRectangle(cornerRadius: 7, style: .continuous)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .strokeBorder(isWinner ? AppTheme.accent.opacity(0.5) : Color.clear)
+                .strokeBorder(pill.isWinner ? AppTheme.accent.opacity(0.5) : Color.clear)
         )
     }
 }
@@ -389,55 +348,5 @@ struct LiveDot: View {
                     on = true
                 }
             }
-    }
-}
-
-/// Csapat-logó: a helyi API-ból (tokenes) vagy külső URL-ről; betöltés alatt
-/// és hiba esetén a korábbi semleges helyőrző látszik.
-private struct TeamLogo: View {
-    /// A címer nélküli csapat monogramja: a név első betűje(i), hogy a sor
-    /// üres keret helyett is kész megjelenést kapjon.
-    var name: String = ""
-    let path: String?
-    let store: LogoStore
-    @State private var image: NSImage?
-
-    private var monogram: String {
-        let words = name.split(separator: " ")
-        if words.count >= 2 {
-            let letters = words.prefix(2).compactMap { $0.first }
-            return String(letters).uppercased()
-        }
-        guard let word = words.first else { return "?" }
-        return String(word.prefix(3)).uppercased()
-    }
-
-    var body: some View {
-        Group {
-            if let image {
-                Image(nsImage: image)
-                    .resizable()
-                    .interpolation(.high)
-                    .aspectRatio(contentMode: .fit)
-                    .padding(1.5)
-            } else {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(AppTheme.surface)
-                    .overlay(
-                        Text(monogram)
-                            .font(.appLabel(8.5))
-                            .foregroundStyle(AppTheme.secondaryText)
-                    )
-            }
-        }
-        .frame(width: 24, height: 24)
-        .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .strokeBorder(AppTheme.hairline)
-        )
-        .task(id: path) {
-            guard let path else { return }
-            image = await store.image(for: path)
-        }
     }
 }

@@ -766,3 +766,137 @@ bemutatott bizonyíték alapján a **B — app-szintű Tab-sorrend** irányt vá
       (104 meccs), a Versenyek, a Csapatok és az Üzemeltetés nézet is a helyes
       adatot mutatja; képernyőképek `/tmp/live-day4.png`,
       `/tmp/live-versenyek.png`, `/tmp/live-teams3.png`, `/tmp/live-ops3.png`.
+
+## S41 — napi lista adatminőség + kártya újratervezés
+
+Induló állapot: a 2026-11-20-i napi feed 104 meccse tele volt hibával (FA Cup
+alatt kínai csapatok, ugyanaz a fixture két verseny-entitás alatt, „Bahrain–
+Bahrain U17" önmaga-meccsek, ISO3 kódok és fehér zászlók, kettévált liganevek),
+a kártya pedig logót, pozíciót, ELO-t, BTTS/2,5 piacot és forrásjelzést is
+mutatott. Cél: csak kezdési dátum, csapatnevek, eredmény és 1X2 maradjon a
+kártyán, minden más a részletes nézetben; az adathibák rendszerszintű javítása.
+
+### Kártya és nap-nézet (SwiftUI)
+
+- [x] `MatchCardModel.swift` új modell: `MatchScore` (ET → FT → nil, „–"),
+      `OddsPill` (1/X/2 magyar vesszős formátum), `dayLabel`/`timeLabel`
+      (hu_HU, fix szélesség), `isLive`/`isFinished`/`phaseLabel`, `hasOdds`,
+      `oddsPills`, `oddsAccessibilityText`. A logó/pozíció/ELO/BTTS/2,5/piacok/
+      forrás mezők lekerültek a kártyáról.
+- [x] `MatchListView.swift` új kártya: dátum + idő, két csapatnév, eredmény,
+      1/X/2 három pill (a nyertes kiemelve); `GeometryReader` + `isWide ≥ 800`
+      px és `ViewThatFits` a tördelő/széles elrendezéshez; hover, fókuszgyűrű,
+      `match.card.<id>` azonosító, `AccessibilityLabels.matchCardLabel`
+      (opcionális dátum/odds) megmaradt.
+- [x] `HomeView.swift` reszponzív héj: `GeometryReader`, `TopNavigationBar`
+      `compact` mód (<760 px), `FilterBar` két sorba törő chipek + legördülők
+      (<1000 px); 640×900 ablakban a kártya tördelt, 1400×940 ablakban egy
+      soros. Képernyőképek: `/tmp/card_narrow2.png`, `/tmp/card_wide2.png`,
+      `/tmp/s41_final_wide.png`.
+- [x] Bizonyíték: Core `swift test` → **54 teszt / 12 suite zöld**; app unit
+      **43/43 zöld**; UI **8/8 PASSED**; `xcodebuild build` → BUILD SUCCEEDED.
+
+### Zászlók, országok, liganevek
+
+- [x] Új `CountryCatalog.swift` (Core): ISO3 → ISO2 teljes készlet + FIFA-
+      aliasok, ISO2 → zászló regional indicator párokból, GB-ENG/GB-SCT/
+      GB-WLS tag-zászló, GB-NIR → 🇬🇧, ISO2 → magyar országnév, fallback.
+      `CountryDisplay` a GB + hazai nemzetnév (Wales/Skócia/Anglia/Észak-
+      Írország) esetet a hazai nemzet zászlajára oldja.
+- [x] Új `CompetitionCatalog.swift` (Core): ország + név alapú alias-tábla
+      (J. League/Japanese J1 League → J1 League, 1st Lig → 1. Lig,
+      1. osztály [PL] → I Liga, 1st Division [DK], walesi Premier League →
+      Cymru Premier, First Division B → Challenger Pro League, ukrán Premier
+      League, Taça de Portugal, Primera Federación csoportok, argentin
+      Clausura Playoff). A `LeagueGroup.fromDay` e kulcs szerint csoportosít,
+      a csoport a legjobb tier/priority értéket örökli, a használhatatlan
+      versenynév (üres / csak országkód) országnévre esik vissza.
+- [x] `core.country` revízió (auditált SQL, `identity_country_revision`):
+      GB neve „Egyesült Királyság" (korábban tévesen „Észak-Írország"),
+      GB-WLS → „Wales", GB-SCT → „Skócia", új GB-NIR sor „Észak-Írország".
+- [x] 11 brit verseny átsorolása a helyes hazai nemzet alá
+      (`identity_competition_country`): 7 skót (Scottish Premiership/
+      Championship/League One/League Two, Lowland League East/West,
+      SWPL 1 - női), 2 walesi (Cymru Premier, Cymru - dél), 2 észak-írországi
+      (NIFL Premiership, NIFL Championship). A napi feed most GB-SCT/GB-WLS/
+      GB-NIR kódot ad, a szekciók fejléce „SKÓCIA", „WALES",
+      „ÉSZAK-ÍRORSZÁG".
+
+### Adatminőség (Rust)
+
+- [x] Verseny-ország guard (`competitions.rs`): a szótári ország csak akkor írja
+      felül a megfigyeltet, ha az üres, a normalizált kód egyezik, vagy az
+      ország-név ugyanarra oldódik; CN FA Kupa így CN marad, nem GB.
+- [x] `canonical_country_code` (domain): ISO3 → ISO2, ENG/SCO/WAL/NIR →
+      GB-ENG/GB-SCT/GB-WLS/GB-NIR, INT → XX; az ingest `upsert_country` és
+      `team_country_id` ezt használja, így nem keletkeznek új ISO3-sorok.
+- [x] Cross-competition név-variáns dedupe (`dedupe.rs`): a pár-egyezés
+      versenyhatáron át is megy, de normalizált ország + gender/age_group/
+      branch egyezés kell; női-jelölő guard (`name_marks_womens`) kizárja a
+      férfi–női téves párokat. CLI:
+      `footballctl dedupe variants --date <D> --cross-competition [--apply]`.
+- [x] Identity repair (`rust/crates/identity/src/repair.rs`):
+      `rebuild_source_refs` (dry-run riport: 1318 kód, 357 átkötés, 51 új
+      csapat, 20 bizonytalan) és `repair_soccerway_matches` capture-scope-olt
+      team_identity observation alapján; approve_create kontextus a névből
+      vezeti le az age_group/gender értéket (U17 nem olvad felnőttbe);
+      oldalankénti részleges javítás; dry-run írásvédett (regressziós teszt),
+      age_token guard (U17 ≠ U23).
+- [x] Új verification szabályok (`verification-1.2`): SAME_TEAM_BOTH_SIDES
+      (korosztály-jelölő nélkül azonos csapat a két oldalon → blocker) és
+      FOREIGN_TEAMS_DOMESTIC_COMPETITION (hazai bajnokságban mindkét csapat
+      külföldi → blocker). Rule set verzió 1.2 a workerben, a repair-ben és a
+      footballctl-ben.
+
+### Alkalmazott adatjavítások (visszaállítható)
+
+- [x] Mentések: `/tmp/football_v2_dev_20261120_pre_s41.dump` és
+      `/tmp/football_v2_dev_20261120_pre_dedupe.dump` (542 MB,
+      `pg_dump -Fc -Z 5`).
+- [x] `footballctl identity repair-matches --from 2026-11-13 --to 2026-11-22
+      --apply` → 370 vizsgált, 351 már helyes, 3 átállítva, 0 merge,
+      0 visszatartva, 16 feloldhatatlan (0 hiba). Az AFC U17-es kör mind a
+      9 sora helyes, nincs önmaga-meccs.
+- [x] Cross-competition dedupe: 11-18: 1, 11-19: 13 szigorú + 3 loose,
+      11-20: 33 szigorú + 8 loose, 11-16: 2 loose, 11-17: 2 loose merge;
+      utána 11-13..11-25 dry-run → nincs név-variáns duplikátum.
+- [x] Maradék azonos csapatpárú, csak lokalizált névben eltérő duplikátumok
+      (Primera RFEF - 2. csoport / Primera Federacion - Group 2,
+      IWL - női / IWL Women, Kings Cup - Thaiföld / Kings Cup (Thailand)):
+      a `variant_pair` cross-competition módban mostantól a csapat-identitást is
+      bizonyítéknak fogadja el (azonos home/away team ID, ≤12 óra, egyező
+      ország + gender/age/branch), a tükrözött + eredményes eset továbbra is
+      kézi döntés. Mindhárom pár merge-elve; utána 11-13..11-27 között nulla
+      cross-competition duplikátum (SQL-ellenőrzés). Az IWL magyar neve a
+      CompetitionCatalogban „IWL Women"-re oldódik.
+- [x] `footballctl reverify --from 2026-11-13 --to 2026-11-27` → 1793 meccs,
+      0 hiba; gate-állapotok: 590 verified, 1190 provisional, 13 withheld.
+      A 11-20-i feed 91 meccs, 11-21-i 223 meccs; nincs önmaga-meccs és nincs
+      azonos csapatpár + kickoff duplikátum a verified ablakban.
+- [x] Két szándékos withheld a 11-20-i napon: FA Cup Beijing Guoan–Shanghai
+      Port (kínai csapatok a GB versenyben) és La Liga Cobresal–Audax Italiano
+      (chilei csapatok a spanyol ligában) — a FOREIGN szabály fogta meg őket.
+- [x] Nemzeti U17 csapatok névrevíziója (auditált SQL): Bhután U17 →
+      „Bhutan U17" (BT), Mongólia U17 → „Mongolia U17" (MN), „Új-Zéland U17"
+      beolvasztva a „New Zealand U17" entitásba (alias + merged_into_id,
+      ország NZ).
+
+### Kapuk
+
+- [x] `cargo fmt --all --check` → OK; `cargo clippy --workspace
+      --all-targets -- -D warnings` → tiszta; `cargo test --workspace --
+      --test-threads=1` → exit 0 (minden blokk zöld).
+- [x] Swift: Core 54/54, app unit 43/43, UI 8/8, `xcodebuild build` OK.
+- [x] Daemon: `cargo build -p footballd -p footballctl --features obscura` →
+      OK; `./scripts/install-footballd-agent.sh` → új bináris fut
+      (port 60881), `/v1/health` → 200, `/v1/day/2026-11-20` → 91 sor; az app
+      az új runtime.json-nal elindítva a valódi daemonra csatlakozik.
+
+### Nyitott / következő szelet
+
+- [ ] Globális `rebuild_source_refs` élesítése (create nélküli móddal) — a
+      94 markánsan eltérő ref továbbra is kézi döntést vár.
+- [ ] `core.country` ISO3/ISO2 duplikátumok összevonása (S41d) — a mostani
+      szelet csak a látható zászlókat és a brit hazai nemzeteket rendezte.
+- [ ] Történelmi competition-ország újracímkézés (CN/SK FA Kupa) és a
+      csapat-ország INT/rokon hibák szélesebb revíziója.

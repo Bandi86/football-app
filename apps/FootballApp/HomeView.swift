@@ -31,20 +31,23 @@ struct HomeView: View {
 
     var body: some View {
         @Bindable var model = model
-        VStack(spacing: 0) {
-            TopNavigationBar(selected: tab, focused: focus) { tab = $0 }
+        GeometryReader { geometry in
+            VStack(spacing: 0) {
+                TopNavigationBar(selected: tab, focused: focus,
+                                 compact: geometry.size.width < 760) { tab = $0 }
 
-            Rectangle().fill(AppTheme.hairline).frame(height: 1)
+                Rectangle().fill(AppTheme.hairline).frame(height: 1)
 
-            switch tab {
-            case .ops:
-                OperationsView()
-            case .competitions:
-                CompetitionsView()
-            case .teams:
-                TeamsView()
-            case .day:
-                dayContent(model: model)
+                switch tab {
+                case .ops:
+                    OperationsView()
+                case .competitions:
+                    CompetitionsView()
+                case .teams:
+                    TeamsView()
+                case .day:
+                    dayContent(model: model, width: geometry.size.width)
+                }
             }
         }
         .background(AppTheme.background)
@@ -154,7 +157,7 @@ struct HomeView: View {
     }
 
     @ViewBuilder
-    private func dayContent(model: DayModel) -> some View {
+    private func dayContent(model: DayModel, width: CGFloat) -> some View {
         @Bindable var model = model
         VStack(spacing: 0) {
             HomeHeader(
@@ -172,7 +175,8 @@ struct HomeView: View {
 
             FilterBar(filter: $filter, country: $country, division: $division,
                       featuredOnly: $featuredOnly, focused: focus,
-                      counts: filterCounts, countries: allCountries)
+                      counts: filterCounts, countries: allCountries,
+                      compact: width < 1_000)
 
             content
         }
@@ -190,8 +194,7 @@ struct HomeView: View {
             if leagues.isEmpty, featuredOnly, !groups(feed.matches, featured: false).isEmpty {
                 featuredEmptyHint
             } else {
-                MatchListView(leagues: leagues, logos: model.logos,
-                              focusedMatch: focusedMatchID) { id in
+                MatchListView(leagues: leagues, focusedMatch: focusedMatchID) { id in
                     if let uuid = UUID(uuidString: id) {
                         selected = SelectedMatch(id: uuid)
                     }
@@ -267,6 +270,8 @@ struct HomeView: View {
 private struct TopNavigationBar: View {
     let selected: AppTab
     let focused: AppFocus?
+    /// Keskeny ablakban az óra helyet ad a füleknek.
+    let compact: Bool
     let onSelect: (AppTab) -> Void
     private static let clock: DateFormatter = {
         let formatter = DateFormatter()
@@ -296,11 +301,13 @@ private struct TopNavigationBar: View {
 
             Spacer()
 
-            HStack(spacing: 14) {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text(Self.clock.string(from: context.date))
-                        .font(.system(size: 12, weight: .medium).monospacedDigit())
-                        .foregroundStyle(AppTheme.secondaryText)
+            if !compact {
+                HStack(spacing: 14) {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        Text(Self.clock.string(from: context.date))
+                            .font(.system(size: 12, weight: .medium).monospacedDigit())
+                            .foregroundStyle(AppTheme.secondaryText)
+                    }
                 }
             }
         }
@@ -326,6 +333,8 @@ private struct TopNavigationBar: View {
         } label: {
             Text(title)
                 .font(.system(size: 12.5, weight: .medium))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
                 .foregroundStyle(active ? AppTheme.primaryText : AppTheme.secondaryText.opacity(0.45))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
@@ -551,8 +560,34 @@ private struct FilterBar: View {
     let focused: AppFocus?
     let counts: [MatchFilter: Int]
     let countries: [String]
+    /// Keskeny ablakban két sorra tördelünk: szűrők, majd a legördülők.
+    let compact: Bool
 
     var body: some View {
+        Group {
+            if compact {
+                VStack(alignment: .leading, spacing: 8) {
+                    chipRow
+                    HStack(spacing: 8) {
+                        featuredButton
+                        Spacer(minLength: 0)
+                        menus
+                    }
+                }
+            } else {
+                HStack(spacing: 8) {
+                    chipRow
+                    Spacer(minLength: 12)
+                    featuredButton
+                    menus
+                }
+            }
+        }
+        .padding(.horizontal, 48)
+        .padding(.bottom, 6)
+    }
+
+    private var chipRow: some View {
         HStack(spacing: 8) {
             ForEach(MatchFilter.allCases) { candidate in
                 FilterChip(
@@ -564,35 +599,40 @@ private struct FilterBar: View {
                     filter = candidate
                 }
             }
+        }
+    }
 
-            Spacer()
-
-            Button {
-                featuredOnly.toggle()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: featuredOnly ? "star.fill" : "star")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text(featuredOnly ? "Kiemelt kör" : "Minden verseny")
-                        .font(.system(size: 12.5, weight: .medium))
-                }
-                .foregroundStyle(featuredOnly ? AppTheme.accent : AppTheme.secondaryText)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background(
-                    (featuredOnly ? AppTheme.accent.opacity(0.12) : AppTheme.surface),
-                    in: Capsule()
-                )
-                .overlay(Capsule().strokeBorder(AppTheme.hairline))
+    private var featuredButton: some View {
+        Button {
+            featuredOnly.toggle()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: featuredOnly ? "star.fill" : "star")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(featuredOnly ? "Kiemelt kör" : "Minden verseny")
+                    .font(.system(size: 12.5, weight: .medium))
+                    .lineLimit(1)
             }
-            .buttonStyle(.plain)
-            .help(featuredOnly
-                  ? "A kiemelt kör látszik (top-5 + NB I/II). Kattints a teljes naphoz."
-                  : "Minden beolvasott verseny látszik. Kattints a kiemelt körhöz.")
-            .accessibilityIdentifier("filter.featured")
-            .focusAccessibility(focused == .featured)
-            .capsuleFocusRing(focused == .featured)
+            .foregroundStyle(featuredOnly ? AppTheme.accent : AppTheme.secondaryText)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(
+                (featuredOnly ? AppTheme.accent.opacity(0.12) : AppTheme.surface),
+                in: Capsule()
+            )
+            .overlay(Capsule().strokeBorder(AppTheme.hairline))
+        }
+        .buttonStyle(.plain)
+        .help(featuredOnly
+              ? "A kiemelt kör látszik (top-5 + NB I/II). Kattints a teljes naphoz."
+              : "Minden beolvasott verseny látszik. Kattints a kiemelt körhöz.")
+        .accessibilityIdentifier("filter.featured")
+        .focusAccessibility(focused == .featured)
+        .capsuleFocusRing(focused == .featured)
+    }
 
+    private var menus: some View {
+        HStack(spacing: 8) {
             Menu {
                 Button("Minden ország") { country = nil }
                 Divider()
@@ -616,8 +656,6 @@ private struct FilterBar: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
         }
-        .padding(.horizontal, 48)
-        .padding(.bottom, 6)
     }
 
     private func menuLabel(_ text: String) -> some View {

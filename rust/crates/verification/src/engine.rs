@@ -16,6 +16,16 @@ pub struct VerificationContext<'a> {
     pub snapshot: &'a MatchSnapshot,
     pub home_identity_exact: bool,
     pub away_identity_exact: bool,
+    /// A meccs hazai/vendég csapatának neve (a SAME_TEAM_BOTH_SIDES szabályhoz).
+    /// `None`, ha a név nem ismert — a szabály ilyenkor nem tüzel.
+    pub home_team_name: Option<String>,
+    pub away_team_name: Option<String>,
+    /// A csapatok ország-kódja (`core.team.country_id` → `core.country.code`)
+    /// a FOREIGN_TEAMS_DOMESTIC_COMPETITION szabályhoz. `None`, ha ismeretlen.
+    pub home_team_country: Option<String>,
+    pub away_team_country: Option<String>,
+    /// A verseny ország-kódja (`core.competition.country_id`).
+    pub competition_country: Option<String>,
     pub duplicate_match_count: i64,
     pub source_values: &'a [SourceMaterialValues],
     pub source_trust: &'a [SourceTrust],

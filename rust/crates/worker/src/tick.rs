@@ -56,7 +56,7 @@ const CLAIM_LIMIT: i64 = 10;
 // Browser-render (Obscura) 10–45 s között fut; a HTTP-források ennél jóval
 // gyorsabbak. A hosszabb plafon a renderelt forrásokat nem vágja le.
 const FETCH_TIMEOUT_SECS: u64 = 60;
-const RULE_SET_VERSION: &str = "verification-1.1";
+const RULE_SET_VERSION: &str = "verification-1.2";
 const PUBLISH_TIMEZONE: &str = "Europe/Budapest";
 
 /// Egy tick kör összesítése: feldolgozott (done), blokkolt (kapuk/cancelled)
@@ -598,6 +598,62 @@ fn raw_display_name(bytes: &[u8], source_slug: &str) -> String {
     source_slug.to_string()
 }
 
+/// A meccs csapat-kontextusa a verification-szabályokhoz: név és ország-kód.
+#[derive(Default)]
+struct TeamContextInfo {
+    home_name: Option<String>,
+    away_name: Option<String>,
+    home_country_code: Option<String>,
+    away_country_code: Option<String>,
+}
+
+/// Hazai/vendég csapatnév + ország-kód a SAME_TEAM_BOTH_SIDES és a
+/// FOREIGN_TEAMS_DOMESTIC_COMPETITION szabályhoz. Hiányzó csapatsor → `None`
+/// (a szabályok ilyenkor nem tüzelnek).
+async fn load_team_context(
+    pool: &PgPool,
+    home_team_id: Uuid,
+    away_team_id: Uuid,
+) -> Result<TeamContextInfo> {
+    let rows: Vec<(Uuid, String, Option<String>)> = sqlx::query_as(
+        "SELECT t.id, t.name, c.code
+           FROM core.team t
+           LEFT JOIN core.country c ON c.id = t.country_id
+          WHERE t.id = ANY($1)",
+    )
+    .bind(vec![home_team_id, away_team_id])
+    .fetch_all(pool)
+    .await
+    .context("csapat-kontextus betöltése a verification-höz")?;
+    let mut info = TeamContextInfo::default();
+    for (id, name, country_code) in rows {
+        if id == home_team_id {
+            info.home_name = Some(name);
+            info.home_country_code = country_code;
+        } else if id == away_team_id {
+            info.away_name = Some(name);
+            info.away_country_code = country_code;
+        }
+    }
+    Ok(info)
+}
+
+/// A meccs versenyének ország-kódja (FOREIGN_TEAMS_DOMESTIC_COMPETITION).
+async fn load_competition_country(pool: &PgPool, match_id: Uuid) -> Result<Option<String>> {
+    let code: Option<Option<String>> = sqlx::query_scalar(
+        "SELECT ctry.code
+           FROM core.match m
+           JOIN core.competition c ON c.id = m.competition_id
+           LEFT JOIN core.country ctry ON ctry.id = c.country_id
+          WHERE m.id = $1",
+    )
+    .bind(match_id)
+    .fetch_optional(pool)
+    .await
+    .context("verseny-ország betöltése a verification-höz")?;
+    Ok(code.flatten())
+}
+
 /// Kanonikus materializálás + meccsenkénti verification és publish gate.
 /// Az identitás-flagjei a fail-closed linker feloldásából jönnek (S2b-1):
 /// egzakt feloldás → true, minden más (Candidates/NotFound/hiba) → false,
@@ -640,10 +696,18 @@ pub async fn verify_and_publish(
         .await?;
         let odds_values = trust::load_match_odds(pool, materialized.match_id).await?;
         let resolved_fields = load_resolved_fields(pool, materialized.match_id).await?;
+        let team =
+            load_team_context(pool, materialized.home_team_id, materialized.away_team_id).await?;
+        let competition_country = load_competition_country(pool, materialized.match_id).await?;
         let context = VerificationContext {
             snapshot: &materialized.snapshot,
             home_identity_exact,
             away_identity_exact,
+            home_team_name: team.home_name,
+            away_team_name: team.away_name,
+            home_team_country: team.home_country_code,
+            away_team_country: team.away_country_code,
+            competition_country,
             duplicate_match_count,
             source_values,
             source_trust: &source_trust,
@@ -792,10 +856,17 @@ pub async fn reverify_match(pool: &PgPool, match_id: Uuid) -> Result<()> {
     let resolved_fields = load_resolved_fields(pool, match_id).await?;
     let duplicate_match_count =
         repo::count_duplicate_matches(pool, match_id, home, away, kickoff_at).await?;
+    let team = load_team_context(pool, home, away).await?;
+    let competition_country = load_competition_country(pool, match_id).await?;
     let context = VerificationContext {
         snapshot: &snapshot,
         home_identity_exact: true,
         away_identity_exact: true,
+        home_team_name: team.home_name,
+        away_team_name: team.away_name,
+        home_team_country: team.home_country_code,
+        away_team_country: team.away_country_code,
+        competition_country,
         duplicate_match_count,
         source_values: &source_values,
         source_trust: &source_trust,
@@ -822,7 +893,8 @@ async fn auto_dedupe_day(
     date: chrono::NaiveDate,
 ) -> anyhow::Result<(usize, usize)> {
     let exact_groups = dedupe::duplicate_groups(pool, date).await?;
-    let variant_groups = dedupe::variant_duplicate_groups(pool, date).await?;
+    // A worker konzervatív: cross-competition merge csak kézi CLI-döntéssel.
+    let variant_groups = dedupe::variant_duplicate_groups_between(pool, date, date, false).await?;
     let mut merged = 0usize;
     let mut skipped = 0usize;
 
@@ -939,7 +1011,7 @@ async fn auto_merge_pair(
     variant: bool,
 ) -> anyhow::Result<AutoMerge> {
     let same = if variant {
-        dedupe::is_strict_variant_same_match(pool, survivor, duplicate).await?
+        dedupe::is_strict_variant_same_match(pool, survivor, duplicate, false).await?
     } else {
         dedupe::is_same_match(pool, survivor, duplicate).await?
     };
@@ -954,7 +1026,7 @@ async fn auto_merge_pair(
         return Ok(AutoMerge::Merged);
     }
     let flipped = if variant {
-        dedupe::is_strict_variant_same_match(pool, duplicate, survivor).await?
+        dedupe::is_strict_variant_same_match(pool, duplicate, survivor, false).await?
     } else {
         dedupe::is_same_match(pool, duplicate, survivor).await?
     };

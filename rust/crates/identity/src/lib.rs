@@ -6,9 +6,11 @@
 pub mod crosswalk;
 pub mod error;
 pub mod linker;
+pub mod repair;
 pub mod review;
 pub mod v1_seed;
 
 pub use crosswalk::{CrosswalkConflict, crosswalk_conflicts};
 pub use error::IdentityError;
 pub use linker::resolve;
+pub use repair::{MatchRepairReport, RebuildReport, rebuild_source_refs, repair_soccerway_matches};

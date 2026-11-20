@@ -374,7 +374,24 @@ pub fn canonicalize(competition: &NormalizedCompetition) -> NormalizedCompetitio
         return competition.clone();
     };
     let (country_code, country_name) = match entry.country {
-        Some((code, name)) => (code.to_string(), name.to_string()),
+        Some((code, name)) => {
+            // S41: a szótári ország csak akkor írja felül a megfigyeltet, ha a
+            // megfigyelt ország hiányzik, vagy (kód/név szerint) egyezik.
+            // Különben a megfigyelt ország marad (pl. kínai FA Kupa → CN).
+            if observed_country_compatible(
+                &competition.country_code,
+                &competition.country_name,
+                code,
+                name,
+            ) {
+                (code.to_string(), name.to_string())
+            } else {
+                (
+                    competition.country_code.clone(),
+                    competition.country_name.clone(),
+                )
+            }
+        }
         None => (
             competition.country_code.clone(),
             competition.country_name.clone(),
@@ -388,6 +405,39 @@ pub fn canonicalize(competition: &NormalizedCompetition) -> NormalizedCompetitio
         tier: entry.tier,
         priority: entry.priority,
     }
+}
+
+/// A megfigyelt ország elfogadható-e a szótári országgal szemben?
+///
+/// Elfogadott, ha a megfigyelt ország üres, ha a normalizált kódok egyeznek,
+/// vagy ha az ország-**név** ugyanarra az országra oldódik fel (pl. „England” /
+/// „Wales” → GB). Ismeretlen, eltérő kódnál a megfigyelt ország marad.
+fn observed_country_compatible(
+    observed_code: &str,
+    observed_name: &str,
+    entry_code: &str,
+    entry_name: &str,
+) -> bool {
+    if observed_code.trim().is_empty() && observed_name.trim().is_empty() {
+        return true;
+    }
+    let observed = football_domain::identity::normalize_country_code(observed_code);
+    let entry = football_domain::identity::normalize_country_code(entry_code);
+    if observed.trim().is_empty() || observed == entry {
+        return true;
+    }
+    if fold_name(observed_name) == fold_name(entry_name) {
+        return true;
+    }
+    let Some((observed_resolved, _)) = resolve_country_name(observed_name) else {
+        return false;
+    };
+    football_domain::identity::normalize_country_code(observed_resolved) == entry
+}
+
+/// Ország-név → (ISO, angol név): először az angol, majd a lokalizált tábla.
+fn resolve_country_name(name: &str) -> Option<(&'static str, &'static str)> {
+    crate::countries::by_english_name(name).or_else(|| crate::countries::by_localized_title(name))
 }
 
 #[cfg(test)]
@@ -461,6 +511,57 @@ mod tests {
         assert_eq!(out.country_code, "TJ");
         assert_eq!(out.tier, 1);
         assert_eq!(out.priority, 50);
+    }
+
+    #[test]
+    fn dictionary_country_does_not_override_a_conflicting_observed_country() {
+        // Kínai FA Kupa: a soccerway megfigyelés CN, a szótár GB/England.
+        let cn = canonicalize(&comp("FA Cup", "CN", "China"));
+        assert_eq!(cn.name, "FA Cup", "a név kanonizálódik");
+        assert_eq!(cn.country_code, "CN", "a megfigyelt ország marad");
+        assert_eq!(cn.country_name, "China");
+        assert_eq!(cn.priority, 13);
+
+        // Bolíviai La Liga: BO marad, nem lesz ES/Spain.
+        let bo = canonicalize(&comp("La Liga", "BO", "Bolivia"));
+        assert_eq!(bo.name, "La Liga");
+        assert_eq!(bo.country_code, "BO");
+        assert_eq!(bo.country_name, "Bolivia");
+
+        // Chilei La Liga: CHI megfigyelés nem lesz ES.
+        let cl = canonicalize(&comp("La Liga", "CHI", "Chile"));
+        assert_eq!(cl.country_code, "CHI");
+        assert_eq!(cl.country_name, "Chile");
+    }
+
+    #[test]
+    fn dictionary_country_applies_when_observed_country_matches_or_is_missing() {
+        let gb = canonicalize(&comp("FA Cup", "GB", "England"));
+        assert_eq!(gb.name, "FA Cup");
+        assert_eq!(gb.country_code, "GB");
+        assert_eq!(gb.country_name, "England");
+
+        // ISO3 alak ugyanarra az országra oldódik fel (GBR → GB).
+        let gbr = canonicalize(&comp("FA Cup", "GBR", "England"));
+        assert_eq!(gbr.country_code, "GB");
+        assert_eq!(gbr.country_name, "England");
+
+        // Ország-név alapján is elfogadjuk (Wales → GB).
+        let wales = canonicalize(&comp("FA Cup", "", "Wales"));
+        assert_eq!(wales.country_code, "GB");
+        assert_eq!(wales.country_name, "England");
+
+        let es = canonicalize(&comp("La Liga", "ES", "Spain"));
+        assert_eq!(es.country_code, "ES");
+        assert_eq!(es.country_name, "Spain");
+
+        let missing = canonicalize(&comp("FA Cup", "", ""));
+        assert_eq!(missing.country_code, "GB");
+        assert_eq!(missing.country_name, "England");
+
+        let missing_es = canonicalize(&comp("La Liga", "", ""));
+        assert_eq!(missing_es.country_code, "ES");
+        assert_eq!(missing_es.country_name, "Spain");
     }
 }
 

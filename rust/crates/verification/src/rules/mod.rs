@@ -183,6 +183,84 @@ impl VerificationRule for TrustLevelRule {
     }
 }
 
+/// S41: domestic versenyben mindkét oldal külföldi csapat.
+///
+/// Csak akkor tüzel, ha a verseny országa valódi ország (nem NULL/INT/XX/EUR),
+/// mindkét csapat ország-kódja ismert, és EGYIK sem egyezik a verseny
+/// országával (normalizálva: GB-WLS/ENG → GB, HUN → HU). Az egyoldalú külföldi
+/// csapat legitim (Monaco a Ligue 1-ben, walesi klubok az angol kupában).
+pub struct ForeignTeamsDomesticCompetitionRule;
+impl VerificationRule for ForeignTeamsDomesticCompetitionRule {
+    fn key(&self) -> &'static str {
+        "FOREIGN_TEAMS_DOMESTIC_COMPETITION"
+    }
+    fn evaluate(&self, c: &VerificationContext<'_>) -> Vec<Finding> {
+        let (Some(competition), Some(home), Some(away)) = (
+            c.competition_country.as_deref(),
+            c.home_team_country.as_deref(),
+            c.away_team_country.as_deref(),
+        ) else {
+            return vec![];
+        };
+        let competition = domestic_country_key(competition);
+        if competition.is_empty() || matches!(competition.as_str(), "INT" | "XX" | "EUR") {
+            return vec![];
+        }
+        let home = domestic_country_key(home);
+        let away = domestic_country_key(away);
+        if home.is_empty() || away.is_empty() {
+            return vec![];
+        }
+        if home == competition || away == competition {
+            return vec![];
+        }
+        vec![Finding::blocker(
+            "FOREIGN_TEAMS_DOMESTIC_COMPETITION",
+            "match",
+            "A verseny országa szerinti hazai bajnokságban mindkét csapat külföldi.",
+        )]
+    }
+}
+
+/// Belföldi összevetés kulcsa: a `normalize_country_code` (GB-* → GB) mellett a
+/// brit hazai nemzet-kódokat is GB-ra hozza, mert egy angol/walesi bajnokság
+/// szempontjából mindegyik hazai; az identitás-összehasonlításban viszont
+/// szándékosan megkülönböztetjük őket, ezért ez helyi, szabály-specifikus kulcs.
+fn domestic_country_key(code: &str) -> String {
+    let normalized = football_domain::identity::normalize_country_code(code);
+    match normalized.as_str() {
+        "ENG" | "SCO" | "WAL" | "NIR" | "GBR" => "GB".to_string(),
+        _ => normalized,
+    }
+}
+
+pub struct SameTeamBothSidesRule;
+impl VerificationRule for SameTeamBothSidesRule {
+    fn key(&self) -> &'static str {
+        "SAME_TEAM_BOTH_SIDES"
+    }
+    fn evaluate(&self, c: &VerificationContext<'_>) -> Vec<Finding> {
+        let (Some(home), Some(away)) = (c.home_team_name.as_deref(), c.away_team_name.as_deref())
+        else {
+            return vec![];
+        };
+        // Az életkori jelölést elhagyjuk: "Bahrain" és "Bahrain U17" ugyanaz a
+        // csapat, csak a korosztály-jelölés nem oldódott fel.
+        let (home_key, away_key) = (
+            football_domain::identity::strip_age_markers(home),
+            football_domain::identity::strip_age_markers(away),
+        );
+        if home_key.is_empty() || away_key.is_empty() || home_key != away_key {
+            return vec![];
+        }
+        vec![Finding::blocker(
+            "SAME_TEAM_BOTH_SIDES",
+            "match",
+            "A hazai és a vendég oldalon ugyanaz a csapat szerepel.",
+        )]
+    }
+}
+
 pub fn default_rules() -> Vec<Box<dyn VerificationRule>> {
     vec![
         Box::new(ExactIdentityRule),
@@ -191,5 +269,209 @@ pub fn default_rules() -> Vec<Box<dyn VerificationRule>> {
         Box::new(ResultConsistencyRule),
         Box::new(MaterialConflictRule),
         Box::new(TrustLevelRule),
+        Box::new(SameTeamBothSidesRule),
+        Box::new(ForeignTeamsDomesticCompetitionRule),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::{SourceMaterialValues, VerificationEngine};
+    use chrono::{TimeZone, Utc};
+    use football_domain::{MatchSnapshot, MatchStatus, VerificationReport};
+
+    fn snapshot() -> MatchSnapshot {
+        MatchSnapshot {
+            id: uuid::Uuid::nil(),
+            home_team_id: uuid::Uuid::nil(),
+            away_team_id: uuid::Uuid::nil(),
+            kickoff_at: Utc.with_ymd_and_hms(2026, 11, 20, 17, 0, 0).unwrap(),
+            status: MatchStatus::Scheduled,
+            result: None,
+        }
+    }
+
+    fn context<'a>(
+        snapshot: &'a MatchSnapshot,
+        values: &'a [SourceMaterialValues],
+        trust: &'a [football_domain::trust::SourceTrust],
+        odds: &'a [football_domain::trust::SourceOdds],
+        resolved: &'a [String],
+        home_name: Option<&str>,
+        away_name: Option<&str>,
+    ) -> VerificationContext<'a> {
+        VerificationContext {
+            snapshot,
+            home_identity_exact: true,
+            away_identity_exact: true,
+            home_team_name: home_name.map(str::to_string),
+            away_team_name: away_name.map(str::to_string),
+            home_team_country: None,
+            away_team_country: None,
+            competition_country: None,
+            duplicate_match_count: 0,
+            source_values: values,
+            source_trust: trust,
+            odds_values: odds,
+            odds_tolerance: 0.02,
+            resolved_fields: resolved,
+        }
+    }
+
+    fn evaluate_rule(home: &str, away: &str) -> VerificationReport {
+        let snapshot = snapshot();
+        let context = context(&snapshot, &[], &[], &[], &[], Some(home), Some(away));
+        VerificationEngine::run(&[Box::new(SameTeamBothSidesRule)], &context)
+    }
+
+    #[test]
+    fn same_team_both_sides_blocks_age_variants() {
+        for away in ["Bahrain U17", "Bahrain U19"] {
+            let report = evaluate_rule("Bahrain", away);
+            assert!(
+                report
+                    .findings
+                    .iter()
+                    .any(|f| f.rule_key == "SAME_TEAM_BOTH_SIDES"),
+                "Bahrain vs {away} blokkoló"
+            );
+        }
+    }
+
+    #[test]
+    fn same_team_both_sides_blocks_identical_adult_name() {
+        let report = evaluate_rule("Bahrain", "Bahrain");
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|f| f.rule_key == "SAME_TEAM_BOTH_SIDES")
+        );
+    }
+
+    #[test]
+    fn same_team_both_sides_does_not_fire_for_distinct_teams() {
+        let report = evaluate_rule("Bahrain", "Kyrgyzstan U17");
+        assert!(
+            report
+                .findings
+                .iter()
+                .all(|f| f.rule_key != "SAME_TEAM_BOTH_SIDES")
+        );
+    }
+
+    #[test]
+    fn same_team_both_sides_does_not_fire_without_names_or_on_empty_names() {
+        let snapshot = snapshot();
+        let no_names = context(&snapshot, &[], &[], &[], &[], None, None);
+        assert!(
+            VerificationEngine::run(&[Box::new(SameTeamBothSidesRule)], &no_names)
+                .findings
+                .is_empty()
+        );
+        let empty_names = context(&snapshot, &[], &[], &[], &[], Some(""), Some(""));
+        assert!(
+            VerificationEngine::run(&[Box::new(SameTeamBothSidesRule)], &empty_names)
+                .findings
+                .is_empty()
+        );
+    }
+
+    fn evaluate_foreign_rule(
+        home_country: Option<&str>,
+        away_country: Option<&str>,
+        competition_country: Option<&str>,
+    ) -> VerificationReport {
+        let snapshot = snapshot();
+        let mut context = context(&snapshot, &[], &[], &[], &[], None, None);
+        context.home_team_country = home_country.map(str::to_string);
+        context.away_team_country = away_country.map(str::to_string);
+        context.competition_country = competition_country.map(str::to_string);
+        VerificationEngine::run(&[Box::new(ForeignTeamsDomesticCompetitionRule)], &context)
+    }
+
+    fn foreign_blocked(report: &VerificationReport) -> bool {
+        report
+            .findings
+            .iter()
+            .any(|f| f.rule_key == "FOREIGN_TEAMS_DOMESTIC_COMPETITION")
+    }
+
+    #[test]
+    fn foreign_teams_domestic_competition_blocks_both_foreign_teams() {
+        // Mért adathiba: "FA Cup [GB] CN/CN" és "Ligue 1 [CD] CG/CG".
+        assert!(foreign_blocked(&evaluate_foreign_rule(
+            Some("CN"),
+            Some("CN"),
+            Some("GB")
+        )));
+        assert!(foreign_blocked(&evaluate_foreign_rule(
+            Some("CG"),
+            Some("CG"),
+            Some("CD")
+        )));
+    }
+
+    #[test]
+    fn foreign_teams_domestic_competition_allows_one_foreign_team() {
+        // Monaco a Ligue 1-ben, walesi klubok az angol kupában.
+        assert!(!foreign_blocked(&evaluate_foreign_rule(
+            Some("MC"),
+            Some("FR"),
+            Some("FR")
+        )));
+        assert!(!foreign_blocked(&evaluate_foreign_rule(
+            Some("GB-WLS"),
+            Some("ENG"),
+            Some("GB")
+        )));
+    }
+
+    #[test]
+    fn foreign_teams_domestic_competition_compares_normalized_codes() {
+        // HUN → HU: a magyar bajnokság magyar csapata nem külföldi.
+        assert!(!foreign_blocked(&evaluate_foreign_rule(
+            Some("HUN"),
+            Some("DEU"),
+            Some("HU")
+        )));
+        assert!(foreign_blocked(&evaluate_foreign_rule(
+            Some("HUN"),
+            Some("DEU"),
+            Some("RO")
+        )));
+    }
+
+    #[test]
+    fn foreign_teams_domestic_competition_treats_british_home_nations_as_domestic() {
+        // A mért "Championship [GB] GB-WLS/ENG" sor normalizálás után nem tüzel,
+        // és a WAL/ENG/GBR alakok is az angol verseny hazai oldalai.
+        assert!(!foreign_blocked(&evaluate_foreign_rule(
+            Some("WAL"),
+            Some("ENG"),
+            Some("GBR")
+        )));
+        assert!(!foreign_blocked(&evaluate_foreign_rule(
+            Some("GB-SCT"),
+            Some("NIR"),
+            Some("GB")
+        )));
+    }
+
+    #[test]
+    fn foreign_teams_domestic_competition_ignores_international_competitions() {
+        for competition in [None, Some("INT"), Some("XX"), Some("EUR")] {
+            assert!(!foreign_blocked(&evaluate_foreign_rule(
+                Some("CN"),
+                Some("CN"),
+                competition
+            )));
+        }
+        assert!(!foreign_blocked(&evaluate_foreign_rule(
+            None,
+            None,
+            Some("GB")
+        )));
+    }
 }

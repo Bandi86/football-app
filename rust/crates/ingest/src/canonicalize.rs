@@ -565,6 +565,11 @@ async fn upsert_country(
     code: &str,
     name: &str,
 ) -> Result<Uuid> {
+    // S41: a tárolt ország-kód kanonikus alakja (ISO3 → ISO2, brit alrégiók),
+    // hogy ne keletkezzen `ESP` sor az `ES` mellett.
+    let code = football_domain::identity::canonical_country_code(code);
+    let name = name.trim();
+    let name = if name.is_empty() { code.as_str() } else { name };
     sqlx::query_scalar(
         "INSERT INTO core.country (id, code, name)
          VALUES ($1,$2,$3)
@@ -572,7 +577,7 @@ async fn upsert_country(
          RETURNING id",
     )
     .bind(Uuid::now_v7())
-    .bind(code)
+    .bind(&code)
     .bind(name)
     .fetch_one(&mut **tx)
     .await
@@ -785,17 +790,18 @@ async fn team_country_id(
     if team.country_code.trim().is_empty() {
         return Ok(competition_country);
     }
+    // S41: a keresés is a kanonikus kódon történik (ISO3 → ISO2), különben a
+    // `ESP` megfigyelés kihagyná a meglévő `ES` sort.
+    let code = football_domain::identity::canonical_country_code(&team.country_code);
     // Meglévő országot nem írunk felül a kóddal mint névvel; új kódnál a
     // kód az ideiglenes név (későbbi megfigyelés javíthatja).
     let existing: Option<Uuid> = sqlx::query_scalar("SELECT id FROM core.country WHERE code=$1")
-        .bind(&team.country_code)
+        .bind(&code)
         .fetch_optional(&mut **tx)
         .await?;
     match existing {
         Some(id) => Ok(Some(id)),
-        None => Ok(Some(
-            upsert_country(tx, &team.country_code, &team.country_code).await?,
-        )),
+        None => Ok(Some(upsert_country(tx, &code, &code).await?)),
     }
 }
 

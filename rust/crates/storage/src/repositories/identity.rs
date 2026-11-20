@@ -324,6 +324,73 @@ pub async fn all_team_entities(pool: &PgPool) -> Result<Vec<EntityRow>> {
     rows.iter().map(entity_from_row).collect()
 }
 
+/// Csapat-entitás a kanonikus névvel és a `core.team.name`-mel együtt (S41
+/// identitás-javítás). A crosswalk-újraépítés mindkét tárolt nevet figyeli:
+/// a régi importokban a kettő eltérhet, és a forrás neve bármelyikhez
+/// illeszkedhet. Az archivált (`merged_into_id` nem NULL) entitásokat kihagyja.
+#[derive(Debug, Clone)]
+pub struct TeamNameRow {
+    pub entity_id: Uuid,
+    pub canonical_name: String,
+    pub team_name: String,
+    pub country_code: Option<String>,
+    pub gender: Option<String>,
+    pub age_group: Option<String>,
+    pub branch: Option<String>,
+}
+
+impl TeamNameRow {
+    pub fn context(&self) -> IdentityContext {
+        IdentityContext {
+            country_code: self.country_code.clone(),
+            gender: self.gender.clone(),
+            age_group: self.age_group.clone(),
+            branch: self.branch.clone(),
+        }
+    }
+}
+
+/// Összes élő csapat-entitás mindkét névvel és a kontextusával (S41
+/// crosswalk-újraépítés). Dokumentált korlát: teljes szkennelés; a javító
+/// parancs egyszer tölti be és a memóriában oldja fel a kódokat.
+pub async fn all_team_name_rows(pool: &PgPool) -> Result<Vec<TeamNameRow>> {
+    let rows = sqlx::query(
+        "SELECT e.id AS entity_id, e.canonical_name, t.name AS team_name,
+                c.code AS country_code, t.gender, t.age_group, t.branch
+           FROM core.entity e
+           JOIN core.team t ON t.entity_id = e.id
+           LEFT JOIN core.country c ON c.id = t.country_id
+          WHERE e.kind = 'team' AND e.merged_into_id IS NULL
+          ORDER BY e.canonical_name",
+    )
+    .fetch_all(pool)
+    .await
+    .context("csapat entitás lekérés mindkét névvel")?;
+    rows.iter().map(team_name_from_row).collect()
+}
+
+fn team_name_from_row(row: &PgRow) -> Result<TeamNameRow> {
+    Ok(TeamNameRow {
+        entity_id: row
+            .try_get("entity_id")
+            .context("team_name entity_id oszlop")?,
+        canonical_name: row
+            .try_get("canonical_name")
+            .context("team_name canonical_name oszlop")?,
+        team_name: row
+            .try_get("team_name")
+            .context("team_name team_name oszlop")?,
+        country_code: row
+            .try_get("country_code")
+            .context("team_name country_code oszlop")?,
+        gender: row.try_get("gender").context("team_name gender oszlop")?,
+        age_group: row
+            .try_get("age_group")
+            .context("team_name age_group oszlop")?,
+        branch: row.try_get("branch").context("team_name branch oszlop")?,
+    })
+}
+
 /// Pending review-sor upsert a részleges unique indexre. A kulcs
 /// (source_id, entity_kind, source_entity_id, reason) WHERE status='pending';
 /// a NULL source_id is egyenértékű kulcs (NULLS NOT DISTINCT). Ütközéskor a

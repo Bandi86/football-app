@@ -8,7 +8,9 @@
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use football_domain::identity::{names_likely_same, names_strictly_same};
+use football_domain::identity::{
+    canonical_country_code, names_likely_same, names_strictly_same, normalize_name,
+};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -17,10 +19,21 @@ pub struct DuplicateMatchRow {
     pub match_id: Uuid,
     pub competition_id: Uuid,
     pub competition_name: String,
+    /// S41: a verseny ország-kódja (a cross-competition variáns-egyezéshez).
+    pub competition_country_code: Option<String>,
+    /// A verseny prioritása (a CLI túlélő-választásához; kisebb a jobb).
+    pub competition_priority: i32,
     pub home_team_id: Uuid,
     pub away_team_id: Uuid,
     pub home_name: String,
     pub away_name: String,
+    /// S41: csapat-kontextus a cross-competition egyezéshez (`core.team`).
+    pub home_gender: String,
+    pub away_gender: String,
+    pub home_age_group: String,
+    pub away_age_group: String,
+    pub home_branch: String,
+    pub away_branch: String,
     pub kickoff_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub provenance_count: i64,
@@ -78,25 +91,23 @@ pub async fn duplicate_groups_between(
     Ok(groups)
 }
 
-/// A nap meccssorai (S37c: a név-variáns kereséshez is ez adja az alapot).
-///
-/// `only_exact` = true: csak az azonos csapat-pár + kickoff párok (a klasszikus
-/// duplikátumlista); false: a nap összes sora (a variáns-keresés ehhez szűr).
-async fn match_rows(
-    pool: &PgPool,
-    from: chrono::NaiveDate,
-    to: chrono::NaiveDate,
-    only_exact: bool,
-) -> Result<Vec<DuplicateMatchRow>> {
-    let rows = sqlx::query_as::<_, DuplicateMatchRow>(
-        "SELECT
+/// A duplikátum-keresés közös SELECT-je; a hívók a WHERE/ORDER BY-t fűzik hozzá.
+const MATCH_ROW_SELECT: &str = "SELECT
             m.id AS match_id,
             m.competition_id,
             c.name AS competition_name,
+            cc.code AS competition_country_code,
+            c.priority AS competition_priority,
             m.home_team_id,
             m.away_team_id,
             h.name AS home_name,
             a.name AS away_name,
+            h.gender AS home_gender,
+            a.gender AS away_gender,
+            h.age_group AS home_age_group,
+            a.age_group AS away_age_group,
+            h.branch AS home_branch,
+            a.branch AS away_branch,
             m.kickoff_at,
             m.created_at,
             (SELECT count(*) FROM fact.provenance p
@@ -108,10 +119,24 @@ async fn match_rows(
          JOIN core.team h ON h.id = m.home_team_id
          JOIN core.team a ON a.id = m.away_team_id
          JOIN core.competition c ON c.id = m.competition_id
+         LEFT JOIN core.country cc ON cc.id = c.country_id
          LEFT JOIN LATERAL (
              SELECT state FROM ops.publish_gate
              WHERE match_id = m.id ORDER BY publish_date DESC LIMIT 1
-         ) g ON true
+         ) g ON true";
+
+/// A nap meccssorai (S37c: a név-variáns kereséshez is ez adja az alapot).
+///
+/// `only_exact` = true: csak az azonos csapat-pár + kickoff párok (a klasszikus
+/// duplikátumlista); false: a nap összes sora (a variáns-keresés ehhez szűr).
+async fn match_rows(
+    pool: &PgPool,
+    from: chrono::NaiveDate,
+    to: chrono::NaiveDate,
+    only_exact: bool,
+) -> Result<Vec<DuplicateMatchRow>> {
+    let sql = format!(
+        "{MATCH_ROW_SELECT}
          WHERE m.kickoff_at::date BETWEEN $1 AND $2
            AND (
              NOT $3
@@ -125,13 +150,14 @@ async fn match_rows(
                        = GREATEST(m.home_team_id, m.away_team_id)
              )
            )
-         ORDER BY m.kickoff_at, h.name, a.name, m.created_at",
-    )
-    .bind(from)
-    .bind(to)
-    .bind(only_exact)
-    .fetch_all(pool)
-    .await?;
+         ORDER BY m.kickoff_at, h.name, a.name, m.created_at"
+    );
+    let rows = sqlx::query_as::<_, DuplicateMatchRow>(&sql)
+        .bind(from)
+        .bind(to)
+        .bind(only_exact)
+        .fetch_all(pool)
+        .await?;
     Ok(rows)
 }
 
@@ -143,13 +169,17 @@ pub async fn variant_duplicate_groups(
     pool: &PgPool,
     date: chrono::NaiveDate,
 ) -> Result<Vec<DuplicateGroup>> {
-    variant_duplicate_groups_between(pool, date, date).await
+    variant_duplicate_groups_between(pool, date, date, false).await
 }
 
+/// S41: `allow_cross_competition` esetén a különböző verseny-entitások alatti
+/// sorok is párosíthatók, de csak egyező normalizált verseny-országgal és
+/// egyező csapat-kontextussal (gender/age_group/branch).
 pub async fn variant_duplicate_groups_between(
     pool: &PgPool,
     from: chrono::NaiveDate,
     to: chrono::NaiveDate,
+    allow_cross_competition: bool,
 ) -> Result<Vec<DuplicateGroup>> {
     let rows = match_rows(pool, from, to, false).await?;
 
@@ -165,7 +195,7 @@ pub async fn variant_duplicate_groups_between(
     let mut edges = 0usize;
     for (i, a) in rows.iter().enumerate() {
         for (j, b) in rows.iter().enumerate().skip(i + 1) {
-            if variant_pair(a, b) {
+            if variant_pair(a, b, allow_cross_competition) {
                 let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
                 if ri != rj {
                     parent[ri] = rj;
@@ -207,11 +237,19 @@ pub async fn variant_duplicate_groups_between(
         .collect())
 }
 
-/// Két sor név-variáns párja-e (azonos verseny, <=12 óra, név-egyezés)?
-/// Az azonos csapat-azonosítójú párokat szándékosan kihagyja: azok a
-/// klasszikus `duplicate_groups` hatáskörébe tartoznak.
-fn variant_pair(a: &DuplicateMatchRow, b: &DuplicateMatchRow) -> bool {
-    if a.competition_id != b.competition_id || a.match_id == b.match_id {
+/// Két sor név-variáns párja-e (<=12 óra, név-egyezés)?
+///
+/// Azonos versenyen belül a régi viselkedés. Különböző verseny csak
+/// `allow_cross_competition` esetén, és akkor is csak egyező normalizált
+/// verseny-országgal és egyező csapat-kontextussal. Az azonos csapat-azonosítójú
+/// párokat szándékosan kihagyja: azok a klasszikus `duplicate_groups` hatáskörébe
+/// tartoznak.
+fn variant_pair(
+    a: &DuplicateMatchRow,
+    b: &DuplicateMatchRow,
+    allow_cross_competition: bool,
+) -> bool {
+    if a.match_id == b.match_id || !competitions_compatible(a, b, allow_cross_competition) {
         return false;
     }
     let delta = (a.kickoff_at - b.kickoff_at).num_minutes().abs();
@@ -221,7 +259,11 @@ fn variant_pair(a: &DuplicateMatchRow, b: &DuplicateMatchRow) -> bool {
     let same_teams = (a.home_team_id == b.home_team_id && a.away_team_id == b.away_team_id)
         || (a.home_team_id == b.away_team_id && a.away_team_id == b.home_team_id);
     if same_teams {
-        return false;
+        // Ugyanaz a két csapat 12 órán belül: azonos versenyen belül ezt a
+        // pontos duplikátum-út kezeli; különböző verseny-entitás alatt vi-
+        // szont ez a legerősebb bizonyíték ugyanarra a fixture-re (pl.
+        // „Primera RFEF - 2. csoport" / „Primera Federacion - Group 2").
+        return allow_cross_competition && a.competition_id != b.competition_id;
     }
     let normal = names_likely_same(&a.home_name, &b.home_name)
         && names_likely_same(&a.away_name, &b.away_name);
@@ -230,110 +272,158 @@ fn variant_pair(a: &DuplicateMatchRow, b: &DuplicateMatchRow) -> bool {
     normal || flipped
 }
 
-/// S37c: a név-variáns pár merge-elhető-e (a klasszikus `is_same_match`
-/// helyett, amely azonos csapat-azonosítókat követel)?
-pub async fn is_variant_same_match(pool: &PgPool, survivor: Uuid, duplicate: Uuid) -> Result<bool> {
-    type VariantRow = (
-        Uuid,
-        Uuid,
-        DateTime<Utc>,
-        DateTime<Utc>,
-        String,
-        String,
-        String,
-        String,
-        bool,
-        bool,
-    );
-    let row: Option<VariantRow> = sqlx::query_as(
-        "SELECT s.competition_id, d.competition_id, s.kickoff_at, d.kickoff_at,
-                hs.name, as_.name, hd.name, ad.name,
-                EXISTS (SELECT 1 FROM core.match_result r WHERE r.match_id = s.id),
-                EXISTS (SELECT 1 FROM core.match_result r WHERE r.match_id = d.id)
-           FROM core.match s
-           JOIN core.match d ON d.id = $2
-           JOIN core.team hs ON hs.id = s.home_team_id
-           JOIN core.team as_ ON as_.id = s.away_team_id
-           JOIN core.team hd ON hd.id = d.home_team_id
-           JOIN core.team ad ON ad.id = d.away_team_id
-          WHERE s.id = $1",
-    )
-    .bind(survivor)
-    .bind(duplicate)
-    .fetch_optional(pool)
-    .await?;
-    let Some((s_comp, d_comp, s_kickoff, d_kickoff, hs, as_, hd, ad, s_result, d_result)) = row
-    else {
-        return Ok(false);
-    };
-    if s_comp != d_comp || (s_kickoff - d_kickoff).num_minutes().abs() > 12 * 60 {
-        return Ok(false);
+/// A két sor verseny-szinten összevonható-e? Azonos verseny mindig; különböző
+/// csak engedélyezett cross-competition módban, egyező normalizált országgal.
+fn competitions_compatible(
+    a: &DuplicateMatchRow,
+    b: &DuplicateMatchRow,
+    allow_cross_competition: bool,
+) -> bool {
+    if a.competition_id == b.competition_id {
+        return true;
     }
-    let normal = names_likely_same(&hs, &hd) && names_likely_same(&as_, &ad);
-    let flipped = names_likely_same(&hs, &ad) && names_likely_same(&as_, &hd);
-    if flipped && d_result && !s_result {
-        // Tükrözött variáns: az áldozat eredménye elveszne — kézi döntés kell.
-        return Ok(false);
-    }
-    Ok(normal || flipped)
+    allow_cross_competition && cross_competition_compatible(a, b)
 }
 
-/// S37c szigorú pár: azonos verseny ÉS azonos kickoff ÉS a korosztály-jelölés
-/// elhagyásával egyező nevek. A backfill csak ezt a fajtát mergeli automatikusan;
-/// a 12 órás, lazább jelölést a `is_variant_same_match` adja (kézi döntéshez).
+/// Cross-competition kompatibilitás: a normalizált verseny-ország egyezik, és a
+/// csapat-kontextus (gender/age_group/branch, home–home és away–away) egyezik.
+fn cross_competition_compatible(a: &DuplicateMatchRow, b: &DuplicateMatchRow) -> bool {
+    competition_country_key(&a.competition_country_code)
+        == competition_country_key(&b.competition_country_code)
+        && a.home_gender == b.home_gender
+        && a.away_gender == b.away_gender
+        && a.home_age_group == b.home_age_group
+        && a.away_age_group == b.away_age_group
+        && a.home_branch == b.home_branch
+        && a.away_branch == b.away_branch
+        // A v1-importban a női csapatok `gender` oszlopa is `male` lehet
+        // (pl. „Marseille W"), ezért a név nem-jelölője is számít: férfi és
+        // női meccs soha nem olvadhat össze.
+        && name_marks_womens(&a.home_name) == name_marks_womens(&b.home_name)
+        && name_marks_womens(&a.away_name) == name_marks_womens(&b.away_name)
+}
+
+/// A név jelöli-e, hogy női csapat (`W`, `Women`, `női`, `femenine`).
+fn name_marks_womens(name: &str) -> bool {
+    normalize_name(name).split(' ').any(|token| {
+        matches!(
+            token,
+            "w" | "women" | "woman" | "női" | "noi" | "femenine" | "feminine"
+        )
+    })
+}
+
+fn competition_country_key(code: &Option<String>) -> String {
+    canonical_country_code(code.as_deref().unwrap_or_default())
+}
+
+/// Egyetlen meccssor betöltése a duplikátum-vizsgálathoz.
+async fn match_row(pool: &PgPool, match_id: Uuid) -> Result<Option<DuplicateMatchRow>> {
+    let sql = format!("{MATCH_ROW_SELECT} WHERE m.id = $1");
+    let row = sqlx::query_as::<_, DuplicateMatchRow>(&sql)
+        .bind(match_id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row)
+}
+
+/// S37c: a név-variáns pár merge-elhető-e (a klasszikus `is_same_match`
+/// helyett, amely azonos csapat-azonosítókat követel)?
+///
+/// Laza (kézi döntésű) ág: legfeljebb 12 órás kickoff-különbség, lazább
+/// név-egyezés. `allow_cross_competition` esetén különböző verseny-entitás is
+/// jöhet, de csak egyező normalizált ország + csapat-kontextus mellett.
+pub async fn is_variant_same_match(
+    pool: &PgPool,
+    survivor: Uuid,
+    duplicate: Uuid,
+    allow_cross_competition: bool,
+) -> Result<bool> {
+    let Some(s) = match_row(pool, survivor).await? else {
+        return Ok(false);
+    };
+    let Some(d) = match_row(pool, duplicate).await? else {
+        return Ok(false);
+    };
+    Ok(variant_pair_mergeable(&s, &d, allow_cross_competition))
+}
+
+fn variant_pair_mergeable(
+    s: &DuplicateMatchRow,
+    d: &DuplicateMatchRow,
+    allow_cross_competition: bool,
+) -> bool {
+    if !competitions_compatible(s, d, allow_cross_competition) {
+        return false;
+    }
+    if (s.kickoff_at - d.kickoff_at).num_minutes().abs() > 12 * 60 {
+        return false;
+    }
+    let same_teams = (s.home_team_id == d.home_team_id && s.away_team_id == d.away_team_id)
+        || (s.home_team_id == d.away_team_id && s.away_team_id == d.home_team_id);
+    if same_teams && s.competition_id != d.competition_id && allow_cross_competition {
+        let flipped = s.home_team_id == d.away_team_id;
+        // Tükrözött variáns: az áldozat eredménye elveszne — kézi döntés kell.
+        return !(flipped && d.has_result && !s.has_result);
+    }
+    let normal = names_likely_same(&s.home_name, &d.home_name)
+        && names_likely_same(&s.away_name, &d.away_name);
+    let flipped = names_likely_same(&s.home_name, &d.away_name)
+        && names_likely_same(&s.away_name, &d.home_name);
+    if flipped && d.has_result && !s.has_result {
+        // Tükrözött variáns: az áldozat eredménye elveszne — kézi döntés kell.
+        return false;
+    }
+    normal || flipped
+}
+
+/// S37c szigorú pár: azonos kickoff (vagy pontosan 2 óra eltérés) ÉS a
+/// korosztály-jelölés elhagyásával egyező nevek. A backfill csak ezt a fajtát
+/// mergeli automatikusan; a 12 órás, lazább jelölést a `is_variant_same_match`
+/// adja (kézi döntéshez).
 pub async fn is_strict_variant_same_match(
     pool: &PgPool,
     survivor: Uuid,
     duplicate: Uuid,
+    allow_cross_competition: bool,
 ) -> Result<bool> {
-    type StrictRow = (
-        Uuid,
-        Uuid,
-        DateTime<Utc>,
-        DateTime<Utc>,
-        String,
-        String,
-        String,
-        String,
-        bool,
-    );
-    let row: Option<StrictRow> = sqlx::query_as(
-        "SELECT s.competition_id, d.competition_id, s.kickoff_at, d.kickoff_at,
-                hs.name, as_.name, hd.name, ad.name,
-                EXISTS (SELECT 1 FROM core.match_result r WHERE r.match_id = d.id)
-           FROM core.match s
-           JOIN core.match d ON d.id = $2
-           JOIN core.team hs ON hs.id = s.home_team_id
-           JOIN core.team as_ ON as_.id = s.away_team_id
-           JOIN core.team hd ON hd.id = d.home_team_id
-           JOIN core.team ad ON ad.id = d.away_team_id
-          WHERE s.id = $1",
-    )
-    .bind(survivor)
-    .bind(duplicate)
-    .fetch_optional(pool)
-    .await?;
-    let Some((s_comp, d_comp, s_kickoff, d_kickoff, hs, as_, hd, ad, d_result)) = row else {
+    let Some(s) = match_row(pool, survivor).await? else {
         return Ok(false);
     };
-    if s_comp != d_comp {
+    let Some(d) = match_row(pool, duplicate).await? else {
         return Ok(false);
+    };
+    Ok(strict_variant_pair_mergeable(
+        &s,
+        &d,
+        allow_cross_competition,
+    ))
+}
+
+fn strict_variant_pair_mergeable(
+    s: &DuplicateMatchRow,
+    d: &DuplicateMatchRow,
+    allow_cross_competition: bool,
+) -> bool {
+    if !competitions_compatible(s, d, allow_cross_competition) {
+        return false;
     }
     // Azonos nap kell; a kickoff vagy pontosan egyezik, vagy pontosan 2 órával
     // tér el (a források egy része nyáron is CEST-eltolást használt novemberben —
     // mért adathiba a 2026-11-17-es U17/U19 sorokon).
-    if (s_kickoff - d_kickoff).num_minutes().abs() != 0
-        && (s_kickoff - d_kickoff).num_minutes().abs() != 120
-    {
-        return Ok(false);
+    let delta = (s.kickoff_at - d.kickoff_at).num_minutes().abs();
+    if delta != 0 && delta != 120 {
+        return false;
     }
-    let normal = names_strictly_same(&hs, &hd) && names_strictly_same(&as_, &ad);
-    let flipped = names_strictly_same(&hs, &ad) && names_strictly_same(&as_, &hd);
-    if flipped && d_result {
+    let normal = names_strictly_same(&s.home_name, &d.home_name)
+        && names_strictly_same(&s.away_name, &d.away_name);
+    let flipped = names_strictly_same(&s.home_name, &d.away_name)
+        && names_strictly_same(&s.away_name, &d.home_name);
+    if flipped && d.has_result {
         // A tükrözött pár eredménye csak kézi döntéssel vihető át.
-        return Ok(false);
+        return false;
     }
-    Ok(normal || flipped)
+    normal || flipped
 }
 
 /// Mergelehető-e a pár (a túlélő és az áldozat)? Ugyanaz a nap/meccs.
@@ -759,4 +849,241 @@ pub async fn same_fixture_identity_any_day(
     .fetch_one(pool)
     .await?;
     Ok(same)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    fn at(day: u32, hour: u32) -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 11, day, hour, 0, 0)
+            .single()
+            .expect("érvényes teszt-időpont")
+    }
+
+    /// Cross-competition nélkül is összevonható alap-sor (azonos verseny).
+    fn row(match_id: u128) -> DuplicateMatchRow {
+        DuplicateMatchRow {
+            match_id: Uuid::from_u128(match_id),
+            competition_id: Uuid::from_u128(100),
+            competition_name: "Cymru Premier".to_string(),
+            competition_country_code: Some("GB".to_string()),
+            competition_priority: 13,
+            home_team_id: Uuid::from_u128(1_000 + match_id),
+            away_team_id: Uuid::from_u128(2_000 + match_id),
+            home_name: "Bahrain".to_string(),
+            away_name: "Kyrgyzstan U17".to_string(),
+            home_gender: "male".to_string(),
+            away_gender: "male".to_string(),
+            home_age_group: "senior".to_string(),
+            away_age_group: "u17".to_string(),
+            home_branch: "senior".to_string(),
+            away_branch: "youth".to_string(),
+            kickoff_at: at(20, 18),
+            created_at: at(20, 10),
+            provenance_count: 1,
+            has_result: false,
+            has_odds: false,
+            gate_state: None,
+        }
+    }
+
+    #[test]
+    fn variant_pair_merges_within_the_same_competition() {
+        let a = row(1);
+        let mut b = row(2);
+        b.competition_id = a.competition_id;
+        assert!(variant_pair(&a, &b, false));
+        assert!(variant_pair(&a, &b, true));
+    }
+
+    #[test]
+    fn variant_pair_accepts_same_teams_across_competitions() {
+        // Ugyanaz a két csapat két verseny-entitás alatt, eltérő (lokalizált)
+        // névvel: a csapat-identitás a bizonyíték, nem a név-hasonlóság.
+        let a = row(1);
+        let mut b = row(2);
+        b.competition_id = Uuid::from_u128(200);
+        b.competition_name = "Primera Federacion - Group 2".to_string();
+        b.home_team_id = a.home_team_id;
+        b.away_team_id = a.away_team_id;
+        b.home_name = "St. Pölten".to_string();
+        b.away_name = "Voitsberg".to_string();
+        assert!(
+            !variant_pair(&a, &b, false),
+            "cross-competition nélkül nem pár"
+        );
+        assert!(variant_pair(&a, &b, true));
+        assert!(variant_pair_mergeable(&a, &b, true));
+    }
+
+    #[test]
+    fn variant_pair_same_teams_same_competition_needs_the_exact_path() {
+        let a = row(1);
+        let mut b = row(2);
+        b.home_team_id = a.home_team_id;
+        b.away_team_id = a.away_team_id;
+        assert!(!variant_pair(&a, &b, true));
+    }
+
+    #[test]
+    fn variant_pair_same_teams_flip_with_result_is_manual() {
+        let a = row(1);
+        let mut b = row(2);
+        b.competition_id = Uuid::from_u128(200);
+        b.home_team_id = a.away_team_id;
+        b.away_team_id = a.home_team_id;
+        b.has_result = true;
+        assert!(variant_pair(&a, &b, true));
+        assert!(!variant_pair_mergeable(&a, &b, true));
+    }
+
+    #[test]
+    fn variant_pair_requires_flag_for_cross_competition() {
+        let a = row(1);
+        let mut b = row(2);
+        b.competition_id = Uuid::from_u128(200);
+        b.competition_name = "Premier League".to_string();
+        assert!(!variant_pair(&a, &b, false));
+        assert!(variant_pair(&a, &b, true));
+    }
+
+    #[test]
+    fn variant_pair_rejects_different_countries() {
+        let a = row(1);
+        let mut b = row(2);
+        b.competition_id = Uuid::from_u128(200);
+        b.competition_country_code = Some("ES".to_string());
+        assert!(!variant_pair(&a, &b, true));
+    }
+
+    #[test]
+    fn variant_pair_compares_normalized_country_codes() {
+        let a = row(1);
+        let mut b = row(2);
+        b.competition_id = Uuid::from_u128(200);
+        b.competition_country_code = Some("GBR".to_string());
+        assert!(variant_pair(&a, &b, true));
+    }
+
+    #[test]
+    fn variant_pair_rejects_womens_against_mens() {
+        // A csapat `gender` oszlopa mindkét oldalon `male`, de a női csapat
+        // nevét a `W` jelölő elárulja: nem olvadhat össze férfi meccsel.
+        let a = row(1);
+        let mut b = row(2);
+        b.competition_id = Uuid::from_u128(200);
+        b.competition_name = "Premiere Ligue Femenine".to_string();
+        b.away_name = "Kyrgyzstan U17 W".to_string();
+        assert!(!variant_pair(&a, &b, true));
+    }
+
+    #[test]
+    fn variant_pair_allows_matching_womens_markers() {
+        let a = row(1);
+        let mut b = row(2);
+        b.competition_id = Uuid::from_u128(200);
+        b.home_name = a.home_name.clone();
+        b.away_name = a.away_name.clone();
+        assert!(variant_pair(&a, &b, true));
+    }
+
+    #[test]
+    fn variant_pair_rejects_different_team_context() {
+        let a = row(1);
+        let mut b = row(2);
+        b.competition_id = Uuid::from_u128(200);
+        b.home_gender = "female".to_string();
+        assert!(!variant_pair(&a, &b, true));
+
+        let mut c = row(3);
+        c.competition_id = Uuid::from_u128(200);
+        c.away_age_group = "u19".to_string();
+        assert!(!variant_pair(&a, &c, true));
+
+        let mut d = row(4);
+        d.competition_id = Uuid::from_u128(200);
+        d.home_branch = "reserve".to_string();
+        assert!(!variant_pair(&a, &d, true));
+    }
+
+    #[test]
+    fn variant_pair_same_team_ids_requires_cross_competition() {
+        // S41: azonos csapatpár különböző verseny-entitás alatt cross módban
+        // pár; cross nélkül marad a régi, konzervatív viselkedés.
+        let a = row(1);
+        let mut b = row(2);
+        b.competition_id = Uuid::from_u128(200);
+        b.home_team_id = a.home_team_id;
+        b.away_team_id = a.away_team_id;
+        assert!(!variant_pair(&a, &b, false));
+        assert!(variant_pair(&a, &b, true));
+    }
+
+    #[test]
+    fn variant_pair_accepts_flipped_names() {
+        let a = row(1);
+        let mut b = row(2);
+        b.competition_id = Uuid::from_u128(200);
+        b.home_name = a.away_name.clone();
+        b.away_name = a.home_name.clone();
+        assert!(variant_pair(&a, &b, true));
+    }
+
+    #[test]
+    fn variant_pair_rejects_more_than_twelve_hours() {
+        let a = row(1);
+        let mut b = row(2);
+        b.competition_id = Uuid::from_u128(200);
+        b.kickoff_at = at(21, 7); // 13 óra
+        assert!(!variant_pair(&a, &b, true));
+
+        let mut c = row(3);
+        c.competition_id = Uuid::from_u128(200);
+        c.kickoff_at = at(21, 6); // pontosan 12 óra — engedett
+        assert!(variant_pair(&a, &c, true));
+    }
+
+    #[test]
+    fn loose_mergeable_rejects_mirrored_variant_without_survivor_result() {
+        let a = row(1);
+        let mut b = row(2);
+        b.competition_id = Uuid::from_u128(200);
+        b.home_name = a.away_name.clone();
+        b.away_name = a.home_name.clone();
+        b.has_result = true;
+        assert!(!variant_pair_mergeable(&a, &b, true));
+
+        let mut survivor_with_result = a.clone();
+        survivor_with_result.has_result = true;
+        assert!(variant_pair_mergeable(&survivor_with_result, &b, true));
+    }
+
+    #[test]
+    fn strict_pair_accepts_zero_or_two_hour_delta_only() {
+        let a = row(1);
+        let mut b = row(2);
+        b.competition_id = Uuid::from_u128(200);
+        assert!(strict_variant_pair_mergeable(&a, &b, true));
+
+        let mut two_hours = row(3);
+        two_hours.competition_id = Uuid::from_u128(200);
+        two_hours.kickoff_at = at(20, 20);
+        assert!(strict_variant_pair_mergeable(&a, &two_hours, true));
+
+        let mut one_hour = row(4);
+        one_hour.competition_id = Uuid::from_u128(200);
+        one_hour.kickoff_at = at(20, 19);
+        assert!(!strict_variant_pair_mergeable(&a, &one_hour, true));
+    }
+
+    #[test]
+    fn strict_pair_rejects_cross_competition_without_matching_country() {
+        let a = row(1);
+        let mut b = row(2);
+        b.competition_id = Uuid::from_u128(200);
+        b.competition_country_code = Some("PL".to_string());
+        assert!(!strict_variant_pair_mergeable(&a, &b, true));
+    }
 }

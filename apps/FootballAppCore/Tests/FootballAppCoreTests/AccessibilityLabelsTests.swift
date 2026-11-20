@@ -76,4 +76,22 @@ import Testing
         #expect(withoutScore.contains("Ideiglenes publikáció"))
         #expect(withScore.contains("Ellenőrzött publikáció"))
     }
+
+    @Test func matchCardLabelSpeaksDayAndOddsWhenTheCardShowsThem() {
+        let label = AccessibilityLabels.matchCardLabel(
+            home: "Ferencváros", away: "Újpest", time: "18:00", status: "finished",
+            homeScore: 2, awayScore: 1, publishState: .verifiedPublish,
+            dayLabel: "nov. 20.", odds: "1: 1,85, X: 3,40, 2: 4,20"
+        )
+        #expect(label.contains("Ferencváros – Újpest, nov. 20. 18:00"))
+        #expect(label.contains("2 – 1"))
+        #expect(label.contains("odds 1: 1,85, X: 3,40, 2: 4,20"))
+
+        let withoutOdds = AccessibilityLabels.matchCardLabel(
+            home: "Ferencváros", away: "Újpest", time: "18:00", status: "scheduled",
+            homeScore: nil, awayScore: nil, publishState: .verifiedPublish
+        )
+        #expect(!withoutOdds.contains("odds"))
+        #expect(withoutOdds.contains("Újpest, 18:00"))
+    }
 }

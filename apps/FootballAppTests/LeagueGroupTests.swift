@@ -65,6 +65,15 @@ final class LeagueGroupTests: XCTestCase {
         XCTAssertNil(card.minute)
     }
 
+    func testWelshLeagueShowsWalesNotUnitedKingdom() {
+        let display = CountryDisplay.display(code: "GB", name: "Wales")
+        XCTAssertEqual(display.name, "Wales")
+        XCTAssertEqual(display.flag, "🏴󠁧󠁢󠁷󠁬󠁳󠁿")
+        // A vegyes nyelvű név is felismerhető.
+        let scottish = CountryDisplay.display(code: nil, name: "Scotland")
+        XCTAssertEqual(scottish.name, "Skócia")
+    }
+
     func testUnknownCountryFallsBackToName() {
         let display = CountryDisplay.display(code: "XYZ", name: "Ismeretlen ország")
         XCTAssertEqual(display.name, "Ismeretlen ország")
@@ -91,5 +100,196 @@ final class LeagueGroupTests: XCTestCase {
         let featured = LeagueGroup.featured(groups)
         XCTAssertEqual(featured.count, 1)
         XCTAssertEqual(featured[0].name, "Premier League")
+    }
+
+    // MARK: - Segédek a csoportosítási tesztekhez
+
+    private func matchJSON(
+        id: String,
+        kickoff: String,
+        competitionId: String,
+        competitionName: String?,
+        countryCode: String?,
+        countryName: String?,
+        priority: Int,
+        tier: Int = 1
+    ) -> String {
+        func literal(_ value: String?) -> String {
+            value.map { "\"\($0)\"" } ?? "null"
+        }
+        return """
+        {"id":"\(id)","kickoff_at":"\(kickoff)","status":"scheduled","home":"A","away":"B",
+         "home_score":null,"away_score":null,"publish_state":"verified_publish","blockers":[],
+         "competition_id":"\(competitionId)","competition_name":\(literal(competitionName)),
+         "country_code":\(literal(countryCode)),"country_name":\(literal(countryName)),
+         "tier":\(tier),"priority":\(priority)}
+        """
+    }
+
+    private func groups(_ matches: [String]) throws -> [LeagueGroup] {
+        let json = """
+        {"date":"2026-11-11","timezone":"Europe/Budapest","matches":[\(matches.joined(separator: ","))]}
+        """
+        return LeagueGroup.fromDay(try decode(json))
+    }
+
+    // MARK: - Csoport-sorrend
+
+    func testGroupsSortByPriorityThenCountryThenLeagueName() throws {
+        let groups = try groups([
+            matchJSON(id: "00000000-0000-0000-0000-000000000021",
+                      kickoff: "2026-11-11T16:00:00Z",
+                      competitionId: "00000000-0000-0000-0000-0000000000c1",
+                      competitionName: "NB II", countryCode: "HUN", countryName: "Hungary",
+                      priority: 6),
+            matchJSON(id: "00000000-0000-0000-0000-000000000022",
+                      kickoff: "2026-11-11T12:00:00Z",
+                      competitionId: "00000000-0000-0000-0000-0000000000c2",
+                      competitionName: "Liga 1", countryCode: "IDN", countryName: "Indonesia",
+                      priority: 5),
+            matchJSON(id: "00000000-0000-0000-0000-000000000023",
+                      kickoff: "2026-11-11T18:00:00Z",
+                      competitionId: "00000000-0000-0000-0000-0000000000c3",
+                      competitionName: "NB I", countryCode: "HUN", countryName: "Hungary",
+                      priority: 6),
+        ])
+        XCTAssertEqual(groups.map(\.name), ["Liga 1", "NB I", "NB II"])
+        XCTAssertEqual(groups.map(\.country), ["Indonézia", "Magyarország", "Magyarország"])
+    }
+
+    func testGroupOrderTieBreaksOnCanonicalLeagueName() throws {
+        // Azonos ország és priority mellett a kanonikus liganev dönt, nem a
+        // verseny-entitás azonosítója.
+        let groups = try groups([
+            matchJSON(id: "00000000-0000-0000-0000-000000000031",
+                      kickoff: "2026-11-11T18:00:00Z",
+                      competitionId: "00000000-0000-0000-0000-0000000000f2",
+                      competitionName: "B Liga", countryCode: "HUN", countryName: "Hungary",
+                      priority: 6),
+            matchJSON(id: "00000000-0000-0000-0000-000000000032",
+                      kickoff: "2026-11-11T17:00:00Z",
+                      competitionId: "00000000-0000-0000-0000-0000000000f1",
+                      competitionName: "A Liga", countryCode: "HUN", countryName: "Hungary",
+                      priority: 6),
+        ])
+        XCTAssertEqual(groups.map(\.name), ["A Liga", "B Liga"])
+    }
+
+    func testGroupsWithDifferentCanonicalNamesStaySeparate() throws {
+        // Ugyanaz az ország, de eltérő liga: két szekció marad.
+        let groups = try groups([
+            matchJSON(id: "00000000-0000-0000-0000-000000000033",
+                      kickoff: "2026-11-11T18:00:00Z",
+                      competitionId: "00000000-0000-0000-0000-0000000000f3",
+                      competitionName: "Korábbi Név", countryCode: "HUN", countryName: "Hungary",
+                      priority: 6),
+            matchJSON(id: "00000000-0000-0000-0000-000000000034",
+                      kickoff: "2026-11-11T16:00:00Z",
+                      competitionId: "00000000-0000-0000-0000-0000000000f3",
+                      competitionName: "Későbbi Név", countryCode: "HUN", countryName: "Hungary",
+                      priority: 6),
+        ])
+        XCTAssertEqual(groups.count, 2)
+        XCTAssertEqual(groups.map(\.name), ["Korábbi Név", "Későbbi Név"])
+    }
+
+    // MARK: - Liga-fejléc név és zászló
+
+    func testLeagueHeaderUsesCatalogFlagAndHungarianCountryName() throws {
+        let groups = try groups([
+            matchJSON(id: "00000000-0000-0000-0000-000000000041",
+                      kickoff: "2026-11-11T18:00:00Z",
+                      competitionId: "00000000-0000-0000-0000-0000000000d1",
+                      competitionName: "Liga 1", countryCode: "IDN", countryName: "Indonesia",
+                      priority: 20),
+            matchJSON(id: "00000000-0000-0000-0000-000000000042",
+                      kickoff: "2026-11-11T18:00:00Z",
+                      competitionId: "00000000-0000-0000-0000-0000000000d2",
+                      competitionName: "UAE Pro League", countryCode: "UAE",
+                      countryName: "United Arab Emirates", priority: 30),
+        ])
+        XCTAssertEqual(groups[0].flag, "🇮🇩")
+        XCTAssertEqual(groups[0].country, "Indonézia")
+        XCTAssertEqual(groups[1].flag, "🇦🇪")
+        XCTAssertEqual(groups[1].country, "Arab Emírségek")
+        XCTAssertEqual(groups[1].name, "UAE Pro League")
+    }
+
+    func testLeagueNameFallsBackWhenBlankOrOnlyTheCountryCode() throws {
+        let groups = try groups([
+            matchJSON(id: "00000000-0000-0000-0000-000000000051",
+                      kickoff: "2026-11-11T18:00:00Z",
+                      competitionId: "00000000-0000-0000-0000-0000000000e1",
+                      competitionName: "   ", countryCode: "HUN", countryName: "Hungary",
+                      priority: 6),
+            matchJSON(id: "00000000-0000-0000-0000-000000000052",
+                      kickoff: "2026-11-11T18:00:00Z",
+                      competitionId: "00000000-0000-0000-0000-0000000000e2",
+                      competitionName: " hun ", countryCode: "HUN", countryName: "Hungary",
+                      priority: 6),
+            matchJSON(id: "00000000-0000-0000-0000-000000000053",
+                      kickoff: "2026-11-11T18:00:00Z",
+                      competitionId: "00000000-0000-0000-0000-0000000000e3",
+                      competitionName: nil, countryCode: nil, countryName: nil,
+                      priority: 6),
+            matchJSON(id: "00000000-0000-0000-0000-000000000054",
+                      kickoff: "2026-11-11T18:00:00Z",
+                      competitionId: "00000000-0000-0000-0000-0000000000e4",
+                      competitionName: "  Bajnokok Ligája  ", countryCode: nil,
+                      countryName: nil, priority: 6),
+        ])
+        // A két használhatatlan nevű magyar sor ugyanabba a szekcióba olvad,
+        // a fejléc a magyar országnevet kapja.
+        XCTAssertEqual(groups.map(\.name),
+                       ["Bajnokok Ligája", "Nemzetközi", "Magyarország"])
+    }
+
+    // MARK: - Csoporton belüli sorrend
+
+    func testGroupMatchesSortByKickoffThenIdentifier() throws {
+        let groups = try groups([
+            matchJSON(id: "00000000-0000-0000-0000-000000000063",
+                      kickoff: "2026-11-11T18:00:00Z",
+                      competitionId: "00000000-0000-0000-0000-0000000000a9",
+                      competitionName: "NB I", countryCode: "HUN", countryName: "Hungary",
+                      priority: 6),
+            matchJSON(id: "00000000-0000-0000-0000-000000000062",
+                      kickoff: "2026-11-11T18:00:00Z",
+                      competitionId: "00000000-0000-0000-0000-0000000000a9",
+                      competitionName: "NB I", countryCode: "HUN", countryName: "Hungary",
+                      priority: 6),
+            matchJSON(id: "00000000-0000-0000-0000-000000000061",
+                      kickoff: "2026-11-11T14:00:00Z",
+                      competitionId: "00000000-0000-0000-0000-0000000000a9",
+                      competitionName: "NB I", countryCode: "HUN", countryName: "Hungary",
+                      priority: 6),
+        ])
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups[0].matches.map(\.id), [
+            "00000000-0000-0000-0000-000000000061",
+            "00000000-0000-0000-0000-000000000062",
+            "00000000-0000-0000-0000-000000000063",
+        ])
+    }
+
+    func testGroupMetadataComesFromTheEarliestMatch() throws {
+        // Két entitás, de ugyanaz a kanonikus liga: egy szekció, és a
+        // csoport a legjobb tier/priority értékeket örökli.
+        let groups = try groups([
+            matchJSON(id: "00000000-0000-0000-0000-000000000071",
+                      kickoff: "2026-11-11T20:00:00Z",
+                      competitionId: "00000000-0000-0000-0000-0000000000a8",
+                      competitionName: "1. osztály", countryCode: "PL",
+                      countryName: "Poland", priority: 30, tier: 2),
+            matchJSON(id: "00000000-0000-0000-0000-000000000072",
+                      kickoff: "2026-11-11T16:00:00Z",
+                      competitionId: "00000000-0000-0000-0000-0000000000a9",
+                      competitionName: "I Liga", countryCode: "PL",
+                      countryName: "Poland", priority: 20, tier: 1),
+        ])
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups[0].name, "I Liga")
+        XCTAssertEqual(groups[0].tier, 1)
+        XCTAssertEqual(groups[0].priority, 20)
     }
 }

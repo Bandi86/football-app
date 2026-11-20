@@ -161,7 +161,22 @@ pub async fn approve_create_with(
     // csapat-entitás, azt használjuk új entitás létrehozása helyett. Enélkül
     // a párhuzamos v1 review-sorok (két v1 team id, ugyanaz a név) duplikált
     // entitásokat hoznának létre (Hansa Rostock, Magdeburg stb.).
-    let ctx = (row.entity_kind == "team").then(|| context_from_json(&row.context));
+    //
+    // S41: a kontextust a csapatnév jelölőivel egészítjük ki (U17 → youth,
+    // „W”/„Women” → female). A névből levezetett érték nyer a payload
+    // kontextusával szemben, mert a forrás neve hordozza a jelölőt; enélkül
+    // egy hiányos kontextusú review-sor a senior csapatot hasznosítaná újra
+    // egy U17-es válogatott kódjára. Az ellentmondásokat auditáljuk.
+    let mut context_adjustments: Vec<String> = Vec::new();
+    let ctx = if row.entity_kind == "team" {
+        let base = context_from_json(&row.context);
+        let (ctx, adjustments) =
+            football_domain::identity::merge_name_markers(&row.proposed_name, &base);
+        context_adjustments = adjustments;
+        Some(ctx)
+    } else {
+        None
+    };
     let mut existing_entity: Option<Uuid> = None;
     if let Some(ctx) = &ctx {
         let normalized = normalize_name(&row.proposed_name);
@@ -189,7 +204,9 @@ pub async fn approve_create_with(
     }
 
     if row.entity_kind == "team" && existing_entity.is_none() {
-        let ctx = ctx.as_ref().expect("team kontextus");
+        let ctx = ctx.as_ref().ok_or_else(|| {
+            IdentityError::InvalidInput("a csapat kontextusa hiányzik".to_string())
+        })?;
         let country_id: Option<Uuid> = match ctx.country_code.as_deref() {
             Some(country_code) => {
                 // Ismeretlen országkódnál az entitás-létrehozás pótolja a
@@ -257,7 +274,15 @@ pub async fn approve_create_with(
         decided_by,
         "identity_approve_create",
         queue_id,
-        json!({"queue_id": queue_id, "entity_id": entity_id, "ok": row.reason, "note": note}),
+        json!({
+            "queue_id": queue_id,
+            "entity_id": entity_id,
+            "ok": row.reason,
+            "note": note,
+            // S41: a névből levezetett kontextus-javítások (magyar indoklás).
+            // Üres tömb, ha a név nem hordozott jelölőt / nem volt ellentmondás.
+            "context_adjustments": context_adjustments,
+        }),
     )
     .await
     .map_err(db_err)?;

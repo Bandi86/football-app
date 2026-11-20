@@ -15,11 +15,30 @@ enum Outcome {
     case home, draw, away
 }
 
+/// A kártyán megjelenő végeredmény.
+struct MatchScore: Equatable {
+    let home: Int
+    let away: Int
+
+    var text: String { "\(home) – \(away)" }
+}
+
+/// Egy 1X2-es odds-pill a kártyán (a nyertes kimenetel kiemelhető).
+struct OddsPill: Identifiable, Equatable {
+    let label: String
+    let value: String
+    let isWinner: Bool
+
+    var id: String { label }
+}
+
 /// A kártya display-modellje: valós API-adatból és mintaadatból is építhető.
 struct MatchCardModel: Identifiable {
     let id: String
     let home: String
     let away: String
+    /// A kezdés napja magyar rövid formában (pl. „nov. 20.").
+    let dayLabel: String
     let time: String
     let status: String
     let publishState: PublishState
@@ -59,19 +78,92 @@ struct MatchCardModel: Identifiable {
         return home + away >= 3
     }
 
-    private static let timeFormatter: DateFormatter = {
+    /// A kártyán látható végeredmény a domain `final_score` logikája szerint:
+    /// hosszabbításnál a 120' állása, különben a rendes játékidő állása.
+    /// Tizenegyesek nem számítanak bele, és hiányzó állásnál nincs eredmény.
+    var finalScore: MatchScore? {
+        if let home = homeEt, let away = awayEt {
+            return MatchScore(home: home, away: away)
+        }
+        if let home = homeScore, let away = awayScore {
+            return MatchScore(home: home, away: away)
+        }
+        return nil
+    }
+
+    /// A kártya eredmény-oszlopa: hiányzó eredménynél „–", soha nem 0–0.
+    var scoreText: String { finalScore?.text ?? "–" }
+
+    var isLive: Bool { ["live", "halftime"].contains(status) }
+
+    var isFinished: Bool { ["finished", "awarded"].contains(status) }
+
+    /// A kezdés alatti kis állapotjelzés („ÉLŐ" / „FT"); egyébként nincs.
+    var phaseLabel: String? {
+        if isLive { return "ÉLŐ" }
+        if isFinished { return "FT" }
+        return nil
+    }
+
+    var minuteText: String? { minute.map { "\($0)'" } }
+
+    /// Csak az 1X2 piac látszik a kártyán; ha nincs egyik odds sem, a blokk rejtve.
+    var hasOdds: Bool {
+        guard let odds else { return false }
+        return odds.home != nil || odds.draw != nil || odds.away != nil
+    }
+
+    var oddsPills: [OddsPill] {
+        guard let odds else { return [] }
+        return [
+            OddsPill(label: "1", value: Self.oddsText(odds.home), isWinner: winner1x2 == .home),
+            OddsPill(label: "X", value: Self.oddsText(odds.draw), isWinner: winner1x2 == .draw),
+            OddsPill(label: "2", value: Self.oddsText(odds.away), isWinner: winner1x2 == .away),
+        ]
+    }
+
+    var oddsAccessibilityText: String? {
+        guard hasOdds else { return nil }
+        return oddsPills.map { "\($0.label): \($0.value)" }.joined(separator: ", ")
+    }
+
+    private static func oddsText(_ value: Double?) -> String {
+        value.map { String(format: "%.2f", $0).replacingOccurrences(of: ".", with: ",") } ?? "–"
+    }
+
+    // MARK: - Kezdés formázása
+
+    private static func makeFormatter(_ dateFormat: String, timeZone: TimeZone) -> DateFormatter {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "hu_HU")
-        formatter.dateFormat = "HH:mm"
+        formatter.timeZone = timeZone
+        formatter.dateFormat = dateFormat
         return formatter
-    }()
+    }
+
+    private static let dayFormatter = makeFormatter("MMM d.", timeZone: .current)
+    private static let timeFormatter = makeFormatter("HH:mm", timeZone: .current)
+
+    /// Magyar rövid dátum (pl. „nov. 20."); a `timeZone` a tesztelhetőség miatt
+    /// paraméter, az app az aktuális időzónát használja.
+    static func dayLabel(for kickoffAt: Date, timeZone: TimeZone = .current) -> String {
+        if timeZone == .current { return dayFormatter.string(from: kickoffAt) }
+        return makeFormatter("MMM d.", timeZone: timeZone).string(from: kickoffAt)
+    }
+
+    /// Helyi kezdési idő „HH:mm" formában, monospaced megjelenítéshez.
+    static func timeLabel(for kickoffAt: Date, timeZone: TimeZone = .current) -> String {
+        if timeZone == .current { return timeFormatter.string(from: kickoffAt) }
+        return makeFormatter("HH:mm", timeZone: timeZone).string(from: kickoffAt)
+    }
 
     static func from(_ match: DayMatch) -> MatchCardModel {
         MatchCardModel(
             id: match.id.uuidString,
             home: match.home,
             away: match.away,
-            time: timeFormatter.string(from: match.kickoffAt),
+            dayLabel: dayLabel(for: match.kickoffAt),
+            time: timeLabel(for: match.kickoffAt),
             status: match.status,
             publishState: match.publishState,
             homeScore: match.homeScore,
@@ -101,7 +193,7 @@ struct MatchCardModel: Identifiable {
 
     static func from(_ match: SampleMatch) -> MatchCardModel {
         MatchCardModel(
-            id: match.id, home: match.home, away: match.away, time: match.time,
+            id: match.id, home: match.home, away: match.away, dayLabel: "", time: match.time,
             status: match.status, publishState: .unknown, homeScore: match.homeScore, awayScore: match.awayScore,
             homeHt: match.homeHt, awayHt: match.awayHt, homeEt: match.homeEt, awayEt: match.awayEt,
             homePens: match.homePens, awayPens: match.awayPens, minute: match.minute,

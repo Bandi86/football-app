@@ -62,7 +62,9 @@ public enum AccessibilityLabels {
             + "\(statusLabel(for: status)), \(score), \(publishLabel(publishState))"
     }
 
-    /// A napi lista kártyájának címkéje: a megjelenített időt használja (nem a nyers UTC Date-t).
+    /// A napi lista kártyájának címkéje: a megjelenített dátumot és időt használja
+    /// (nem a nyers UTC Date-t). Az odds csak akkor kerül a címkébe, ha a kártyán
+    /// is látszik.
     public static func matchCardLabel(
         home: String,
         away: String,
@@ -70,7 +72,9 @@ public enum AccessibilityLabels {
         status: String,
         homeScore: Int?,
         awayScore: Int?,
-        publishState: PublishState
+        publishState: PublishState,
+        dayLabel: String? = nil,
+        odds: String? = nil
     ) -> String {
         let score: String
         if let homeScore, let awayScore {
@@ -78,8 +82,16 @@ public enum AccessibilityLabels {
         } else {
             score = "eredmény még nincs"
         }
-        return "\(home) – \(away), \(time), \(statusLabel(for: status)), \(score), "
-            + "\(publishLabel(publishState))"
+        let kickoff = [dayLabel, time]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        var parts = [home + " – " + away, kickoff, statusLabel(for: status), score,
+                     publishLabel(publishState)]
+        if let odds, !odds.isEmpty {
+            parts.append("odds \(odds)")
+        }
+        return parts.joined(separator: ", ")
     }
 
     /// Kattintás- és tesztstabil azonosító soronként.

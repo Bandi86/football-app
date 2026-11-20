@@ -35,7 +35,7 @@ use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
 /// S2b-2: a TRUST_LEVEL + odds trust szabálykészlet verziója (a tickével azonos).
-const RULE_SET_VERSION: &str = "verification-1.1";
+const RULE_SET_VERSION: &str = "verification-1.2";
 
 #[derive(Parser)]
 #[command(name = "footballctl")]
@@ -61,9 +61,12 @@ enum DedupeAction {
         #[arg(long)]
         deny: Option<String>,
     },
-    /// S37c: név-variáns duplikátumok egy napon (azonos verseny, legfeljebb
-    /// 12 órás kickoff-különbség, de forrásonként eltérő csapatnév). A szigorú
-    /// `matches` parancs ezeket nem látja; dry-run alapból.
+    /// S37c: név-variáns duplikátumok egy napon (legfeljebb 12 órás
+    /// kickoff-különbség, de forrásonként eltérő csapatnév). Alapból csak azonos
+    /// versenyen belül; `--cross-competition` kapcsolóval a különböző
+    /// verseny-entitások alatti sorok is (azonos normalizált ország +
+    /// csapat-kontextus mellett). A szigorú `matches` parancs ezeket nem látja;
+    /// dry-run alapból.
     Variants {
         #[arg(long)]
         date: NaiveDate,
@@ -74,6 +77,12 @@ enum DedupeAction {
         /// fordítható pár). Csak tudatos használatra.
         #[arg(long)]
         allow_loose: bool,
+        /// Különböző verseny-entitások alatti sorok párosítása is (pl. Cymru
+        /// Premier vs tévesen "Premier League" alá sorolt walesi sor). Csak
+        /// egyező normalizált verseny-ország és egyező csapat-kontextus mellett.
+        /// Alapból kikapcsolva.
+        #[arg(long)]
+        cross_competition: bool,
     },
     /// S26: fixture-szintű rekonciliáció — azonos verseny+szezon+csapat-pár+
     /// UTC-nap, eltérő kickoff (v1 import vs footballdata). Auto-merge csak
@@ -365,6 +374,33 @@ enum IdentityAction {
         via_alias: Option<String>,
     },
     CrosswalkCheck,
+    /// S41: a forrás csapat-crosswalkjának újraépítése a legfrissebb
+    /// `team_identity` megfigyelésekből. Alapból dry-run (nulla írás).
+    RebuildRefs {
+        /// Forrás-kód (pl. `soccerway`).
+        #[arg(long, default_value = "soccerway")]
+        source: String,
+        /// Tényleges írás (supersede + új aktív ref, auditálva).
+        #[arg(long)]
+        apply: bool,
+    },
+    /// S41: a megadott kickoff-tartomány soccerway meccseinek
+    /// csapat-hozzárendelése a saját capture-jük team-nevei alapján.
+    /// Alapból dry-run (nulla írás).
+    RepairMatches {
+        /// Kezdő nap (helyi, UTC-re vetítve 00:00).
+        #[arg(long)]
+        from: NaiveDate,
+        /// Záró nap (kizárólagos felső határ).
+        #[arg(long)]
+        to: NaiveDate,
+        /// Tényleges írás (átállítás/merge/visszatartás, auditálva).
+        #[arg(long)]
+        apply: bool,
+        /// Feloldhatatlan meccs visszatartása a napi listáról (apply-ban).
+        #[arg(long)]
+        withhold_unresolved: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -432,10 +468,20 @@ async fn main() -> Result<()> {
                 let away_identity_exact = materialized.identity_exact;
                 let odds_values = trust::load_match_odds(&pool, materialized.match_id).await?;
                 let resolved_fields = load_resolved_fields(&pool, materialized.match_id).await?;
+                let team =
+                    load_team_context(&pool, materialized.home_team_id, materialized.away_team_id)
+                        .await?;
+                let competition_country =
+                    load_competition_country(&pool, materialized.match_id).await?;
                 let context = VerificationContext {
                     snapshot: &materialized.snapshot,
                     home_identity_exact,
                     away_identity_exact,
+                    home_team_name: team.home_name,
+                    away_team_name: team.away_name,
+                    home_team_country: team.home_country_code,
+                    away_team_country: team.away_country_code,
+                    competition_country,
                     duplicate_match_count: duplicate_count(&pool, materialized).await?,
                     source_values,
                     source_trust: &source_trust,
@@ -618,10 +664,16 @@ async fn main() -> Result<()> {
                 date,
                 apply,
                 allow_loose,
+                cross_competition,
             } => {
                 let groups =
-                    football_storage::repositories::dedupe::variant_duplicate_groups(&pool, date)
-                        .await?;
+                    football_storage::repositories::dedupe::variant_duplicate_groups_between(
+                        &pool,
+                        date,
+                        date,
+                        cross_competition,
+                    )
+                    .await?;
                 if groups.is_empty() {
                     println!("nincs név-variáns duplikátum ezen a napon: {date}");
                 } else {
@@ -630,18 +682,38 @@ async fn main() -> Result<()> {
                     for group in &groups {
                         // Túlélő: amelyiknél van eredmény, majd több
                         // provenance, végül a legkorábbi sor (determinisztikus).
-                        let survivor = group
-                            .matches
-                            .iter()
-                            .max_by_key(|m| {
-                                (
-                                    m.has_result,
-                                    m.has_odds,
-                                    m.provenance_count,
-                                    std::cmp::Reverse(m.created_at),
-                                )
-                            })
-                            .expect("csoport nem üres");
+                        // Cross-competition módban a verseny-ország/gát is
+                        // számít: a verifikáltabb, jobb (kisebb) prioritású
+                        // verseny-entitás marad.
+                        let survivor = if cross_competition {
+                            group
+                                .matches
+                                .iter()
+                                .max_by_key(|m| {
+                                    (
+                                        m.has_result,
+                                        m.has_odds,
+                                        m.provenance_count,
+                                        m.gate_state.as_deref() == Some("verified_publish"),
+                                        std::cmp::Reverse(m.competition_priority),
+                                        std::cmp::Reverse(m.created_at),
+                                    )
+                                })
+                                .expect("csoport nem üres")
+                        } else {
+                            group
+                                .matches
+                                .iter()
+                                .max_by_key(|m| {
+                                    (
+                                        m.has_result,
+                                        m.has_odds,
+                                        m.provenance_count,
+                                        std::cmp::Reverse(m.created_at),
+                                    )
+                                })
+                                .expect("csoport nem üres")
+                        };
                         println!(
                             "csoport {} — túlélő: {} [{} {} - {}]",
                             group.key,
@@ -672,6 +744,7 @@ async fn main() -> Result<()> {
                                             &pool,
                                             survivor.match_id,
                                             m.match_id,
+                                            cross_competition,
                                         )
                                         .await?
                                     } else {
@@ -679,12 +752,13 @@ async fn main() -> Result<()> {
                                             &pool,
                                             survivor.match_id,
                                             m.match_id,
+                                            cross_competition,
                                         )
                                         .await?
                                     };
                                     anyhow::ensure!(
                                         same,
-                                        "nem név-variáns pár (azonos nap, egyező vagy 2 órával eltérő kickoff és korosztály-jelölés nélküli név kell; lazább kézi döntéshez: --allow-loose): {} / {}",
+                                        "nem név-variáns pár (azonos nap, egyező vagy 2 órával eltérő kickoff és korosztály-jelölés nélküli név kell; cross-competition módban azonos normalizált verseny-ország és csapat-kontextus is; lazább kézi döntéshez: --allow-loose): {} / {}",
                                         survivor.match_id,
                                         m.match_id
                                     );
@@ -1850,6 +1924,66 @@ async fn identity_command(pool: &sqlx::PgPool, action: IdentityAction) -> Result
                 report.duplicate_matches
             );
         }
+        IdentityAction::RebuildRefs { source, apply } => {
+            let report =
+                football_identity::repair::rebuild_source_refs(pool, &source, !apply).await?;
+            println!(
+                "crosswalk-újraépítés [{}]{}: {} kód, {} változatlan, {} átkötés, {} új csapat, {} bizonytalan, {} obs nélkül",
+                report.source,
+                if apply { "" } else { " (dry-run)" },
+                report.codes_seen,
+                report.unchanged,
+                report.relinked,
+                report.teams_created,
+                report.ambiguous,
+                report.no_obs
+            );
+            for (code, old, new) in &report.changes {
+                println!(
+                    "  {}: {} → {}",
+                    code,
+                    old.as_deref().unwrap_or("(nincs)"),
+                    new
+                );
+            }
+            if !apply {
+                println!("(nem történt írás; futtasd --apply kapcsolóval)");
+            }
+        }
+        IdentityAction::RepairMatches {
+            from,
+            to,
+            apply,
+            withhold_unresolved,
+        } => {
+            let report = football_identity::repair::repair_soccerway_matches(
+                pool,
+                from,
+                to,
+                !apply,
+                withhold_unresolved,
+            )
+            .await?;
+            println!(
+                "meccs-javítás [{}..{}){}: {} vizsgált, {} már helyes, {} átállítva, {} merge, {} visszatartva, {} feloldhatatlan, {} hiba",
+                from,
+                to,
+                if apply { "" } else { " (dry-run)" },
+                report.matches_scanned,
+                report.already_correct,
+                report.repaired,
+                report.merged,
+                report.withheld,
+                report.unresolved,
+                report.errors.len()
+            );
+            for (match_id, err) in &report.errors {
+                println!("  hiba: {match_id} — {err}");
+            }
+            if !apply {
+                println!("(nem történt írás; futtasd --apply kapcsolóval)");
+            }
+        }
         IdentityAction::CrosswalkCheck => {
             let conflicts = football_identity::crosswalk_conflicts(pool).await?;
             if conflicts.is_empty() {
@@ -2061,6 +2195,58 @@ async fn seed_v1(pool: &sqlx::PgPool, v1_db: &str, apply: bool, limit: Option<i6
     let inserted = identity_repo::insert_alias_seeds(pool, &seeds).await?;
     println!("beszúrt reviewed alias: {inserted}");
     Ok(())
+}
+
+/// A meccs két csapatának neve (SAME_TEAM_BOTH_SIDES szabály); hiányzó sor → None.
+/// Csapatnév + ország-kód a verification-szabályokhoz.
+#[derive(Default)]
+struct TeamContextInfo {
+    home_name: Option<String>,
+    away_name: Option<String>,
+    home_country_code: Option<String>,
+    away_country_code: Option<String>,
+}
+
+async fn load_team_context(
+    pool: &sqlx::PgPool,
+    home_team_id: Uuid,
+    away_team_id: Uuid,
+) -> Result<TeamContextInfo> {
+    let rows: Vec<(Uuid, String, Option<String>)> = sqlx::query_as(
+        "SELECT t.id, t.name, c.code
+           FROM core.team t
+           LEFT JOIN core.country c ON c.id = t.country_id
+          WHERE t.id = ANY($1)",
+    )
+    .bind(vec![home_team_id, away_team_id])
+    .fetch_all(pool)
+    .await?;
+    let mut info = TeamContextInfo::default();
+    for (id, name, country_code) in rows {
+        if id == home_team_id {
+            info.home_name = Some(name);
+            info.home_country_code = country_code;
+        } else if id == away_team_id {
+            info.away_name = Some(name);
+            info.away_country_code = country_code;
+        }
+    }
+    Ok(info)
+}
+
+/// A meccs versenyének ország-kódja (FOREIGN_TEAMS_DOMESTIC_COMPETITION).
+async fn load_competition_country(pool: &sqlx::PgPool, match_id: Uuid) -> Result<Option<String>> {
+    let code: Option<Option<String>> = sqlx::query_scalar(
+        "SELECT ctry.code
+           FROM core.match m
+           JOIN core.competition c ON c.id = m.competition_id
+           LEFT JOIN core.country ctry ON ctry.id = c.country_id
+          WHERE m.id = $1",
+    )
+    .bind(match_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(code.flatten())
 }
 
 async fn duplicate_count(

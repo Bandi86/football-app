@@ -168,7 +168,7 @@ async fn variant_groups_find_the_name_variant_pair() {
     assert!(names.contains(&"SV Darmstadt 98") && names.contains(&"Darmstadt"));
 
     assert!(
-        is_variant_same_match(&pool, seeded.survivor, seeded.duplicate)
+        is_variant_same_match(&pool, seeded.survivor, seeded.duplicate, false)
             .await
             .unwrap(),
         "a név-variáns pár merge-elhető"
