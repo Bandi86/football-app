@@ -278,3 +278,28 @@ a publikációs állapot.
   Swift Core 37/37, app 26/26, UI 5/5, clippy `-D warnings` és `fmt --check` tiszta.
 - [ ] Nem ellenőrzött: a GitHub Actions első valós futása (a workflow lokálisan, actionlinttel és a lépések
   helyi futtatásával ellenőrzött, de a repóban még nem futott le).
+
+## S32a — billentyűzet-fókusz a nap listáján
+
+Induló állapot: az appban sehol nem volt `.focusable()` / `@FocusState`; a Tab-fókusz harness oldali
+mérése (S31a) azért nem látott fókuszt, mert nem volt fókuszálható elem. A felhasználó döntése
+(m01055): a valódi VoiceOver-felolvasás kimarad, a többi irány mehet sorban.
+
+- [x] `apps/FootballApp/KeyboardNavigation.swift`: `KeyboardMonitor` (`NSEvent` lokális keyDown-monitor,
+  csak a főablakban aktiválódik, nyitott sheet felett nem nyeli el a billentyűket).
+- [x] `MatchListView`: `@FocusState` + Tab/Shift+Tab (körbeérő), ↓/↑ (fókusz után), Return/Enter
+  (részletező), Escape (fókusz törlése); a fókuszált kártya 2 pt borostyán keretet kap
+  (`focusEffectDisabled()` mellett), a listán belül középre gördül (Reduced Motion esetén azonnal).
+- [x] A fókuszált kártya `selected` AX-traitet kap — ezt hirdeti a VoiceOver, és az XCUITest ebből tudja
+  ellenőrizni a fókuszt (`hasFocus` a kombinált AX-csoporton nem elérhető).
+- [x] Új UI-teszt `testKeyboardFocusWalksMatchCardsAndOpensDetail` (Tab → 1. kártya, ↓ → 2., ↑ → 1.,
+  Return → `match.detail`, Escape → zár, Shift+Tab → 2.). Futott: **6/6 UI-teszt zöld**
+  (`./scripts/run-ui-tests.sh` → `** TEST SUCCEEDED **`).
+- [x] Élő igazolás a futó appon: `/tmp/s32a-ring.png` (keret a Toulouse–Marseille kártyán),
+  `/tmp/s32a-sheet.png` (Return megnyitotta a részletezőt), `/tmp/s32a-after-escape.png`
+  (Escape bezárta, a keret a kártyán maradt).
+- [x] Tanulságok rögzítve: a nyilak/Tab `.function` modifierje; a sheet ablakának `attachedSheet == nil`
+  csapdája (`sheetParent == nil` kell); `NSEvent` nem `Sendable` (csak keyCode + flags mehet át).
+- [ ] Nem ellenőrzött: `shift+Tab` körbeérése csak UI-tesztben futott (élőben nem), és a fókuszgyűrű
+  megjelenése világos/sötét témában (a kliens szándékosan csak sötét palettát használ).
+- Következő döntési pont: push + a CI első valós futása (S32b).

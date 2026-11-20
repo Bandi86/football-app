@@ -74,8 +74,12 @@ Tanulságok (a harness dokumentálva):
 - Automatikusan igazolt: 1. pont (VoiceOver-címkék tartalma, kártya + publikációs állapot),
   3. pont billentyűparancsai (Cmd+←/→/T), 5. pont három állapota (betöltött, üres, daemon-offline),
   valamint a magyar címkék visszaolvasása unit-tesztekkel.
-- Továbbra is emberi/egyéb ellenőrzést igényel: tényleges VoiceOver-felolvasás (hang), Tab-fókusz
-  láthatósága és fókuszcsapda, Reduced Motion, Cmd+R vizuális frissítés.
+- Felhasználói döntés (2026-11-20, S31 után): a tényleges VoiceOver-felolvasás (hang) ellenőrzése
+  kimarad — a felhasználó kifejezetten kihagyta („a voiced hagyd”). Az AX-címkék tartalmát a
+  `AccessibilityLabelsTests` és a UI-tesztek fedik.
+- Továbbra is emberi/egyéb ellenőrzést igényel: Reduced Motion, Cmd+R vizuális frissítés.
+- Tab-fókusz: **S32a óta automatizált** (lásd az S32a szakaszt) — a korábbi mérés csak azért nem
+  látott fókuszt, mert az appban nem volt fókuszálható elem.
 - Vizuális igazolás (2026-11-20 12:07): a futó app ablaka `screencapture -l442` módszerrel
   elmentve; a kezdőlap valós adattal (41 meccs, Ligue 1/Bundesliga/La Liga, odds) renderelődik.
 - AX-vezérlés igazolva (2026-11-20 12:11): `scripts/ax-press.swift FootballApp "Következő nap"`
@@ -101,3 +105,28 @@ Tanulságok (a harness dokumentálva):
   AppleKeyboardUIMode -int 3` mellett is. Ezért a fókuszpont továbbra sem automatizált; következő
   lépés app-oldali fókuszálhatóság (`.focusable()` / `focusSection`) + `-AppleKeyboardUIMode 3`
   launch argumentumos XCUITest, vagy célzott vizuális ellenőrzés.
+
+## S32a — billentyűzet-fókusz a nap listáján (2026-11-20)
+
+- App-oldali fókuszmodell: `apps/FootballApp/KeyboardNavigation.swift` (`KeyboardMonitor`
+  `NSEvent.addLocalMonitorForEvents(.keyDown)`-nal, csak a főablakban hat, nyitott sheet felett nem)
+  + `MatchListView` `@FocusState`-szel. Tab / Shift+Tab = következő-előző kártya (körbeérő),
+  ↓ / ↑ = következő-előző (nem körbeérő, csak ha már van fókusz), Return/Enter = részletező nyitása,
+  Escape = fókusz törlése (a részletezőt a saját cancelAction zárja).
+- Látható fókusz: 2 pt borostyán (`AppTheme.accent`) keret a fókuszált kártyán, `focusEffectDisabled()`
+  mellett; a fókuszált kártya a fókuszba kerüléskor a lista közepére gördül, Reduced Motion esetén
+  animáció nélkül.
+- AX-jelzés: a fókuszált kártya `selected` traitet kap, ezt hirdeti a VoiceOver is, és ezt tudja
+  kiolvasni az XCUITest (`isSelected == true`), mert a `hasFocus` a kombinált AX-csoporton nem
+  elérhető.
+- Új UI-teszt: `testKeyboardFocusWalksMatchCardsAndOpensDetail` — Tab → 1. kártya, ↓ → 2. kártya,
+  ↑ → 1. kártya, Return → `match.detail` sheet, Escape → bezár, Shift+Tab → 2. kártya (körbeérés).
+  Futott: **6/6 UI-teszt zöld**.
+- Élő igazolás a futó appon (`scripts/ax-key.swift` + `./scripts/app-window-shot.sh`):
+  Tab+↓ után a keret a Toulouse–Marseille kártyán (`/tmp/s32a-ring.png`), Return megnyitja a
+  részletezőt (`/tmp/s32a-sheet.png`), Escape bezárja, a keret a kártyán marad
+  (`/tmp/s32a-after-escape.png`).
+- Tanulságok: a nyíl- és Tab-billentyűk `NSEvent`-jében `.function` (illetve numerikus pad) jelző
+  lehet, ezt ki kell szűrni, különben a `modifiers.isEmpty` feltétel elnyeli őket; a nyitott sheet
+  ablaka `attachedSheet == nil`, ezért `sheetParent == nil` is kell a billentyű-monitorban; az
+  `NSEvent` nem `Sendable`, ezért csak a keyCode + flags mehet át a `MainActor.assumeIsolated`-be.

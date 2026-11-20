@@ -29,6 +29,7 @@ struct MatchDetailSheet: View {
         }
         .frame(minWidth: 640, minHeight: 560)
         .background(AppTheme.background)
+        .accessibilityIdentifier("match.detail")
         .task(id: matchId) { await model.load(matchId: matchId) }
     }
 

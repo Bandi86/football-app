@@ -36,10 +36,23 @@ enum MatchFilter: String, CaseIterable, Identifiable {
 }
 
 /// Liga szerint csoportosított, prioritás szerint rendezett napi lista.
+///
+/// Billentyűzet: Tab / Shift+Tab belép a listába és lépked, ↑ / ↓ a kártyák
+/// között mozog, Return megnyitja a részletezőt, Escape kilép a fókuszból.
+/// A fókusz vizuális jelzése a kártya körüli borostyán keret; a fókuszált
+/// meccs azonosítóját az `ui.focusedMatch` teszt-horgony is kiteszi.
 struct MatchListView: View {
     let leagues: [LeagueGroup]
     let logos: LogoStore
     let onSelect: (String) -> Void
+
+    @FocusState private var focusedID: String?
+
+    private var orderedIDs: [String] {
+        leagues.flatMap { league in
+            league.matches.sorted { $0.time < $1.time }.map(\.id)
+        }
+    }
 
     var body: some View {
         if leagues.isEmpty {
@@ -55,15 +68,80 @@ struct MatchListView: View {
             .accessibilityLabel("Nincs meccs a kiválasztott szűrőben.")
             .accessibilityIdentifier("match.list.empty")
         } else {
-            ScrollView {
-                LazyVStack(spacing: 16) {
-                    ForEach(leagues) { league in
-                        LeagueSectionView(league: league, logos: logos, onSelect: onSelect)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 16) {
+                        ForEach(leagues) { league in
+                            LeagueSectionView(
+                                league: league,
+                                logos: logos,
+                                focusedID: $focusedID,
+                                onSelect: onSelect
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 48)
+                    .padding(.vertical, 16)
+                }
+                .background(KeyboardMonitor { keyCode, modifiers in
+                    handle(keyCode: keyCode, modifiers: modifiers)
+                })
+                .onChange(of: focusedID) { _, newValue in
+                    guard let newValue else { return }
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        proxy.scrollTo(newValue, anchor: .center)
                     }
                 }
-                .padding(.horizontal, 48)
-                .padding(.vertical, 16)
             }
+        }
+    }
+
+    private func handle(keyCode: UInt16, modifiers rawModifiers: NSEvent.ModifierFlags) -> Bool {
+        // A nyíl- és Tab-billentyűk maguk is „function” jelzőt hordozhatnak,
+        // ezért azt (és a numerikus pad jelzést) kiszűrjük.
+        let modifiers = rawModifiers
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.function, .numericPad])
+        let ids = orderedIDs
+        guard !ids.isEmpty else { return false }
+        guard modifiers.isEmpty || modifiers == .shift else { return false }
+
+        switch keyCode {
+        case KeyCode.tab:
+            step(modifiers.contains(.shift) ? -1 : 1, in: ids, wrap: true)
+            return true
+        case KeyCode.down:
+            guard focusedID != nil else { return false }
+            step(1, in: ids, wrap: false)
+            return true
+        case KeyCode.up:
+            guard focusedID != nil else { return false }
+            step(-1, in: ids, wrap: false)
+            return true
+        case KeyCode.returnKey, KeyCode.enter:
+            guard let focusedID else { return false }
+            onSelect(focusedID)
+            return true
+        case KeyCode.escape:
+            guard focusedID != nil else { return false }
+            focusedID = nil
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func step(_ delta: Int, in ids: [String], wrap: Bool) {
+        guard let current = focusedID, let index = ids.firstIndex(of: current) else {
+            focusedID = delta >= 0 ? ids.first : ids.last
+            return
+        }
+        if wrap {
+            let next = (index + delta + ids.count) % ids.count
+            focusedID = ids[next]
+        } else {
+            let next = min(max(index + delta, 0), ids.count - 1)
+            focusedID = ids[next]
         }
     }
 }
@@ -71,6 +149,7 @@ struct MatchListView: View {
 private struct LeagueSectionView: View {
     let league: LeagueGroup
     let logos: LogoStore
+    @FocusState.Binding var focusedID: String?
     let onSelect: (String) -> Void
 
     private var sortedMatches: [MatchCardModel] {
@@ -108,7 +187,8 @@ private struct LeagueSectionView: View {
             VStack(spacing: 0) {
                 ForEach(Array(sortedMatches.enumerated()), id: \.element.id) { index, match in
                     MatchItemRow(match: match, showPositions: league.tier != 0,
-                                 logos: logos, onSelect: onSelect)
+                                 logos: logos, focusedID: $focusedID, onSelect: onSelect)
+                        .id(match.id)
                     if index < sortedMatches.count - 1 {
                         Rectangle().fill(AppTheme.hairline).frame(height: 1).padding(.leading, 18)
                     }
@@ -128,6 +208,7 @@ private struct MatchItemRow: View {
     let match: MatchCardModel
     let showPositions: Bool
     let logos: LogoStore
+    @FocusState.Binding var focusedID: String?
     let onSelect: (String) -> Void
     @State private var hover = false
 
@@ -207,8 +288,20 @@ private struct MatchItemRow: View {
                 publishState: match.publishState
             )
         )
-        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(focusedID == match.id ? [.isButton, .isSelected] : [.isButton])
         .accessibilityIdentifier("match.card.\(match.id)")
+        .focusable()
+        .focused($focusedID, equals: match.id)
+        .focusEffectDisabled()
+        .overlay {
+            if focusedID == match.id {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(AppTheme.accent, lineWidth: 2)
+                    .padding(3)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
     }
 
     private var statusColumn: some View {

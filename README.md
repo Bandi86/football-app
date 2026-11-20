@@ -146,6 +146,8 @@ A futó kliens olvasásához/vezérléséhez (Accessibility-engedéllyel):
 ```bash
 swift scripts/ax-press.swift FootballApp --list        # AX-fa: gombok, kártyacímkék
 swift scripts/ax-press.swift FootballApp "Következő nap"  # AXPress, emberi kattintással egyenértékű
+swift scripts/ax-key.swift FootballApp tab             # Tab/nyíl/Return/Escape a futó appnak
+swift scripts/ax-probe.swift FootballApp match.card     # AX-elemek szűrve, szerep + érték
 ./scripts/app-window-shot.sh /tmp/ablak.png            # a futó ablak PNG-mentése
 ```
 
