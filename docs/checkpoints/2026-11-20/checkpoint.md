@@ -323,7 +323,9 @@ csak actionlinttel és helyi lépésfuttatással volt ellenőrizve.
   okozott. Újrafuttatott UI-tesztek: **6/6 zöld** (`** TEST SUCCEEDED **`).
 - [x] Push `06da09a..77c3138`; a második futás (`44731298004`) Swift feladata zöld, a Rust feladat
   viszont a storage-tesztekben elhasalt (lásd S32c).
-- [ ] Nem ellenőrzött: zöld Rust feladat a GitHub Actionsön (a javítás pusholva, a futás még nem ért véget).
+- [x] Harmadik futás (`44733358476`, head `aed79c9`): **Rust és Swift feladat is zöld**, `status:
+  completed, conclusion: success` — ez a pipeline első teljes zöld futása (a `44731298004` Rust
+  feladata a S32c időbélyeg-javítása előtt hasalt el).
 
 ## S32c — időbélyeg-pontosság a storage-tesztekben
 
@@ -342,8 +344,8 @@ Induló állapot: a második CI-futás Rust feladata 6 storage-tesztet buktatott
 - [x] `cargo build -p footballd -p footballctl --features obscura` → `Finished ... in 13.41s`.
 - [x] Teljes munkaterület: `cargo test --workspace -- --test-threads=1` → **307 teszt, 0 hiba**
   (`/tmp/ws-tests.log`); `cargo test -p football-api --test openapi` → 4/4.
-- [ ] Nem ellenőrzött: a javított storage-tesztek Linuxon (CI) — helyben zöldek, de a hiba csak Linuxon
-  jelentkezett; a zöld CI-futás a bizonyíték.
+- [x] A javított tesztek Linuxon is zöldek: a `44733358476` futás Rust feladata success (a
+  `record_auth_failure…`, `robots_cache…`, `breaker…`, `ledger…` teszteket is beleértve).
 
 ## S33 — teljes OpenAPI-dokumentum
 
