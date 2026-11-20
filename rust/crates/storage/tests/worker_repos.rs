@@ -1,4 +1,4 @@
-use chrono::{Duration, Utc};
+use chrono::{Duration, SubsecRound, Utc};
 use football_domain::policy::*;
 use football_storage::repositories::worker as repo;
 use football_storage::test_support::test_pool;
@@ -122,7 +122,7 @@ async fn policy_upsert_get_and_list() {
 async fn ledger_counts_only_fetch_attempts() {
     let pool = test_pool().await;
     seed_policy(&pool, "demo-synthetic").await;
-    let now = Utc::now();
+    let now = Utc::now().trunc_subsecs(6);
     for outcome in [
         FetchOutcome::Success,
         FetchOutcome::Timeout,
@@ -143,7 +143,7 @@ async fn ledger_counts_only_fetch_attempts() {
 async fn ledger_day_filter_fields_and_last_attempt() {
     let pool = test_pool().await;
     seed_policy(&pool, "demo-synthetic").await;
-    let now = Utc::now();
+    let now = Utc::now().trunc_subsecs(6);
     let yesterday = now - Duration::days(1);
 
     // tegnapi kísérlet nem számít a mai kvótába
@@ -219,7 +219,7 @@ async fn ledger_day_filter_fields_and_last_attempt() {
 async fn last_attempt_at_ignores_non_fetch_outcomes() {
     let pool = test_pool().await;
     seed_policy(&pool, "demo-synthetic").await;
-    let now = Utc::now();
+    let now = Utc::now().trunc_subsecs(6);
 
     // Valódi fetch-kísérlet T-ben, majd későbbi, nem számláló blokk-sorok:
     // a min_delay óráját NEM tolhatják ki (DelayBlocked livelock regresszió).
@@ -270,7 +270,7 @@ async fn last_attempt_at_ignores_non_fetch_outcomes() {
 async fn claim_lease_and_requeue() {
     let pool = test_pool().await;
     seed_policy(&pool, "demo-synthetic").await;
-    let now = Utc::now();
+    let now = Utc::now().trunc_subsecs(6);
     repo::insert_job(
         &pool,
         &new_job("demo-synthetic", "day", now - Duration::minutes(1), 10),
@@ -304,7 +304,7 @@ async fn claim_lease_and_requeue() {
 async fn job_dedup_priority_limit_and_attempts() {
     let pool = test_pool().await;
     seed_policy(&pool, "demo-synthetic").await;
-    let now = Utc::now();
+    let now = Utc::now().trunc_subsecs(6);
     let due = now - Duration::minutes(1);
 
     // duplikált generálás nem szúr be második sort (ON CONFLICT DO NOTHING)
@@ -357,7 +357,7 @@ async fn job_dedup_priority_limit_and_attempts() {
 async fn claim_returns_jobs_sorted_by_priority_and_due_at() {
     let pool = test_pool().await;
     seed_policy(&pool, "demo-synthetic").await;
-    let now = Utc::now();
+    let now = Utc::now().trunc_subsecs(6);
     let due = now - Duration::minutes(5);
 
     // beszúrási sorrend szándékosan nem egyezik a prioritás-sorrenddel:
@@ -431,7 +431,7 @@ async fn breaker_set_get_roundtrip() {
             .is_none()
     );
 
-    let now = Utc::now();
+    let now = Utc::now().trunc_subsecs(6);
     let open = repo::BreakerRow {
         state: BreakerState::Open,
         failure_count: 3,
@@ -553,7 +553,7 @@ async fn robots_cache_put_get_roundtrip() {
             .is_none()
     );
 
-    let now = Utc::now();
+    let now = Utc::now().trunc_subsecs(6);
     let row = repo::RobotsCacheRow {
         host: "example.invalid".into(),
         fetched_at: now,
@@ -592,7 +592,7 @@ async fn robots_cache_put_get_roundtrip() {
 async fn complete_job_and_release_worker_leases() {
     let pool = test_pool().await;
     seed_policy(&pool, "demo-synthetic").await;
-    let now = Utc::now();
+    let now = Utc::now().trunc_subsecs(6);
     let due = now - Duration::minutes(1);
     repo::insert_job(&pool, &new_job("demo-synthetic", "elso", due, 10))
         .await
@@ -707,7 +707,7 @@ fn stored_artifact(hash_char: char) -> football_storage::object_store::StoredArt
 }
 
 fn raw_capture(request_key: &str) -> repo::RawCapture<'_> {
-    let now = Utc::now();
+    let now = Utc::now().trunc_subsecs(6);
     repo::RawCapture {
         endpoint_key: "match",
         request_url: "fixture://demo-synthetic/2026-11-12",
@@ -798,7 +798,7 @@ async fn update_ledger_outcome_finalizes_placeholder() {
 
     let pool = test_pool().await;
     seed_policy(&pool, "demo-synthetic").await;
-    let now = Utc::now();
+    let now = Utc::now().trunc_subsecs(6);
     let id = repo::insert_ledger(
         &pool,
         &ledger("demo-synthetic", now, FetchOutcome::TransportError),
@@ -885,7 +885,7 @@ async fn update_ledger_outcome_finalizes_placeholder() {
 async fn record_auth_failure_writes_breaker_and_audit_together() {
     let pool = test_pool().await;
     seed_policy(&pool, "demo-synthetic").await;
-    let now = Utc::now();
+    let now = Utc::now().trunc_subsecs(6);
     let open = repo::BreakerRow {
         state: BreakerState::Open,
         failure_count: 1,
@@ -953,7 +953,7 @@ async fn seed_core_match(
 #[tokio::test]
 async fn count_duplicate_matches_uses_natural_key() {
     let pool = test_pool().await;
-    let now = Utc::now();
+    let now = Utc::now().trunc_subsecs(6);
     let country_id = Uuid::now_v7();
     let competition_id = Uuid::now_v7();
     let season_id = Uuid::now_v7();
