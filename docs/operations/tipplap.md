@@ -18,7 +18,10 @@ Katalógus: `docs/research/source-catalog.md` → `tipplap` bejegyzés.
   dátum-guard fail-closed megállítja).
 - robots: engedett (`/kalkulator/`), katalógus-spike 2026-11-11.
 - Policy: `rust_http`, `canary`, `daily_budget=6`, `min_delay_ms=3000`,
-  `jitter_ms=1000`, domain `day`, napi discovery (1440 perc).
+  `jitter_ms=1000`, domain `day`. Események (S36b óta):
+  - `discovery`, `interval_minutes=1440` — napi egyszeri teljes nap;
+  - `refresh`, `interval_minutes=360` — napon belül 4 sáv (00/06/12/18 UTC),
+    összesen 5 kérés/nap a 6-os keretből.
 
 ## Parser-őrök
 
@@ -39,6 +42,15 @@ Qualification, CONCACAF Nations League B, Friendly International,
 Premier League, La Liga, Serie A, Bundesliga, Ligue 1, NB I.
 Új ligát csak a szótár bővítésével és stabil kanonikus névvel szabad
 felvenni.
+
+S36a óta a tábla két részből áll: a nemzetközi/top-ligás `LEAGUES`
+(prefix-illesztés, forduló-címkével) és a `GENERAL_LEAGUES` (26 hazai/alsóbb
+ligás cím, ékezet- és kisbetű-toleráns **pontos** egyezéssel, forduló-címke
+nélkül). A bővítés adatvezérelt volt: csak olyan cím került be, amelyre a
+v1 Tipplap-események és a v2 meccsek egzakt csapatpár-egyeztetése legalább
+2 szavazatot és ≥80% többséget adott (részletek:
+`docs/decisions/2026-11-20-tipplap-league-coverage.md`). Ismeretlen cím
+továbbra is kimarad.
 
 ## Csapat-feloldás
 
@@ -78,3 +90,14 @@ felvenni.
 Az U19/U21 Eb-selejtező szándékosan kimarad: a Soccerway kanonikus neve a
 fordulót is tartalmazza (`Round 2`), ami ablakonként változik — ezt a
 verseny-modell külön round_label mezője oldaná meg.
+
+## Napon belüli frissítés (S36b, 2026-11-20)
+
+- A napi `discovery` mellett `refresh` sávok futnak (360 percenként, azaz
+  00/06/12/18 UTC-kor); a sávonkénti job a teljes napi listát kéri le, így a
+  nap összes meccsének nyitó szorzója frissül.
+- Éles mérés a S36a telepítés után: a mai napon **29** oddsos v2-meccs
+  (87 Tipplap-quote, 19 verseny) a korábbi 4 helyett; a maradékot a nyitott
+  csapat-identitás review-k fogják vissza, nem a liga-lefedettség.
+- Visszaállítás: a `refresh` esemény törlése a policy-ból
+  (`events` jsonb-ből), a napi discovery marad.

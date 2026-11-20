@@ -474,3 +474,23 @@ bemutatott bizonyíték alapján a **B — app-szintű Tab-sorrend** irányt vá
   no_exact_match) — a maradék ~15 meccs a csapat-identitás feloldásán múlik, nem a liga-fedésen.
 - Következő döntési pont: a 17 review rendezése (kurált alias-seed a v1 adatokból), illetve a
   napon belüli frissítés policy-k (kickoff előtti `offset_minutes` események).
+
+## S36b — napon belüli frissítés (intraday refresh slotok)
+
+- Kiindulás: minden engedélyezett forrásnak egyetlen napi `discovery` eseménye volt
+  (1440 perc), ezért a nap folyamán nem frissült sem az odds, sem a meccsállapot;
+  a felhasználó külön engedélyezte a napon belüli frissítést.
+- [x] Scheduler: a `supported_interval` mostantól a napi (1440) és heti (10080) mellett
+  a napot egyenlő sávokra osztó intervalt is engedi (30..1439, ha osztja az 1440-et);
+  a napon belüli ág sávonként egy jobot generál (`slot-NN`, `due_at` = sáv kezdete,
+  prioritás = esemény-alap + sávindex), a jövőbeli sávok pendingben várnak.
+- [x] Tesztek: `cargo test -p football-worker --test scheduler -- --test-threads=1` → 6 zöld
+  (új: `subdaily_interval_generates_slot_jobs_with_due_times`); `--test scheduler_validation`
+  → 4 zöld (új: `subdaily_interval_generates_one_job_per_slot`).
+- [x] Dev DB policy: tipplap `[discovery 1440, refresh 360]` → napi 5 kérés a 6-os
+  keretből; openfoot (keret elfogyott), footballdata (napi CSV), soccerway (dayPicker
+  ellenőrizhetetlen), fotmob/demo (kikapcsolva) szándékosan nem kapott sávot.
+- [x] Döntés: `docs/decisions/2026-11-20-intraday-refresh.md`; üzemeltetési leírás:
+  `docs/operations/tipplap.md` (policy + S36a szótár + S36b mérés).
+- [ ] Nem ellenőrzött: a sávos generálás éles futása — a futó daemon még a régi
+  schedulert futtatja; az új bináris újratelepítése külön döntés.

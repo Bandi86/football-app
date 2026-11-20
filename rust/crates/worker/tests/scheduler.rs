@@ -180,6 +180,50 @@ async fn generate_is_idempotent_and_prioritized() {
 }
 
 #[tokio::test]
+async fn subdaily_interval_generates_slot_jobs_with_due_times() {
+    let pool = test_pool().await;
+    let now = base_time(); // 2026-11-12 12:00 UTC
+    let policy = policy_with(vec![interval_event("refresh", 240)], true);
+    repo::upsert_policy(&pool, &policy).await.unwrap();
+
+    let n = scheduler::generate_jobs(&pool, std::slice::from_ref(&policy), now)
+        .await
+        .unwrap();
+    assert_eq!(n, 6, "240 → napi 6 frissítési sáv");
+    let n = scheduler::generate_jobs(&pool, std::slice::from_ref(&policy), now)
+        .await
+        .unwrap();
+    assert_eq!(n, 0, "egyedi kulcs: újragenerálva nincs duplikátum");
+
+    let rows = job_rows(&pool).await;
+    let keys: Vec<&str> = rows.iter().map(|r| r.1.as_str()).collect();
+    assert_eq!(
+        keys,
+        vec![
+            "slot-00", "slot-01", "slot-02", "slot-03", "slot-04", "slot-05"
+        ]
+    );
+    assert!(rows.iter().all(|r| r.0 == "refresh" && r.2 == "2026-11-12"));
+    // priority = refresh base 10 + sáv index.
+    assert_eq!(rows[0].3, 10);
+    assert_eq!(rows[5].3, 15);
+
+    // 12:00-kor a 00/04/08/12 sáv esedékes; a 16/20 még nem.
+    let claimed = scheduler::claim(&pool, Uuid::now_v7(), now, 60, 10)
+        .await
+        .unwrap();
+    assert_eq!(claimed.len(), 4);
+    assert_eq!(
+        claimed[0].due_at,
+        now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc()
+    );
+    let later = scheduler::claim(&pool, Uuid::now_v7(), now + Duration::hours(8), 60, 10)
+        .await
+        .unwrap();
+    assert_eq!(later.len(), 2, "16:00 és 20:00 sáv 20:00-kor már esedékes");
+}
+
+#[tokio::test]
 async fn interval_windows_daily_and_iso_weekly() {
     let pool = test_pool().await;
     let now = base_time();

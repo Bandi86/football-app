@@ -44,13 +44,16 @@ async fn invalid_interval_generates_no_job() {
     let policy = policy_with(vec![EventTemplate {
         event_type: "discovery".into(),
         offset_minutes: None,
-        interval_minutes: Some(60),
+        interval_minutes: Some(50),
     }]);
     repo::upsert_policy(&pool, &policy).await.unwrap();
     let inserted = scheduler::generate_jobs(&pool, &[policy], Utc::now())
         .await
         .unwrap();
-    assert_eq!(inserted, 0, "a 60 perces interval nem engedett");
+    assert_eq!(
+        inserted, 0,
+        "a 50 perces interval nem engedett (nem osztja a napot)"
+    );
 }
 
 #[tokio::test]
@@ -66,4 +69,19 @@ async fn daily_interval_generates_one_job() {
         .await
         .unwrap();
     assert_eq!(inserted, 1);
+}
+
+#[tokio::test]
+async fn subdaily_interval_generates_one_job_per_slot() {
+    let pool = test_pool().await;
+    let policy = policy_with(vec![EventTemplate {
+        event_type: "refresh".into(),
+        offset_minutes: None,
+        interval_minutes: Some(240),
+    }]);
+    repo::upsert_policy(&pool, &policy).await.unwrap();
+    let inserted = scheduler::generate_jobs(&pool, &[policy], Utc::now())
+        .await
+        .unwrap();
+    assert_eq!(inserted, 6, "240 perces interval → napi 6 frissítési sáv");
 }
