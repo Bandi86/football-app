@@ -50,7 +50,7 @@ struct MatchListView: View {
 
     private var orderedIDs: [String] {
         leagues.flatMap { league in
-            league.matches.sorted { $0.time < $1.time }.map(\.id)
+            league.matches.sorted { ($0.time, $0.id) < ($1.time, $1.id) }.map(\.id)
         }
     }
 
@@ -153,7 +153,9 @@ private struct LeagueSectionView: View {
     let onSelect: (String) -> Void
 
     private var sortedMatches: [MatchCardModel] {
-        league.matches.sorted { $0.time < $1.time }
+        // Azonos kezdésnél az id dönt, hogy a fókuszsorrend és a kirajzolt
+        // sorrend ugyanaz legyen (a Swift rendezés nem stabil).
+        league.matches.sorted { ($0.time, $0.id) < ($1.time, $1.id) }
     }
 
     var body: some View {
