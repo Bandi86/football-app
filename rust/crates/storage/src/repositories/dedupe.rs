@@ -269,18 +269,6 @@ fn variant_pair(
         }
         return allow_cross_competition;
     }
-    // Azonos versenyen belül, legfeljebb 60 perccel eltérő kickoff mellett, ha az
-    // egyik oldal biztosan ugyanaz a csapat (azonos id vagy szigorú név-egyezés),
-    // a másik oldal sem lehet más: egy csapat nem játszhat két meccset egyszerre.
-    if a.competition_id == b.competition_id && delta <= 60 {
-        let same_home =
-            a.home_team_id == b.home_team_id || names_strictly_same(&a.home_name, &b.home_name);
-        let same_away =
-            a.away_team_id == b.away_team_id || names_strictly_same(&a.away_name, &b.away_name);
-        if same_home || same_away {
-            return true;
-        }
-    }
     let normal = names_likely_same(&a.home_name, &b.home_name)
         && names_likely_same(&a.away_name, &b.away_name);
     let flipped = names_likely_same(&a.home_name, &b.away_name)
@@ -304,19 +292,81 @@ fn competitions_compatible(
 /// Cross-competition kompatibilitás: a normalizált verseny-ország egyezik, és a
 /// csapat-kontextus (gender/age_group/branch, home–home és away–away) egyezik.
 fn cross_competition_compatible(a: &DuplicateMatchRow, b: &DuplicateMatchRow) -> bool {
-    competition_country_key(&a.competition_country_code)
-        == competition_country_key(&b.competition_country_code)
+    let ka = competition_country_key(&a.competition_country_code);
+    let kb = competition_country_key(&b.competition_country_code);
+    // A v1-import versenyei ország nélkül (NULL), a research/openfoot sorai
+    // nemzetközi versenyeknél `XX` alatt élnek; ugyanaz a fixture ilyenkor két
+    // entitás alatt áll. A semleges országot ezért wildcardként kezeljük — a
+    // csapat-kontextus (nem/korosztály/ág) és a név-egyezés továbbra is kötelező.
+    let neutral = |key: &str| key.is_empty() || key == "XX" || key == "INT";
+    (ka == kb || neutral(&ka) || neutral(&kb))
         && a.home_gender == b.home_gender
         && a.away_gender == b.away_gender
-        && a.home_age_group == b.home_age_group
-        && a.away_age_group == b.away_age_group
-        && a.home_branch == b.home_branch
-        && a.away_branch == b.away_branch
+        // A v1-import csapatainál az age_group hiányos/`senior`, a research
+        // sornál `youth` lehet, miközben a név U17-est mond. Ha mindkét névben
+        // van korosztály-jelölő, azok egyezése a mérvadó.
+        && age_compatible(
+            &a.home_name,
+            &a.home_age_group,
+            &b.home_name,
+            &b.home_age_group,
+        )
+        && age_compatible(
+            &a.away_name,
+            &a.away_age_group,
+            &b.away_name,
+            &b.away_age_group,
+        )
+        // A research/openfoot csapat-metaadatában a branch gyakran `senior`,
+        // míg a név U21-est/U17-est mond; ha mindkét név hordoz korosztályt,
+        // a név a mérvadó, a branch-et nem hasonlítjuk.
+        && branch_compatible(&a.home_name, &a.home_branch, &b.home_name, &b.home_branch)
+        && branch_compatible(&a.away_name, &a.away_branch, &b.away_name, &b.away_branch)
         // A v1-importban a női csapatok `gender` oszlopa is `male` lehet
         // (pl. „Marseille W"), ezért a név nem-jelölője is számít: férfi és
         // női meccs soha nem olvadhat össze.
         && name_marks_womens(&a.home_name) == name_marks_womens(&b.home_name)
         && name_marks_womens(&a.away_name) == name_marks_womens(&b.away_name)
+}
+
+/// A névből kiolvasott korosztály-jelölő (`U17`, `U-17`, `U 17`), normalizálva.
+fn age_marker(name: &str) -> Option<String> {
+    let tokens: Vec<String> = normalize_name(name)
+        .split(' ')
+        .filter(|t| !t.is_empty())
+        .map(str::to_string)
+        .collect();
+    for (i, token) in tokens.iter().enumerate() {
+        let digits = if let Some(rest) = token.strip_prefix('u') {
+            rest
+        } else if token == "u" {
+            tokens.get(i + 1).map(String::as_str).unwrap_or("")
+        } else {
+            continue;
+        };
+        if digits.chars().all(|c| c.is_ascii_digit()) && (1..=3).contains(&digits.len()) {
+            return Some(digits.to_string());
+        }
+    }
+    None
+}
+
+/// A branch-összehasonlítás csak akkor szigorú, ha a nevek nem mondanak
+/// korosztályt (U17/U21 stb.); ilyenkor a név-jelölő az erősebb bizonyíték.
+fn branch_compatible(name_a: &str, branch_a: &str, name_b: &str, branch_b: &str) -> bool {
+    if age_marker(name_a).is_some() && age_marker(name_b).is_some() {
+        return true;
+    }
+    branch_a == branch_b
+}
+
+/// Két csapat korosztálya összeegyeztethető-e: erős név-jelölő esetén a
+/// jelölők egyezése, egyébként az `age_group` oszlop.
+fn age_compatible(name_a: &str, age_a: &str, name_b: &str, age_b: &str) -> bool {
+    match (age_marker(name_a), age_marker(name_b)) {
+        (Some(x), Some(y)) => x == y,
+        _ => age_a == age_b,
+    }
 }
 
 /// A név jelöli-e, hogy női csapat (`W`, `Women`, `női`, `femenine`).
@@ -382,19 +432,6 @@ fn variant_pair_mergeable(
         // Tükrözött variáns: az áldozat eredménye elveszne — kézi döntés kell.
         return !(flipped && d.has_result && !s.has_result);
     }
-    // Azonos verseny + ≤60 perc: ha az egyik oldal biztosan ugyanaz a csapat,
-    // a másik oldal sem lehet más (egy csapat nem játszhat két meccset egyszerre).
-    if s.competition_id == d.competition_id
-        && (s.kickoff_at - d.kickoff_at).num_minutes().abs() <= 60
-    {
-        let same_home =
-            s.home_team_id == d.home_team_id || names_strictly_same(&s.home_name, &d.home_name);
-        let same_away =
-            s.away_team_id == d.away_team_id || names_strictly_same(&s.away_name, &d.away_name);
-        if same_home || same_away {
-            return true;
-        }
-    }
     let normal = names_likely_same(&s.home_name, &d.home_name)
         && names_likely_same(&s.away_name, &d.away_name);
     let flipped = names_likely_same(&s.home_name, &d.away_name)
@@ -444,15 +481,6 @@ fn strict_variant_pair_mergeable(
     let delta = (s.kickoff_at - d.kickoff_at).num_minutes().abs();
     if delta > 120 {
         return false;
-    }
-    if s.competition_id == d.competition_id && delta <= 60 {
-        let same_home =
-            s.home_team_id == d.home_team_id || names_strictly_same(&s.home_name, &d.home_name);
-        let same_away =
-            s.away_team_id == d.away_team_id || names_strictly_same(&s.away_name, &d.away_name);
-        if same_home || same_away {
-            return true;
-        }
     }
     let normal = names_strictly_same(&s.home_name, &d.home_name)
         && names_strictly_same(&s.away_name, &d.away_name);
@@ -1051,6 +1079,7 @@ mod tests {
         let mut c = row(3);
         c.competition_id = Uuid::from_u128(200);
         c.away_age_group = "u19".to_string();
+        c.away_name = "Kyrgyzstan U19".to_string();
         assert!(!variant_pair(&a, &c, true));
 
         let mut d = row(4);

@@ -1052,3 +1052,59 @@ zászlaja. Cél: a 2026-11-20-i 246–267 soros napi lista teljes auditja
 - [ ] A hét többi napjának (11-21…11-27) egyenkénti duplikátum-auditja.
 - [ ] Verseny-logó lefedettség (a v1-nek csak 96 ligája van; a napi 121
       szekcióból 64 kap logót) és a csapatlogó-lefedettség további emelése.
+
+## S43b — ország-semleges duplikátumok és archív-restore
+
+### Változások
+
+- [x] `rust/crates/storage/src/repositories/dedupe.rs`: a cross-competition
+      párosítás mostantól a semleges verseny-országot (NULL / `XX` / `INT`)
+      wildcardként kezeli, és a korosztályt/ágat a csapatnév jelölője alapján
+      egyezteti (a v1-import `senior`/hiányos metaadata miatt eddig kimaradtak
+      a nemzeti csapatos párok). Az „egyik oldal egyezik" szabály kikerült: a
+      merge csak akkor biztonságos, ha mindkét oldal ugyanaz (normál vagy
+      tükrözött), különben két különböző meccs olvadhatott össze.
+- [x] `rust/bins/footballctl/src/main.rs`: a `dedupe variants` lekérdezése
+      ±1 napos ablakkal dolgozik (a helyi nap és a UTC-nap eltérése miatt a
+      23:xx-kor kezdődő meccsek kimaradtak); új `dedupe pair --survivor …
+      --duplicate … --note …` parancs az ellenőrzött kézi merge-hez.
+- [x] Visszaállítás: a tévesen összevont „FK Skopje–Arsimi" meccs teljes
+      archív-payloadból (match + provenance + gate) visszakerült; az „East
+      Bengal FC–SC Delhi" sor ellenfele Hyderabad FC-re javítva (mindkettő
+      auditált).
+
+### Adatműveletek
+
+- [x] Ország-semleges cross-competition dedupe a 11-13…11-29 ablakon:
+      51 + 8 + 7 + 10 merge (főleg v1 „Friendly International", AFCON/UEFA
+      Nations League/World Cup U17 párhuzamos entitások); a maradék jelöltek
+      hamis pozitívok (U17/U18, férfi/női, U17/női).
+- [x] Verseny-merge-ek: DZ „1. divízió" → „Ligue 1"; „Copa de la Reina - női"
+      → „Copa de la Reina"; „Women's Champions League" és „UEFA Women's
+      Champions League" → „UEFA Champions League Women - League phase"
+      (ország XX). Audit: `competition_merge`, `match_dedupe_merge`.
+- [x] Mentés az ország-semleges dedupe előtt:
+      `/tmp/football_v2_dev_20261120_pre_neutral_dedupe.dump` (571 MB).
+
+### Eredmény (2026-11-20 / 11-21)
+
+- [x] 11-20: 245 meccs, 121 szekció, 0 önmaga-meccs, 0 valódi duplikátum,
+      0 withheld, 138 forduló, 83/245 mindkét csapatlogó, 59 verseny-logó,
+      11 date_only.
+- [x] 11-21: 805 meccs; a maradék fuzzy jelöltek hamis pozitívok
+      (Esbjerg U17 / AaB W / Esbjerg fB, Toulouse férfi/női).
+- [x] Hétvégi feed-audit: 1830 publishable sor, 0 valódi duplikátum,
+      0 önmaga-meccs.
+
+### Kapuk
+
+- [x] `cargo fmt --all --check` OK; clippy `-D warnings` tiszta;
+      `cargo test --workspace -- --test-threads=1` exit 0.
+
+### Nyitott
+
+- [ ] 11-17/11-19: 8 withheld a merge-ek után (a két forrás eredménye eltér:
+      Aruba–Martinique, Guatemala–Canada, Cook Islands–Tahiti, Oman–Brunei,
+      Yemen–Malaysia, CD/CG Ligue 1 sorok) — forrás-oldali eredmény-konfliktus,
+      kézi ellenőrzés kell.
+- [ ] A hét többi napjának (11-22…11-29) egyenkénti tematikus auditja.

@@ -714,11 +714,17 @@ async fn main() -> Result<()> {
                 allow_loose,
                 cross_competition,
             } => {
+                // A forrás- és a megjelenítési nap eltérhet (a meccsek a helyi
+                // időzóna szerint csoportosulnak, a lekérdezés UTC-napra bont),
+                // ezért ±1 napos ablakban keresünk; a párosítás saját 12 órás
+                // kickoff-korlátja továbbra is kizárja a következő napi meccseket.
+                let from = date.pred_opt().unwrap_or(date);
+                let to = date.succ_opt().unwrap_or(date);
                 let groups =
                     football_storage::repositories::dedupe::variant_duplicate_groups_between(
                         &pool,
-                        date,
-                        date,
+                        from,
+                        to,
                         cross_competition,
                     )
                     .await?;
