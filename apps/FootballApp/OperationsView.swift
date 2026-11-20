@@ -17,31 +17,11 @@ struct OperationsView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .bottom) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Üzemeltetés")
-                    .font(.system(size: 44, weight: .bold))
-                    .tracking(-1.5)
-                    .foregroundStyle(AppTheme.primaryText)
-                Text("worker · review · forrásállapot")
-                    .font(.system(size: 12))
-                    .foregroundStyle(AppTheme.secondaryText)
-            }
-            Spacer()
-            Button {
+        PageHeader(title: "Üzemeltetés", subtitle: "worker · review · forrásállapot") {
+            RoundIconButton(systemName: "arrow.clockwise", help: "Frissítés") {
                 Task { await model.load() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(AppTheme.primaryText)
-                    .padding(9)
-                    .background(AppTheme.surface, in: Circle())
             }
-            .buttonStyle(.plain)
         }
-        .padding(.horizontal, 48)
-        .padding(.top, 28)
-        .padding(.bottom, 18)
     }
 
     @ViewBuilder
@@ -84,10 +64,10 @@ struct OperationsView: View {
     private func statCard(_ title: String, value: Int, accent: Color?) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("\(value)")
-                .font(.system(size: 30, weight: .bold).monospacedDigit())
+                .font(.scoreboard(30))
                 .foregroundStyle(accent ?? AppTheme.primaryText)
             Text(title.uppercased())
-                .font(.system(size: 9.5, weight: .semibold))
+                .font(.appLabel())
                 .tracking(1.2)
                 .foregroundStyle(AppTheme.secondaryText)
         }
@@ -111,7 +91,7 @@ struct OperationsView: View {
         return VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("INTEGRITÁS")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.appLabel())
                     .tracking(1.4)
                     .foregroundStyle(AppTheme.secondaryText)
                 Spacer()
@@ -129,7 +109,7 @@ struct OperationsView: View {
                 ForEach(Array(metrics.enumerated()), id: \.offset) { index, metric in
                     VStack(alignment: .leading, spacing: 4) {
                         Text("\(metric.1)")
-                            .font(.system(size: 20, weight: .bold).monospacedDigit())
+                            .font(.scoreboard(20))
                             .foregroundStyle(metric.1 > 0 ? .orange : AppTheme.primaryText)
                         Text(metric.0.uppercased())
                             .font(.system(size: 9, weight: .semibold))
@@ -156,12 +136,12 @@ struct OperationsView: View {
         VStack(spacing: 0) {
             HStack {
                 Text("FORRÁSOK")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.appLabel())
                     .tracking(1.4)
                     .foregroundStyle(AppTheme.secondaryText)
                 Spacer()
                 Text("\(sources.count)")
-                    .font(.system(size: 11).monospacedDigit())
+                    .font(.scoreboard(11, weight: .medium))
                     .foregroundStyle(AppTheme.secondaryText)
             }
             .padding(.horizontal, 18)
@@ -192,7 +172,7 @@ struct OperationsView: View {
                 .frame(width: 7, height: 7)
 
             Text(source.sourceSlug)
-                .font(.system(size: 14, weight: .medium))
+                .font(.appText(14))
                 .foregroundStyle(AppTheme.primaryText)
                 .frame(width: 150, alignment: .leading)
 
@@ -209,7 +189,7 @@ struct OperationsView: View {
 
     private func modePill(_ mode: String) -> some View {
         Text(mode.uppercased())
-            .font(.system(size: 9, weight: .bold))
+            .font(.appLabel(9))
             .tracking(0.8)
             .foregroundStyle(modeColor(mode))
             .padding(.horizontal, 8)
@@ -231,7 +211,7 @@ struct OperationsView: View {
             ? Double(source.attemptsToday) / Double(source.dailyBudget) : 0
         return VStack(alignment: .trailing, spacing: 4) {
             Text("\(source.attemptsToday)/\(source.dailyBudget) ma")
-                .font(.system(size: 11).monospacedDigit())
+                .font(.scoreboard(11, weight: .medium))
                 .foregroundStyle(AppTheme.secondaryText)
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
@@ -249,7 +229,7 @@ struct OperationsView: View {
     private func breakerChip(_ state: String) -> some View {
         if state != "closed" {
             Text(state == "open" ? "BREAKER NYITOTT" : "FÉLIG NYITOTT")
-                .font(.system(size: 9, weight: .bold))
+                .font(.appLabel(9))
                 .tracking(0.8)
                 .foregroundStyle(.red)
                 .padding(.horizontal, 8)

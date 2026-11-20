@@ -728,3 +728,34 @@ bemutatott bizonyíték alapján a **B — app-szintű Tab-sorrend** irányt vá
       `/tmp/design-detail-odds.png`.
 - [x] Dokumentáció: `docs/superpowers/specs/2026-11-20-app-design.md`.
 - [ ] Commit + push + CI (folyamatban).
+
+## S40 — a maradék nézetek átemelése, csapatlogók és teljesítmény-fix
+
+- [x] A három maradék nézet (Versenyek, Csapatok, Üzemeltetés) átvéve az
+      S39-es design-rendszerbe: közös `PageHeader`, `SearchField`,
+      `RoundIconButton` komponensek a `Scoreboard.swift`-ben; egységes
+      tipográfia (`.appText`, `.appLabel`, `.scoreboard`), kártya-hátterek.
+- [x] Csapatlogók: `scripts/import-v1-team-logos.py` (v1 WebP-készlet
+      tartalom-címzett másolása + `logo_url` referenciák) és
+      `scripts/import-luukhopman-logos.py` (GitHub repó, pontos + rövidítés-tűrő
+      név-egyezés). Eredmény: **566** team-logo sor az `ops.asset`-ben; a napi
+      feedben 104 meccsből **20-nál** van legalább egy logó, 7-nél mindkettő.
+      A nézetek a `CrestLogo`-t használják, így a hiányzó kép monogramot rajzol.
+- [x] Teljesítmény: a `/v1/teams` végpont korábban **>60 s** (timeout) volt,
+      mert a 60 napos ablakot csapatonként pásztázta; egyetlen aggregátumra
+      írva **0,19 s** (400 csapat). A lista aktivitás szerint rendez
+      (`recent_matches DESC, name`).
+- [x] Nap-nézet: a „Kiemelt kör” szűrő alapból kikapcsolva, így nyitáskor a
+      teljes napi lista látszik (104 meccs; Következik 83, Élő 4,
+      Befejezett 17).
+- [x] Dokumentáció: `docs/operations/team-logos.md`,
+      `docs/decisions/2026-11-20-csapatlogok.md`.
+- [x] Bizonyíték: build zöld; `./scripts/run-ui-tests.sh` → **TEST SUCCEEDED**
+      (app unit 26/26, UI 8/8); `cargo fmt --all --check` OK; clippy
+      `-D warnings` tiszta; `db-reset.sh` + `check-foundation.sh` exit 0;
+      `cargo test --workspace -- --test-threads=1` → exit 0, **92 teszt-blokk
+      zöld**; a daemon az új binárissal fut (telepítve).
+- [x] Élő ellenőrzés: az app a valódi daemonhoz csatlakozva fut, a nap-nézet
+      (104 meccs), a Versenyek, a Csapatok és az Üzemeltetés nézet is a helyes
+      adatot mutatja; képernyőképek `/tmp/live-day4.png`,
+      `/tmp/live-versenyek.png`, `/tmp/live-teams3.png`, `/tmp/live-ops3.png`.

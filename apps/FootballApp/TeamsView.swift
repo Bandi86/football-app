@@ -20,46 +20,14 @@ struct TeamsView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .bottom, spacing: 20) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Csapatok")
-                    .font(.system(size: 44, weight: .bold))
-                    .tracking(-1.5)
-                    .foregroundStyle(AppTheme.primaryText)
-                Text("kanonikus csapatok · mérleg és meccsek")
-                    .font(.system(size: 12))
-                    .foregroundStyle(AppTheme.secondaryText)
+        PageHeader(title: "Csapatok", subtitle: "kanonikus csapatok · mérleg és meccsek") {
+            HStack(spacing: AppTheme.Spacing.s) {
+                SearchField(text: $model.search, placeholder: "Keresés (csapat, ország)")
+                RoundIconButton(systemName: "arrow.clockwise", help: "Frissítés") {
+                    Task { await model.load() }
+                }
             }
-            Spacer()
-            HStack(spacing: 7) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(AppTheme.secondaryText)
-                TextField("Keresés (csapat, ország)", text: $model.search)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(AppTheme.primaryText)
-                    .frame(width: 210)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(AppTheme.surface, in: Capsule())
-            .overlay(Capsule().strokeBorder(AppTheme.hairline))
-
-            Button {
-                Task { await model.load() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(AppTheme.primaryText)
-                    .padding(9)
-                    .background(AppTheme.surface, in: Circle())
-            }
-            .buttonStyle(.plain)
         }
-        .padding(.horizontal, 48)
-        .padding(.top, 28)
-        .padding(.bottom, 18)
     }
 
     @ViewBuilder
@@ -106,22 +74,20 @@ struct TeamsView: View {
 
     private func teamRow(_ row: TeamSummary) -> some View {
         HStack(spacing: 14) {
-            TeamMark(path: row.logo, store: model.logos)
-                .scaleEffect(1.4)
-                .frame(width: 34, height: 34)
+            CrestLogo(name: row.name, path: row.logo, store: model.logos, size: 34)
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.name)
-                    .font(.system(size: 14.5, weight: .medium))
+                    .font(.appText(14.5))
                     .foregroundStyle(AppTheme.primaryText)
                 Text(subtitle(row))
-                    .font(.system(size: 9.5, weight: .semibold))
+                    .font(.appLabel(9))
                     .tracking(1.1)
                     .foregroundStyle(AppTheme.secondaryText)
             }
             Spacer()
             if row.branch == "youth" || row.gender == "female" {
                 Text(row.gender == "female" ? "NŐI" : "UTÁNPÓTLÁS")
-                    .font(.system(size: 8.5, weight: .bold))
+                    .font(.appLabel(8.5))
                     .tracking(0.8)
                     .foregroundStyle(AppTheme.accent)
                     .padding(.horizontal, 7)
@@ -129,7 +95,7 @@ struct TeamsView: View {
                     .background(AppTheme.accent.opacity(0.13), in: Capsule())
             }
             Text("\(row.recentMatches) meccs")
-                .font(.system(size: 11.5).monospacedDigit())
+                .font(.scoreboard(11, weight: .medium))
                 .foregroundStyle(AppTheme.secondaryText)
             Image(systemName: "chevron.right")
                 .font(.system(size: 9, weight: .semibold))

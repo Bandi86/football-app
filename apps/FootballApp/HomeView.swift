@@ -21,7 +21,7 @@ struct HomeView: View {
     @State private var country: String? = nil
     @State private var division: Int? = nil
     @State private var tab: AppTab = .day
-    @State private var featuredOnly = true
+    @State private var featuredOnly = false
     @State private var selected: SelectedMatch?
     @State private var focus: AppFocus?
     @State private var showCalendar = false

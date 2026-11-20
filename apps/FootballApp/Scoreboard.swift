@@ -414,3 +414,73 @@ struct CrestLogo: View {
         }
     }
 }
+
+/// Oldal-fejléc a lista-nézetekhez (Versenyek, Csapatok, Üzemeltetés).
+struct PageHeader<Trailing: View>: View {
+    let title: String
+    let subtitle: String
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: AppTheme.Spacing.l) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.scoreboard(40))
+                    .tracking(-1.2)
+                    .foregroundStyle(AppTheme.primaryText)
+                Text(subtitle)
+                    .font(.appText(12.5))
+                    .foregroundStyle(AppTheme.secondaryText)
+            }
+            Spacer()
+            trailing
+        }
+        .padding(.horizontal, 48)
+        .padding(.top, 24)
+        .padding(.bottom, 16)
+    }
+}
+
+/// Keresőmező a lista-nézetekhez.
+struct SearchField: View {
+    @Binding var text: String
+    var placeholder: String
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(AppTheme.secondaryText)
+            TextField(placeholder, text: $text)
+                .textFieldStyle(.plain)
+                .font(.appText(12.5))
+                .foregroundStyle(AppTheme.primaryText)
+                .frame(width: 210)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(AppTheme.surface, in: Capsule())
+        .overlay(Capsule().strokeBorder(AppTheme.hairline))
+    }
+}
+
+/// Kerek ikon-gomb a fejlécekhez (frissítés, zárás, stb.).
+struct RoundIconButton: View {
+    let systemName: String
+    var help: String = ""
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(AppTheme.primaryText)
+                .frame(width: 32, height: 32)
+                .background(AppTheme.surface, in: Circle())
+                .overlay(Circle().strokeBorder(AppTheme.hairline))
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help.isEmpty ? systemName : help)
+    }
+}

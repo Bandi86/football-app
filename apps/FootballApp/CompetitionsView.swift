@@ -20,49 +20,14 @@ struct CompetitionsView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .bottom, spacing: 20) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Versenyek")
-                    .font(.system(size: 44, weight: .bold))
-                    .tracking(-1.5)
-                    .foregroundStyle(AppTheme.primaryText)
-                Text("a nap ellenőrzött versenyei")
-                    .font(.system(size: 12))
-                    .foregroundStyle(AppTheme.secondaryText)
+        PageHeader(title: "Versenyek", subtitle: "a nap ellenőrzött versenyei") {
+            HStack(spacing: AppTheme.Spacing.s) {
+                SearchField(text: $model.search, placeholder: "Keresés (liga, ország)")
+                RoundIconButton(systemName: "arrow.clockwise", help: "Frissítés") {
+                    Task { await model.load() }
+                }
             }
-            Spacer()
-            searchField
-            Button {
-                Task { await model.load() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(AppTheme.primaryText)
-                    .padding(9)
-                    .background(AppTheme.surface, in: Circle())
-            }
-            .buttonStyle(.plain)
         }
-        .padding(.horizontal, 48)
-        .padding(.top, 28)
-        .padding(.bottom, 18)
-    }
-
-    private var searchField: some View {
-        HStack(spacing: 7) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(AppTheme.secondaryText)
-            TextField("Keresés (liga, ország)", text: $model.search)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12.5))
-                .foregroundStyle(AppTheme.primaryText)
-                .frame(width: 210)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(AppTheme.surface, in: Capsule())
-        .overlay(Capsule().strokeBorder(AppTheme.hairline))
     }
 
     @ViewBuilder
@@ -116,24 +81,24 @@ struct CompetitionsView: View {
             CompetitionLogo(path: row.logo, store: model.logos, fallbackFlag: row.countryCode)
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.name)
-                    .font(.system(size: 14.5, weight: .medium))
+                    .font(.appText(14.5))
                     .foregroundStyle(AppTheme.primaryText)
                 Text(countryLabel(row))
-                    .font(.system(size: 9.5, weight: .semibold))
+                    .font(.appLabel(9))
                     .tracking(1.1)
                     .foregroundStyle(AppTheme.secondaryText)
             }
             Spacer()
             if row.live > 0 {
                 Text("ÉLŐ \(row.live)")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(.appLabel(9))
                     .foregroundStyle(AppTheme.liveGreen)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
                     .background(AppTheme.liveGreen.opacity(0.14), in: Capsule())
             }
             Text("\(row.matches) meccs")
-                .font(.system(size: 11.5).monospacedDigit())
+                .font(.scoreboard(11, weight: .medium))
                 .foregroundStyle(AppTheme.secondaryText)
             Image(systemName: "chevron.right")
                 .font(.system(size: 9, weight: .semibold))

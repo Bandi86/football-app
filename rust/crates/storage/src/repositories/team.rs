@@ -24,8 +24,30 @@ pub async fn fetch_teams(
     date: NaiveDate,
     timezone: &str,
 ) -> Result<Vec<TeamListRow>> {
+    // A korábbi LATERAL a 400 csapat mindegyikére külön pásztázta a
+    // core.match táblát (~27 ms/csapat): a 60 napos ablakot egyszer
+    // aggregáljuk, és a csapat-listához joinoljuk (S40 teljesítmény-fix).
     let rows = sqlx::query_as::<_, TeamListRow>(
-        "SELECT
+        "WITH recent AS (
+             SELECT team_id, count(*)::bigint AS recent_matches
+             FROM (
+                 SELECT m.home_team_id AS team_id
+                 FROM core.match m
+                 JOIN ops.publish_gate g ON g.match_id = m.id
+                   AND g.publish_date = (m.kickoff_at AT TIME ZONE $3)::date
+                 WHERE (m.kickoff_at AT TIME ZONE $3)::date BETWEEN $2 - 30 AND $2 + 30
+                   AND g.state = 'verified_publish'
+                 UNION ALL
+                 SELECT m.away_team_id
+                 FROM core.match m
+                 JOIN ops.publish_gate g ON g.match_id = m.id
+                   AND g.publish_date = (m.kickoff_at AT TIME ZONE $3)::date
+                 WHERE (m.kickoff_at AT TIME ZONE $3)::date BETWEEN $2 - 30 AND $2 + 30
+                   AND g.state = 'verified_publish'
+             ) sides
+             GROUP BY team_id
+         )
+         SELECT
             t.id AS team_id,
             t.name,
             co.code AS country_code,
@@ -33,9 +55,10 @@ pub async fn fetch_teams(
             t.gender,
             t.branch,
             tl.logo,
-            COALESCE(rec.recent_matches, 0)::bigint AS recent_matches
+            COALESCE(recent.recent_matches, 0)::bigint AS recent_matches
          FROM core.team t
          LEFT JOIN core.country co ON co.id = t.country_id
+         LEFT JOIN recent ON recent.team_id = t.id
          LEFT JOIN LATERAL (
              SELECT CASE WHEN a.storage_key IS NOT NULL
                          THEN '/v1/asset/' || a.storage_key
@@ -46,18 +69,8 @@ pub async fn fetch_teams(
              ORDER BY (a.storage_key IS NULL), a.captured_at DESC
              LIMIT 1
          ) tl ON true
-         LEFT JOIN LATERAL (
-             SELECT count(*) AS recent_matches
-             FROM core.match m
-             JOIN ops.publish_gate g ON g.match_id = m.id
-               AND g.publish_date = (m.kickoff_at AT TIME ZONE $3)::date
-             WHERE (m.home_team_id = t.id OR m.away_team_id = t.id)
-               AND (m.kickoff_at AT TIME ZONE $3)::date
-                     BETWEEN $2 - 30 AND $2 + 30
-               AND g.state = 'verified_publish'
-         ) rec ON true
          WHERE ($1 = '' OR t.name ILIKE '%' || $1 || '%')
-         ORDER BY t.name
+         ORDER BY COALESCE(recent.recent_matches, 0) DESC, t.name
          LIMIT 400",
     )
     .bind(query.trim())
