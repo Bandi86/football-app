@@ -130,3 +130,38 @@ Tanulságok (a harness dokumentálva):
   lehet, ezt ki kell szűrni, különben a `modifiers.isEmpty` feltétel elnyeli őket; a nyitott sheet
   ablaka `attachedSheet == nil`, ezért `sheetParent == nil` is kell a billentyű-monitorban; az
   `NSEvent` nem `Sendable`, ezért csak a keyCode + flags mehet át a `MainActor.assumeIsolated`-be.
+
+## S34 — app-szintű Tab-sorrend (2026-11-20)
+
+Kiindulás: az S32a fókuszmodellje csak a listán belül működött, és mivel a `KeyboardMonitor`
+minden Tabot elfogyasztott, a lista **billentyűzet-csapda** volt. Élő mérés friss builddel: Escape
+után a következő Tab mindig visszavitte a fókuszt az első kártyára, a fejléc, a szűrők és a
+dátum-nyilak billentyűzettel nem voltak elérhetők (`/tmp/s34-tab-after-escape.png`).
+
+- App-szintű fókuszmodell: `apps/FootballApp/AppFocus.swift` (`AppFocus` állomások,
+  `focusedTarget(from:step:in:)` körbeérő lépés, `focusRing` / `capsuleFocusRing` /
+  `circleFocusRing`, `focusAccessibility`). A `KeyboardMonitor` a `HomeView` gyökerére került; a
+  `MatchListView` már nem fog billentyűt, csak a fókuszált meccs azonosítóját kapja.
+- Sorrend nap-nézetben: 4 felső navigáció → előző nap / Ma / következő nap / naptár / frissítés →
+  4 státusz-szűrő → kiemelt-kör váltó → meccskártyák (liga- és időrendben). Más fülön a felső
+  navigáció a teljes sorrend.
+- Billentyűk: Tab / Shift+Tab = következő-előző állomás (körbeérő), ↓ / ↑ = csak a lista elemei
+  között lép, Return/Enter = aktiválás (fülváltás, nap-lépés, naptár, frissítés, szűrő,
+  kiemelt-kör, részletező), Escape = fókusz törlése. Nyitott naptár-popover fölött a monitor nem
+  nyúl a billentyűkhöz.
+- Látható fókusz: 2 pt borostyán (`AppTheme.accent`) gyűrű a felső navigáción, a fejléc-gombokon
+  és a szűrő-chipeken; a kártyákon továbbra is a keretes kiemelés. AX-jelzés: minden fókuszált
+  vezérlő `selected` traitet kap (`nav.tab.day` … `filter.featured`, `match.card.<id>`).
+- **Nem része a saját Tab-körnek** (dokumentált korlát): a két legördülő menü (ország, osztály)
+  natív `Menu`, a naptár-popover tartalma és a részletező sheet vezérlői; ezek VoiceOverrel és
+  egérrel érhetők el, a saját körbe emelésük külön szelet.
+- UI-tesztek: új `testKeyboardTabOrderCoversHeaderFiltersAndList` (navigáció → fejléc → szűrők →
+  első kártya → Escape → Shift+Tab az utolsó kártyára) és a frissített
+  `testKeyboardFocusWalksMatchCardsAndOpensDetail` (a kártyafókusz a 15. Tab: 4 nav + 5 fejléc +
+  4 szűrő + kiemelt-kör). Futott: **26/26 app unit + 7/7 UI teszt zöld**, `** TEST SUCCEEDED **`.
+- Élő igazolás a futó appon: `/tmp/s34-v2-tab1.png` (felső „Ma”), `/tmp/s34-v2-tab9.png`
+  („Mind” szűrő), `/tmp/s34-v2-tab14.png` (első kártya), `/tmp/s34-v2-return.png` (részletező
+  Returnre), `/tmp/s34-v2-shifttab2.png` (Shift+Tab az utolsó kártyára).
+- Tanulság: az XCUITest minden `typeKey` hívása az app idle-szinkronizálásával együtt 0,6 s-nál
+  hosszabb lehet, ezért a „Tab + rövid várakozás” ciklus elhibázza a kártyát; a fix sorrendű,
+  előre kiszámolt Tab-számmal + egyetlen hosszabb várakozással a teszt determinisztikus (10,2 s).

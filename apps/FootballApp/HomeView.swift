@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import FootballAppCore
 
 /// A főoldal: felső navigáció → változó HEADER → szűrő → liga szerint csoportosított
@@ -22,6 +23,8 @@ struct HomeView: View {
     @State private var tab: AppTab = .day
     @State private var featuredOnly = true
     @State private var selected: SelectedMatch?
+    @State private var focus: AppFocus?
+    @State private var showCalendar = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
@@ -29,7 +32,7 @@ struct HomeView: View {
     var body: some View {
         @Bindable var model = model
         VStack(spacing: 0) {
-            TopNavigationBar(selected: tab) { tab = $0 }
+            TopNavigationBar(selected: tab, focused: focus) { tab = $0 }
 
             Rectangle().fill(AppTheme.hairline).frame(height: 1)
 
@@ -45,12 +48,108 @@ struct HomeView: View {
             }
         }
         .background(AppTheme.background)
+        .background(KeyboardMonitor { keyCode, modifiers in
+            handle(keyCode: keyCode, modifiers: modifiers)
+        })
         .onAppear {
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.4)) { appeared = true }
         }
         .task(id: model.selectedDate) { await model.load() }
+        .onChange(of: tab) { _, newTab in
+            // Fülváltásnál a lista-állomás eltűnik, a navigációs fókusz marad.
+            if case .match = focus { focus = .tab(newTab) }
+        }
+        .onChange(of: matchIDs) { _, ids in
+            if case .match(let id) = focus, !ids.contains(id) { focus = nil }
+        }
         .sheet(item: $selected) { item in
             MatchDetailSheet(matchId: item.id)
+        }
+    }
+
+    // MARK: - App-szintű Tab-sorrend
+
+    private var matchIDs: [String] {
+        guard case .loaded(let feed) = model.state else { return [] }
+        return filteredLeagues(feed.matches).flatMap { league in
+            league.matches.sorted { ($0.time, $0.id) < ($1.time, $1.id) }.map(\.id)
+        }
+    }
+
+    private var focusOrder: [AppFocus] {
+        AppFocus.order(tab: tab, matchIDs: matchIDs)
+    }
+
+    private var focusedMatchID: String? {
+        if case .match(let id) = focus { return id }
+        return nil
+    }
+
+    private func handle(keyCode: UInt16, modifiers rawModifiers: NSEvent.ModifierFlags) -> Bool {
+        // A nyíl- és Tab-billentyűk maguk is „function” jelzőt hordozhatnak.
+        let modifiers = rawModifiers
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.function, .numericPad])
+        guard modifiers.isEmpty || modifiers == .shift else { return false }
+        // A naptár-popover nyitva saját ablakként viselkedik: ilyenkor nem nyúlunk a billentyűkhöz.
+        guard !showCalendar else { return false }
+
+        switch keyCode {
+        case KeyCode.tab:
+            let order = focusOrder
+            guard !order.isEmpty else { return false }
+            focus = focusedTarget(from: focus, step: modifiers.contains(.shift) ? -1 : 1, in: order)
+            return true
+        case KeyCode.down:
+            return stepMatch(by: 1)
+        case KeyCode.up:
+            return stepMatch(by: -1)
+        case KeyCode.returnKey, KeyCode.enter:
+            guard let focus else { return false }
+            activate(focus)
+            return true
+        case KeyCode.escape:
+            guard focus != nil else { return false }
+            focus = nil
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// ↑ / ↓ csak a lista-állomáson belül lép (nem körbeérő, nem ugrik a fejlécbe).
+    private func stepMatch(by delta: Int) -> Bool {
+        let ids = matchIDs
+        guard case .match(let current) = focus, let index = ids.firstIndex(of: current) else {
+            return false
+        }
+        let next = index + delta
+        if ids.indices.contains(next) { focus = .match(ids[next]) }
+        return true
+    }
+
+    private func activate(_ target: AppFocus) {
+        switch target {
+        case .tab(let destination):
+            tab = destination
+        case .previousDay:
+            model.goToPreviousDay()
+        case .today:
+            model.goToToday()
+        case .nextDay:
+            model.goToNextDay()
+        case .calendar:
+            showCalendar = true
+        case .refresh:
+            Task { await model.load() }
+        case .filter(let candidate):
+            filter = candidate
+        case .featured:
+            featuredOnly.toggle()
+        case .match(let id):
+            if let uuid = UUID(uuidString: id) {
+                selected = SelectedMatch(id: uuid)
+            }
         }
     }
 
@@ -63,6 +162,8 @@ struct HomeView: View {
                 count: loadedCount,
                 refreshedAt: loadedRefreshedAt,
                 appeared: appeared,
+                focused: focus,
+                showCalendar: $showCalendar,
                 onPrevious: { model.goToPreviousDay() },
                 onToday: { model.goToToday() },
                 onNext: { model.goToNextDay() },
@@ -70,7 +171,7 @@ struct HomeView: View {
             )
 
             FilterBar(filter: $filter, country: $country, division: $division,
-                      featuredOnly: $featuredOnly,
+                      featuredOnly: $featuredOnly, focused: focus,
                       counts: filterCounts, countries: allCountries)
 
             content
@@ -89,7 +190,8 @@ struct HomeView: View {
             if leagues.isEmpty, featuredOnly, !groups(feed.matches, featured: false).isEmpty {
                 featuredEmptyHint
             } else {
-                MatchListView(leagues: leagues, logos: model.logos) { id in
+                MatchListView(leagues: leagues, logos: model.logos,
+                              focusedMatch: focusedMatchID) { id in
                     if let uuid = UUID(uuidString: id) {
                         selected = SelectedMatch(id: uuid)
                     }
@@ -164,6 +266,7 @@ struct HomeView: View {
 
 private struct TopNavigationBar: View {
     let selected: AppTab
+    let focused: AppFocus?
     let onSelect: (AppTab) -> Void
     private static let clock: DateFormatter = {
         let formatter = DateFormatter()
@@ -185,10 +288,10 @@ private struct TopNavigationBar: View {
             Spacer()
 
             HStack(spacing: 8) {
-                pill("Ma", active: selected == .day) { onSelect(.day) }
-                pill("Versenyek", active: selected == .competitions) { onSelect(.competitions) }
-                pill("Csapatok", active: selected == .teams) { onSelect(.teams) }
-                pill("Üzemeltetés", active: selected == .ops) { onSelect(.ops) }
+                pill("Ma", tab: .day, identifier: "day", active: selected == .day) { onSelect(.day) }
+                pill("Versenyek", tab: .competitions, identifier: "competitions", active: selected == .competitions) { onSelect(.competitions) }
+                pill("Csapatok", tab: .teams, identifier: "teams", active: selected == .teams) { onSelect(.teams) }
+                pill("Üzemeltetés", tab: .ops, identifier: "ops", active: selected == .ops) { onSelect(.ops) }
             }
 
             Spacer()
@@ -212,10 +315,13 @@ private struct TopNavigationBar: View {
 
     private func pill(
         _ title: String,
+        tab: AppTab? = nil,
+        identifier: String? = nil,
         active: Bool,
         action: (() -> Void)?
     ) -> some View {
-        Button {
+        let isFocused = tab.map { focused == .tab($0) } ?? false
+        return Button {
             action?()
         } label: {
             Text(title)
@@ -227,6 +333,10 @@ private struct TopNavigationBar: View {
         }
         .buttonStyle(.plain)
         .disabled(action == nil)
+        .help(title)
+        .accessibilityIdentifier(identifier.map { "nav.tab.\($0)" } ?? "nav.tab")
+        .focusAccessibility(isFocused)
+        .capsuleFocusRing(isFocused)
     }
 }
 
@@ -235,13 +345,14 @@ private struct HomeHeader: View {
     let count: Int?
     let refreshedAt: Date?
     let appeared: Bool
+    let focused: AppFocus?
+    @Binding var showCalendar: Bool
     let onPrevious: () -> Void
     let onToday: () -> Void
     let onNext: () -> Void
     let onRefresh: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var showCalendar = false
 
     private static let bigDate: DateFormatter = {
         let formatter = DateFormatter()
@@ -352,7 +463,8 @@ private struct HomeHeader: View {
             Spacer()
 
             HStack(spacing: 8) {
-                iconButton("chevron.left", help: "Előző nap", action: onPrevious)
+                iconButton("chevron.left", help: "Előző nap",
+                           focus: .previousDay, action: onPrevious)
                     .keyboardShortcut(.leftArrow, modifiers: .command)
                 Button(action: onToday) {
                     Text("Ma")
@@ -365,8 +477,12 @@ private struct HomeHeader: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Ma")
+                .accessibilityIdentifier("nav.today")
+                .focusAccessibility(focused == .today)
+                .capsuleFocusRing(focused == .today)
                 .keyboardShortcut("t", modifiers: .command)
-                iconButton("chevron.right", help: "Következő nap", action: onNext)
+                iconButton("chevron.right", help: "Következő nap",
+                           focus: .nextDay, action: onNext)
                     .keyboardShortcut(.rightArrow, modifiers: .command)
 
                 Rectangle().fill(AppTheme.hairline).frame(width: 1, height: 18).padding(.horizontal, 2)
@@ -384,11 +500,15 @@ private struct HomeHeader: View {
                 .buttonStyle(.plain)
                 .help("Naptár")
                 .accessibilityLabel("Naptár")
+                .accessibilityIdentifier("nav.calendar")
+                .focusAccessibility(focused == .calendar)
+                .circleFocusRing(focused == .calendar)
                 .popover(isPresented: $showCalendar, arrowEdge: .bottom) {
                     MonthCalendar(date: $date, onSelect: { showCalendar = false })
                 }
 
-                iconButton("arrow.clockwise", help: "Frissítés", action: onRefresh)
+                iconButton("arrow.clockwise", help: "Frissítés",
+                           focus: .refresh, action: onRefresh)
                     .keyboardShortcut("r", modifiers: .command)
             }
             .opacity(appeared ? 1 : 0)
@@ -399,8 +519,14 @@ private struct HomeHeader: View {
         .padding(.bottom, 16)
     }
 
-    private func iconButton(_ systemName: String, help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+    private func iconButton(
+        _ systemName: String,
+        help: String,
+        focus target: AppFocus,
+        action: @escaping () -> Void
+    ) -> some View {
+        let isFocused = focused == target
+        return Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(AppTheme.secondaryText)
@@ -412,6 +538,8 @@ private struct HomeHeader: View {
         .help(help)
         .accessibilityLabel(help)
         .accessibilityIdentifier("nav.\(systemName)")
+        .focusAccessibility(isFocused)
+        .circleFocusRing(isFocused)
     }
 }
 
@@ -420,6 +548,7 @@ private struct FilterBar: View {
     @Binding var country: String?
     @Binding var division: Int?
     @Binding var featuredOnly: Bool
+    let focused: AppFocus?
     let counts: [MatchFilter: Int]
     let countries: [String]
 
@@ -429,7 +558,8 @@ private struct FilterBar: View {
                 FilterChip(
                     filter: candidate,
                     count: counts[candidate] ?? 0,
-                    isActive: filter == candidate
+                    isActive: filter == candidate,
+                    isFocused: focused == .filter(candidate)
                 ) {
                     filter = candidate
                 }
@@ -459,6 +589,9 @@ private struct FilterBar: View {
             .help(featuredOnly
                   ? "A kiemelt kör látszik (top-5 + NB I/II). Kattints a teljes naphoz."
                   : "Minden beolvasott verseny látszik. Kattints a kiemelt körhöz.")
+            .accessibilityIdentifier("filter.featured")
+            .focusAccessibility(focused == .featured)
+            .capsuleFocusRing(focused == .featured)
 
             Menu {
                 Button("Minden ország") { country = nil }
@@ -507,6 +640,7 @@ private struct FilterChip: View {
     let filter: MatchFilter
     let count: Int
     let isActive: Bool
+    let isFocused: Bool
     let action: () -> Void
 
     var body: some View {
@@ -528,6 +662,9 @@ private struct FilterChip: View {
             .overlay(Capsule().strokeBorder(isActive ? AppTheme.hairline : .clear))
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("filter.\(filter.rawValue)")
+        .focusAccessibility(isFocused)
+        .capsuleFocusRing(isFocused)
     }
 }
 

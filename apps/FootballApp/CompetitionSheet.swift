@@ -70,7 +70,8 @@ struct CompetitionSheet: View {
             case .matches:
                 MatchListView(
                     leagues: LeagueGroup.fromDay(detail.matches),
-                    logos: model.logos
+                    logos: model.logos,
+                    focusedMatch: nil
                 ) { id in
                     if let uuid = UUID(uuidString: id) {
                         selectedMatch = SelectedMatch(id: uuid)

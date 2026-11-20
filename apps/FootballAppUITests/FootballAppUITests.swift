@@ -122,8 +122,8 @@ final class FootballAppUITests: XCTestCase {
         let second = element("match.card.22222222-2222-2222-2222-222222222222", in: app)
         XCTAssertTrue(first.waitForExistence(timeout: 30), "a nap nem töltődött be")
 
-        app.typeKey("\t", modifierFlags: [])
-        XCTAssertTrue(waitForSelected(first, timeout: 10), "Tab nem az első kártyára vitte a fókuszt")
+        XCTAssertTrue(focusFirstMatchCard(first, in: app),
+                      "a Tab-sorrenddel nem érhető el az első kártya")
 
         app.typeKey(XCUIKeyboardKey.downArrow.rawValue, modifierFlags: [])
         XCTAssertTrue(waitForSelected(second, timeout: 10), "↓ nem lépett a következő kártyára")
@@ -139,7 +139,55 @@ final class FootballAppUITests: XCTestCase {
         XCTAssertTrue(waitForGone(sheet, timeout: 10), "Escape nem zárta be a részletezőt")
 
         app.typeKey("\t", modifierFlags: .shift)
-        XCTAssertTrue(waitForSelected(second, timeout: 10), "Shift+Tab nem lépett vissza a listába")
+        XCTAssertTrue(waitForSelected(element("filter.featured", in: app), timeout: 10),
+                      "Shift+Tab nem lépett vissza a szűrősávba")
+    }
+
+    // MARK: - App-szintű Tab-sorrend
+
+    /// A Tab végigmegy a felső navigáción, a fejléc-vezérlőkön és a szűrőkön,
+    /// aztán a kártyákon; Escape törli a fókuszt, Shift+Tab üres fókuszból
+    /// az utolsó állomásra lép (körbeérő sorrend).
+    func testKeyboardTabOrderCoversHeaderFiltersAndList() throws {
+        let app = try launch(port: Self.loadedPort)
+        app.activate()
+
+        let first = element("match.card.11111111-1111-1111-1111-111111111111", in: app)
+        XCTAssertTrue(first.waitForExistence(timeout: 30), "a nap nem töltődött be")
+
+        app.typeKey("\t", modifierFlags: [])
+        XCTAssertTrue(waitForSelected(element("nav.tab.day", in: app), timeout: 10),
+                      "Tab nem a felső navigációra vitte a fókuszt")
+
+        for _ in 0..<3 { app.typeKey("\t", modifierFlags: []) }
+        XCTAssertTrue(waitForSelected(element("nav.tab.ops", in: app), timeout: 10),
+                      "Tab nem lépett végig a felső navigáción")
+
+        app.typeKey("\t", modifierFlags: [])
+        XCTAssertTrue(waitForSelected(element("nav.chevron.left", in: app), timeout: 10),
+                      "Tab nem érte el az előző nap gombot")
+
+        app.typeKey("\t", modifierFlags: [])
+        XCTAssertTrue(waitForSelected(element("nav.today", in: app), timeout: 10),
+                      "Tab nem érte el a Ma gombot")
+
+        // következő nap → naptár → frissítés → szűrők
+        for _ in 0..<4 { app.typeKey("\t", modifierFlags: []) }
+        XCTAssertTrue(waitForSelected(element("filter.all", in: app), timeout: 10),
+                      "Tab nem érte el a szűrősort")
+
+        // következik / élő / befejezett / kiemelt → első kártya
+        for _ in 0..<5 { app.typeKey("\t", modifierFlags: []) }
+        XCTAssertTrue(waitForSelected(first, timeout: 10),
+                      "Tab a szűrők után nem ért el a listáig")
+
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(waitForNotSelected(first, timeout: 10), "Escape nem törölte a fókuszt")
+
+        app.typeKey("\t", modifierFlags: .shift)
+        let last = element("match.card.22222222-2222-2222-2222-222222222222", in: app)
+        XCTAssertTrue(waitForSelected(last, timeout: 10),
+                      "Shift+Tab üres fókuszból nem az utolsó kártyára lépett")
     }
 
     // MARK: - Segédek
@@ -148,6 +196,23 @@ final class FootballAppUITests: XCTestCase {
     private func waitForSelected(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
         let expectation = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "isSelected == true"),
+            object: element
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    /// A Tab-sorrend fix: 4 felső navigáció + 5 fejléc-vezérlő + 4 szűrő +
+    /// a kiemelt-kör váltó után jön az első kártya (a 15. Tab).
+    private func focusFirstMatchCard(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        for _ in 0..<15 {
+            app.typeKey("\t", modifierFlags: [])
+        }
+        return waitForSelected(element, timeout: 5)
+    }
+
+    private func waitForNotSelected(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "isSelected == false"),
             object: element
         )
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed

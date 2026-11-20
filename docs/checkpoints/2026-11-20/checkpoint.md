@@ -375,3 +375,32 @@ Induló állapot: a nap-végpont kontraktja kész volt (S31c), de teljes OpenAPI
 - [ ] Nem ellenőrzött: a **futó** daemon még a korábbi buildet futtatja, ezért az élő `GET /openapi.json`
   válasz ebből a buildből nem lett ellenőrizve; a daemon újratelepítése külön döntés.
 - Következő döntési pont: push után a zöld CI-futás igazolása, majd Tab-fókusz app-oldali mérés.
+
+## S34 — app-szintű Tab-sorrend (2026-11-20)
+
+Induló állapot: az S33 zöld CI-vel lezárult, a következő nyitott pont a Tab-fókusz volt. Az S32a
+fókuszmodellje mérten **billentyűzet-csapdát** okozott: a `KeyboardMonitor` minden Tabot elfogyasztott,
+így Escape után a következő Tab visszavitte a fókuszt az első kártyára, a fejléc/szűrők/dátum-nyilak
+billentyűzettel elérhetetlenek voltak (mérés: `/tmp/s34-tab-after-escape.png`). A felhasználó a
+bemutatott bizonyíték alapján a **B — app-szintű Tab-sorrend** irányt választotta.
+
+- [x] Új `apps/FootballApp/AppFocus.swift`: `AppFocus` állomások, körbeérő `focusedTarget`, fókuszgyűrű
+  és AX `selected` trait segédek.
+- [x] `apps/FootballApp/HomeView.swift`: a billentyű-monitor a gyökérre került, `focus`/`showCalendar`
+  állapot, `matchIDs`, `focusOrder`, `handle`/`stepMatch`/`activate`; felső navigáció, fejléc-gombok
+  és szűrők azonosító + fókuszgyűrűvel; naptár-popover nyitva nem fogyaszt billentyűt.
+- [x] `apps/FootballApp/MatchListView.swift`: a lista csak `focusedMatch` azonosítót kap, saját
+  billentyűkezelés nélkül; `TeamSheet`/`CompetitionSheet` hívása `focusedMatch: nil`.
+- [x] UI-tesztek: frissített `testKeyboardFocusWalksMatchCardsAndOpensDetail` (15. Tab = első kártya)
+  és új `testKeyboardTabOrderCoversHeaderFiltersAndList` (navigáció → fejléc → szűrők → kártya →
+  Escape → Shift+Tab az utolsó kártyára).
+- [x] Futott: `./scripts/run-ui-tests.sh` → **26/26 app unit, 7/7 UI teszt, 0 failure**, `** TEST SUCCEEDED **` (UI 45,161 s).
+- [x] Élő ellenőrzés a futó builddel fixture szerveren: `/tmp/s34-v2-tab1.png`, `/tmp/s34-v2-tab9.png`,
+  `/tmp/s34-v2-tab14.png`, `/tmp/s34-v2-return.png`, `/tmp/s34-v2-shifttab2.png` — a csapda megszűnt.
+- [x] Dokumentáció: `docs/operations/ui-accessibility-checklist.md` új „S34” szakasszal (sorrend,
+  billentyűk, AX-jelzés, dokumentált korlátok); README állapotsor frissítve.
+- [ ] Nem ellenőrzött: a saját Tab-körön kívül maradt natív ország/osztály `Menu`, a naptár-popover
+  tartalma és a részletező sheet vezérlői (VoiceOverrel/egérrel elérhetők, külön szelet); a valódi
+  VoiceOver-felolvasás emberi fület igényel.
+- Következő döntési pont: commit/push után a CI-futás igazolása; majd a soccerway JS dayPicker
+  (továbbra is ellenőrizhetetlen a forrás oldalán) és a Tab-kör kiterjesztése a kimaradt vezérlőkre.
