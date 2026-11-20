@@ -181,3 +181,23 @@ fn club_name_variants_are_likely_the_same_team() {
     // egyezés (csak az egyik oldal) nem elég.
     assert!(!names_likely_same("Real Madrid", "Real Sociedad"));
 }
+
+#[test]
+fn strict_name_equality_rejects_prefix_lookalikes_but_accepts_real_variants() {
+    use football_domain::identity::names_strictly_same;
+    // Valódi variánsok (S37c auto-merge).
+    assert!(names_strictly_same("SV Darmstadt 98", "Darmstadt"));
+    assert!(names_strictly_same("Llandudno FC", "Llandudno"));
+    assert!(names_strictly_same(
+        "Briton Ferry Llansawel",
+        "Briton Ferry"
+    ));
+    assert!(names_strictly_same("The New Saints", "TNS"));
+    assert!(names_strictly_same("Dinamo Tbilisi", "Dinamo Tbiliszi"));
+    assert!(names_strictly_same("Germany U17", "Germany"));
+    // Nem egyező csapatnevek (a lazább szabály tévesen egyezne).
+    assert!(!names_strictly_same("Dominica", "Dominican Republic"));
+    assert!(!names_strictly_same("Niger", "Nigeria"));
+    assert!(!names_strictly_same("Manchester United", "Manchester City"));
+    assert!(!names_strictly_same("Újpest", "Győr"));
+}

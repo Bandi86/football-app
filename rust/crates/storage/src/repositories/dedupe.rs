@@ -8,12 +8,14 @@
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use football_domain::identity::{names_likely_same, names_strictly_same};
 use sqlx::PgPool;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
 pub struct DuplicateMatchRow {
     pub match_id: Uuid,
+    pub competition_id: Uuid,
     pub competition_name: String,
     pub home_team_id: Uuid,
     pub away_team_id: Uuid,
@@ -47,45 +49,7 @@ pub async fn duplicate_groups_between(
     from: chrono::NaiveDate,
     to: chrono::NaiveDate,
 ) -> Result<Vec<DuplicateGroup>> {
-    let rows = sqlx::query_as::<_, DuplicateMatchRow>(
-        "SELECT
-            m.id AS match_id,
-            c.name AS competition_name,
-            m.home_team_id,
-            m.away_team_id,
-            h.name AS home_name,
-            a.name AS away_name,
-            m.kickoff_at,
-            m.created_at,
-            (SELECT count(*) FROM fact.provenance p
-              WHERE p.subject_kind = 'match' AND p.subject_id = m.id)::bigint AS provenance_count,
-            EXISTS (SELECT 1 FROM core.match_result r WHERE r.match_id = m.id) AS has_result,
-            EXISTS (SELECT 1 FROM fact.odds_snapshot o WHERE o.match_id = m.id) AS has_odds,
-            g.state AS gate_state
-         FROM core.match m
-         JOIN core.team h ON h.id = m.home_team_id
-         JOIN core.team a ON a.id = m.away_team_id
-         JOIN core.competition c ON c.id = m.competition_id
-         LEFT JOIN LATERAL (
-             SELECT state FROM ops.publish_gate
-             WHERE match_id = m.id ORDER BY publish_date DESC LIMIT 1
-         ) g ON true
-         WHERE m.kickoff_at::date BETWEEN $1 AND $2
-           AND EXISTS (
-               SELECT 1 FROM core.match m2
-               WHERE m2.id <> m.id
-                 AND m2.kickoff_at = m.kickoff_at
-                 AND LEAST(m2.home_team_id, m2.away_team_id)
-                     = LEAST(m.home_team_id, m.away_team_id)
-                 AND GREATEST(m2.home_team_id, m2.away_team_id)
-                     = GREATEST(m.home_team_id, m.away_team_id)
-           )
-         ORDER BY m.kickoff_at, h.name, a.name, m.created_at",
-    )
-    .bind(from)
-    .bind(to)
-    .fetch_all(pool)
-    .await?;
+    let rows = match_rows(pool, from, to, true).await?;
 
     // Kulcs szerinti csoportosítás (a tükrözött sorok nem feltétlenül
     // szomszédosak a név-rendezés miatt — nem lehet last_mut-ra építeni).
@@ -112,6 +76,264 @@ pub async fn duplicate_groups_between(
         })
         .collect();
     Ok(groups)
+}
+
+/// A nap meccssorai (S37c: a név-variáns kereséshez is ez adja az alapot).
+///
+/// `only_exact` = true: csak az azonos csapat-pár + kickoff párok (a klasszikus
+/// duplikátumlista); false: a nap összes sora (a variáns-keresés ehhez szűr).
+async fn match_rows(
+    pool: &PgPool,
+    from: chrono::NaiveDate,
+    to: chrono::NaiveDate,
+    only_exact: bool,
+) -> Result<Vec<DuplicateMatchRow>> {
+    let rows = sqlx::query_as::<_, DuplicateMatchRow>(
+        "SELECT
+            m.id AS match_id,
+            m.competition_id,
+            c.name AS competition_name,
+            m.home_team_id,
+            m.away_team_id,
+            h.name AS home_name,
+            a.name AS away_name,
+            m.kickoff_at,
+            m.created_at,
+            (SELECT count(*) FROM fact.provenance p
+              WHERE p.subject_kind = 'match' AND p.subject_id = m.id)::bigint AS provenance_count,
+            EXISTS (SELECT 1 FROM core.match_result r WHERE r.match_id = m.id) AS has_result,
+            EXISTS (SELECT 1 FROM fact.odds_snapshot o WHERE o.match_id = m.id) AS has_odds,
+            g.state AS gate_state
+         FROM core.match m
+         JOIN core.team h ON h.id = m.home_team_id
+         JOIN core.team a ON a.id = m.away_team_id
+         JOIN core.competition c ON c.id = m.competition_id
+         LEFT JOIN LATERAL (
+             SELECT state FROM ops.publish_gate
+             WHERE match_id = m.id ORDER BY publish_date DESC LIMIT 1
+         ) g ON true
+         WHERE m.kickoff_at::date BETWEEN $1 AND $2
+           AND (
+             NOT $3
+             OR EXISTS (
+                 SELECT 1 FROM core.match m2
+                 WHERE m2.id <> m.id
+                   AND m2.kickoff_at = m.kickoff_at
+                   AND LEAST(m2.home_team_id, m2.away_team_id)
+                       = LEAST(m.home_team_id, m.away_team_id)
+                   AND GREATEST(m2.home_team_id, m2.away_team_id)
+                       = GREATEST(m.home_team_id, m.away_team_id)
+             )
+           )
+         ORDER BY m.kickoff_at, h.name, a.name, m.created_at",
+    )
+    .bind(from)
+    .bind(to)
+    .bind(only_exact)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// S37c: a nap név-variáns duplikátumai. Ugyanaz a verseny és legfeljebb 12
+/// órán belüli kickoff, de a csapatnevek forrásonként eltérnek ("SV Darmstadt
+/// 98" / "Darmstadt"), ezért a szigorú csapat-azonosságra épülő
+/// `duplicate_groups` nem látja őket.
+pub async fn variant_duplicate_groups(
+    pool: &PgPool,
+    date: chrono::NaiveDate,
+) -> Result<Vec<DuplicateGroup>> {
+    variant_duplicate_groups_between(pool, date, date).await
+}
+
+pub async fn variant_duplicate_groups_between(
+    pool: &PgPool,
+    from: chrono::NaiveDate,
+    to: chrono::NaiveDate,
+) -> Result<Vec<DuplicateGroup>> {
+    let rows = match_rows(pool, from, to, false).await?;
+
+    // Összefüggő komponensek (union-find a páronkénti jelölt-élekre).
+    let mut parent: Vec<usize> = (0..rows.len()).collect();
+    fn find(parent: &mut [usize], mut i: usize) -> usize {
+        while parent[i] != i {
+            parent[i] = parent[parent[i]];
+            i = parent[i];
+        }
+        i
+    }
+    let mut edges = 0usize;
+    for (i, a) in rows.iter().enumerate() {
+        for (j, b) in rows.iter().enumerate().skip(i + 1) {
+            if variant_pair(a, b) {
+                let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
+                if ri != rj {
+                    parent[ri] = rj;
+                }
+                edges += 1;
+            }
+        }
+    }
+    if edges == 0 {
+        return Ok(Vec::new());
+    }
+
+    let mut order: Vec<usize> = Vec::new();
+    let mut by_root: std::collections::HashMap<usize, Vec<DuplicateMatchRow>> =
+        std::collections::HashMap::new();
+    for (i, row) in rows.iter().enumerate() {
+        let root = find(&mut parent, i);
+        if !by_root.contains_key(&root) {
+            order.push(root);
+        }
+        by_root.entry(root).or_default().push(row.clone());
+    }
+    Ok(order
+        .into_iter()
+        .filter_map(|root| by_root.remove(&root))
+        .filter(|matches| matches.len() > 1)
+        .map(|matches| {
+            let first = &matches[0];
+            DuplicateGroup {
+                key: format!(
+                    "variant|{}|{}|{}",
+                    first.competition_name,
+                    first.home_name,
+                    first.kickoff_at.date_naive()
+                ),
+                matches,
+            }
+        })
+        .collect())
+}
+
+/// Két sor név-variáns párja-e (azonos verseny, <=12 óra, név-egyezés)?
+/// Az azonos csapat-azonosítójú párokat szándékosan kihagyja: azok a
+/// klasszikus `duplicate_groups` hatáskörébe tartoznak.
+fn variant_pair(a: &DuplicateMatchRow, b: &DuplicateMatchRow) -> bool {
+    if a.competition_id != b.competition_id || a.match_id == b.match_id {
+        return false;
+    }
+    let delta = (a.kickoff_at - b.kickoff_at).num_minutes().abs();
+    if delta > 12 * 60 {
+        return false;
+    }
+    let same_teams = (a.home_team_id == b.home_team_id && a.away_team_id == b.away_team_id)
+        || (a.home_team_id == b.away_team_id && a.away_team_id == b.home_team_id);
+    if same_teams {
+        return false;
+    }
+    let normal = names_likely_same(&a.home_name, &b.home_name)
+        && names_likely_same(&a.away_name, &b.away_name);
+    let flipped = names_likely_same(&a.home_name, &b.away_name)
+        && names_likely_same(&a.away_name, &b.home_name);
+    normal || flipped
+}
+
+/// S37c: a név-variáns pár merge-elhető-e (a klasszikus `is_same_match`
+/// helyett, amely azonos csapat-azonosítókat követel)?
+pub async fn is_variant_same_match(pool: &PgPool, survivor: Uuid, duplicate: Uuid) -> Result<bool> {
+    type VariantRow = (
+        Uuid,
+        Uuid,
+        DateTime<Utc>,
+        DateTime<Utc>,
+        String,
+        String,
+        String,
+        String,
+        bool,
+        bool,
+    );
+    let row: Option<VariantRow> = sqlx::query_as(
+        "SELECT s.competition_id, d.competition_id, s.kickoff_at, d.kickoff_at,
+                hs.name, as_.name, hd.name, ad.name,
+                EXISTS (SELECT 1 FROM core.match_result r WHERE r.match_id = s.id),
+                EXISTS (SELECT 1 FROM core.match_result r WHERE r.match_id = d.id)
+           FROM core.match s
+           JOIN core.match d ON d.id = $2
+           JOIN core.team hs ON hs.id = s.home_team_id
+           JOIN core.team as_ ON as_.id = s.away_team_id
+           JOIN core.team hd ON hd.id = d.home_team_id
+           JOIN core.team ad ON ad.id = d.away_team_id
+          WHERE s.id = $1",
+    )
+    .bind(survivor)
+    .bind(duplicate)
+    .fetch_optional(pool)
+    .await?;
+    let Some((s_comp, d_comp, s_kickoff, d_kickoff, hs, as_, hd, ad, s_result, d_result)) = row
+    else {
+        return Ok(false);
+    };
+    if s_comp != d_comp || (s_kickoff - d_kickoff).num_minutes().abs() > 12 * 60 {
+        return Ok(false);
+    }
+    let normal = names_likely_same(&hs, &hd) && names_likely_same(&as_, &ad);
+    let flipped = names_likely_same(&hs, &ad) && names_likely_same(&as_, &hd);
+    if flipped && d_result && !s_result {
+        // Tükrözött variáns: az áldozat eredménye elveszne — kézi döntés kell.
+        return Ok(false);
+    }
+    Ok(normal || flipped)
+}
+
+/// S37c szigorú pár: azonos verseny ÉS azonos kickoff ÉS a korosztály-jelölés
+/// elhagyásával egyező nevek. A backfill csak ezt a fajtát mergeli automatikusan;
+/// a 12 órás, lazább jelölést a `is_variant_same_match` adja (kézi döntéshez).
+pub async fn is_strict_variant_same_match(
+    pool: &PgPool,
+    survivor: Uuid,
+    duplicate: Uuid,
+) -> Result<bool> {
+    type StrictRow = (
+        Uuid,
+        Uuid,
+        DateTime<Utc>,
+        DateTime<Utc>,
+        String,
+        String,
+        String,
+        String,
+        bool,
+    );
+    let row: Option<StrictRow> = sqlx::query_as(
+        "SELECT s.competition_id, d.competition_id, s.kickoff_at, d.kickoff_at,
+                hs.name, as_.name, hd.name, ad.name,
+                EXISTS (SELECT 1 FROM core.match_result r WHERE r.match_id = d.id)
+           FROM core.match s
+           JOIN core.match d ON d.id = $2
+           JOIN core.team hs ON hs.id = s.home_team_id
+           JOIN core.team as_ ON as_.id = s.away_team_id
+           JOIN core.team hd ON hd.id = d.home_team_id
+           JOIN core.team ad ON ad.id = d.away_team_id
+          WHERE s.id = $1",
+    )
+    .bind(survivor)
+    .bind(duplicate)
+    .fetch_optional(pool)
+    .await?;
+    let Some((s_comp, d_comp, s_kickoff, d_kickoff, hs, as_, hd, ad, d_result)) = row else {
+        return Ok(false);
+    };
+    if s_comp != d_comp {
+        return Ok(false);
+    }
+    // Azonos nap kell; a kickoff vagy pontosan egyezik, vagy pontosan 2 órával
+    // tér el (a források egy része nyáron is CEST-eltolást használt novemberben —
+    // mért adathiba a 2026-11-17-es U17/U19 sorokon).
+    if (s_kickoff - d_kickoff).num_minutes().abs() != 0
+        && (s_kickoff - d_kickoff).num_minutes().abs() != 120
+    {
+        return Ok(false);
+    }
+    let normal = names_strictly_same(&hs, &hd) && names_strictly_same(&as_, &ad);
+    let flipped = names_strictly_same(&hs, &ad) && names_strictly_same(&as_, &hd);
+    if flipped && d_result {
+        // A tükrözött pár eredménye csak kézi döntéssel vihető át.
+        return Ok(false);
+    }
+    Ok(normal || flipped)
 }
 
 /// Mergelehető-e a pár (a túlélő és az áldozat)? Ugyanaz a nap/meccs.
@@ -186,7 +408,10 @@ pub async fn merge_duplicate(
             'odds_quote', (SELECT COALESCE(jsonb_agg(to_jsonb(q)), '[]'::jsonb)
                              FROM fact.odds_quote q WHERE q.match_id=$3),
             'stats', (SELECT COALESCE(jsonb_agg(to_jsonb(s)), '[]'::jsonb)
-                        FROM fact.match_stats s WHERE s.match_id=$3)
+                        FROM fact.match_stats s WHERE s.match_id=$3),
+            'source_ref', (SELECT COALESCE(jsonb_agg(to_jsonb(r)), '[]'::jsonb)
+                             FROM identity.source_entity_ref r
+                            WHERE r.entity_kind = 'match' AND r.entity_id = $3)
          )",
     )
     .bind(Uuid::now_v7())
@@ -285,6 +510,17 @@ pub async fn merge_duplicate(
         .execute(&mut *tx)
         .await?;
     }
+
+    // 5b. S37c: a meccs-szintű forrás-hidak átkerülnek a túlélőhöz (az
+    //     entitás-azonosító nem része a unique kulcsnak, ütközés nincs).
+    sqlx::query(
+        "UPDATE identity.source_entity_ref SET entity_id = $2
+          WHERE entity_kind = 'match' AND entity_id = $1",
+    )
+    .bind(duplicate)
+    .bind(survivor)
+    .execute(&mut *tx)
+    .await?;
 
     // 6. Az áldozat gyermeksorai: a publish_gate NEM kaszkádol, ezért
     //    explicit törlés (archívumban megvan); a maradék provenance is megy.

@@ -582,3 +582,18 @@ bemutatott bizonyíték alapján a **B — app-szintű Tab-sorrend** irányt vá
   lefedettséget ténylegesen emelő szelet: **esemény-szintű tipplap-linkelés**
   (a találati szabályok a v1 `link_events.py`-ból) + **identitás-seed** a v1
   crosswalkból (S37d).
+
+## S37c — név-variáns duplikátumok felismerése és merge-elése
+
+- [x] `variant_duplicate_groups` + `is_strict_variant_same_match` a storage-ban,
+      `names_strictly_same` / `strip_age_markers` a domainben.
+- [x] `merge_duplicate` átviszi a meccs-szintű forrás-hidat, és archiválja.
+- [x] Új parancs: `footballctl dedupe variants --date … [--apply]`.
+- [x] Tesztek: `dedupe_variants` 2/2, domain identity 9/9, storage dedupe
+      suite-ok zöldek.
+- [x] Éles futás a fejlesztői DB-n: 2026-11-20 → 9 merge (131 → 122 meccs,
+      odds 29 megmaradt, integrity OK); 11-14…11-19 → további 70 merge;
+      összesen **79** archív bejegyzés, 1 pár kézi döntésre vár.
+- [ ] A 2026-11-17-i tükrözött pár (áldozatnál eredmény) kézi eldöntése.
+- [ ] Rendszeres napi futtatás beépítése a napi láncba (a keletkezés
+      megelőzése az S37d identitás-seed feladata).

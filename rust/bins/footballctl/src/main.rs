@@ -61,6 +61,16 @@ enum DedupeAction {
         #[arg(long)]
         deny: Option<String>,
     },
+    /// S37c: név-variáns duplikátumok egy napon (azonos verseny, legfeljebb
+    /// 12 órás kickoff-különbség, de forrásonként eltérő csapatnév). A szigorú
+    /// `matches` parancs ezeket nem látja; dry-run alapból.
+    Variants {
+        #[arg(long)]
+        date: NaiveDate,
+        /// Tényleges végrehajtás (alapból csak terv).
+        #[arg(long)]
+        apply: bool,
+    },
     /// S26: fixture-szintű rekonciliáció — azonos verseny+szezon+csapat-pár+
     /// UTC-nap, eltérő kickoff (v1 import vs footballdata). Auto-merge csak
     /// azonos orientációnál és egyező (vagy egyik oldalon hiányzó) eredménynél;
@@ -589,6 +599,100 @@ async fn main() -> Result<()> {
                     }
                     println!(
                         "duplikált csoportok: {}, merge-ek: {}, kihagyva: {}{}",
+                        groups.len(),
+                        merges,
+                        skipped,
+                        if apply {
+                            ""
+                        } else {
+                            " (dry-run — --apply a végrehajtáshoz)"
+                        }
+                    );
+                }
+            }
+            DedupeAction::Variants { date, apply } => {
+                let groups =
+                    football_storage::repositories::dedupe::variant_duplicate_groups(&pool, date)
+                        .await?;
+                if groups.is_empty() {
+                    println!("nincs név-variáns duplikátum ezen a napon: {date}");
+                } else {
+                    let mut merges = 0usize;
+                    let mut skipped = 0usize;
+                    for group in &groups {
+                        // Túlélő: amelyiknél van eredmény, majd több
+                        // provenance, végül a legkorábbi sor (determinisztikus).
+                        let survivor = group
+                            .matches
+                            .iter()
+                            .max_by_key(|m| {
+                                (
+                                    m.has_result,
+                                    m.has_odds,
+                                    m.provenance_count,
+                                    std::cmp::Reverse(m.created_at),
+                                )
+                            })
+                            .expect("csoport nem üres");
+                        println!(
+                            "csoport {} — túlélő: {} [{} {} - {}]",
+                            group.key,
+                            survivor.match_id,
+                            survivor.competition_name,
+                            survivor.home_name,
+                            survivor.away_name
+                        );
+                        for m in group
+                            .matches
+                            .iter()
+                            .filter(|m| m.match_id != survivor.match_id)
+                        {
+                            println!(
+                                "  áldozat: {} [{} {} - {}] (prov={}, result={}, odds={})",
+                                m.match_id,
+                                m.competition_name,
+                                m.home_name,
+                                m.away_name,
+                                m.provenance_count,
+                                m.has_result,
+                                m.has_odds
+                            );
+                            if apply {
+                                let outcome: Result<()> = async {
+                                    let same = football_storage::repositories::dedupe::is_strict_variant_same_match(
+                                        &pool,
+                                        survivor.match_id,
+                                        m.match_id,
+                                    )
+                                    .await?;
+                                    anyhow::ensure!(
+                                        same,
+                                        "nem szigorú név-variáns pár (azonos nap, egyező vagy 2 órával eltérő kickoff és korosztály-jelölés nélküli név kell; kézi döntés): {} / {}",
+                                        survivor.match_id,
+                                        m.match_id
+                                    );
+                                    football_storage::repositories::dedupe::merge_duplicate(
+                                        &pool,
+                                        survivor.match_id,
+                                        m.match_id,
+                                        "S37c dedupe (név-variáns duplikátum)",
+                                    )
+                                    .await?;
+                                    Ok(())
+                                }
+                                .await;
+                                match outcome {
+                                    Ok(()) => merges += 1,
+                                    Err(err) => {
+                                        skipped += 1;
+                                        println!("  kihagyva: {err:#}");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    println!(
+                        "névvariáns-csoportok: {}, merge-ek: {}, kihagyva: {}{}",
                         groups.len(),
                         merges,
                         skipped,

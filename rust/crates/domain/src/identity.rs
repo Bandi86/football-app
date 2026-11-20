@@ -266,6 +266,90 @@ fn edit_distance_one(a: &str, b: &str) -> bool {
 /// Önmagában nem dönt: csak a hívó kontextusával (verseny, nap, időpont)
 /// együtt használható jelölésre, ezért a kanonikalizáló csak akkor linkel,
 /// ha pontosan egy jelölt marad.
+/// Korosztály-/női-jelölők levágása ("Germany U17" → "Germany", "Bodø / Glimt
+/// (női)" → "Bodø / Glimt") — a források eltérően jelölik ugyanazt a csapatot.
+/// Csak összehasonlításra használható, kanonikus név képzésére nem.
+pub fn strip_age_markers(name: &str) -> String {
+    let folded = fold_name(name);
+    folded
+        .split_whitespace()
+        .filter(|token| {
+            let t = token.trim_matches(|c: char| !c.is_alphanumeric());
+            if t.is_empty() {
+                return false;
+            }
+            let age = t.len() >= 2
+                && t.starts_with('u')
+                && t[1..].chars().all(|c| c.is_ascii_digit())
+                && t.len() <= 3;
+            !age && !matches!(t, "noi" | "women" | "womens" | "n")
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Két név ugyanaz-e a korosztály-jelölés elhagyásával (S37c szigorú pár).
+pub fn names_likely_same_ignoring_age(a: &str, b: &str) -> bool {
+    let (sa, sb) = (strip_age_markers(a), strip_age_markers(b));
+    !sa.is_empty() && !sb.is_empty() && names_likely_same(&sa, &sb)
+}
+
+/// Auto-merge-hez elég szigorú név-egyezés (S37c backfill).
+///
+/// A lazább [`names_likely_same`] prefix/elgépelés-szabályai nemzeti válogatottaknál
+/// tévesen egyezhetnek ("Dominica" / "Dominican Republic"), ezért itt:
+/// - a teljes (korosztály-jelölés nélküli) nevek fold-egyezése, vagy
+/// - azonos tokenek halmaza/token-részhalmaz (exact token-egyezés), vagy
+/// - többtokenes névnél pontosan egy eltérő token, ami legfeljebb 1 szerkesztés,
+/// - egytokenes névnél a többtokenes másik fél monogramja ("TNS" = The New Saints).
+pub fn names_strictly_same(a: &str, b: &str) -> bool {
+    let (sa, sb) = (strip_age_markers(a), strip_age_markers(b));
+    if sa.is_empty() || sb.is_empty() {
+        return false;
+    }
+    if sa == sb {
+        return true;
+    }
+    let (ta, tb) = (name_tokens(&sa), name_tokens(&sb));
+    if ta.is_empty() || tb.is_empty() {
+        return false;
+    }
+    let subset_exact = |x: &[String], y: &[String]| x.iter().all(|t| y.iter().any(|o| o == t));
+    if subset_exact(&ta, &tb) || subset_exact(&tb, &ta) {
+        return true;
+    }
+    // Egytokenes oldal: monogram (pl. "tns" = the new saints).
+    if ta.len() == 1 || tb.len() == 1 {
+        let (short, long) = if ta.len() == 1 {
+            (&ta, &tb)
+        } else {
+            (&tb, &ta)
+        };
+        if long.len() >= 2 {
+            let initials: String = long
+                .iter()
+                .map(|t| t.chars().next().unwrap_or(' '))
+                .collect();
+            if short[0].len() >= 2 && short[0] == initials {
+                return true;
+            }
+        }
+        return false;
+    }
+    // Többtokenes: legfeljebb egy eltérő token, 1 szerkesztésnyi távolsággal.
+    if ta.len() == tb.len() {
+        let diffs: Vec<usize> = (0..ta.len()).filter(|&i| ta[i] != tb[i]).collect();
+        if diffs.len() == 1 {
+            let i = diffs[0];
+            let (x, y) = (&ta[i], &tb[i]);
+            if x.len().min(y.len()) >= 6 && token_equal(x, y) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 pub fn names_likely_same(a: &str, b: &str) -> bool {
     if fold_name(a) == fold_name(b) {
         return true;
