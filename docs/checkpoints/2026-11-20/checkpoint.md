@@ -1230,3 +1230,38 @@ napi „hiány" panelt a v1 mintájára.
       felülvizsgálata.
 - [ ] Logó-lefedettség és a research +1 órás kickoff-eltolás gyökér-okának
       javítása; 11-22…11-29 tematikus audit.
+
+## S46 — +1 órás kickoff gyökér-ok, eredménypótlás, napi lefedettség
+
+- [x] A +1 órás kickoff gyökér-oka: a research `docs/livescore-fetch.py` a
+      LiveScore API-tól `tz=1`-gyel kérte az `Esd` mezőt, majd UTC-ként
+      értelmezte. Javítás: a fetch URL mindig `/0` (igazi UTC), a helyi időt
+      magunk számoljuk. A research export 9 napra újragenerálva.
+- [x] `/tmp/s45_repair3.py`: 737 kickoff (−60), 9 date_only pótlás, 13
+      státusz, 16 eredmény; a `fact.provenance` kiválasztás javítva
+      (nincs `id` oszlop → `observation_id` + `field_key` + `subject_id`).
+- [x] Kézi kickoff-ellenőrzés az in-play observationök + LiveScore UTC oldal
+      + openfoot alapján: 6 további javítás (Al Zawraa 15:30Z, Shakhtar és
+      Prishtina és Ivory Coast U17 16:00Z, Velez 23:00Z, Bihor 12:30Z).
+- [x] Új eredmény-forrás: FotMob nyilvános API
+      (`/api/data/matches?date=YYYYMMDD`) — 7 + 2 eredmény, 13 kickoff.
+      Research JSON-ból 12 további eredmény. Összesen 37 eredmény pótolva.
+- [x] JSON→DB teljesség: `Ath Bilbao–Espanol` 0-1 egyezik a FotMob
+      `Athletic Club–Espanyol` 0-1-gyel; a FotMob-vs-DB „hiányzó" lista
+      névvariáns false negative.
+- [x] `reverify --from 2026-11-13 --to 2026-11-29`: 3150 meccs, 0 hiba;
+      gate-ek: verified 1099, provisional 2047, withheld 18.
+- [x] Napi lefedettség (meccs / lezárt / eredmény / odds / csapatlogó /
+      idő nélkül / withheld / verified):
+      11-13: 108/106/106/1/19/0/1/48; 11-14: 608/585/585/45/196/8/8/164;
+      11-15: 420/416/416/4/53/0/0/86; 11-16: 158/124/124/2/16/8/0/33;
+      11-17: 260/210/210/20/52/29/7/155; 11-18: 105/101/101/17/23/0/0/33;
+      11-19: 122/89/89/42/23/13/1/45; 11-20: 269/249/249/178/90/10/1/116;
+      11-21: 811/1/1/253/434/9/0/221; 11-22: 62/0/0/0/35/0/0/28.
+- [x] 11-20 API: 268 meccs; gaps: 10 kezdésidő nélkül, 15 lejárt nyitott,
+      0 eredmény nélküli, 186 csapatlogó, 199 ligalogó, 91 odds, 1 withheld.
+- [ ] 117 meccs >24 órával kezdés után eredmény nélkül (Friendly
+      International 22, AFC Asian Cup U17 11, Persha Liga 11, AFCON U23 10,
+      Ligue 1 7, Kings Cup Italy 6, …) — a research/livescore/fotmob nem
+      fedi; a hiány-panelben látszik, a napi research catch-up újrapróbálja.
+- [ ] Részletes meccsoldal (következő nagy szelet).
