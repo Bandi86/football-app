@@ -750,6 +750,13 @@ bemutatott bizonyíték alapján a **B — app-szintű Tab-sorrend** irányt vá
       Befejezett 17).
 - [x] Dokumentáció: `docs/operations/team-logos.md`,
       `docs/decisions/2026-11-20-csapatlogok.md`.
+- [x] Napi feed odds-fix: a nap-query a `default`/`B365`/`Tippmix`/`Avg`/`Max`
+      könyvmesterekre szűrt, ezért a research-forrás (bookmaker = a forrás
+      neve) oddsai null-ként jelentek meg, holott a quote-ok megvoltak.
+      Könyvmester-független tartalék bekerült a COALESCE-láncba: a napi
+      feedben **104 meccsből 73-nál** jelennek meg most odds-értékek
+      (korábban a felületen 0). A képernyőképen a La Liga: 1 1,48 / X 4,30 /
+      2 5,75.
 - [x] Bizonyíték: build zöld; `./scripts/run-ui-tests.sh` → **TEST SUCCEEDED**
       (app unit 26/26, UI 8/8); `cargo fmt --all --check` OK; clippy
       `-D warnings` tiszta; `db-reset.sh` + `check-foundation.sh` exit 0;
