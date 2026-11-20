@@ -27,7 +27,7 @@
   címkézett; Cmd+←/→/T/R billentyű-parancsok bevezetve. **A tényleges VoiceOver-felolvasás és Tab-ciklus
   emberi ellenőrzése még nincs rögzítve** — lásd a repo `docs/operations/ui-accessibility-checklist.md`-jét.
 - Nincs rögzített manuális macOS UI-, billentyűzet- és VoiceOver-ellenőrzés a checkpointokban.
-- Nincs OpenAPI↔Swift DTO kontrakt-teszt (a spec §11.1 követelménye).
+- Van nap-végpont kontrakt-teszt (S31c): `tests/fixtures/contract/day-response.json` + Rust és Swift oldal; a teljes OpenAPI-dokumentum még nyitott.
 - A keresés és a teljes játékosoldal még nincs kész (a spec első mérföldkő nézetei közül).
 
 ## Következő UI-szelet javaslat

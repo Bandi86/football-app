@@ -243,3 +243,18 @@ Induló állapot: a kapu-lánc csak helyben futott, `.github/workflows` nem lét
 - [x] A Swift feladat parancsai helyben lefuttatva: Core 34/34, app 26/26 zöld, `TEST SUCCEEDED`.
 - [ ] Nem ellenőrzött: az első tényleges GitHub Actions futás (a repó távoli pipeline-ja még nem futott).
 - Következő döntési pont: OpenAPI↔Swift kontrakt-teszt (S31c).
+
+## S31c — OpenAPI↔Swift kontrakt-teszt
+
+Induló állapot: semmilyen gépi kontrakt nem kötötte össze az API-t és a Swift DTO-kat.
+
+- [x] `tests/fixtures/contract/day-response.json`: a `GET /v1/day/{date}` válasz kanonikus payloadja
+  (teljes és minimális meccs, blockers, odds, publish_state, időbélyegek).
+- [x] `rust/crates/api/tests/day_contract.rs`: a `DayResponse` szerializált JSON-ja pontosan a fixture
+  (include_str!, hogy hiányzó fájl fordítási hiba legyen). Futott: 1/1 zöld.
+- [x] `apps/FootballAppCore/Tests/FootballAppCoreTests/DayContractTests.swift`: ugyanazt a fájlt
+  dekódolja a Swift DTO-kkal, mezőnként ellenőriz (3 teszt). Futott: Core 37/37 zöld.
+- [x] `cargo fmt --all --check` és `cargo clippy -p football-api --all-targets -- -D warnings`: tiszta.
+- [ ] Nem ellenőrzött: teljes OpenAPI-dokumentum minden végpontra (generálási mód: utoipa vs. kézi —
+  külön döntés), és a CI első valós futása.
+- Következő döntési pont: a futó daemon/kliens frissítése új buildre (S31d).

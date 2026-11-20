@@ -162,6 +162,19 @@ A `.github/workflows/ci.yml` két párhuzamos feladatot futtat pushra és pull r
 Az `FootballAppUITests` harness szándékosan nem fut CI-ben: macOS-en Accessibility/TCC engedély és futó ablak
 kell hozzá; helyben a `./scripts/run-ui-tests.sh` futtatja.
 
+## API↔kliens kontrakt
+
+A `tests/fixtures/contract/day-response.json` a `GET /v1/day/{date}` válasz kanonikus alakja.
+Két oldal méri ugyanahhoz a fájlhoz:
+
+- `rust/crates/api/tests/day_contract.rs` — a Rust `DayResponse` szerializációja pontosan ezt adja-e;
+- `apps/FootballAppCore/Tests/FootballAppCoreTests/DayContractTests.swift` — a Swift DTO-k
+  ugyanezt a payloadot hiánytalanul dekódolják-e.
+
+Mezőátnevezés vagy típusváltás így nem tud csendben elcsúszni a két oldal között.
+A teljes OpenAPI-dokumentum (minden végpontra) külön döntés — a generálás módja (utoipa vs. kézi)
+még nincs eldöntve; a kontrakt-teszt addig is a kliens által használt végpontot fedi.
+
 ## Adatvédelem és közzététel
 
 Ez egy nyilvános repó. Ne kerüljön bele:

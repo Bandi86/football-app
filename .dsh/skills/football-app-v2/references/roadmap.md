@@ -14,7 +14,7 @@ a jelenlegi helyzetet a README + 2026-11-20 checkpoint írja le.
 |---|---|---|
 | 0 | Alapozás, CI, migrációs fegyelem | Kód/migrációk kész; **CI (.github/workflows) HIÁNYZIK** |
 | 1 | Identitás, gyűjtés, coverage, kapu | Üzemel: 4 forrás, fail-closed identitás, L0–L8 kapu, 287 664 meccs |
-| 2 | Meccsközpont (Ma/verseny/meccs/csapat/játékos/keresés/Ops) | Nagy rész kész; **keresés, játékosoldal teljes adattartalma, VoiceOver/billentyűzet-ellenőrzés, OpenAPI↔Swift kontraktteszt nyitott** |
+| 2 | Meccsközpont (Ma/verseny/meccs/csapat/játékos/keresés/Ops) | Nagy rész kész; keresés, játékosoldal teljes adattartalma, VoiceOver/billentyűzet-ellenőrzés nyitott; nap-végpont kontrakt-teszt kész (S31c) |
 | 3 | Live eseményfolyam | Nem kezdődött |
 | 4 | Predikció (1X2/OU2.5/BTTS, kalibráció) | Nem kezdődött; csak Elo-számítás van |
 | 5 | Botok, papírszelvények | Nem kezdődött |
