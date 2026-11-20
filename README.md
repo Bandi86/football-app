@@ -2,7 +2,7 @@
 
 Helyi, macOS-re tervezett futball-adatplatform. A cél nem egy újabb tippoldal, hanem egy **visszakövethető, ellenőrzött és elemzésre alkalmas adatrendszer**, amelyre később predikciós és papíralapú fogadásszimulációs rétegek épülhetnek.
 
-> **Állapot (2026-11-20):** a kanonikus adatbázis **287 664 meccs**, a 2006–2026-os szezonokra **189 310 meccs / 96,7% eredmény / 86,1% odds**; **withheld 0, duplikált fixture 0, árva provenance 0, feloldatlan konfliktus 0**, `footballctl integrity` → `OK`. A v1 gap-fill most 1993–2026-ra teljes (11 korábbi és 11 újabb liga; kétkörös bootstrap, forrás-ellenőrzött fixture- és eredményrevíziókkal, minden módosítás auditálva). Az identitás ékezet- és GB-alrégió-toleráns. A napi worker-daemon (launchd, `hu.bandi86.football.v2`) fut, a SwiftUI kliens 26/26 tesztje zöld. Kész az S3a kapulánc, az observáció-vezérelt kanonikus út, az Elo/odds/statisztika adapterek, a Versenyek/Csapatok oldal, a meccs-részletező és az Üzemeltetés nézet integritás-kártyája (API + kliens); nyitott: soccerway JS dayPicker, asset-licence döntés, a futó daemon kézi frissítése az új API-mezőhöz.
+> **Állapot (2026-11-20):** a kanonikus adatbázis **287 664 meccs**, a 2006–2026-os szezonokra **189 310 meccs / 96,7% eredmény / 86,1% odds**; **withheld 0, duplikált fixture 0, árva provenance 0, feloldatlan konfliktus 0**, `footballctl integrity` → `OK`. A v1 gap-fill most 1993–2026-ra teljes (11 korábbi és 11 újabb liga; kétkörös bootstrap, forrás-ellenőrzött fixture- és eredményrevíziókkal, minden módosítás auditálva). Az identitás ékezet- és GB-alrégió-toleráns. A napi worker-daemon (launchd, `hu.bandi86.football.v2`) fut, a SwiftUI kliens **32/32 Core + 24/24 app** tesztje zöld, a VoiceOver-címkék közös, tesztelt forrásból jönnek. Kész az S3a kapulánc, az observáció-vezérelt kanonikus út, az Elo/odds/statisztika adapterek, a Versenyek/Csapatok oldal, a meccs-részletező és az Üzemeltetés nézet integritás-kártyája (API + kliens); nyitott: soccerway JS dayPicker, asset-licence döntés, a futó daemon kézi frissítése az új API-mezőhöz.
 
 ## Mi ez a projekt?
 
@@ -60,6 +60,15 @@ A teljes program több önálló tervre bomlik: backend alap, SwiftUI kliens, te
 
 Minden emberi és AI közreműködőre az [AGENTS.md](AGENTS.md) szabályai érvényesek. Ott találhatók a kötelező olvasási sorrend, a repository- és dokumentációstruktúra, a lassú haladási és megállási pontok, a migrációs, adatvédelmi, tesztelési és git-szabályok.
 
+A projekt tudása a repóban él, nem egy külső profilban:
+
+- [`.dsh/skills/`](.dsh/skills/) — a DSH (és bármely más ágens-motor) automatikusan katalógusba veszi:
+  `football-app-v2` (szelet-folyamat, kapu-lánc, adat-szabályok), `swiftui-macos-client`,
+  `rust-workspace-backend`.
+- [`agents/`](agents/README.md) — a projekt-specifikus szerepkártyák (`lead`, `rust-backend`,
+  `swiftui-client`, `data-ops`, `researcher`, `verifier`) a dispatch- és handoff-protokollal.
+  Alapelv: builder ≠ verifier, diszjunkt írási hatókör, „kész” csak futtatott bizonyítékkal.
+
 ## Tervezett repository-szerkezet
 
 ```text
@@ -69,6 +78,8 @@ rust/
   bins/                 footballd, footballctl
 db/migrations/          ellenőrzött PostgreSQL migrációk
 tests/fixtures/         parser- és integrációs fixture-ök
+.dsh/skills/            projekt-specifikus skillek (automatikus katalógus)
+agents/                 szerepkártyák és handoff-protokoll
 docs/                   specifikációk és üzemeltetési dokumentáció
 scripts/                helyi fejlesztői és ellenőrző scriptek
 ```

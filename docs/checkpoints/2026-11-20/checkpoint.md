@@ -91,3 +91,94 @@
   nem látható DOM-ra.
 - [x] Asset-licence: mind a 53 `ops.asset` sor `cleared` (49 csapatlogo + 4
   versenylogo), külön döntés nem kell.
+
+## S30e — SwiftUI akadálymentességi szelet (P0, TDD)
+
+- [x] Skill-/dokumentáció-audit: `development-readiness.md`, `references/roadmap.md`,
+  `rust-backend.md`, `swiftui.md`; `AGENTS.md` §11 kijavítva; a fő skill 26,7 KB → 12,6 KB.
+- [x] A katalógus community SwiftUI/Rust skilljeit a felhasználó `continue`-val zárta,
+  **nem lettek telepítve** — nem kínáltam újra. A projekt-specifikus referenciák fedik a munkát.
+- [x] TDD RED→GREEN: `AccessibilityLabelsTests` 6 teszt (státusz-, publikáció-, sor- és
+  kártya-címke, hiányzó eredmény nem `0 – 0`, stabil identifier), közös, tesztelt forrás
+  `FootballAppCore/AccessibilityLabels.swift`. Core **32/32**.
+- [x] A címkéket használja a `MatchItemRow` (napi lista), `MatchRowView`, `StatusBadge`,
+  liga-fejléc és üres állapot; `MatchListView`-be hiányzott az `import FootballAppCore` — javítva.
+- [x] Billentyű-parancsok: Cmd+←/→ (előző/következő nap), Cmd+T (Ma), Cmd+R (frissítés),
+  VoiceOver-címkék a navigációs ikonokon és a naptáron.
+- [x] Valódi Xcode kapu (`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`):
+  `xcodebuild test -project apps/FootballApp.xcodeproj -scheme FootballApp -destination 'platform=macOS'`
+  → **24/24, 0 failure**. `swiftc -parse` az appforráson: OK.
+- [ ] **Nem ellenőrzött:** a tényleges VoiceOver-felolvasás és Tab-ciklus. Az app folyamat futott
+  (pid 30733) és a System Events egy `FootballApp` ablakot jelzett, de a képernyőképen a chat
+  alkalmazás maradt elöl → vizuális igazolás nincs. A teendőket az
+  `docs/operations/ui-accessibility-checklist.md` rögzíti; ezért a SwiftUI DoD **még nem zárt**.
+- Nyitott maradt: CI (`.github/workflows`), OpenAPI↔Swift kontrakt, futó daemon kézi frissítése,
+  soccerway dayPicker, 2026/27 odds.
+
+## S30f — Projekt-skillek és ágens-csapat (infrastruktúra, tudás)
+
+Cél: a projekt tudása és a hozzá tartozó szerepek a repóban éljenek, ne egy másik harness
+profiljában; utána jöhet a következő kód-szelet.
+
+- [x] Megállapítva: a DSH a repó `.dsh/skills/` mappáját automatikusan, élőben katalógusba veszi
+  (filesystem skill provider, rank 100). A projekt skillek eddig csak a hermes harness alatt
+  (`~/.hermes/skills/`) léteztek, ezért voltak a DSH-ban láthatatlanok.
+- [x] `.dsh/skills/football-app-v2/` átemelve (SKILL.md + 6 reference + `scripts/team_dup_groups.py`);
+  a session katalógus azonnal jelezte.
+- [x] Két új, projekt-specifikus skill: `swiftui-macos-client` (XcodeGen, `DEVELOPER_DIR`-es build/teszt
+  parancsok, téma-tokenek, kötelező UI-állapotok, akadálymentességi szerződés, Swift 6) és
+  `rust-workspace-backend` (crate-határok, thiserror/anyhow, sqlx, teszt-layout, ismert csapdák).
+- [x] Bizonyíték a tudásra: `probe-rust` a meglévő referenciából 7/7 helyes választ adott
+  fájlhivatkozásokkal; a baseline `probe-swift` csak checkpointokból tudott válaszolni (szétszórt
+  tudás) → ezt a `swiftui-macos-client` zárta; a green `probe-swift2` mind a 6 kérdésre
+  fájlhivatkozással, csak rövid ellenőrző olvasással válaszolt.
+- [x] Ágens-csapat: `agents/README.md` (szereptábla, kötelező skillek, dispatch, handoff-formátum,
+  topológiák, tiltások) + hat szerepkártya: `lead`, `rust-backend`, `swiftui-client`, `data-ops`,
+  `researcher`, `verifier`. Alapelvek: builder ≠ verifier, diszjunkt írási hatókör,
+  bizonyíték a futtatott kimenet.
+- [x] `AGENTS.md`: §3 szerkezet-fa kiegészítve (`.dsh/skills/`, `agents/`), új §12 a skillekről,
+  szerepekről és a handoffról; a skill nem írja felül az `AGENTS.md`-t.
+- [x] `docs/operations/development-readiness.md`: a skill-fedettség hiány sora lezárva; community
+  bundle telepítése nem szükséges.
+- [x] Futtatott ellenőrzés: mindhárom skill YAML frontmatterje parse-olva, a kártyákban hivatkozott
+  fájlok léteznek, `git status` átnézve (nincs titok, nincs generált fájl).
+- [x] Független roster-próba (`probe-roster`, csak olvasás): a verifier-kártya + skill alapján
+  helyesen adta vissza a szerep tiltásait, a teljes kapu-láncot, a handoff-mezőket és a
+  bizonyíték-szabályt, és 7 apró következetlenséget jelzett. Javítva: a handoff egységes
+  (`SZELET` + ZÖLD/PIROS, külön `KOCKÁZAT` és `VISSZAÁLLÁS`), a verifier diff-bázisa és teszt-DB
+  határa tisztázva, a `references/rust-backend.md` kapu-lánca kiegészítve a hiányzó `source .env`
+  lépéssel.
+- [ ] Nem ellenőrzött: a DSH-n kívüli motorok `.dsh/skills` olvasása (a protokoll szerint bármelyik
+  töltheti, de nem teszteltem); a szerepkártyák valódi több-ágenses futásban a következő szeletben
+  bizonyítódnak.
+- Következő döntési pont: a nyitott P0/P1 közül választani — VoiceOver/Tab kézi futás, CI,
+  OpenAPI↔Swift kontrakt, vagy a futó daemon frissítése.
+
+## S30g — VoiceOver/Tab kézi ellenőrzés: állapot és akadály
+
+- Cél: a SwiftUI kliens kézi akadálymentességi/viselkedési ellenőrzése (a
+  `docs/operations/ui-accessibility-checklist.md` 2–6. pontja), hogy a fázis DoD zárható legyen.
+- [x] Daemon- és kliensállapot rögzítve: `GET /v1/health` → `{"status":"ok","service":"footballd"}`
+  (port 49387), `FootballApp` pid 30733.
+- [x] Képernyő-olvasás (screencapture) működik: 1920×1080 PNG, 2 114 749 bájt; a korábbi
+  `could not create image from display` hiba megszűnt.
+- [x] A DSH oldalsáv `Cannot read properties of undefined (reading 'map')` hibája javítva
+  (`dsh-better-sidebar` 0.32.1); a Tasks oldal a csapat-táblával hiba nélkül renderel (képernyőkép).
+- [x] Felhasználói visszajelzés (m00389): az app fut, a kezdőlapon adatok vannak, hibát nem lát;
+  a 2–6. pontot még nem próbálta.
+- [ ] VoiceOver-felolvasás, Tab-ciklus, Cmd+←/→/T/R, világos/sötét, Reduced Motion, kontraszt,
+  állapotok, magyar visszaolvasás: **NEM igazolt**.
+- Akadály: az AX-vezérléshez (System Events, kattintás, billentyű) a `DeepSeek Harness`
+  Accessibility-kapcsolója kell a System Settings „Device Control and Data Access” panelen;
+  amíg ki van kapcsolva, `osascript` → `not allowed assistive access. (-1728)`.
+- Döntés: a kézi ellenőrzés kiváltására S30h szeletben automatizált XCUITest-harness épül
+  (VoiceOver által használt címkék olvasása, billentyűparancsok, determinisztikus
+  betöltés/üres/hiba/offline állapotok fixture `runtime.json`-nal). A VoiceOver tényleges
+  beszédhangja továbbra is emberi ellenőrzés marad.
+- Futtatott kapu (2026-11-20 11:52): **GATE RESULT: GREEN** a `/tmp/gate-s30g.sh` lánccal:
+  db-reset (test DB), `check-foundation.sh`, `cargo test --workspace -- --test-threads=1`,
+  `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`,
+  `cargo build -p footballd -p footballctl --features obscura`, Swift Core **32/32**,
+  Xcode app **24/24**, záró db-reset.
+- Következő döntési pont: S30h (automatizált UI-harness); ehhez egyetlen emberi lépés az
+  AX-kapcsoló bekapcsolása, utána a harness önállóan fut.

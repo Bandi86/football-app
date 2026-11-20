@@ -44,6 +44,8 @@ rust/                  Cargo workspace
 db/migrations/         verziózott PostgreSQL migrációk
 scripts/               helyi fejlesztői és ellenőrző scriptek
 tests/fixtures/        tesztfixture-ök
+.dsh/skills/<név>/     projekt-specifikus skillek (DSH automatikusan katalógusba veszi)
+agents/                szerepkártyák: ki mit írhat, hogyan ad át, mit bizonyít
 docs/
   superpowers/specs/   jóváhagyott specifikációk
   superpowers/plans/   megvalósítási tervek
@@ -180,3 +182,22 @@ commit/push csak kérésre szabályait: a szeleteket sorban, önállóan lehet h
 szelet commitolható/pusholható. A visszafordíthatatlan műveletek (launchd-telepítés, törlés, külső
 szolgáltatás) továbbra is külön döntés, és a gateway-vezérelt telepítéseket a gateway blokkolhatja —
 ezt nem szabad megkerülni.
+
+## 12. Skillek és ágens-szerepek
+
+- A projekt skillek a repóban élnek: `.dsh/skills/<név>/SKILL.md`. Jelenleg három van:
+  `football-app-v2` (szelet-folyamat, kapu-lánc, adat- és bizonyíték-szabályok),
+  `swiftui-macos-client` (kliens build/teszt, téma, állapotok, akadálymentesség),
+  `rust-workspace-backend` (crate-határok, hibakezelés, sqlx, tesztek).
+- A DSH a repó `.dsh/skills` mappáját automatikusan katalógusba veszi; más harness ugyanezt olvassa.
+  A skill a részletes „hogyan”, ez a fájl a kötelező szabály — ellentmondás esetén `AGENTS.md` nyer.
+  Új skill csak akkor készül, ha a meglévő három nem fedi a munkát; duplikálni tilos.
+- A szerepkártyák az `agents/` alatt vannak (lead, rust-backend, swiftui-client, data-ops, researcher,
+  verifier); a dispatch- és handoff-protokoll: `agents/README.md`.
+- Builder ≠ verifier: a kaput független ellenőr futtatja, aki nem írt kódot. Az írási hatókörök
+  diszjunktak; két ágens ugyanabba a fába nem ír.
+- Minden ágens válasza a handoff formátumban zárul: SZELET / VÁLTOZOTT / FUTOTT / NEM ELLENŐRZÖTT /
+  KOCKÁZAT / VISSZAÁLLÁS / KÖVETKEZŐ DÖNTÉSI PONT. A verdikt (ZÖLD/PIROS) a SZELET sorba kerül, a
+  `FUTOTT` sorok mért számot tartalmaznak, nem összegzést.
+- A kártya vagy skill módosítása dokumentációs változás, nem kód-szelet; a szelet-fegyelem rá is
+  érvényes (checkpoint, bizonyíték, commit csak a szelet végén).

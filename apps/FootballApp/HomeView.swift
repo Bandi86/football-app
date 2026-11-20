@@ -353,6 +353,7 @@ private struct HomeHeader: View {
 
             HStack(spacing: 8) {
                 iconButton("chevron.left", help: "Előző nap", action: onPrevious)
+                    .keyboardShortcut(.leftArrow, modifiers: .command)
                 Button(action: onToday) {
                     Text("Ma")
                         .font(.system(size: 12.5, weight: .medium))
@@ -363,7 +364,10 @@ private struct HomeHeader: View {
                         .overlay(Capsule().strokeBorder(AppTheme.hairline))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Ma")
+                .keyboardShortcut("t", modifiers: .command)
                 iconButton("chevron.right", help: "Következő nap", action: onNext)
+                    .keyboardShortcut(.rightArrow, modifiers: .command)
 
                 Rectangle().fill(AppTheme.hairline).frame(width: 1, height: 18).padding(.horizontal, 2)
 
@@ -379,11 +383,13 @@ private struct HomeHeader: View {
                 }
                 .buttonStyle(.plain)
                 .help("Naptár")
+                .accessibilityLabel("Naptár")
                 .popover(isPresented: $showCalendar, arrowEdge: .bottom) {
                     MonthCalendar(date: $date, onSelect: { showCalendar = false })
                 }
 
                 iconButton("arrow.clockwise", help: "Frissítés", action: onRefresh)
+                    .keyboardShortcut("r", modifiers: .command)
             }
             .opacity(appeared ? 1 : 0)
             .animation(step(0.16), value: appeared)
@@ -404,6 +410,8 @@ private struct HomeHeader: View {
         }
         .buttonStyle(.plain)
         .help(help)
+        .accessibilityLabel(help)
+        .accessibilityIdentifier("nav.\(systemName)")
     }
 }
 

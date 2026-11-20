@@ -12,21 +12,12 @@ struct MatchRowView: View {
         return formatter
     }()
 
-    private static let statusLabels: [String: String] = [
-        "scheduled": "Ütemezett",
-        "confirmed": "Megerősített",
-        "live": "Élő",
-        "halftime": "Félidő",
-        "finished": "Lezárt",
-        "postponed": "Elhalasztott",
-        "canceled": "Törölt",
-        "abandoned": "Félbeszakadt",
-        "awarded": "Megítélt",
-    ]
+    // Státusz-szövegek egyedül a FootballAppCore AccessibilityLabels-ben élnek.
 
-    /// Ismert állapot magyar címkéje, ismeretlen esetén a nyers érték.
+    /// Ismeretlen állapot magyar címkéje, ismeretlen esetén a nyers érték.
+    /// Az app-target tesztjei ezen keresztül ellenőrzik a közös fordítást.
     static func statusLabel(for status: String) -> String {
-        statusLabels[status] ?? status
+        AccessibilityLabels.statusLabel(for: status)
     }
 
     var body: some View {
@@ -53,5 +44,18 @@ struct MatchRowView: View {
             StatusBadge(state: match.publishState)
         }
         .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            AccessibilityLabels.matchRowLabel(
+                home: match.home,
+                away: match.away,
+                kickoffAt: match.kickoffAt,
+                status: match.status,
+                homeScore: match.homeScore,
+                awayScore: match.awayScore,
+                publishState: match.publishState
+            )
+        )
+        .accessibilityIdentifier(AccessibilityLabels.matchIdentifier(for: match.id))
     }
 }

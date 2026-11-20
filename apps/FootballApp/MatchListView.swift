@@ -1,5 +1,6 @@
 import SwiftUI
 import Foundation
+import FootballAppCore
 
 /// Státusz-szűrő a napi listához, darabszámmal.
 enum MatchFilter: String, CaseIterable, Identifiable {
@@ -50,6 +51,9 @@ struct MatchListView: View {
                     .foregroundStyle(AppTheme.secondaryText)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Nincs meccs a kiválasztott szűrőben.")
+            .accessibilityIdentifier("match.list.empty")
         } else {
             ScrollView {
                 LazyVStack(spacing: 16) {
@@ -95,6 +99,9 @@ private struct LeagueSectionView: View {
             .padding(.horizontal, 18)
             .padding(.vertical, 12)
             .background(AppTheme.surface)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(league.name), \(league.subtitle), \(league.matches.count) meccs")
+            .accessibilityIdentifier("league.section.\(league.id)")
 
             Rectangle().fill(AppTheme.hairline).frame(height: 1)
 
@@ -188,6 +195,19 @@ private struct MatchItemRow: View {
         .contentShape(Rectangle())
         .onHover { hover = $0 }
         .onTapGesture { onSelect(match.id) }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            AccessibilityLabels.matchCardLabel(
+                home: match.home,
+                away: match.away,
+                time: match.time,
+                status: match.status,
+                homeScore: match.homeScore,
+                awayScore: match.awayScore
+            )
+        )
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("match.card.\(match.id)")
     }
 
     private var statusColumn: some View {
