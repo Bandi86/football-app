@@ -124,6 +124,12 @@ enum Command {
         /// Csak eddig a szezon-kezdőévig.
         #[arg(long)]
         to: Option<i32>,
+        /// Listázott szezonok felső korlátja (alap: 300, a legnagyobb szezonok).
+        #[arg(long, default_value_t = 300)]
+        limit: i64,
+        /// Csak ez a verseny (pontos név).
+        #[arg(long)]
+        competition: Option<String>,
     },
     /// Napi integritás-riport (read-only): duplikátumok, árva hivatkozások,
     /// review/gate/job/breaker állomány. Kemény hiba esetén exit 1.
@@ -1008,7 +1014,12 @@ async fn main() -> Result<()> {
                 println!("  {state}: {count}");
             }
         }
-        Command::Coverage { from, to } => {
+        Command::Coverage {
+            from,
+            to,
+            limit,
+            competition,
+        } => {
             let rows: Vec<(String, String, i64, i64, i64)> = sqlx::query_as(
                 "SELECT c.name, s.label, count(*)::bigint,
                         count(r.match_id)::bigint,
@@ -1020,12 +1031,15 @@ async fn main() -> Result<()> {
                  LEFT JOIN core.match_result r ON r.match_id = m.id
                  WHERE ($1::int IS NULL OR substring(s.label from 1 for 4)::int >= $1)
                    AND ($2::int IS NULL OR substring(s.label from 1 for 4)::int <= $2)
+                   AND ($3::text IS NULL OR c.name = $3)
                  GROUP BY 1, 2
                  ORDER BY 3 DESC
-                 LIMIT 300",
+                 LIMIT $4",
             )
             .bind(from)
             .bind(to)
+            .bind(competition)
+            .bind(limit)
             .fetch_all(&pool)
             .await?;
             println!("verseny | szezon | meccs | eredmény % | odds %");
