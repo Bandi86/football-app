@@ -1181,3 +1181,19 @@ napi „hiány" panelt a v1 mintájára.
 - [ ] Logó-lefedettség (165/245 csapatlogó nélküli, 186 ligalogó nélküli):
       a v1 megapack csak 96 ligát fed; további forrás/egyeztetés kell.
 - [ ] 11-22…11-29 napok egyenkénti tematikus auditja.
+
+### S44b — női duplikátumok utótisztítása
+
+- [x] Cross-competition dedupe a 11-18/11-19 napokra: 2 merge —
+      „UEFA Champions League Women - League phase" Paris FC (W)–HB Køge (W)
+      (a v1-es „Paris FC W–Koge W" sor beolvasztva), és
+      „Women's League Cup" ← „WSL Players Cup" London City Lionesses–Brighton.
+- [x] Női verseny-duplikátumok merge-elve: „UEFA U17 (női) - Qualification -
+      League A" (két néven élt, 4 meccs) és „WE League (női)" (3 meccs).
+- [x] `reverify --from 2026-11-13 --to 2026-11-29`: 1836 meccs, 0 hiba;
+      gate-ek: verified 754, provisional 1074, withheld 8.
+- [x] 11-19 feed: 98 meccs, női szekciók duplikátum nélkül; 11-20: 245 meccs,
+      „Première Ligue (női)" alatt Toulouse (W)–Marseille W egyszer szerepel,
+      a férfi Ligue 1 külön.
+- [x] Képernyőkép: `/tmp/s44_final.png` (a hiány-panel a végleges
+      „lejárt, nincs eredmény" címkével).
