@@ -549,7 +549,25 @@ const COMPETITION_ALIASES: &[(&str, &str, &str, &str)] = &[
     ("ESP", "copa del rey - 1st round", "Copa del Rey", "ES"),
 ];
 
+/// Nemzetközi sorozatok nevei: a research tagekben felbontva jönnek
+/// (pl. „Africa Cup of Nations Qualification Grp. A"), a v2-ben viszont egy
+/// kanonikus selejtező-verseny él. Itt a csoport-taget eldobjuk.
+fn international_alias(folded_name: &str) -> Option<(&'static str, &'static str)> {
+    if folded_name == "afcon qualifying"
+        || folded_name.starts_with("africa cup of nations qualification")
+    {
+        Some(("Afrikai Nemzetek Kupája - Selejtező", "INT"))
+    } else if folded_name == "mens international friendly" {
+        Some(("Friendlies", "INT"))
+    } else {
+        None
+    }
+}
+
 fn competition_alias(raw_country: &str, folded_name: &str) -> Option<(&'static str, &'static str)> {
+    if let Some(alias) = international_alias(folded_name) {
+        return Some(alias);
+    }
     let code = raw_country.trim().to_ascii_uppercase();
     COMPETITION_ALIASES
         .iter()
@@ -720,6 +738,20 @@ mod tests {
             Some("FRA"),
         ));
         assert_eq!(identity, ("Ligue 1".to_string(), "FR".to_string()));
+    }
+
+    #[test]
+    fn international_qualification_groups_fold_into_one_canonical_competition() {
+        let a = competition_identity(&competition(
+            "Africa Cup of Nations Qualification Grp. A",
+            None,
+            Some("INT"),
+        ));
+        let b = competition_identity(&competition("AFCON Qualifying", None, Some("INT")));
+        assert_eq!(a.0, "Afrikai Nemzetek Kupája - Selejtező");
+        assert_eq!(b.0, "Afrikai Nemzetek Kupája - Selejtező");
+        assert_eq!(a.1, "INT");
+        assert_eq!(b.1, "INT");
     }
 
     #[test]

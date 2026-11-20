@@ -70,6 +70,10 @@ enum DedupeAction {
         /// Tényleges végrehajtás (alapból csak terv).
         #[arg(long)]
         apply: bool,
+        /// Kézi döntés: lazább név-ellenőrzés (12 órás kickoff-ablak,
+        /// fordítható pár). Csak tudatos használatra.
+        #[arg(long)]
+        allow_loose: bool,
     },
     /// S26: fixture-szintű rekonciliáció — azonos verseny+szezon+csapat-pár+
     /// UTC-nap, eltérő kickoff (v1 import vs footballdata). Auto-merge csak
@@ -610,7 +614,11 @@ async fn main() -> Result<()> {
                     );
                 }
             }
-            DedupeAction::Variants { date, apply } => {
+            DedupeAction::Variants {
+                date,
+                apply,
+                allow_loose,
+            } => {
                 let groups =
                     football_storage::repositories::dedupe::variant_duplicate_groups(&pool, date)
                         .await?;
@@ -659,23 +667,37 @@ async fn main() -> Result<()> {
                             );
                             if apply {
                                 let outcome: Result<()> = async {
-                                    let same = football_storage::repositories::dedupe::is_strict_variant_same_match(
-                                        &pool,
-                                        survivor.match_id,
-                                        m.match_id,
-                                    )
-                                    .await?;
+                                    let same = if allow_loose {
+                                        football_storage::repositories::dedupe::is_variant_same_match(
+                                            &pool,
+                                            survivor.match_id,
+                                            m.match_id,
+                                        )
+                                        .await?
+                                    } else {
+                                        football_storage::repositories::dedupe::is_strict_variant_same_match(
+                                            &pool,
+                                            survivor.match_id,
+                                            m.match_id,
+                                        )
+                                        .await?
+                                    };
                                     anyhow::ensure!(
                                         same,
-                                        "nem szigorú név-variáns pár (azonos nap, egyező vagy 2 órával eltérő kickoff és korosztály-jelölés nélküli név kell; kézi döntés): {} / {}",
+                                        "nem név-variáns pár (azonos nap, egyező vagy 2 órával eltérő kickoff és korosztály-jelölés nélküli név kell; lazább kézi döntéshez: --allow-loose): {} / {}",
                                         survivor.match_id,
                                         m.match_id
                                     );
+                                    let note = if allow_loose {
+                                        "S37c dedupe (név-variáns duplikátum, kézi döntés)"
+                                    } else {
+                                        "S37c dedupe (név-variáns duplikátum)"
+                                    };
                                     football_storage::repositories::dedupe::merge_duplicate(
                                         &pool,
                                         survivor.match_id,
                                         m.match_id,
-                                        "S37c dedupe (név-variáns duplikátum)",
+                                        note,
                                     )
                                     .await?;
                                     Ok(())

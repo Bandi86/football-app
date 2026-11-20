@@ -678,3 +678,23 @@ bemutatott bizonyíték alapján a **B — app-szintű Tab-sorrend** irányt vá
       11-20 95/216; 11-21 223/594.
 - [ ] A daemon visszaállítása és az API ellenőrzése a backfill napokra.
 - [ ] 2026-11-17 (a research-nek nincs napi fájlja) külön döntés.
+
+## Nyitott kérdések lezárása (S38c)
+
+- [x] Korábbi éjszakai research-fájlok nélküli 2026-11-17 pótlása a research
+      saját pipeline-jával: `football.py sync/render/verify 2026-11-17` →
+      94 meccs (91 lejátszott), `api-export.py 2026-11-17` → napi fájl.
+      Közben javított research-hiba: `tools/odds.py` `raw` változó
+      tipplap nélküli napokon `UnboundLocalError`-t dobott (inicializálva).
+- [x] 2026-11-17 betöltése: 277 meccs, 40 oddsos, 62 verseny; a napi pass
+      4 pontos duplikátumot zárt le; 1 fordított AFCON U23 pár kézi
+      döntéssel (`--allow-loose`) merge-elve; integrity OK.
+- [x] Stars League fordított név-variáns pár (11-19) kézi döntéssel merge-elve
+      → nincs nyitott név-variáns pár egyik backfill napon sem.
+- [x] Új CLI-kapcsoló: `footballctl dedupe variants --allow-loose` a kézi
+      döntéshez (lazább név/kickoff-ellenőrzés, külön merge-note).
+- [x] Nemzetközi sorozatnevek (AFCON selejtező csoportok, Men's International
+      Friendly) kanonikus v2-versenyre képezve (1 csoport helyett 1 verseny).
+- [x] Backfill összesítés: 11-17 277/40, 11-18 75/17, 11-19 137/38,
+      11-20 311/163, 11-21 817/252 meccs/oddos; integrity OK.
+
