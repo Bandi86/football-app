@@ -12,10 +12,13 @@
 //! ismeretlen ligacím esetén a sor kimarad — nem hozunk létre új
 //! verseny-entitást. A szótár kulcsa a Tipplap magyar címe, az érték a v2
 //! kanonikus (Soccerway/footballdata) név, hogy a meccsek összeérjenek.
+//! A nemzetközi/top-ligás `LEAGUES` mellett a `GENERAL_LEAGUES` tábla
+//! fedi a v1-ben már bejáratott többi ligát (S36a, adatvezérelt bővítés).
 
 use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Utc};
 use chrono_tz::Europe::Budapest;
 use football_domain::error::ParseError;
+use football_domain::identity::fold_name;
 use football_domain::policy::{FetchJob, Transport};
 use scraper::{Html, Selector};
 
@@ -169,6 +172,225 @@ const LEAGUES: [League; 16] = [
     },
 ];
 
+/// Tipplap ligacím → v2 kanonikus verseny — bővített tábla (S36a).
+///
+/// A v1 `tipplap_league_alias` (434 reviewed sor) + a v2-ben már meccset
+/// tartó versenyek alapján, adatvezérelt ellenőrzéssel: csak olyan cím
+/// került be, amelyhez a v1 Tipplap-események legalább két egzakt
+/// csapatpár-egyezést adnak egy v2 versenyre (lásd docs/decisions).
+/// A v2 ország-nevek a meglévő `core.country` sorokból jönnek (GB esetén
+/// a történelmi "Scotland" név — ismert adathiba, külön döntés).
+const GENERAL_LEAGUES: [League; 26] = [
+    League {
+        key: "Angol Liga 1.",
+        name: "League One",
+        country: Some(("GB", "Scotland")),
+        tier: 3,
+        priority: 14,
+        international: false,
+    },
+    League {
+        key: "Angol Liga 2.",
+        name: "League Two",
+        country: Some(("GB", "Scotland")),
+        tier: 4,
+        priority: 16,
+        international: false,
+    },
+    League {
+        key: "Angol Liga bajnokság",
+        name: "Championship",
+        country: Some(("GB", "Scotland")),
+        tier: 1,
+        priority: 50,
+        international: false,
+    },
+    League {
+        key: "Angol Nemzeti Liga",
+        name: "National League",
+        country: Some(("GB", "Scotland")),
+        tier: 5,
+        priority: 18,
+        international: false,
+    },
+    League {
+        key: "Ausztrál Championship, D csop.",
+        name: "Australian Championship",
+        country: Some(("AU", "Australia")),
+        tier: 1,
+        priority: 50,
+        international: false,
+    },
+    League {
+        key: "Bundesliga 2.",
+        name: "2. Bundesliga",
+        country: Some(("DE", "Germany")),
+        tier: 1,
+        priority: 60,
+        international: false,
+    },
+    League {
+        key: "Egyiptomi Kupa",
+        name: "Egyiptomi Kupa",
+        country: Some(("EG", "Egypt")),
+        tier: 0,
+        priority: 40,
+        international: false,
+    },
+    League {
+        key: "Francia 2.",
+        name: "Ligue 2",
+        country: Some(("FR", "France")),
+        tier: 1,
+        priority: 50,
+        international: false,
+    },
+    League {
+        key: "Georgiai bajnokság",
+        name: "Erovnuli Liga",
+        country: Some(("GE", "Georgia")),
+        tier: 1,
+        priority: 50,
+        international: false,
+    },
+    League {
+        key: "Holland bajnokság",
+        name: "Eredivisie",
+        country: Some(("NL", "Netherlands")),
+        tier: 1,
+        priority: 60,
+        international: false,
+    },
+    League {
+        key: "Indiai Szuperliga",
+        name: "Indian Super League",
+        country: Some(("IN", "India")),
+        tier: 1,
+        priority: 50,
+        international: false,
+    },
+    League {
+        key: "Iraki bajnokság",
+        name: "Stars League",
+        country: Some(("IQ", "Iraq")),
+        tier: 1,
+        priority: 50,
+        international: false,
+    },
+    League {
+        key: "Iráni bajnokság",
+        name: "Persian Gulf Pro League",
+        country: None,
+        tier: 1,
+        priority: 50,
+        international: false,
+    },
+    League {
+        key: "Katari bajnokság",
+        name: "Qatar Stars League",
+        country: Some(("QA", "Qatar")),
+        tier: 1,
+        priority: 50,
+        international: false,
+    },
+    League {
+        key: "Lengyel bajnokság",
+        name: "Ekstraklasa",
+        country: Some(("PL", "Poland")),
+        tier: 1,
+        priority: 60,
+        international: false,
+    },
+    League {
+        key: "Norvég bajnokság",
+        name: "Eliteserien",
+        country: Some(("NO", "Norway")),
+        tier: 1,
+        priority: 60,
+        international: false,
+    },
+    League {
+        key: "Olasz B",
+        name: "Serie B",
+        country: Some(("IT", "Italy")),
+        tier: 1,
+        priority: 60,
+        international: false,
+    },
+    League {
+        key: "Osztrák 2.",
+        name: "2. Liga",
+        country: Some(("AT", "Austria")),
+        tier: 1,
+        priority: 60,
+        international: false,
+    },
+    League {
+        key: "Portugál bajnokság",
+        name: "Primeira Liga",
+        country: Some(("PT", "Portugal")),
+        tier: 1,
+        priority: 60,
+        international: false,
+    },
+    League {
+        key: "Skót Liga 1.",
+        name: "Scottish League One",
+        country: Some(("GB", "Scotland")),
+        tier: 3,
+        priority: 16,
+        international: false,
+    },
+    League {
+        key: "Skót Liga 2.",
+        name: "Scottish League Two",
+        country: Some(("GB", "Scotland")),
+        tier: 4,
+        priority: 18,
+        international: false,
+    },
+    League {
+        key: "Skót bajnokság",
+        name: "Scottish Premiership",
+        country: Some(("GB", "Scotland")),
+        tier: 1,
+        priority: 60,
+        international: false,
+    },
+    League {
+        key: "Spanyol 2.",
+        name: "LaLiga 2",
+        country: Some(("ES", "Spain")),
+        tier: 2,
+        priority: 12,
+        international: false,
+    },
+    League {
+        key: "Spanyol Kupa",
+        name: "Copa del Rey",
+        country: Some(("ES", "Spain")),
+        tier: 0,
+        priority: 40,
+        international: false,
+    },
+    League {
+        key: "Török bajnokság",
+        name: "Süper Lig",
+        country: Some(("TR", "Turkey")),
+        tier: 1,
+        priority: 60,
+        international: false,
+    },
+    League {
+        key: "Walesi bajnokság",
+        name: "Cymru Premier",
+        country: Some(("GB", "Scotland")),
+        tier: 1,
+        priority: 50,
+        international: false,
+    },
+];
+
 fn league_for(title: &str) -> Option<(&'static League, Option<String>)> {
     let trimmed = title
         .trim()
@@ -183,13 +405,20 @@ fn league_for(title: &str) -> Option<(&'static League, Option<String>)> {
             best = Some((league, league.key));
         }
     }
-    let (league, key) = best?;
-    let rest = trimmed[key.len()..]
-        .trim_start_matches([',', '.', ' '])
-        .trim()
-        .to_string();
-    let round = (!rest.is_empty()).then_some(rest);
-    Some((league, round))
+    if let Some((league, key)) = best {
+        let rest = trimmed[key.len()..]
+            .trim_start_matches([',', '.', ' '])
+            .trim()
+            .to_string();
+        let round = (!rest.is_empty()).then_some(rest);
+        return Some((league, round));
+    }
+    // Bővített tábla: teljes címre, ékezet/kisbetű-független egyezés (S36a).
+    let folded = fold_name(trimmed);
+    let league = GENERAL_LEAGUES
+        .iter()
+        .find(|league| fold_name(league.key) == folded)?;
+    Some((league, None))
 }
 
 fn slug(value: &str) -> String {
@@ -541,6 +770,30 @@ impl SourceAdapter for TipplapAdapter {
 #[cfg(test)]
 mod league_map_tests {
     use super::league_for;
+
+    #[test]
+    fn maps_general_leagues_from_v1_alias_registry() {
+        // S36a: a v1 tipplap_league_alias reviewed sorai + v2 egyezés.
+        let (league, round) = league_for("Labdarúgás – Angol Liga 1.").unwrap();
+        assert_eq!(league.name, "League One");
+        assert_eq!(league.country, Some(("GB", "Scotland")));
+        assert_eq!(league.tier, 3);
+        assert_eq!(round, None);
+
+        let (league, _) = league_for("Labdarúgás – Spanyol 2.").unwrap();
+        assert_eq!(league.name, "LaLiga 2");
+        assert_eq!(league.tier, 2);
+
+        let (league, _) = league_for("Labdarúgás – Török bajnokság").unwrap();
+        assert_eq!(league.name, "Süper Lig");
+
+        // Ékezet/kisbetű-független egyezés (a prefix levágása után).
+        let (league, _) = league_for("Labdarúgás – OSZTRÁK 2.").unwrap();
+        assert_eq!(league.name, "2. Liga");
+
+        // Ismeretlen cím továbbra sem találgat.
+        assert!(league_for("Labdarúgás – Szuper Liga, Mars").is_none());
+    }
 
     #[test]
     fn maps_nb_two_and_concacaf_leagues() {

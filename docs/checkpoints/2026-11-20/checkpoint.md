@@ -435,3 +435,26 @@ bemutatott bizonyíték alapján a **B — app-szintű Tab-sorrend** irányt vá
 - Következő döntési pont: a helyi AI-t a napi üzemeltetésbe kötni (pl. reggeli
   forrás-egészség összefoglaló a worker tickből), vagy előbb a forrás-frissítési
   policy-k (napi egyszeri discovery helyett napon belüli frissítés) javítása.
+
+## S36a — Tipplap liga-lefedettség bővítése (napi odds)
+
+- Kiindulás: a felhasználó a források/napi működés felé irányított; mérés szerint a nap
+  124 v2-meccséből csak 4 kapott oddsot, mert a Tipplap-adapter 16 ligacímet ismert
+  (`rows=118 skipped=114`), a v1-ben viszont napi 100–220 Tipplap-esemény van.
+- [x] Döntés rögzítve: `docs/decisions/2026-11-20-tipplap-league-coverage.md`
+  (adatvezérelt cím-bővítés ≥2 szavazat + ≥80% többség; GB→„Scotland” név kezelése;
+  nincs deployment ebben a szeletben).
+- [x] `rust/crates/ingest/src/tipplap.rs`: `GENERAL_LEAGUES` (26 új cím) + `league_for`
+  fallback ékezet/kisbetű-toleráns pontos egyezéssel; ismeretlen cím továbbra is kimarad.
+- [x] Tesztek: `cargo test -p football-ingest --lib tipplap` → 2 zöld;
+  `cargo test -p football-ingest --test tipplap` → 5 zöld (új integrációs teszt
+  „Angol Liga 1.” szakasszal, League One/GB tiert3 + odds-observáció).
+- [x] Élő parse a daemon által mentett napi oldalon (629 961 byte, 60 ligaszakasz):
+  új kóddal `match_core=44, odds=44, competitions=19`; régi kóddal ugyanaznap
+  `rows=118 skipped=114` → 4 meccs. A 44-ből 24 csapatpár egyezik a nap v2-meccseivel.
+- [ ] Nem ellenőrzött: a tényleges betöltés az új binárison (a launchd-daemon a régi
+  binárist futtatja; újratelepítés külön döntés), és a csapat-identitás feloldás
+  valós aránya a 24-ből.
+- Következő döntési pont: (a) daemon újraépítése + újratelepítése, hogy a lefedettség
+  élesben is megjelenjen, (b) napon belüli frissítés policy-k (`offset_minutes` események
+  a kickoffhoz), (c) csapat-alias/identitás lefedettség.

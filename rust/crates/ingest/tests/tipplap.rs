@@ -124,3 +124,37 @@ fn empty_table_is_schema_drift() {
         .unwrap_err();
     assert!(format!("{err:?}").contains("SchemaDrift"));
 }
+
+const NEW_LEAGUE_PAGE: &str = r##"<!DOCTYPE html><html><body>
+<select id="dates" name="date">
+  <option value="2026-11-17" selected="selected">2026. 11. 17. (ma)</option>
+</select>
+<table border="0" class="table_format" id="calcTableDesktop">
+  <tr><th colspan="9" class="tleft">Labdarúgás – Angol Liga 1.</th></tr>
+  <tr data-event="5600001">
+    <td width="80" data-market-number>1</td><td width="46" data-min-combi>1</td>
+    <td width="100%"><div><a href="#" data-event-name>Peterborough - Barnsley</a></div></td>
+    <td width="64" class="item" data-name="H"><strong data-odds>2.30</strong></td>
+    <td width="64" class="item" data-name="D"><strong data-odds>3.40</strong></td>
+    <td width="64" class="item" data-name="V"><strong data-odds>2.90</strong></td>
+    <td width="72">11.17.</td><td width="72">20:45</td><td width="58"></td>
+  </tr>
+</table>
+</body></html>"##;
+
+#[test]
+fn parses_extended_league_from_general_table() {
+    let obs = TipplapAdapter
+        .parse(&raw(NEW_LEAGUE_PAGE.as_bytes()), &ctx("2026-11-17"))
+        .unwrap();
+    let core: Vec<_> = obs.iter().filter(|o| o.aspect == "match_core").collect();
+    assert_eq!(core.len(), 1);
+    let comp = &core[0].payload["competition"];
+    assert_eq!(comp["name"], "League One");
+    assert_eq!(comp["country_code"], "GB");
+    assert_eq!(comp["country_name"], "Scotland");
+    assert_eq!(comp["tier"], 3);
+    let odds: Vec<_> = obs.iter().filter(|o| o.aspect == "match_odds").collect();
+    assert_eq!(odds.len(), 1);
+    assert_eq!(odds[0].payload["quotes"][0]["price"], 2.30);
+}
