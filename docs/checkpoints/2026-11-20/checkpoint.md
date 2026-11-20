@@ -258,3 +258,23 @@ Induló állapot: semmilyen gépi kontrakt nem kötötte össze az API-t és a S
 - [ ] Nem ellenőrzött: teljes OpenAPI-dokumentum minden végpontra (generálási mód: utoipa vs. kézi —
   külön döntés), és a CI első valós futása.
 - Következő döntési pont: a futó daemon/kliens frissítése új buildre (S31d).
+
+## S31d — a futó daemon és kliens frissítése
+
+Induló állapot: a launchd daemon a korábbi buildet futtatta (pid 962, port 49387), a kliens a
+`/private/tmp/footballapp-xcode-fresh` alatti régi buildből indult, ezért a kártyacímkékből hiányzott
+a publikációs állapot.
+
+- [x] `cargo build -p footballd -p footballctl --features obscura` (12,3 s).
+- [x] `./scripts/install-footballd-agent.sh run` → „agent telepítve és elindítva”; a telepített
+  `agent/bin/footballd` sha1-je azonos a repó buildjével (`121af2d0…`), pid 76003, `state = running`.
+- [x] Új port a logból: **62923**; `runtime.json` frissült; `GET /v1/health` → `{"status":"ok","service":"footballd"}`;
+  `GET /v1/day/2026-11-20` → 41 meccs.
+- [x] `footballctl integrity` → `OK` (0 duplikált, 0 árva provenance, 0 függő review, 0 withheld, 0 failed job).
+- [x] Kliens újraépítve (`** BUILD SUCCEEDED **`), a régi példány kilépett, az új elindult; a kezdőlap
+  41 meccs / 4 kiemelt, és a kártyacímkék már kimondják a publikációs állapotot
+  (pl. „…, Ütemezett, eredmény még nincs, Ellenőrzött publikáció”).
+- [x] Teljes kapu (`/tmp/gate-s31.sh` → `/tmp/s31-gate.log`): `GATE RESULT: GREEN`; Rust 415 teszt / 0 hiba,
+  Swift Core 37/37, app 26/26, UI 5/5, clippy `-D warnings` és `fmt --check` tiszta.
+- [ ] Nem ellenőrzött: a GitHub Actions első valós futása (a workflow lokálisan, actionlinttel és a lépések
+  helyi futtatásával ellenőrzött, de a repóban még nem futott le).
