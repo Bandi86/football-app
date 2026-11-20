@@ -92,3 +92,20 @@ NWSL, WSL, Toppserien, NCAAW, Damallsvenskan stb.).
 Betöltés előtti ellenőrzés: `python3 scripts/precheck-research-days.py
 2026-11-18 2026-11-19 2026-11-21` (meccsszám, eredmények, oddsok, napon belüli
 duplikátumok, kanonizált versenyek, a v2-ben hiányzó versenyek).
+
+## Backfill és automatikus tisztítás
+
+A korábbi napok betöltése kézi `ops.job` sorral történik (a daemon áll):
+
+```sql
+INSERT INTO ops.job (id, source_slug, domain, entity_key, event_type, time_window, due_at, priority, status)
+VALUES (gen_random_uuid(),'research','day','backfill-2026-11-18','discovery','2026-11-18', now(), 0, 'pending');
+```
+
+majd `footballctl worker tick` (a `OBSCURA_BIN` env szükséges lehet). A
+materializálás után a napi automatikus dedupe pass három szinten tisztít:
+pontos duplikátum (azonos kickoff+csapatpár), név-variáns (azonos nap,
+legfeljebb 2 óra eltérés, szigorú névegyezés) és fixture-szintű pár (azonos
+verseny+szezon+csapatpár+UTC-nap, eltérő kickoff). A research saját fuzzy
+duplikátumai (egy forrás órás időzóna-eltéréssel) így a betöltés után
+automatikusan lezáródnak.

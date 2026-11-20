@@ -332,7 +332,9 @@ impl ResearchAdapter {
                 "finished" => "finished",
                 "live" => "live",
                 "postponed" => "postponed",
-                "cancelled" => "cancelled",
+                // A kanonikus szótár a "canceled" írásmódot használja
+                // (a DB CHECK is ezt engedi); a research "cancelled"-t ad.
+                "cancelled" | "canceled" => "canceled",
                 "awarded" => "awarded",
                 _ => "scheduled",
             };

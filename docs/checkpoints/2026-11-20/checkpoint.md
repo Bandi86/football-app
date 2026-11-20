@@ -653,3 +653,28 @@ bemutatott bizonyíték alapján a **B — app-szintű Tab-sorrend** irányt vá
 - [x] Tesztek: 6 új unit teszt az aliasokra/női felismerésre; a research
       integrációs teszt (5) és a live_materialize (11) zöld.
 - [ ] A három backfill-nap (2026-11-18, -19, -21) ellenőrzött betöltése.
+
+## S37e+ — automatikus dedupe kiterjesztés és a backfill betöltése
+
+- [x] A napi automatikus dedupe pass (S37e) kiterjesztve: név-variáns
+      csoportok (szigorú ellenőrzéssel) és fixture-szintű csoportok
+      (azonos verseny+szezon+csapat-pár+UTC-nap, eltérő kickoff) is
+      merge-elődnek; fordított párnál a szerepek cserélődnek, hogy az
+      eredmény ne vesszen el.
+- [x] A research `cancelled` státusza `canceled`-ra normalizálva (a kanonikus
+      szótár és a DB CHECK írásmódja).
+- [x] Ország nélküli research versenyek `INT` besorolása (a korábbi `XX`
+      helyett), a precheck is ezt tükrözi.
+- [x] Backfill betöltés ellenőrzött sorrendben (a daemon áll, kézi job +
+      `worker tick`):
+      - 2026-11-18: 75 meccs, 17 oddsos; duplikátum 0; integrity OK.
+      - 2026-11-19: 137 meccs, 38 oddsos; 1 pontos + 1 név-variáns duplikátum
+        a passzal lezárva; 1 név-variáns pár (Stars League) kézi döntésre vár.
+      - 2026-11-21: 817 meccs, 252 oddsos; a research napi fájl saját 8 fuzzy
+        duplikátum-párja (1 óra kickoff-eltérés) a fixture-dedupe-pal lezárva.
+- [x] Integritás a betöltés után: `verdict: OK` (duplikált kickoff 0,
+      duplikált fixture 0, árva provenance 0).
+- [x] Publikációs kapuk: 11-18 21 verified / 54 provisional; 11-19 16/121;
+      11-20 95/216; 11-21 223/594.
+- [ ] A daemon visszaállítása és az API ellenőrzése a backfill napokra.
+- [ ] 2026-11-17 (a research-nek nincs napi fájlja) külön döntés.

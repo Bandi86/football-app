@@ -821,10 +821,12 @@ async fn auto_dedupe_day(
     pool: &sqlx::PgPool,
     date: chrono::NaiveDate,
 ) -> anyhow::Result<(usize, usize)> {
-    let groups = dedupe::duplicate_groups(pool, date).await?;
+    let exact_groups = dedupe::duplicate_groups(pool, date).await?;
+    let variant_groups = dedupe::variant_duplicate_groups(pool, date).await?;
     let mut merged = 0usize;
     let mut skipped = 0usize;
-    for group in groups {
+
+    for group in exact_groups {
         if group.matches.len() < 2 {
             continue;
         }
@@ -832,19 +834,139 @@ async fn auto_dedupe_day(
         rows.sort_by_key(|row| (row.created_at, std::cmp::Reverse(row.provenance_count)));
         let survivor = rows[0].match_id;
         for victim in &rows[1..] {
-            if !dedupe::is_same_match(pool, survivor, victim.match_id).await? {
-                skipped += 1;
-                continue;
+            match auto_merge_pair(pool, survivor, victim.match_id, false).await? {
+                AutoMerge::Merged => merged += 1,
+                AutoMerge::Skipped => skipped += 1,
             }
-            dedupe::merge_duplicate(
-                pool,
-                survivor,
-                victim.match_id,
-                "S37e automatikus napi dedupe (research ingest)",
-            )
-            .await?;
-            merged += 1;
         }
     }
+
+    for group in variant_groups {
+        if group.matches.len() < 2 {
+            continue;
+        }
+        let mut rows = group.matches;
+        // Név-variánsnál a több provenanciájú, eredménnyel bíró sor a túlélő,
+        // hogy az eredmény ne vesszen el.
+        rows.sort_by_key(|row| {
+            (
+                std::cmp::Reverse(row.has_result),
+                std::cmp::Reverse(row.has_odds),
+                std::cmp::Reverse(row.provenance_count),
+                row.created_at,
+            )
+        });
+        let survivor = rows[0].match_id;
+        for victim in &rows[1..] {
+            match auto_merge_pair(pool, survivor, victim.match_id, true).await? {
+                AutoMerge::Merged => merged += 1,
+                AutoMerge::Skipped => skipped += 1,
+            }
+        }
+    }
+
+    // S26/S37e: fixture-szintű párok (azonos verseny+szezon+csapat-pár+UTC-nap,
+    // de eltérő kickoff) — a research forrás saját fuzzy duplikátumai ilyenek.
+    let fixture_groups =
+        dedupe::duplicate_fixture_groups(pool, Some(date), Some(date), None).await?;
+    for group in fixture_groups {
+        if group.matches.len() < 2 {
+            continue;
+        }
+        let mut rows = group.matches;
+        rows.sort_by_key(|row| {
+            (
+                std::cmp::Reverse(row.has_result),
+                std::cmp::Reverse(row.has_odds),
+                std::cmp::Reverse(row.provenance_count),
+                row.created_at,
+            )
+        });
+        let survivor = rows[0].match_id;
+        for victim in &rows[1..] {
+            match auto_merge_fixture(pool, survivor, victim.match_id).await? {
+                AutoMerge::Merged => merged += 1,
+                AutoMerge::Skipped => skipped += 1,
+            }
+        }
+    }
+
     Ok((merged, skipped))
+}
+
+/// Fixture-szintű pár merge-elése (S26 szabály: azonos verseny+szezon+csapat-pár+
+/// UTC-nap, azonos orientáció, eredmény csak akkor cserélhető, ha a túlélőnél
+/// nincs). Fordított sorrendben is próbáljuk.
+async fn auto_merge_fixture(
+    pool: &sqlx::PgPool,
+    survivor: sqlx::types::Uuid,
+    duplicate: sqlx::types::Uuid,
+) -> anyhow::Result<AutoMerge> {
+    if dedupe::is_same_fixture(pool, survivor, duplicate).await? {
+        dedupe::merge_duplicate(
+            pool,
+            survivor,
+            duplicate,
+            "S37e automatikus fixture-dedupe (research ingest)",
+        )
+        .await?;
+        return Ok(AutoMerge::Merged);
+    }
+    if dedupe::is_same_fixture(pool, duplicate, survivor).await? {
+        dedupe::merge_duplicate(
+            pool,
+            duplicate,
+            survivor,
+            "S37e automatikus fixture-dedupe (research ingest, fordított pár)",
+        )
+        .await?;
+        return Ok(AutoMerge::Merged);
+    }
+    Ok(AutoMerge::Skipped)
+}
+
+enum AutoMerge {
+    Merged,
+    Skipped,
+}
+
+/// Egy pár automatikus merge-elése; ha az eredmény/orientáció miatt a sorrend
+/// nem fordítható le, a szerepeket megcserélve próbáljuk újra.
+async fn auto_merge_pair(
+    pool: &sqlx::PgPool,
+    survivor: sqlx::types::Uuid,
+    duplicate: sqlx::types::Uuid,
+    variant: bool,
+) -> anyhow::Result<AutoMerge> {
+    let same = if variant {
+        dedupe::is_strict_variant_same_match(pool, survivor, duplicate).await?
+    } else {
+        dedupe::is_same_match(pool, survivor, duplicate).await?
+    };
+    if same {
+        dedupe::merge_duplicate(
+            pool,
+            survivor,
+            duplicate,
+            "S37e automatikus napi dedupe (research ingest)",
+        )
+        .await?;
+        return Ok(AutoMerge::Merged);
+    }
+    let flipped = if variant {
+        dedupe::is_strict_variant_same_match(pool, duplicate, survivor).await?
+    } else {
+        dedupe::is_same_match(pool, duplicate, survivor).await?
+    };
+    if flipped {
+        dedupe::merge_duplicate(
+            pool,
+            duplicate,
+            survivor,
+            "S37e automatikus napi dedupe (research ingest, fordított pár)",
+        )
+        .await?;
+        return Ok(AutoMerge::Merged);
+    }
+    Ok(AutoMerge::Skipped)
 }
