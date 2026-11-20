@@ -17,11 +17,12 @@ Katalógus: `docs/research/source-catalog.md` → `tipplap` bejegyzés.
   (egy kérés/nap; a múlt-napi kérés a MAI listát szolgálja ki → a
   dátum-guard fail-closed megállítja).
 - robots: engedett (`/kalkulator/`), katalógus-spike 2026-11-11.
-- Policy: `rust_http`, `canary`, `daily_budget=6`, `min_delay_ms=3000`,
+- Policy: `rust_http`, `canary`, `daily_budget=8`, `min_delay_ms=3000`,
   `jitter_ms=1000`, domain `day`. Események (S36b óta):
   - `discovery`, `interval_minutes=1440` — napi egyszeri teljes nap;
   - `refresh`, `interval_minutes=360` — napon belül 4 sáv (00/06/12/18 UTC),
-    összesen 5 kérés/nap a 6-os keretből.
+    összesen 5 kérés/nap; a 8-as keretben marad 2 kérés a robots/próba/ellenőrzés
+    számára.
 
 ## Parser-őrök
 

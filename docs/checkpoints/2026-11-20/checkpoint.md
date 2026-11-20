@@ -492,5 +492,11 @@ bemutatott bizonyíték alapján a **B — app-szintű Tab-sorrend** irányt vá
   ellenőrizhetetlen), fotmob/demo (kikapcsolva) szándékosan nem kapott sávot.
 - [x] Döntés: `docs/decisions/2026-11-20-intraday-refresh.md`; üzemeltetési leírás:
   `docs/operations/tipplap.md` (policy + S36a szótár + S36b mérés).
-- [ ] Nem ellenőrzött: a sávos generálás éles futása — a futó daemon még a régi
-  schedulert futtatja; az új bináris újratelepítése külön döntés.
+- [x] Daemon újratelepítés (felhasználói döntés: „Telepítsd újra most”) —
+  `scripts/install-footballd-agent.sh` lefutott; az új worker első tickje 4 sáv-jobot
+  generált (slot-00…slot-03), a slot-00 lefutott (processed=1, 18 verseny materializálva),
+  a slot-01/02 `quota_blocked` lett a napközbeni kézi kérések miatt.
+- [x] Ezért a tipplap `daily_budget` 6 → 8 (1 discovery + 4 refresh + 1 robots + 2 tartalék);
+  a döntés-dokumentum és az üzemeltetési leírás frissítve.
+- [ ] Nem ellenőrzött: teljes napos sáv-futás (a holnapi napon mérhető, hogy mind a 4 sáv
+  lefut-e a kereten belül), és a csapat-identitás review-k hatása az odds-lefedettségre.

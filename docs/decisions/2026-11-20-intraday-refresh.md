@@ -48,5 +48,12 @@ nem frissültek, és a meccsek állapota/oddsa csak másnap látszott.
   sávok a napot nem csúsztatják át. Ez dokumentált korlát, nem hiba.
 - Régi binárison a `refresh 360` eseményt a scheduler „nem engedett interval” figyelmeztetéssel
   kihagyja, a napi discovery viszont fut — a policy-változás önmagában nem töri el a napot.
-- A sávos frissítés éles hatása csak a daemon új binárisra való újratelepítése után mérhető
-  (a futó daemon a régi schedulert futtatja).
+## Éles mérés (2026-11-20 14:31, a daemon újratelepítése után)
+
+- Az új worker első tickje a policy-ból **4 sáv-job**ot generált (`refresh slot-00…slot-03`,
+  `due_at` 01:00/07:00/13:00/19:00 helyi idő), majd a `slot-00` le is futott
+  (`processed=1`): a frissített oldal (576 617 byte) parse-olva, 18 verseny materializálva.
+- A `slot-01` és `slot-02` ekkor `quota_blocked` lett, mert a nap folyamán a kézi
+  ellenőrző kérések már elhasználták a 6-os keretet — ezért emeltük 8-ra (fent).
+- A mai nap oddsos meccsszáma változatlan 29/131; a további növekedés (a 44 parsolt
+  Tipplap-meccsből még hiányzó ~15) a csapat-identitás review-ken múlik, nem a sávokon.
