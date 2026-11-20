@@ -75,9 +75,7 @@ Tanulságok (a harness dokumentálva):
   3. pont billentyűparancsai (Cmd+←/→/T), 5. pont három állapota (betöltött, üres, daemon-offline),
   valamint a magyar címkék visszaolvasása unit-tesztekkel.
 - Továbbra is emberi/egyéb ellenőrzést igényel: tényleges VoiceOver-felolvasás (hang), Tab-fókusz
-  láthatósága és fókuszcsapda, világos/sötét + Reduced Motion + kontraszt, részleges adat állapot,
-  Cmd+R vizuális frissítés, valamint a `DeepSeek Harness` Accessibility-engedélye az app közvetlen
-  AX-vezérléséhez.
+  láthatósága és fókuszcsapda, Reduced Motion, Cmd+R vizuális frissítés.
 - Vizuális igazolás (2026-11-20 12:07): a futó app ablaka `screencapture -l442` módszerrel
   elmentve; a kezdőlap valós adattal (41 meccs, Ligue 1/Bundesliga/La Liga, odds) renderelődik.
 - AX-vezérlés igazolva (2026-11-20 12:11): `scripts/ax-press.swift FootballApp "Következő nap"`
@@ -86,3 +84,20 @@ Tanulságok (a harness dokumentálva):
   VoiceOver-címkéi). Ezzel a harness látja, olvassa és vezérli is az appot.
 - A SwiftUI fázis DoD-je részben zárt; a fennmaradó pontok az S30h harness bővítésével
   (megjelenés, fókusz, részleges adat) zárhatók.
+
+## S31a — részleges adat, kontraszt, fókusz (2026-11-20)
+
+- Részleges adat automatizálva: `tests/fixtures/ui/partial-day.json` (élő meccs, elhalasztott
+  eredmény nélkül, visszatartott publikációjú lezárt, félbeszakadt/karanténos meccs) + új UI-teszt
+  `testPartialDataSpeaksStatusScoreAndPublishState`. Futott: **5/5 UI-teszt zöld**.
+  Tanulság: a kártya `match.card.<uuidString>` azonosítója NAGYBETŰS UUID-t használ.
+- Kontraszt automatizálva: `apps/FootballAppTests/ThemeContrastTests.swift` WCAG 2.1 arányt számol
+  minden szöveg-tokenre mindhárom felületen (küszöb: `primaryText` 7:1, többi 4.5:1), és ellenőrzi,
+  hogy a háttér valóban `#000000`. Futott: **26/26 app unit teszt zöld**. Mivel a kliens szándékosan
+  egyetlen sötét paletta (nincs külön világos renderelési út), a „világos/sötét” pontot ez a
+  kontraszt-teszt fedi le.
+- Tab-fókusz: a harness oldali mérés (`scripts/ax-focus.sh`) ezen a builden nem mutat fókuszt —
+  az app processzén az `AXFocusedUIElement` Tab és `AXPress` után is `AXWindow` marad, `-g
+  AppleKeyboardUIMode -int 3` mellett is. Ezért a fókuszpont továbbra sem automatizált; következő
+  lépés app-oldali fókuszálhatóság (`.focusable()` / `focusSection`) + `-AppleKeyboardUIMode 3`
+  launch argumentumos XCUITest, vagy célzott vizuális ellenőrzés.

@@ -1,0 +1,77 @@
+{
+  "date": "2026-11-20",
+  "timezone": "Europe/Budapest",
+  "refreshed_at": "2026-11-20T17:30:00Z",
+  "matches": [
+    {
+      "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      "kickoff_at": "2026-11-20T17:30:00Z",
+      "status": "live",
+      "home": "Győr",
+      "away": "Fehérvár",
+      "home_score": 1,
+      "away_score": 0,
+      "publish_state": "provisional_publish",
+      "blockers": [
+        {"rule_key": "odds_freshness", "severity": "warning", "field": "odds", "message": "Az odds 40 perccel ezelőtti."}
+      ],
+      "competition_id": "33333333-3333-3333-3333-333333333333",
+      "competition_name": "NB I",
+      "country_code": "HU",
+      "country_name": "Magyarország",
+      "tier": 1,
+      "priority": 1
+    },
+    {
+      "id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+      "kickoff_at": "2026-11-20T19:00:00Z",
+      "status": "postponed",
+      "home": "Zalaegerszeg",
+      "away": "Kecskemét",
+      "home_score": null,
+      "away_score": null,
+      "publish_state": "unknown",
+      "blockers": [],
+      "competition_id": "33333333-3333-3333-3333-333333333333",
+      "competition_name": "NB I",
+      "country_code": "HU",
+      "country_name": "Magyarország",
+      "tier": 1,
+      "priority": 1
+    },
+    {
+      "id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+      "kickoff_at": "2026-11-20T20:00:00Z",
+      "status": "finished",
+      "home": "Puskás Akadémia",
+      "away": "MTK",
+      "home_score": 3,
+      "away_score": 3,
+      "publish_state": "withheld",
+      "blockers": [],
+      "competition_id": "33333333-3333-3333-3333-333333333333",
+      "competition_name": "NB I",
+      "country_code": "HU",
+      "country_name": "Magyarország",
+      "tier": 1,
+      "priority": 1
+    },
+    {
+      "id": "dddddddd-dddd-dddd-dddd-dddddddddddd",
+      "kickoff_at": "2026-11-20T20:30:00Z",
+      "status": "abandoned",
+      "home": "Újpest",
+      "away": "Diósgyőr",
+      "home_score": null,
+      "away_score": null,
+      "publish_state": "quarantined",
+      "blockers": [],
+      "competition_id": "33333333-3333-3333-3333-333333333333",
+      "competition_name": "NB I",
+      "country_code": "HU",
+      "country_name": "Magyarország",
+      "tier": 1,
+      "priority": 1
+    }
+  ]
+}

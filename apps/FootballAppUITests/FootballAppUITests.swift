@@ -10,6 +10,7 @@ import XCTest
 final class FootballAppUITests: XCTestCase {
     private static let loadedPort: UInt16 = 18080
     private static let emptyPort: UInt16 = 18081
+    private static let partialPort: UInt16 = 18082
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -34,6 +35,38 @@ final class FootballAppUITests: XCTestCase {
         XCTAssertTrue(finished.label.contains("Lezárt"), finished.label)
         XCTAssertTrue(finished.label.contains("2 – 1"), finished.label)
         XCTAssertTrue(finished.label.contains("Ellenőrzött publikáció"), finished.label)
+    }
+
+    // MARK: - Részleges / bizonytalan adat
+
+    /// A hiányzó eredményt és a publikációs minőségi állapotot minden esetben
+    /// ki kell mondani — a szín önmagában nem hordozhat információt.
+    func testPartialDataSpeaksStatusScoreAndPublishState() throws {
+        let app = try launch(port: Self.partialPort)
+
+        let live = element("match.card.AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA", in: app)
+        XCTAssertTrue(live.waitForExistence(timeout: 30), "a részleges nap nem töltődött be")
+        XCTAssertTrue(live.label.contains("Győr – Fehérvár"), live.label)
+        XCTAssertTrue(live.label.contains("Élő"), live.label)
+        XCTAssertTrue(live.label.contains("1 – 0"), live.label)
+        XCTAssertTrue(live.label.contains("Ideiglenes publikáció"), live.label)
+
+        let postponed = element("match.card.BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB", in: app)
+        XCTAssertTrue(postponed.waitForExistence(timeout: 10))
+        XCTAssertTrue(postponed.label.contains("Elhalasztott"), postponed.label)
+        XCTAssertTrue(postponed.label.contains("eredmény még nincs"), postponed.label)
+        XCTAssertTrue(postponed.label.contains("Ismeretlen publikáció"), postponed.label)
+
+        let withheld = element("match.card.CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC", in: app)
+        XCTAssertTrue(withheld.waitForExistence(timeout: 10))
+        XCTAssertTrue(withheld.label.contains("3 – 3"), withheld.label)
+        XCTAssertTrue(withheld.label.contains("Visszatartott publikáció"), withheld.label)
+
+        let quarantined = element("match.card.DDDDDDDD-DDDD-DDDD-DDDD-DDDDDDDDDDDD", in: app)
+        XCTAssertTrue(quarantined.waitForExistence(timeout: 10))
+        XCTAssertTrue(quarantined.label.contains("Félbeszakadt"), quarantined.label)
+        XCTAssertTrue(quarantined.label.contains("eredmény még nincs"), quarantined.label)
+        XCTAssertTrue(quarantined.label.contains("Karanténban lévő publikáció"), quarantined.label)
     }
 
     // MARK: - Üres nap

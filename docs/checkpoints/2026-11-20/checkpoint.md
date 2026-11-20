@@ -214,3 +214,21 @@ profiljában; utána jöhet a következő kód-szelet.
 - Futtatott kapu: lásd a szelet záró ellenőrzését (Rust kapu-lánc + Core 34/34 + app 24/24 + UI 4/4).
 - Következő döntési pont: a fennmaradó akadálymentességi pontok automatizálása (megjelenés/fókusz),
   CI workflow, OpenAPI↔Swift kontrakt-teszt, vagy a futó daemon frissítése.
+
+## S31a — a fennmaradó akadálymentességi pontok automatizálása
+
+Induló állapot: az S30h harness 4 UI-tesztje zöld; nyitott a részleges adat, a megjelenés/kontraszt
+és a Tab-fókusz pont.
+
+- [x] Részleges adat fixture (`tests/fixtures/ui/partial-day.json`) és új UI-teszt
+  (`testPartialDataSpeaksStatusScoreAndPublishState`): élő/elhalasztott/visszatartott/karanténos
+  állapotokat és a hiányzó eredmény kimondását ellenőrzi. Futott: `TEST SUCCEEDED`, 5/5 UI-teszt zöld.
+- [x] Kontraszt-teszt (`apps/FootballAppTests/ThemeContrastTests.swift`): WCAG 2.1 arány minden
+  szöveg-tokenre mindhárom felületen + OLED-fekete háttér. Futott: 26/26 app unit teszt zöld.
+- [x] `scripts/ax-focus.sh` elkészült (Tab-lépkedés + AX-fókusz kiírás); eredmény: az
+  `AXFocusedUIElement` az app processzén mindig `AXWindow`, Tab/`AXPress`/`AppleKeyboardUIMode 3`
+  mellett sem változik → a Tab-fókusz automatizálása app-oldali fókuszállítás nélkül nem mérhető.
+- [ ] Nem ellenőrzött: tényleges VoiceOver-hang, Tab-fókusz láthatósága/fókuszcsapda, Reduced Motion,
+  Cmd+R vizuális frissítés. (A megjelenés/kontraszt pontot a fenti teszt fedi.)
+- Következő döntési pont: a felhasználó kérésére a 4 irány sorrendben — következik a CI workflow,
+  majd az OpenAPI↔Swift kontrakt-teszt, végül a futó daemon/kliens frissítése.
