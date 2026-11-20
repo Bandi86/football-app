@@ -402,5 +402,6 @@ bemutatott bizonyíték alapján a **B — app-szintű Tab-sorrend** irányt vá
 - [ ] Nem ellenőrzött: a saját Tab-körön kívül maradt natív ország/osztály `Menu`, a naptár-popover
   tartalma és a részletező sheet vezérlői (VoiceOverrel/egérrel elérhetők, külön szelet); a valódi
   VoiceOver-felolvasás emberi fület igényel.
-- Következő döntési pont: commit/push után a CI-futás igazolása; majd a soccerway JS dayPicker
-  (továbbra is ellenőrizhetetlen a forrás oldalán) és a Tab-kör kiterjesztése a kimaradt vezérlőkre.
+- [x] Push `1e8edf4..a19ded3`; CI-futás **44736745275**: „Rust (domain, storage, API, worker)” success, „Swift kliens (Core + app unit tesztek)” success.
+- Következő döntési pont: a soccerway JS dayPicker (továbbra is ellenőrizhetetlen a forrás oldalán)
+  és a Tab-kör kiterjesztése a kimaradt vezérlőkre (natív menük, naptár-popover, részletező sheet).
