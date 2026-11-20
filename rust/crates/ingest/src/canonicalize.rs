@@ -125,6 +125,16 @@ impl Canonicalizer {
             .fetch_one(&mut *tx)
             .await
             .with_context(|| format!("ismeretlen forrás: {}", day.source_code))?;
+        // S38: a research forrás create-on-miss módban új kanonikus csapatot
+        // hozhat létre (név+ország+forrás-ID); ütközésnél (fuzzy jelölt)
+        // marad a review. Más forrásokon a szigorú fail-closed marad.
+        let identity_mode: String =
+            sqlx::query_scalar("SELECT identity_mode FROM ops.source WHERE id=$1")
+                .bind(source_id)
+                .fetch_one(&mut *tx)
+                .await
+                .context("forrás identity_mode")?;
+        let create_on_miss = identity_mode == "create_on_miss";
 
         // Élő módban nincs id-hint: natural-key find-or-create.
         let competition_id = match competition.id {
@@ -244,6 +254,19 @@ impl Canonicalizer {
                         Ok(football_domain::identity::Resolution::Exact { entity_id, .. }) => {
                             ensure_live_team(&mut tx, entity_id, &team.name, team_country).await?;
                             team_ids.insert(team.source_entity_id.clone(), entity_id);
+                        }
+                        Ok(football_domain::identity::Resolution::NotFound { queue_id })
+                            if create_on_miss =>
+                        {
+                            let created = create_team_on_miss(
+                                &mut tx,
+                                &day.source_code,
+                                team,
+                                team_country,
+                                queue_id,
+                            )
+                            .await?;
+                            team_ids.insert(team.source_entity_id.clone(), created);
                         }
                         Ok(_) => {
                             tracing::warn!(
@@ -573,6 +596,70 @@ async fn upsert_entity(
     .execute(&mut **tx)
     .await?;
     Ok(())
+}
+
+/// S38 create-on-miss: a forrás új kanonikus csapatot hoz létre. Csak akkor
+/// fut, ha a linker NEM talált jelöltet (`NotFound`); fuzzy jelöltnél a
+/// review-sor marad (nincs automatikus összevonás).
+async fn create_team_on_miss(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    source_code: &str,
+    team: &NormalizedTeam,
+    country_id: Option<Uuid>,
+    queue_id: Uuid,
+) -> Result<Uuid> {
+    let team_id = Uuid::now_v7();
+    let normalized = NormalizedTeam {
+        id: Some(team_id),
+        source_entity_id: team.source_entity_id.clone(),
+        name: team.name.clone(),
+        country_code: team.country_code.clone(),
+        gender: team.gender.clone(),
+        age_group: team.age_group.clone(),
+        branch: team.branch.clone(),
+    };
+    upsert_team(tx, &normalized, country_id, source_code).await?;
+
+    sqlx::query(
+        "INSERT INTO identity.alias
+         (id, entity_id, alias, lang, country_code, gender, age_group, branch,
+          status, method)
+         VALUES ($1,$2,$3,'hu',$4,$5,$6,$7,'reviewed','import')
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(Uuid::now_v7())
+    .bind(team_id)
+    .bind(&team.name)
+    .bind(if team.country_code.trim().is_empty() {
+        None
+    } else {
+        Some(team.country_code.clone())
+    })
+    .bind(&team.gender)
+    .bind(&team.age_group)
+    .bind(&team.branch)
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query(
+        "UPDATE identity.review_queue
+         SET status='approved', decided_by='create_on_miss', decided_at=now(),
+             candidate_entity_ids=$2,
+             decision_note='S38: új csapat a forrásból (create-on-miss)'
+         WHERE id=$1",
+    )
+    .bind(queue_id)
+    .bind(serde_json::json!([team_id]))
+    .execute(&mut **tx)
+    .await?;
+
+    tracing::info!(
+        source = %source_code,
+        team = %team.name,
+        %team_id,
+        "új kanonikus csapat a forrásból (create-on-miss)"
+    );
+    Ok(team_id)
 }
 
 async fn upsert_team(

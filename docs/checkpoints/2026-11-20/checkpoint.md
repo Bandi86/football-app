@@ -599,3 +599,33 @@ bemutatott bizonyíték alapján a **B — app-szintű Tab-sorrend** irányt vá
       megelőzése az S37d identitás-seed feladata).
 - [x] CI: `82cdf86` push után a **44757839540** futás mindkét jobja zöld
       (Rust domain/storage/API/worker + Swift kliens).
+
+## R2 — a football-research forrás bekötése (S38)
+
+- [x] Adatkönyvtár átköltöztetve `~/Library/Application Support/FootballResearch`
+      alá, Desktopon szimlinkkel (TCC-hiba megszűnt, launchd újra betölthető).
+- [x] `local_file` transzport + `LocalFileFetcher`; a worker helyi fájl-forrásnál
+      nem futtat robots- és kvóta-kaput.
+- [x] `research` adapter: napi envelope → `team_identity` / `match_core` /
+      `match_referee`; a `coverage.odds`-szal jelölt meccsek detail-fájljaiból
+      `match_odds` (`1x2`, `btts`, `dc`, `ou`, opening/closing fázis).
+- [x] Migráció `0016`: `local_file` a transport CHECK-ben + `ops.source.identity_mode`
+      (`fail_closed` / `create_on_miss`); a research forrás create-on-miss
+      (új csapat név+ország+forrás-ID alapján, ütközésnél review).
+- [x] `scripts/seed-research-source.sh`: idempotens forrás+policy regisztráció.
+- [x] Tesztek: `cargo test -p football-ingest --test research` 5/5,
+      `--test live_materialize` 11/11 (benne a create-on-miss eset).
+- [x] Éles futás a fejlesztői DB-n (kézi `ops.job`, daemon leállítva a verseny
+      elkerülésére): 285 research meccs, 177 oddsos; napi meccsszám 122 → 311,
+      oddsos meccsek 29 → 163, publikált feed 46 → 95; 1 696 quote, 348 új
+      csapat, 38 függő review.
+- [x] A research verseny-név-variánsai miatt keletkezett 22 pontos duplikátumot
+      az S37c dedupe motor merge-elte: `dedupe matches`/`dedupe variants` → 0,
+      `integrity` → OK.
+- [ ] A daemon új binárisának telepítése (a futó példány még a research-adapter
+      nélküli build) — a napi automatikus betöltéshez szükséges.
+- [ ] S38b: verseny-alias réteg (szponzor-szuffixek, walesi „Premier League”),
+      hogy a duplikátumok ne is keletkezzenek; S37e: napi automatikus
+      dedupe-pass a láncban.
+- [ ] Teljes kapu (fmt/clippy/db-reset/check-foundation/workspace tesztek) és
+      commit/push a szelet végén.

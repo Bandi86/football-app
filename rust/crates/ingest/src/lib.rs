@@ -15,5 +15,6 @@ pub mod normalized;
 pub mod obscura;
 pub mod observe;
 pub mod openfoot;
+pub mod research;
 pub mod soccerway;
 pub mod tipplap;

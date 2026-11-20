@@ -117,6 +117,59 @@ impl Fetcher for FixtureFetcher {
     }
 }
 
+/// Helyi, fájl-alapú forrás fetchere (S38): a kérés `url` mezője a gyökérhez
+/// viszonyított relatív útvonal. Nincs hálózat, nincs robots, nincs késleltetés.
+#[derive(Debug, Clone)]
+pub struct LocalFileFetcher {
+    root: PathBuf,
+}
+
+impl LocalFileFetcher {
+    pub fn new(root: &Path) -> Self {
+        Self {
+            root: root.to_path_buf(),
+        }
+    }
+
+    fn resolve(&self, rel: &str) -> Result<PathBuf, FetchError> {
+        let rel = rel.trim_start_matches('/');
+        if rel.is_empty() || rel.contains("..") {
+            return Err(FetchError::Transport(format!(
+                "érvénytelen helyi útvonal: {rel}"
+            )));
+        }
+        Ok(self.root.join(rel))
+    }
+}
+
+#[async_trait]
+impl Fetcher for LocalFileFetcher {
+    async fn fetch(
+        &self,
+        req: &FetchRequest,
+        limits: &FetchLimits,
+    ) -> Result<RawPayload, FetchError> {
+        let path = self.resolve(&req.url)?;
+        let bytes = std::fs::read(&path).map_err(|err| match err.kind() {
+            std::io::ErrorKind::NotFound => {
+                FetchError::NotFound(format!("nincs helyi fájl: {}", path.display()))
+            }
+            _ => FetchError::Transport(format!("helyi fájl olvasása ({}): {err}", path.display())),
+        })?;
+        let byte_size = bytes.len() as u64;
+        if byte_size > limits.max_bytes {
+            return Err(FetchError::Oversize(byte_size));
+        }
+        Ok(RawPayload {
+            sha256: hex::encode(sha2::Sha256::digest(&bytes)),
+            bytes,
+            content_type: "application/json".to_string(),
+            http_status: 200,
+            fetched_at: Utc::now(),
+        })
+    }
+}
+
 /// Transzport szerinti fetcher-választó (S2c): a worker a
 /// `source_policy.transport` alapján választ fetchert. Az obscura fetcher
 /// csak akkor van jelen, ha az `obscura` feature be van kapcsolva és a
@@ -124,6 +177,8 @@ impl Fetcher for FixtureFetcher {
 pub struct Fetchers {
     pub rust_http: RustHttpFetcher,
     pub fixture: FixtureFetcher,
+    /// Helyi fájl-források gyökere (opcionális; a football-research API könyvtára).
+    pub local_file: Option<LocalFileFetcher>,
     #[cfg(feature = "obscura")]
     pub obscura: Option<crate::obscura::ObscuraFetcher>,
 }
@@ -133,9 +188,16 @@ impl Fetchers {
         Self {
             rust_http,
             fixture,
+            local_file: None,
             #[cfg(feature = "obscura")]
             obscura: None,
         }
+    }
+
+    /// Helyi fájl-forrás gyökerének beállítása (S38).
+    pub fn with_local_file(mut self, root: &Path) -> Self {
+        self.local_file = Some(LocalFileFetcher::new(root));
+        self
     }
 
     #[cfg(feature = "obscura")]
@@ -153,6 +215,11 @@ impl Fetchers {
         match transport {
             Transport::RustHttp => Ok(&self.rust_http),
             Transport::Fixture => Ok(&self.fixture),
+            Transport::LocalFile => self
+                .local_file
+                .as_ref()
+                .map(|f| f as &dyn Fetcher)
+                .ok_or_else(|| FetchError::Transport("helyi fájl-forrás nincs beállítva".into())),
             #[cfg(feature = "obscura")]
             Transport::Obscura => self
                 .obscura

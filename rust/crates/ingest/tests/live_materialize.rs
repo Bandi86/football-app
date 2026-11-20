@@ -18,6 +18,22 @@ async fn seed_source(pool: &PgPool) -> Uuid {
     id
 }
 
+async fn seed_source_with_mode(pool: &PgPool, code: &str, identity_mode: &str) -> Uuid {
+    let id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO ops.source (id, code, display_name, identity_mode)
+         VALUES ($1,$2,$3,$4)",
+    )
+    .bind(id)
+    .bind(code)
+    .bind(format!("{code} forrás"))
+    .bind(identity_mode)
+    .execute(pool)
+    .await
+    .unwrap();
+    id
+}
+
 async fn seed_country(pool: &PgPool) -> Uuid {
     let id = Uuid::now_v7();
     sqlx::query("INSERT INTO core.country (id, code, name) VALUES ($1,'HU','Hungary')")
@@ -114,6 +130,48 @@ fn live_day(teams: &[(&str, &str)], home: &str, away: &str) -> NormalizedDay {
         }],
         standings: None,
     }
+}
+
+#[tokio::test]
+async fn create_on_miss_source_creates_unknown_teams_and_match() {
+    let pool = test_pool().await;
+    seed_source_with_mode(&pool, "research", "create_on_miss").await;
+    seed_country(&pool).await;
+
+    let mut day = live_day(
+        &[("s1", "Caernarfon Town"), ("s2", "Connah's Quay")],
+        "s1",
+        "s2",
+    );
+    day.source_code = "research".into();
+    let materialized = Canonicalizer::materialize(&pool, &day).await.unwrap();
+    assert_eq!(materialized.matches.len(), 1, "a meccs materializálódik");
+    assert_eq!(count(&pool, "SELECT count(*) FROM core.team").await, 2);
+    assert_eq!(count(&pool, "SELECT count(*) FROM core.match").await, 1);
+    assert_eq!(
+        count(
+            &pool,
+            "SELECT count(*) FROM identity.source_entity_ref WHERE entity_kind='team'"
+        )
+        .await,
+        2
+    );
+    assert_eq!(
+        count(
+            &pool,
+            "SELECT count(*) FROM identity.review_queue WHERE status='approved' AND decided_by='create_on_miss'"
+        )
+        .await,
+        2
+    );
+    assert_eq!(
+        count(
+            &pool,
+            "SELECT count(*) FROM identity.alias WHERE method='import' AND status='reviewed'"
+        )
+        .await,
+        2
+    );
 }
 
 async fn count(pool: &PgPool, sql: &str) -> i64 {

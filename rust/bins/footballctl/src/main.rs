@@ -1681,7 +1681,8 @@ async fn worker_status(pool: &sqlx::PgPool) -> Result<()> {
 async fn worker_tick(pool: &sqlx::PgPool, store: &ObjectStore, data_dir: &str) -> Result<()> {
     let fixture_dir = std::path::Path::new(data_dir).join("worker-fixtures");
     let fixture = FixtureFetcher::from_dir(&fixture_dir)?;
-    let fetchers = Fetchers::new(RustHttpFetcher::new("football-app-v2")?, fixture);
+    let fetchers = Fetchers::new(RustHttpFetcher::new("football-app-v2")?, fixture)
+        .with_local_file(&football_ingest::research::default_api_root());
     // Canary/élő Soccerway-körhöz a CLI is indíthat Obscura-szervert
     // (csak engedélyezett obscura policy esetén; a feature mögött).
     #[cfg(feature = "obscura")]
@@ -1698,6 +1699,10 @@ async fn worker_tick(pool: &sqlx::PgPool, store: &ObjectStore, data_dir: &str) -
     let mut adapters: HashMap<String, Box<dyn SourceAdapter>> = HashMap::new();
     adapters.insert("demo-synthetic".into(), Box::new(DemoAdapter));
     adapters.insert("footballdata".into(), Box::new(FootballdataAdapter));
+    adapters.insert(
+        football_ingest::research::SOURCE_SLUG.into(),
+        Box::new(football_ingest::research::ResearchAdapter::default()),
+    );
     adapters.insert("fotmob".into(), Box::new(FotMobAdapter::default()));
     adapters.insert("soccerway".into(), Box::new(SoccerwayAdapter::default()));
     adapters.insert("openfoot".into(), Box::new(OpenFootAdapter::from_env()));

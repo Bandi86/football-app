@@ -47,7 +47,8 @@ async fn main() -> Result<()> {
         let fixture_dir = std::path::Path::new(&data_dir).join("worker-fixtures");
         let rust_http = RustHttpFetcher::new("football-app-v2")?;
         let fixture = FixtureFetcher::from_dir(&fixture_dir)?;
-        let fetchers = Fetchers::new(rust_http, fixture);
+        let fetchers = Fetchers::new(rust_http, fixture)
+            .with_local_file(&football_ingest::research::default_api_root());
         // Lazy Obscura-szerver: csak engedélyezett obscura policy esetén,
         // és csak ha az obscura feature be van kapcsolva ebben a buildben.
         #[cfg(feature = "obscura")]
@@ -67,6 +68,10 @@ async fn main() -> Result<()> {
         let mut adapters: HashMap<String, Box<dyn SourceAdapter>> = HashMap::new();
         adapters.insert("demo-synthetic".into(), Box::new(DemoAdapter));
         adapters.insert("footballdata".into(), Box::new(FootballdataAdapter));
+        adapters.insert(
+            football_ingest::research::SOURCE_SLUG.into(),
+            Box::new(football_ingest::research::ResearchAdapter::default()),
+        );
         adapters.insert("fotmob".into(), Box::new(FotMobAdapter::default()));
         adapters.insert("soccerway".into(), Box::new(SoccerwayAdapter::default()));
         adapters.insert("openfoot".into(), Box::new(OpenFootAdapter::from_env()));

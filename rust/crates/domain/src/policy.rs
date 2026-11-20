@@ -9,6 +9,9 @@ pub enum Transport {
     RustHttp,
     Fixture,
     Obscura,
+    /// Helyi, fájl-alapú forrás (pl. a football-research JSON API):
+    /// nincs hálózat, nincs robots és nincs késleltetés.
+    LocalFile,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,7 +77,13 @@ macro_rules! db_str {
     };
 }
 
-db_str!(Transport, RustHttp => "rust_http", Fixture => "fixture", Obscura => "obscura");
+db_str!(
+    Transport,
+    RustHttp => "rust_http",
+    Fixture => "fixture",
+    Obscura => "obscura",
+    LocalFile => "local_file"
+);
 db_str!(SourceMode, Shadow => "shadow", Canary => "canary", Live => "live");
 db_str!(BreakerState, Closed => "closed", Open => "open", HalfOpen => "half_open");
 db_str!(

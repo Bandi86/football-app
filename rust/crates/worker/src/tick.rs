@@ -185,19 +185,23 @@ async fn process_job(
     };
 
     // Robots: fixture forrásnál a fixture fetcheren (nincs hálózat), valódi
-    // forrásnál plain HTTP-vel.
-    let robots_fetcher: &dyn Fetcher = if policy.transport == Transport::Fixture {
-        fetcher
-    } else {
-        fetchers.rust_http()
-    };
+    // forrásnál plain HTTP-vel. Helyi fájl-forrásnál (S38) nincs robots-sem
+    // kvóta, nincs késleltetés: nem hálózati forgalom.
+    let local_file = policy.transport == Transport::LocalFile;
+    let robots_fetcher: &dyn Fetcher =
+        if matches!(policy.transport, Transport::Fixture | Transport::LocalFile) {
+            fetcher
+        } else {
+            fetchers.rust_http()
+        };
 
     let mut observations: Vec<Observation> = Vec::new();
     let result = async {
         for (index, req) in plan.iter().enumerate() {
-            // Robots-kapu kérésenként (fail-closed).
-            if robots::check(pool, robots_fetcher, &job.source_slug, &req.url).await?
-                == robots::RobotsVerdict::Blocked
+            // Robots-kapu kérésenként (fail-closed); helyi fájl-forrásnál nincs.
+            if !local_file
+                && robots::check(pool, robots_fetcher, &job.source_slug, &req.url).await?
+                    == robots::RobotsVerdict::Blocked
             {
                 block_ledger(pool, job, req, now, FetchOutcome::RobotsBlocked).await?;
                 coverage::set(
@@ -217,8 +221,11 @@ async fn process_job(
 
             // Kvóta/delay-kapu: az első kérésnél a megszokott visszasorolás;
             // további kéréseknél a policy min_delay-ét a jobon belül kivárjuk
-            // (max 15 s), utána újra ellenőrzünk.
-            let decision = if index == 0 {
+            // (max 15 s), utána újra ellenőrzünk. Helyi fájl-forrásnál nincs
+            // kvóta és nincs késleltetés (S38).
+            let decision = if local_file {
+                quota::QuotaDecision::Allowed
+            } else if index == 0 {
                 quota::guard(pool, &policy, now).await?
             } else {
                 wait_for_delay(pool, &policy).await?
