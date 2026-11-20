@@ -149,6 +149,19 @@ swift scripts/ax-press.swift FootballApp "Következő nap"  # AXPress, emberi ka
 ./scripts/app-window-shot.sh /tmp/ablak.png            # a futó ablak PNG-mentése
 ```
 
+## Continuous integration
+
+A `.github/workflows/ci.yml` két párhuzamos feladatot futtat pushra és pull requestre:
+
+- **Rust** (`ubuntu-latest`): PostgreSQL 18 szerviz, migrációk a dev és a teszt adatbázisra,
+  `./scripts/check-foundation.sh`, `cargo test --workspace -- --test-threads=1`,
+  `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build -p footballd -p footballctl --features obscura`.
+- **Swift** (`macos-latest`): Xcode kiválasztása, `xcodegen`, `swift test --package-path apps/FootballAppCore`,
+  majd `xcodebuild test … -only-testing:FootballAppTests`.
+
+Az `FootballAppUITests` harness szándékosan nem fut CI-ben: macOS-en Accessibility/TCC engedély és futó ablak
+kell hozzá; helyben a `./scripts/run-ui-tests.sh` futtatja.
+
 ## Adatvédelem és közzététel
 
 Ez egy nyilvános repó. Ne kerüljön bele:

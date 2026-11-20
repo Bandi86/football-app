@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  APP_TIMEZONE: Europe/Budapest
+  DATA_DIR: ./data
+  BIND_ADDR: 127.0.0.1:0
+
+jobs:
+  rust:
+    name: Rust (domain, storage, API, worker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: football_v2
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: football_v2_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U football_v2"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://football_v2:ci_password@127.0.0.1:5432/football_v2_dev
+      TEST_DATABASE_URL: postgres://football_v2:ci_password@127.0.0.1:5432/football_v2_test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust eszközlánc (stable, rustfmt, clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: sqlx-cli cache
+        id: sqlx-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin
+          key: sqlx-cli-0.8-${{ runner.os }}
+
+      - name: sqlx-cli telepítése
+        if: steps.sqlx-cache.outputs.cache-hit != 'true'
+        run: cargo install sqlx-cli --version 0.8 --no-default-features --features rustls,postgres --locked
+
+      - name: PostgreSQL kliens
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Teszt adatbázis létrehozása
+        run: psql "$DATABASE_URL" -c 'CREATE DATABASE football_v2_test'
+
+      - name: Migrációk (dev és test)
+        run: |
+          sqlx migrate run --source db/migrations
+          TEST_DATABASE_URL="$TEST_DATABASE_URL" ./scripts/db-reset.sh
+
+      - name: Alap-ellenőrzés (formázás, domain/storage teszt, clippy)
+        run: ./scripts/check-foundation.sh
+
+      - name: Teljes teszt
+        run: cd rust && cargo test --workspace -- --test-threads=1
+
+      - name: Clippy (minden cél, figyelmeztetés = hiba)
+        run: cd rust && cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Bináris build (obscura feature)
+        run: cd rust && cargo build -p footballd -p footballctl --features obscura
+
+  swift:
+    name: Swift kliens (Core + app unit tesztek)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode kiválasztása
+        run: |
+          developer_dir="$(xcode-select -p)"
+          if [[ "$developer_dir" != *".app/Contents/Developer" ]]; then
+            developer_dir="$(find /Applications -maxdepth 1 -name 'Xcode*.app' -type d | sort -V | tail -1)/Contents/Developer"
+            sudo xcode-select -s "$developer_dir"
+          fi
+          xcodebuild -version
+
+      - name: xcodegen telepítése
+        run: brew install xcodegen
+
+      - name: FootballAppCore tesztek
+        run: swift test --package-path apps/FootballAppCore
+
+      - name: Xcode projekt generálása
+        run: cd apps && xcodegen generate
+
+      - name: App unit tesztek
+        run: |
+          xcodebuild test -project apps/FootballApp.xcodeproj -scheme FootballApp \
+            -destination 'platform=macOS' -only-testing:FootballAppTests CODE_SIGNING_ALLOWED=NO
+
+  # Az XCUITest harness (FootballAppUITests) szándékosan NEM fut CI-ben: macOS-en
+  # Accessibility/TCC engedély és futó ablak kell hozzá. Helyette helyben:
+  # ./scripts/run-ui-tests.sh

@@ -38,7 +38,7 @@ olvasással válaszolnak. A korábbi hiány oka az volt, hogy a skillek csak a h
 | Swift logika/állapot teszt | Megvan: 26/26 |
 | Teljes kapu (`check-foundation`, clippy `-D warnings`, fmt, build `--features obscura`, DB reset) | Megvan, futott: EXIT 0 |
 | Adatintegritás (`integrity`, `reverify`, audit, review) | Megvan: 0 hiba / 0 withheld / 0 konfliktus |
-| **CI workflow** | **Nincs `.github/workflows`** — a spec 0. fázisa formálisan nem zárt (következő P0) |
+| **CI workflow** | Megvan: `.github/workflows/ci.yml` (S31b) — Rust kapu PostgreSQL szervizzel, Swift Core + app unit teszt macOS-en; actionlint tiszta. Az első GitHub-futás még nem történt meg. |
 | **OpenAPI↔Swift kontrakt** | **Nincs teszt** |
 | **Manuális macOS UI + VoiceOver + billentyűzet** | Címkék és 4 billentyű-parancs bevezetve (6/6 Core + 24/24 app teszt); a **tényleges VoiceOver/Tab-futás még nincs rögzítve**, lásd `ui-accessibility-checklist.md` |
 | **Backup-restore próba, p95 teljesítmény** | **Nincs mérés** |
@@ -51,8 +51,8 @@ van egy valós DoD-rés (akadálymentesség + kézi UI-ellenőrzés + kontrakt),
 (`.dsh/skills/swiftui-macos-client`, `.dsh/skills/rust-workspace-backend`), a DSH katalógus élőben
 látja őket, és két próba-ágens igazolta a használhatóságukat. Az ágens-csapat (`agents/`) felállítva:
 hat szerep, builder ≠ verifier, diszjunkt írási hatókör. A lentmaradó P0/P1 sorrend változatlan.
-1. P0 (kód kész, emberi ellenőrzés hátra): VoiceOver/Tab-futás a `ui-accessibility-checklist.md` szerint.
-2. P0: CI a meglévő kapu-láncból.
-3. P1: OpenAPI↔Swift DTO kontrakt teszt.
+1. P0 (S31a-val részben automatizálva): a fennmaradó VoiceOver/Tab-futás a `ui-accessibility-checklist.md` szerint.
+2. P0: ~~CI a meglévő kapu-láncból~~ — S31b: `.github/workflows/ci.yml` elkészült; hátra az első futás.
+3. P1: OpenAPI↔Swift DTO kontrakt teszt (S31c, folyamatban).
 4. P1: futó daemon frissítése (felhasználói kézi lépés, a gateway blokkolta a telepítőt).
 5. P2: soccerway dayPicker és 2026/27 odds, majd a spec 3. fázisa (live) csak a 2. fázis lezárása után.

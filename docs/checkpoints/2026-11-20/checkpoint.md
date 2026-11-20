@@ -232,3 +232,14 @@ Induló állapot: az S30h harness 4 UI-tesztje zöld; nyitott a részleges adat,
   Cmd+R vizuális frissítés. (A megjelenés/kontraszt pontot a fenti teszt fedi.)
 - Következő döntési pont: a felhasználó kérésére a 4 irány sorrendben — következik a CI workflow,
   majd az OpenAPI↔Swift kontrakt-teszt, végül a futó daemon/kliens frissítése.
+
+## S31b — CI workflow
+
+Induló állapot: a kapu-lánc csak helyben futott, `.github/workflows` nem létezett (spec 0. fázis nyitott).
+
+- [x] `.github/workflows/ci.yml`: Rust feladat (postgres:18 szerviz, migrációk dev+test, check-foundation,
+  teljes teszt, clippy, obscura build) és Swift feladat (xcodegen, Core `swift test`, app unit tesztek).
+- [x] `actionlint -no-color .github/workflows/ci.yml` → exit 0 (a shellcheck-jelzést `find`-re cseréléssel javítottuk).
+- [x] A Swift feladat parancsai helyben lefuttatva: Core 34/34, app 26/26 zöld, `TEST SUCCEEDED`.
+- [ ] Nem ellenőrzött: az első tényleges GitHub Actions futás (a repó távoli pipeline-ja még nem futott).
+- Következő döntési pont: OpenAPI↔Swift kontrakt-teszt (S31c).
