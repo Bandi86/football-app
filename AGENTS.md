@@ -170,12 +170,13 @@ Nem mondható ki, hogy „kész”, ha a teszt nem futott le, vagy ha a futtatá
 
 ## 11. Aktuális alapállapot
 
-A projekt a korai alapozási fázisban van. Az aktuális szelet és a következő döntési pont mindig a legutolsó checkpointból olvasandó. A stabil szabályok ettől függetlenül érvényesek.
+A stabil szabályok ettől függetlenül érvényesek. Az aktuális adatállapot, kész és nyitott szeletek,
+a futó daemon és a következő döntési pont **mindig** a `README.md`-ből és a legutóbbi
+`docs/checkpoints/<dátum>/checkpoint.md`-ből olvasandó; a skill `references/roadmap.md` csak navigáció.
 
-Amíg a felhasználó mást nem engedélyez:
-
-- nincs valódi forrásadat-betöltés;
-- nincs meccs-, csapat- vagy játékos-adat;
-- nincs predikció vagy bot;
-- nincs UI-adatfolyam;
-- nincs automatikus commit vagy push.
+A felhasználó 2026-11-19 óta érvényes, szó szerinti felhatalmazásai („mindenre jóváhagyást adok”,
+„önállóan folytasd … leállás nélkül”) felülírják a §2 egy-szelet-és-várj-engedély, illetve a §9
+commit/push csak kérésre szabályait: a szeleteket sorban, önállóan lehet haladtatni, és a zöld kapú
+szelet commitolható/pusholható. A visszafordíthatatlan műveletek (launchd-telepítés, törlés, külső
+szolgáltatás) továbbra is külön döntés, és a gateway-vezérelt telepítéseket a gateway blokkolhatja —
+ezt nem szabad megkerülni.
