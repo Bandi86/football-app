@@ -1197,3 +1197,35 @@ napi „hiány" panelt a v1 mintájára.
       a férfi Ligue 1 külön.
 - [x] Képernyőkép: `/tmp/s44_final.png` (a hiány-panel a végleges
       „lejárt, nincs eredmény" címkével).
+
+### S45 — nyitva maradt meccsek, napi kereső/filterek, női bajnokságok
+
+- [x] Research napi fájlok frissítése 11-16…11-20 (`tools/football.py sync` +
+      `docs/api-export.py`), majd repair: 12 kickoff-pótlás, 63 státusz, 64
+      eredmény; livescore public API-ból további 92 + 6 eredmény; 21 meccs
+      státusza eredményhez igazítva; `merge_duplicate` mostantól viszi a
+      lezárt státuszt a túlélőre.
+- [x] Automatizálás: `scheduler.rs` research catch-up (7 napra visszamenőleg,
+      naponta egyszer) + teszt.
+- [x] UI: „Idő nélkül" és „Eredmény nélkül" hiány-szűrők, csapat/liga/ország
+      kereső, külön női szűrő, mélyebb osztályok, kiemelt prioritás (5 topliga
+      + NB I/NB II) — a filter-sáv két sorban, hogy 1512 pt-on se csússzon el.
+- [x] Női bajnokságok: a női csapatok gender/branch javítása; férfi csapatok
+      cseréje női meccsekben; francia, német és japán női verseny-duplikátumok
+      merge-elve; WE League és A-Liga duplikált fixture-ök merge-elve; férfi
+      kupa-meccs áthelyezve a Copa del Rey alá. 11-20-on a Toulouse–Marseille
+      női meccs egyszer szerepel, „Ligue 1 · női" felirattal.
+- [x] `reverify --from 2026-11-13 --to 2026-11-29`: 1850 meccs, 0 hiba;
+      gate-ek: verified 747, provisional 1092, withheld 11.
+- [x] 11-20 API: 257 meccs (219 finished, 33 scheduled, 3 live, 2 postponed);
+      gaps: 10 kezdésidő nélkül, 21 lejárt eredmény nélkül, 176 csapatlogó,
+      189 ligalogó, 88 odds, 3 withheld nélkül.
+- [x] Kapuk: `cargo fmt --check`, clippy `-D warnings`, `cargo test --workspace
+      -- --test-threads=1` (EXIT=0), Swift Core 59/59, app unit 50/50,
+      xcodebuild build, UI 8/8 — mind zöld.
+- [ ] Maradék 21 lejárt, eredmény nélküli meccs (főleg U17-selejtezők és kis
+      ligák) — a research/livescore nem fedi, a hiány-panelben látszik.
+- [ ] 11 withheld (CD/CG forrás-instabil országkód, hiányzó eredmény) kézi
+      felülvizsgálata.
+- [ ] Logó-lefedettség és a research +1 órás kickoff-eltolás gyökér-okának
+      javítása; 11-22…11-29 tematikus audit.

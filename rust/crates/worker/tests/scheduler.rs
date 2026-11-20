@@ -395,3 +395,38 @@ async fn disabled_policy_generates_nothing() {
         .unwrap();
     assert_eq!(jobs, 0);
 }
+
+/// S45: a research forrás naponta egyszer visszamenőleges refresh jobot kap az
+/// elmúlt hét napra (a research projekt 08:00-s köre után frissülő eredmények).
+#[tokio::test]
+async fn research_policy_enqueues_daily_catchup_refreshes() {
+    let pool = test_pool().await;
+    let now = base_time();
+    let mut policy = policy_with(vec![interval_event("discovery", 1440)], true);
+    policy.source_slug = "research".into();
+    policy.domains = vec!["day".into()];
+    repo::upsert_policy(&pool, &policy).await.unwrap();
+
+    let n1 = scheduler::generate_jobs(&pool, std::slice::from_ref(&policy), now)
+        .await
+        .unwrap();
+    // 1 napi discovery + 7 catch-up refresh
+    assert_eq!(n1, 8);
+
+    let catchups: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ops.job
+         WHERE source_slug='research' AND event_type='refresh'
+           AND entity_key LIKE 'catchup-%' AND time_window=$1",
+    )
+    .bind(now.date_naive().to_string())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(catchups, 7);
+
+    // Ugyanazon a napon belül nem duplikálódik.
+    let n2 = scheduler::generate_jobs(&pool, std::slice::from_ref(&policy), now)
+        .await
+        .unwrap();
+    assert_eq!(n2, 0);
+}

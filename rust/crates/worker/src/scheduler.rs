@@ -24,6 +24,10 @@ const DAILY_INTERVAL_MINUTES: i64 = 24 * 60;
 const MIN_SLOT_INTERVAL_MINUTES: i64 = 30;
 /// A kickoff-közelség felső korlátja percben (24 óra).
 const MAX_PROXIMITY_MINUTES: i64 = 1440;
+/// S45: a research forrás visszamenőleges (eredmény-pótló) frissítésének
+/// ablaka napokban. A research projekt napi 08:00-s köre az előző napokat is
+/// újratölti, ezért a v2-nek is naponta egyszer újra be kell olvasnia őket.
+const RESEARCH_CATCHUP_DAYS: i64 = 7;
 
 /// Engedett interval: napi (1440), heti (10080), vagy a napot egyenlő
 /// sávokra osztó napon belüli frissítés (pl. 240 → napi 6 sáv).
@@ -179,6 +183,34 @@ pub async fn generate_jobs(
                     .await?;
                 }
                 // Sem offset, sem interval: érvénytelen sablon, kihagyjuk.
+            }
+            // S45: a helyi research forrásnál a napi 08:00-s kör után a
+            // korábbi napok eredményei is frissülnek; ezért naponta egyszer
+            // visszamenőleges „catch-up" refresh jobot adunk az elmúlt hétre.
+            // A (entity_key, time_window) pár naponta új, így naponta egy új
+            // refresh fut le naponként, de egy napon belül nem duplikálódik.
+            if policy.source_slug == "research" {
+                for days_back in 1..=RESEARCH_CATCHUP_DAYS {
+                    let Some(target) = now
+                        .date_naive()
+                        .checked_sub_signed(Duration::days(days_back))
+                    else {
+                        continue;
+                    };
+                    inserted += repo::insert_job_counted(
+                        pool,
+                        &NewJob {
+                            source_slug: policy.source_slug.clone(),
+                            domain: "day".into(),
+                            entity_key: format!("catchup-{target}"),
+                            event_type: "refresh".into(),
+                            time_window: now.date_naive().to_string(),
+                            due_at: now,
+                            priority: event_base("backfill") + days_back as i32,
+                        },
+                    )
+                    .await?;
+                }
             }
         }
     }

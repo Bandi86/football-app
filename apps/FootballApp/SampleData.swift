@@ -18,6 +18,9 @@ struct SampleLeague: Identifiable {
     }
 
     func filtering(_ filter: MatchFilter) -> SampleLeague? {
+        // A mintákban nincs kickoff-precision/lejárati információ, ezért a
+        // hiány-szűrők a mintákra nem értelmezhetők.
+        guard !filter.isGapFilter else { return nil }
         let kept = matches.filter { filter.matches(status: $0.status) }
         guard !kept.isEmpty else { return nil }
         return SampleLeague(id: id, name: name, country: country, flag: flag, tier: tier, priority: priority, matches: kept)

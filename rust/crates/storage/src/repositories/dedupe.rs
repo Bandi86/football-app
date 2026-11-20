@@ -618,6 +618,21 @@ pub async fn merge_duplicate(
         .await?;
     }
 
+    // 3b. Ha az áldozat lezárt volt, a túlélő státuszát is zárjuk le: enélkül
+    //     a pótolt eredmény mellett „scheduled" státusz maradna, és a meccs
+    //     lezárt eredmény nélküli sorok közé kerülne a listán.
+    sqlx::query(
+        "UPDATE core.match s SET status = d.status, updated_at = now()
+         FROM core.match d
+        WHERE s.id = $2 AND d.id = $1
+          AND s.status IN ('scheduled', 'live', 'halftime')
+          AND d.status IN ('finished', 'awarded')",
+    )
+    .bind(duplicate)
+    .bind(survivor)
+    .execute(&mut *tx)
+    .await?;
+
     // 4. Odds-blokkok átmozgatása forrásonként (additívan): a túlélő meglévő
     //    forrás-snapshotjai maradnak, az áldozat többi forrása hozzáadódik —
     //    így a merge után két független forrás is jelen lehet (trust).

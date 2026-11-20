@@ -63,13 +63,29 @@ struct LeagueGroup: Identifiable {
         let foldedLabels = matches.compactMap { MatchCardModel.foldedRoundLabel($0.roundLabel) }
         guard let first = foldedLabels.first,
               foldedLabels.allSatisfy({ $0 == first }) else { return nil }
-        return matches.first {
+        guard let representative = matches.first(where: {
             MatchCardModel.foldedRoundLabel($0.roundLabel) == first
-        }?.roundText
+        }) else { return nil }
+        return MatchCardModel.roundText(for: representative.roundLabel)
+    }
+
+    /// Kupa-e a verseny: a név alapján (a rövid fordulócímkék miatt külön
+    /// jelzést nem adunk, a kanonikus nevek viszont hordozzák a szót).
+    var isCup: Bool {
+        let folded = name.folding(options: [.diacriticInsensitive, .caseInsensitive],
+                                  locale: Locale(identifier: "hu_HU"))
+        let markers = ["cup", "kupa", "copa", "taca", "trophy", "pokal", "coupe", "supercopa"]
+        return markers.contains { folded.contains($0) }
+    }
+
+    /// Női verseny: a kanonikus név „(női)" jelölője (a `CompetitionCatalog`
+    /// egységesíti a női ligák neveit).
+    var isWomens: Bool {
+        name.localizedCaseInsensitiveContains("(női)")
     }
 
     func filtering(_ filter: MatchFilter) -> LeagueGroup? {
-        let kept = matches.filter { filter.matches(status: $0.status) }
+        let kept = matches.filter { filter.matches($0) }
         guard !kept.isEmpty else { return nil }
         return LeagueGroup(id: id, name: name, country: country, countryCode: countryCode,
                            flag: flag, logo: logo, tier: tier, priority: priority, matches: kept)

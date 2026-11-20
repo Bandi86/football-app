@@ -37,6 +37,8 @@ struct MatchCardModel: Identifiable {
     let id: String
     let home: String
     let away: String
+    /// A kezdés abszolút ideje (a hiány-szűrő „lejárt, nincs eredmény" döntéséhez).
+    let kickoffAt: Date
     /// A kezdés napja magyar rövid formában (pl. „nov. 20.").
     let dayLabel: String
     let time: String
@@ -209,6 +211,7 @@ struct MatchCardModel: Identifiable {
             id: match.id.uuidString,
             home: match.home,
             away: match.away,
+            kickoffAt: match.kickoffAt,
             dayLabel: dayLabel(for: match.kickoffAt),
             time: timeLabel(for: match.kickoffAt),
             kickoffPrecision: match.kickoffPrecision ?? "exact",
@@ -242,7 +245,8 @@ struct MatchCardModel: Identifiable {
 
     static func from(_ match: SampleMatch) -> MatchCardModel {
         MatchCardModel(
-            id: match.id, home: match.home, away: match.away, dayLabel: "", time: match.time,
+            id: match.id, home: match.home, away: match.away, kickoffAt: Date(),
+            dayLabel: "", time: match.time,
             kickoffPrecision: "exact", roundLabel: nil,
             status: match.status, publishState: .unknown, homeScore: match.homeScore, awayScore: match.awayScore,
             homeHt: match.homeHt, awayHt: match.awayHt, homeEt: match.homeEt, awayEt: match.awayEt,

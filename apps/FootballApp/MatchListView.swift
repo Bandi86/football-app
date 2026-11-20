@@ -2,9 +2,14 @@ import SwiftUI
 import Foundation
 import FootballAppCore
 
-/// Státusz-szűrő a napi listához, darabszámmal.
+/// Napi lista szűrője, darabszámmal.
+///
+/// A négy státusz-szűrő mellett két hiány-szűrő van: a kezdésidő nélküli
+/// (`date_only`) és a lejárt, de eredmény nélkül maradt meccsek. Utóbbi a
+/// hiány-panel `open_past` definícióját tükrözi (kezdés több mint 3 órával
+/// ezelőtt, és a meccs még nincs lezárva).
 enum MatchFilter: String, CaseIterable, Identifiable {
-    case all, upcoming, live, finished
+    case all, upcoming, live, finished, missingKickoff, missingResult
 
     var id: String { rawValue }
 
@@ -14,7 +19,15 @@ enum MatchFilter: String, CaseIterable, Identifiable {
         case .upcoming: return "Következik"
         case .live: return "Élő"
         case .finished: return "Befejezett"
+        case .missingKickoff: return "Idő nélkül"
+        case .missingResult: return "Eredmény nélkül"
         }
+    }
+
+    /// Hiány-szűrő: nem státusz alapján dönt, ezért a státusz-alapú
+    /// csoportosításból (kártya-szín, "Következik/Élő/Befejezett") kimarad.
+    var isGapFilter: Bool {
+        self == .missingKickoff || self == .missingResult
     }
 
     func matches(status: String) -> Bool {
@@ -27,6 +40,40 @@ enum MatchFilter: String, CaseIterable, Identifiable {
             return ["live", "halftime"].contains(status)
         case .finished:
             return ["finished", "awarded"].contains(status)
+        case .missingKickoff, .missingResult:
+            return false
+        }
+    }
+
+    /// A kártya szintű döntés, a hiány-szűrőket is beleértve.
+    func matches(_ match: DayMatch, now: Date = Date()) -> Bool {
+        switch self {
+        case .missingKickoff:
+            return match.kickoffPrecision == "date_only"
+        case .missingResult:
+            let settled: Set<String> = [
+                "finished", "awarded", "postponed", "canceled", "abandoned",
+            ]
+            guard !settled.contains(match.status) else { return false }
+            return match.kickoffAt < now.addingTimeInterval(-3 * 60 * 60)
+        default:
+            return matches(status: match.status)
+        }
+    }
+
+    /// Ugyanaz a döntés a megjelenítési modellen (a csoportosítás ezt használja).
+    func matches(_ card: MatchCardModel, now: Date = Date()) -> Bool {
+        switch self {
+        case .missingKickoff:
+            return card.kickoffPrecision == "date_only"
+        case .missingResult:
+            let settled: Set<String> = [
+                "finished", "awarded", "postponed", "canceled", "abandoned",
+            ]
+            guard !settled.contains(card.status) else { return false }
+            return card.kickoffAt < now.addingTimeInterval(-3 * 60 * 60)
+        default:
+            return matches(status: card.status)
         }
     }
 

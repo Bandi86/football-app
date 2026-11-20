@@ -19,7 +19,9 @@ struct HomeView: View {
     @State private var model = DayModel()
     @State private var filter: MatchFilter = .all
     @State private var country: String? = nil
-    @State private var division: Int? = nil
+    @State private var division: DivisionFilter? = nil
+    @State private var searchText = ""
+    @State private var womensOnly = false
     @State private var tab: AppTab = .day
     @State private var featuredOnly = false
     @State private var selected: SelectedMatch?
@@ -174,7 +176,8 @@ struct HomeView: View {
             )
 
             FilterBar(filter: $filter, country: $country, division: $division,
-                      featuredOnly: $featuredOnly, focused: focus,
+                      featuredOnly: $featuredOnly, womensOnly: $womensOnly,
+                      searchText: $searchText, focused: focus,
                       counts: filterCounts, countries: allCountries,
                       compact: width < 1_000)
 
@@ -239,9 +242,10 @@ struct HomeView: View {
 
     private func groups(_ matches: [DayMatch], featured: Bool) -> [LeagueGroup] {
         LeagueGroup.fromDay(matches).filter { league in
-            (!featured || league.priority <= 10) &&
+            (!featured || LeagueGroup.featured([league]).isEmpty == false) &&
             (country == nil || league.country == country) &&
-            (division == nil || league.tier == division)
+            (division == nil || division!.matches(league)) &&
+            (!womensOnly || league.isWomens)
         }
     }
 
@@ -252,7 +256,8 @@ struct HomeView: View {
     private var allCountries: [String] {
         guard case .loaded(let feed) = model.state else { return [] }
         let matches = feed.matches
-        return Array(Set(LeagueGroup.fromDay(matches).map(\.country))).sorted()
+        return Array(Set(LeagueGroup.fromDay(matches).map(\.country)))
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
     private var filterCounts: [MatchFilter: Int] {
@@ -260,14 +265,33 @@ struct HomeView: View {
         let matches = feed.matches
         let all = baseGroups(matches).flatMap { $0.matches }
         var result: [MatchFilter: Int] = [:]
+        let now = Date()
         for candidate in MatchFilter.allCases {
-            result[candidate] = all.filter { candidate.matches(status: $0.status) }.count
+            result[candidate] = all.filter { candidate.matches($0, now: now) }.count
         }
         return result
     }
 
     private func filteredLeagues(_ matches: [DayMatch]) -> [LeagueGroup] {
-        baseGroups(matches).compactMap { $0.filtering(filter) }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return baseGroups(matches).compactMap { league -> LeagueGroup? in
+            guard let filtered = league.filtering(filter) else { return nil }
+            guard !query.isEmpty else { return filtered }
+            let needle = query.folding(options: [.diacriticInsensitive, .caseInsensitive],
+                                       locale: Locale(identifier: "hu_HU"))
+            func hit(_ text: String) -> Bool {
+                text.folding(options: [.diacriticInsensitive, .caseInsensitive],
+                             locale: Locale(identifier: "hu_HU"))
+                    .contains(needle)
+            }
+            if hit(filtered.name) || hit(filtered.country) { return filtered }
+            let kept = filtered.matches.filter { hit($0.home) || hit($0.away) }
+            guard !kept.isEmpty else { return nil }
+            return LeagueGroup(id: filtered.id, name: filtered.name, country: filtered.country,
+                               countryCode: filtered.countryCode, flag: filtered.flag,
+                               logo: filtered.logo, tier: filtered.tier,
+                               priority: filtered.priority, matches: kept)
+        }
     }
 }
 
@@ -556,11 +580,48 @@ private struct HomeHeader: View {
     }
 }
 
+/// Osztály-szűrő: a látható meccsek közt előforduló szintek, a kupa és a
+/// mélyebb (harmadik osztály alatti / ismeretlen szintű) bajnokságok.
+enum DivisionFilter: Hashable {
+    case tier(Int)
+    case deeper
+    case cup
+
+    var title: String {
+        switch self {
+        case .tier(let level): return "\(level). osztály"
+        case .deeper: return "Mélyebb ligák"
+        case .cup: return "Kupa"
+        }
+    }
+
+    func matches(_ league: LeagueGroup) -> Bool {
+        switch self {
+        case .cup:
+            return league.isCup
+        case .deeper:
+            guard !league.isCup else { return false }
+            let tier = league.tier ?? 0
+            return tier == 0 || tier >= 4
+        case .tier(let level):
+            guard !league.isCup else { return false }
+            return league.tier == level
+        }
+    }
+
+    /// A menüben felkínált szintek: 1–4, majd a mélyebb/egyéb és a kupa.
+    static let menuOptions: [DivisionFilter] = [
+        .tier(1), .tier(2), .tier(3), .tier(4), .deeper, .cup,
+    ]
+}
+
 private struct FilterBar: View {
     @Binding var filter: MatchFilter
     @Binding var country: String?
-    @Binding var division: Int?
+    @Binding var division: DivisionFilter?
     @Binding var featuredOnly: Bool
+    @Binding var womensOnly: Bool
+    @Binding var searchText: String
     let focused: AppFocus?
     let counts: [MatchFilter: Int]
     let countries: [String]
@@ -568,23 +629,19 @@ private struct FilterBar: View {
     let compact: Bool
 
     var body: some View {
-        Group {
-            if compact {
-                VStack(alignment: .leading, spacing: 8) {
-                    chipRow
-                    HStack(spacing: 8) {
-                        featuredButton
-                        Spacer(minLength: 0)
-                        menus
-                    }
-                }
-            } else {
-                HStack(spacing: 8) {
-                    chipRow
-                    Spacer(minLength: 12)
-                    featuredButton
-                    menus
-                }
+        // Két sor: felül a státusz- és hiány-szűrők (szükség esetén
+        // vízszintesen görgethetők), alatta a kereső és a legördülők. Egy
+        // sorban a hat szűrő + kereső + három menü már 1512 pt-on sem fért el.
+        VStack(alignment: .leading, spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                chipRow
+            }
+            HStack(spacing: 8) {
+                searchField
+                featuredButton
+                womensButton
+                Spacer(minLength: 8)
+                menus
             }
         }
         .padding(.horizontal, 48)
@@ -604,6 +661,36 @@ private struct FilterBar: View {
                 }
             }
         }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(AppTheme.secondaryText)
+            TextField("Csapat, liga, ország…", text: $searchText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12.5))
+                .frame(width: compact ? 150 : 190)
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(AppTheme.secondaryText)
+                }
+                .buttonStyle(.plain)
+                .help("Keresés törlése")
+                .accessibilityIdentifier("search.clear")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(AppTheme.surface, in: Capsule())
+        .overlay(Capsule().strokeBorder(AppTheme.hairline))
+        .accessibilityIdentifier("day.search")
     }
 
     private var featuredButton: some View {
@@ -628,11 +715,38 @@ private struct FilterBar: View {
         }
         .buttonStyle(.plain)
         .help(featuredOnly
-              ? "A kiemelt kör látszik (top-5 + NB I/II). Kattints a teljes naphoz."
+              ? "A kiemelt kör látszik (top-5 európai liga + NB I). Kattints a teljes naphoz."
               : "Minden beolvasott verseny látszik. Kattints a kiemelt körhöz.")
         .accessibilityIdentifier("filter.featured")
         .focusAccessibility(focused == .featured)
         .capsuleFocusRing(focused == .featured)
+    }
+
+    private var womensButton: some View {
+        Button {
+            womensOnly.toggle()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: womensOnly ? "person.2.fill" : "person.2")
+                    .font(.system(size: 10, weight: .semibold))
+                Text("Női")
+                    .font(.system(size: 12.5, weight: .medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(womensOnly ? AppTheme.accent : AppTheme.secondaryText)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(
+                (womensOnly ? AppTheme.accent.opacity(0.12) : AppTheme.surface),
+                in: Capsule()
+            )
+            .overlay(Capsule().strokeBorder(AppTheme.hairline))
+        }
+        .buttonStyle(.plain)
+        .help(womensOnly
+              ? "Csak a női bajnokságok meccsei látszanak. Kattints a teljes naphoz."
+              : "Csak a női bajnokságok meccseinek mutatása.")
+        .accessibilityIdentifier("filter.womens")
     }
 
     private var menus: some View {
@@ -648,17 +762,20 @@ private struct FilterBar: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
+            .accessibilityIdentifier("filter.country")
 
             Menu {
                 Button("Minden osztály") { division = nil }
                 Divider()
-                Button("1. osztály") { division = 1 }
-                Button("2. osztály") { division = 2 }
+                ForEach(DivisionFilter.menuOptions, id: \.self) { option in
+                    Button(option.title) { division = option }
+                }
             } label: {
-                menuLabel(division.map { $0 == 1 ? "1. osztály" : "2. osztály" } ?? "Minden osztály")
+                menuLabel(division?.title ?? "Minden osztály")
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
+            .accessibilityIdentifier("filter.division")
         }
     }
 
@@ -667,6 +784,7 @@ private struct FilterBar: View {
             Text(text)
                 .font(.system(size: 12.5, weight: .medium))
                 .foregroundStyle(AppTheme.secondaryText)
+                .lineLimit(1)
             Image(systemName: "chevron.down")
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(AppTheme.secondaryText)
@@ -690,6 +808,8 @@ private struct FilterChip: View {
             HStack(spacing: 6) {
                 Text(filter.title)
                     .font(.system(size: 12.5, weight: .medium))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                     .foregroundStyle(isActive ? AppTheme.primaryText : AppTheme.secondaryText)
                 Text("\(count)")
                     .font(.system(size: 11, weight: .semibold).monospacedDigit())
