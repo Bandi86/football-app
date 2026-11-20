@@ -1210,6 +1210,7 @@ napi „hiány" panelt a v1 mintájára.
 - [x] UI: „Idő nélkül" és „Eredmény nélkül" hiány-szűrők, csapat/liga/ország
       kereső, külön női szűrő, mélyebb osztályok, kiemelt prioritás (5 topliga
       + NB I/NB II) — a filter-sáv két sorban, hogy 1512 pt-on se csússzon el.
+      A kiemelt kör a magyar bajnokságokat prioritástól függetlenül mutatja.
 - [x] Női bajnokságok: a női csapatok gender/branch javítása; férfi csapatok
       cseréje női meccsekben; francia, német és japán női verseny-duplikátumok
       merge-elve; WE League és A-Liga duplikált fixture-ök merge-elve; férfi

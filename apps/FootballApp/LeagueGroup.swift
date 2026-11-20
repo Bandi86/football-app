@@ -93,7 +93,9 @@ struct LeagueGroup: Identifiable {
 
     /// Kiemelt kör: a top-5 + NB I/II (priority ≤ 10) versenyei.
     static func featured(_ groups: [LeagueGroup]) -> [LeagueGroup] {
-        groups.filter { $0.priority <= 10 }
+        // Kiemelt kör: az öt topliga (prioritás ≤ 10) és a magyar bajnokságok,
+        // utóbbiak prioritástól függetlenül (NB I / NB II).
+        groups.filter { $0.priority <= 10 || $0.countryCode == "HU" }
     }
 
     /// A liga-fejléc neve az API-ból jön, csak a használhatatlan értékeket
