@@ -458,3 +458,19 @@ bemutatott bizonyíték alapján a **B — app-szintű Tab-sorrend** irányt vá
 - Következő döntési pont: (a) daemon újraépítése + újratelepítése, hogy a lefedettség
   élesben is megjelenjen, (b) napon belüli frissítés policy-k (`offset_minutes` események
   a kickoffhoz), (c) csapat-alias/identitás lefedettség.
+
+## S36a — daemon újratelepítés és éles mérés (2026-11-20 14:2x)
+
+- Felhasználói döntés: „Telepítsd újra a daemont most” — `scripts/install-footballd-agent.sh`
+  lefutott: új bináris (`cargo build -p footballd --features obscura`), run.sh/plist újraírva,
+  `launchctl kickstart` → az új worker 2026-11-20T13:21:25Z-kor indult (port 64087);
+  a run.sh most a Keychainből olvassa az OpenFoot-kulcsot, nem fixen a fájlból.
+- Kényszerített Tipplap-discovery (kézi `ops.job`, `entity_key=all-manual-s36a-2`) a daemon
+  dolgozta fel 60 s alatt: log `tipplap nap parse rows=118 skipped=74` (előtte `skipped=114`),
+  majd `napi versenyek materializálva competitions=19`.
+- [x] Éles mérés a mai napra: oddsos v2-meccs **4 → 29** (forrás: tipplap, 12 → 87 quote),
+  19 verseny; a 44 parsolt meccsből 29 materializálódott.
+- [x] `identity.review_queue` 17 új nyitott sor (főleg Cymru Premier: fuzzy_candidate /
+  no_exact_match) — a maradék ~15 meccs a csapat-identitás feloldásán múlik, nem a liga-fedésen.
+- Következő döntési pont: a 17 review rendezése (kurált alias-seed a v1 adatokból), illetve a
+  napon belüli frissítés policy-k (kickoff előtti `offset_minutes` események).
