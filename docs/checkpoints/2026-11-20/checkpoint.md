@@ -75,3 +75,19 @@
   (a job `cancelled`, további retry nem indokolt).
 - Nyitott: a régi daemon-bináris miatt az API `integrity` mezője csak kézi
   agent-telepítés után él (lásd S30b); soccerway JS dayPicker; asset-licence.
+
+## S30d — soccerway dayPicker-probe (backlog, nem szelet)
+
+- [x] A mai napi oldal élő probe: a `www.soccerway.com` a `hu.soccerway.com`-ra
+  irányít, a cookie-hözszólás elfogadása után sem jelenik meg
+  `[data-testid=wcl-dayPickerButton]` és `div.event__match[data-event-row]`
+  (25 s várakozás után sem). `TZ=UTC obscura fetch … --wait 25` 622 KB-os
+  héjat ad, 0 `data-event-row`; a reggel 07:31-i sikeres fetch 1,79 MB volt
+  (`ops.fetch_ledger`), tehát az oldal kiszolgálása idő/session-függő.
+- [x] A `?date=` paraméter továbbra sem használható (dokumentált), a
+  `/tegnap/` és `/matches/` útvonal nem ad match-sort. A dayPicker-alapú
+  múltbeli nap fetch ezért **nem ellenőrizhető** jelenleg — backfill továbbra
+  is a lokális v1 import útján megy. Nyitott marad, nem improvizáltam parsert
+  nem látható DOM-ra.
+- [x] Asset-licence: mind a 53 `ops.asset` sor `cleared` (49 csapatlogo + 4
+  versenylogo), külön döntés nem kell.
