@@ -52,4 +52,8 @@ public struct TeamInfo: Decodable, Equatable, Sendable {
 public struct TeamDetail: Decodable, Equatable, Sendable {
     public let detail: TeamInfo
     public let matches: [DayMatch]
+    /// Az utolsó öt lejátszott meccs a csapat szemszögéből (mai nap előtt).
+    public let form: [FormEntry]?
+    /// A következő legfeljebb három kijelölt meccs.
+    public let next: [NextMatchEntry]?
 }

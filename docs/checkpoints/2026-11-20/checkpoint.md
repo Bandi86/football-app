@@ -1632,3 +1632,25 @@ Nyitott:
 - Élő UI: a La Liga csillagozva (`/tmp/s56_star.png`), a „Kedvencek" szűrő
   aktiválva csak a La Liga 4 meccsét mutatja, a chip-számlálók is igazodnak
   (`/tmp/s56_favorites_filter.png`).
+
+## S57 — csapat-adatlap: forma és következő meccsek
+
+### Változások
+- `rust/crates/api/src/routes/team.rs`: a `/v1/team/{id}` válasz két új mezőt
+  kapott: `form` (utolsó 5 lejátszott meccs a csapat szemszögéből, W/D/L) és
+  `next` (következő legfeljebb 3 kijelölt meccs). A két lekérdezés a meccs-
+  részletezőből már meglévő `fetch_team_form` / `fetch_team_next`; nem
+  kritikusak, hiba esetén üres listával jelenik meg az adatlap.
+- Swift: `TeamDetail.form`/`next` opcionális mezők (a meglévő `FormEntry` /
+  `NextMatchEntry` dekódoló típusokkal), `TeamSheet` két új kártyát kapott a
+  fejléc alatt: „FORMA · UTOLSÓ 5 MECCS" (színezett W/D/L chipek, akadálymentes
+  felolvasással) és „KÖVETKEZŐ MECCS" (dátum, verseny, ellenfél, H/V).
+
+### Ellenőrzések
+- Core: 65/65, benne `decodesTeamDetailWithFormAndNext`.
+- `cargo fmt --all --check` OK, clippy `-D warnings` tiszta, workspace tesztek
+  zöldek.
+- `xcodebuild build` BUILD SUCCEEDED; daemon újratelepítve (port 56916).
+- Élő API: `/v1/team/01a1da40-…(Real Madrid)` → form 5 (mind W), next 3.
+- Élő UI: a Csapatok → Real Madrid adatlap – forma-chipek és következő meccsek
+  (`/tmp/s57_team.png`).

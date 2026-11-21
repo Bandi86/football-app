@@ -57,6 +57,19 @@ struct TeamSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             header(detail)
             Rectangle().fill(AppTheme.hairline).frame(height: 1)
+            if !(detail.form ?? []).isEmpty || !(detail.next ?? []).isEmpty {
+                HStack(alignment: .top, spacing: AppTheme.Spacing.m) {
+                    if let form = detail.form, !form.isEmpty {
+                        TeamFormCard(teamName: detail.detail.name, form: form)
+                    }
+                    if let next = detail.next, !next.isEmpty {
+                        TeamNextCard(teamName: detail.detail.name, next: next)
+                    }
+                }
+                .padding(AppTheme.Spacing.l)
+                .accessibilityIdentifier("team.detail.extras")
+                Rectangle().fill(AppTheme.hairline).frame(height: 1)
+            }
             if detail.matches.isEmpty {
                 VStack(spacing: 10) {
                     Image(systemName: "calendar.badge.exclamationmark")
@@ -146,5 +159,92 @@ struct TeamSheet: View {
         .frame(width: 52)
         .padding(.vertical, 6)
         .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+    }
+}
+
+
+/// A csapat utolsó öt meccsének formája egyetlen sorban (W/D/L chipek).
+private struct TeamFormCard: View {
+    let teamName: String
+    let form: [FormEntry]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.s) {
+            Text("FORMA · UTOLSÓ 5 MECCS")
+                .font(.appLabel(9))
+                .tracking(1.4)
+                .foregroundStyle(AppTheme.secondaryText)
+            HStack(spacing: AppTheme.Spacing.s) {
+                ForEach(form) { entry in
+                    Text(entry.outcome)
+                        .font(.appText(11, weight: .bold))
+                        .foregroundStyle(.black)
+                        .frame(width: 22, height: 22)
+                        .background(chipColor(entry.outcome), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                        .help("\(entry.isHome ? "hazai" : "vendég") \(entry.opponentName) ellen \(entry.teamGoals)–\(entry.opponentGoals)")
+                        .accessibilityLabel(accessibilityLabel(entry))
+                }
+                Spacer()
+            }
+        }
+        .padding(AppTheme.Spacing.m)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: AppTheme.Radius.panel, style: .continuous))
+    }
+
+    private func chipColor(_ outcome: String) -> Color {
+        switch outcome {
+        case "W": return AppTheme.predictionHome
+        case "L": return AppTheme.warning
+        default: return AppTheme.predictionDraw
+        }
+    }
+
+    private func accessibilityLabel(_ entry: FormEntry) -> String {
+        let result = entry.outcome == "W" ? "győzelem" : (entry.outcome == "L" ? "vereség" : "döntetlen")
+        return "\(entry.isHome ? "Hazai" : "Vendég") \(entry.opponentName) ellen \(entry.teamGoals)–\(entry.opponentGoals), \(result)"
+    }
+}
+
+/// A csapat következő legfeljebb három meccse.
+private struct TeamNextCard: View {
+    let teamName: String
+    let next: [NextMatchEntry]
+
+    private static let formatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "hu_HU")
+        formatter.dateFormat = "MM. dd. HH:mm"
+        return formatter
+    }()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.s) {
+            Text("KÖVETKEZŐ MECCS")
+                .font(.appLabel(9))
+                .tracking(1.4)
+                .foregroundStyle(AppTheme.secondaryText)
+            ForEach(next) { entry in
+                HStack(spacing: AppTheme.Spacing.s) {
+                    Text(Self.formatter.string(from: entry.kickoffAt))
+                        .font(.appText(11))
+                        .foregroundStyle(AppTheme.tertiaryText)
+                        .frame(width: 82, alignment: .leading)
+                    Text(entry.competitionName)
+                        .font(.appLabel(9))
+                        .foregroundStyle(AppTheme.tertiaryText)
+                        .lineLimit(1)
+                        .frame(width: 96, alignment: .leading)
+                    Text("\(entry.isHome ? "H" : "V") · \(entry.opponentName)")
+                        .font(.appText(12))
+                        .foregroundStyle(AppTheme.primaryText)
+                        .lineLimit(1)
+                }
+                .accessibilityLabel("\(Self.formatter.string(from: entry.kickoffAt)), \(entry.isHome ? "hazai" : "vendég") \(entry.opponentName) ellen, \(entry.competitionName)")
+            }
+        }
+        .padding(AppTheme.Spacing.m)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: AppTheme.Radius.panel, style: .continuous))
     }
 }

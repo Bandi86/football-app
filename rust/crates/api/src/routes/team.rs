@@ -5,6 +5,9 @@ use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use chrono::{NaiveDate, Utc};
 use football_storage::repositories::day::{DayFilter, fetch_day};
+use football_storage::repositories::match_detail::{
+    FormEntry, NextMatchEntry, fetch_team_form, fetch_team_next,
+};
 use football_storage::repositories::team::{
     TeamDetailRow, TeamListRow, fetch_team_detail, fetch_teams,
 };
@@ -35,6 +38,12 @@ pub struct TeamDetailQuery {
 pub struct TeamDetailResponse {
     pub detail: TeamDetailRow,
     pub matches: Vec<DayMatch>,
+    /// Az utolsó öt lejátszott meccs (a mai nap előtt), W/D/L sorrendben.
+    #[serde(default)]
+    pub form: Vec<FormEntry>,
+    /// A következő legfeljebb három kijelölt meccs.
+    #[serde(default)]
+    pub next: Vec<NextMatchEntry>,
 }
 
 #[utoipa::path(
@@ -130,8 +139,26 @@ pub async fn team_detail(
         AppError::internal("A csapat meccseinek lekérdezése sikertelen.")
     })?;
 
+    // A forma és a következő meccsek nem kritikusak: ha bármelyik lekérdezés
+    // elhasal, a csapat-adatlap a többivel együtt akkor is megjelenik.
+    let now = Utc::now();
+    let (form, next) = tokio::join!(
+        fetch_team_form(&state.pool, team_id, now, 5),
+        fetch_team_next(&state.pool, team_id, now, 3),
+    );
+    let form = form.unwrap_or_else(|e| {
+        tracing::warn!(error=%e, "csapat forma lekérdezés");
+        Vec::new()
+    });
+    let next = next.unwrap_or_else(|e| {
+        tracing::warn!(error=%e, "csapat következő meccsek lekérdezés");
+        Vec::new()
+    });
+
     Ok(Json(TeamDetailResponse {
         detail,
         matches: matches.into_iter().map(map_match).collect(),
+        form,
+        next,
     }))
 }
