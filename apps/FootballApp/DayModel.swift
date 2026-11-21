@@ -15,6 +15,8 @@ final class DayModel {
 
     var selectedDate: Date = Date()
     var state: State = .idle
+    /// Háttér-frissítés hibája: a már megjelenített tartalmat nem törli.
+    private(set) var lastRefreshFailed = false
     let logos = LogoStore()
 
     private let loader: any RuntimeInfoLoading
@@ -33,9 +35,21 @@ final class DayModel {
     }
 
     func load() async {
+        await load(showingLoading: true)
+    }
+
+    /// Háttér-frissítés: a megjelenített tartalmat nem cseréli betöltés-jelzőre,
+    /// és hiba esetén sem dobja el (a következő kör újrapróbálja).
+    func refresh() async {
+        await load(showingLoading: false)
+    }
+
+    func load(showingLoading: Bool) async {
         generation &+= 1
         let currentGeneration = generation
-        state = .loading
+        if showingLoading {
+            state = .loading
+        }
         do {
             let info = try loader.load()
             if let baseURL = URL(string: "http://127.0.0.1:\(info.port)") {
@@ -44,16 +58,25 @@ final class DayModel {
             let service = try serviceFactory(info)
             let feed = try await service.day(for: selectedDate)
             guard currentGeneration == generation else { return }
+            lastRefreshFailed = false
             state = feed.matches.isEmpty ? .empty : .loaded(feed)
         } catch is CancellationError {
             // Megszakított betöltés: nem hiba, a frissebb betöltés veszi át.
             return
         } catch let error as APIError {
             guard currentGeneration == generation else { return }
-            state = .error(error)
+            if showingLoading {
+                state = .error(error)
+            } else {
+                lastRefreshFailed = true
+            }
         } catch {
             guard currentGeneration == generation else { return }
-            state = .error(.network)
+            if showingLoading {
+                state = .error(.network)
+            } else {
+                lastRefreshFailed = true
+            }
         }
     }
 

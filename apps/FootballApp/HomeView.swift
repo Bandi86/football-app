@@ -62,6 +62,16 @@ struct HomeView: View {
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.4)) { appeared = true }
         }
         .task(id: model.selectedDate) { await model.load() }
+        // Élő meccseknél percenként csendben frissítünk; a háttér-kör nem
+        // villantja fel a betöltés-jelzőt, és hiba esetén megtartja a listát.
+        .task(id: autoRefreshKey) {
+            guard liveMatchCount > 0 else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                if Task.isCancelled { return }
+                await model.refresh()
+            }
+        }
         .onChange(of: tab) { _, newTab in
             // Fülváltásnál a lista-állomás eltűnik, a navigációs fókusz marad.
             if case .match = focus { focus = .tab(newTab) }
@@ -262,6 +272,18 @@ struct HomeView: View {
 
     private func baseGroups(_ matches: [DayMatch]) -> [LeagueGroup] {
         groups(matches, featured: featuredOnly)
+    }
+
+    /// Az élő meccsek száma a megjelenített napon; ez indítja a háttér-frissítést.
+    private var liveMatchCount: Int {
+        guard case .loaded(let feed) = model.state else { return 0 }
+        return feed.matches.filter { MatchFilter.live.matches($0) }.count
+    }
+
+    /// A frissítő kör azonosítója: napváltás vagy az élő meccsek számának
+    /// változása indítja újra (a `.task(id:)` a régit megszakítja).
+    private var autoRefreshKey: String {
+        "\(model.selectedDate.timeIntervalSince1970)-\(liveMatchCount)"
     }
 
     private var allCountries: [String] {

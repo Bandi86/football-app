@@ -53,6 +53,51 @@ final class DayModelTests: XCTestCase {
 
     private let info = RuntimeInfo(port: 56782, readToken: "t")
 
+    func testRefreshKeepsLoadedContentAndSwallowsErrors() async throws {
+        let first = try matches(home: "Első")
+        let sequence = ServiceSequence([
+            StubService(result: .success(first)),
+            StubService(result: .failure(.network)),
+        ])
+        let model = DayModel(
+            loader: StubLoader(result: .success(info)),
+            serviceFactory: { _ in sequence.next() }
+        )
+        await model.load()
+        guard case .loaded(let first) = model.state else {
+            return XCTFail("a betöltés nem hozott listát")
+        }
+        XCTAssertEqual(first.matches.first?.home, "Első")
+
+        await model.refresh()
+        // Háttér-hiba esetén a korábbi tartalom marad, csak a jelző vált.
+        guard case .loaded(let stillThere) = model.state else {
+            return XCTFail("a háttér-hiba eldobta a listát")
+        }
+        XCTAssertEqual(stillThere.matches.first?.home, "Első")
+        XCTAssertTrue(model.lastRefreshFailed)
+    }
+
+    func testRefreshReplacesContent() async throws {
+        let first = try matches(home: "Első")
+        let second = try matches(home: "Második")
+        let sequence = ServiceSequence([
+            StubService(result: .success(first)),
+            StubService(result: .success(second)),
+        ])
+        let model = DayModel(
+            loader: StubLoader(result: .success(info)),
+            serviceFactory: { _ in sequence.next() }
+        )
+        await model.load()
+        await model.refresh()
+        guard case .loaded(let second) = model.state else {
+            return XCTFail("a frissítés nem hozott listát")
+        }
+        XCTAssertEqual(second.matches.first?.home, "Második")
+        XCTAssertFalse(model.lastRefreshFailed)
+    }
+
     func testEmptyState() async {
         let model = DayModel(
             loader: StubLoader(result: .success(info)),

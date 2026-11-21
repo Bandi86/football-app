@@ -1695,3 +1695,27 @@ Nyitott:
   1/147, 0/78, 1/141, 1/621 — a 11-21-i nap a legjobban fedett, a jövőbeli
   napok a források publikálási ütemét követik.
 - A daemon a legfrissebb binárison fut (S58 végi állapot).
+
+## S60 — élő meccsek csendes háttér-frissítése
+
+### Változások
+- `apps/FootballApp/DayModel.swift`: a betöltés két módra vált —
+  `load()` (betöltés-jelzővel) és `refresh()` (háttér). A háttér-frissítés nem
+  villantja fel a `loading` állapotot, hiba esetén pedig **megtartja** a már
+  megjelenített listát, csak a `lastRefreshFailed` jelzőt állítja (a következő
+  kör újrapróbálja).
+- `apps/FootballApp/HomeView.swift`: ha a megjelenített napon van élő meccs, a
+  nézet 60 másodpercenként csendben frissít (`model.refresh()`); a `.task(id:)`
+  kulcsa a nap + az élő meccsek száma, így napváltáskor vagy élő→vége váltáskor
+  a kör újraindul, illetve leáll.
+- Tesztek: `apps/FootballAppTests/DayModelTests.swift` —
+  `testRefreshKeepsLoadedContentAndSwallowsErrors` (háttér-hiba nem dobja el a
+  listát), `testRefreshReplacesContent` (sikeres frissítés cseréli a tartalmat).
+
+### Ellenőrzések
+- `xcodebuild build` BUILD SUCCEEDED; `./scripts/run-ui-tests.sh` (unit + UI
+  tesztek, fixture-szerverekkel) exit 0.
+- Élő állapot: a 2026-11-21-i napon 3 élő meccs van, tehát a háttér-kör aktív.
+- Megjegyzés: a frissítés ütemezése SwiftUI `.task`-ban fut, közvetlen
+  vizuális bizonyíték (pl. hálózati számláló) nincs rá; a frissítés
+  szemantikáját a fenti unit tesztek fedik.
