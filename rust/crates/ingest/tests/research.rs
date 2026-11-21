@@ -203,6 +203,33 @@ fn plan_is_empty_for_invalid_window() {
 }
 
 #[test]
+fn youth_competition_uses_canonical_youth_age_group() {
+    // A forrás U17/U19 tokenjei nem lehetnek age_group értékek: a kanonikus
+    // szótár csak `senior`/`youth`, különben párhuzamos entitások születnek.
+    let daily = r#"{
+      "meta": { "generated_at": "2026-11-21T08:00:00Z" },
+      "data": [{
+        "uid": "fm:6139560",
+        "kickoff": { "utc": "2026-11-21T13:00:00Z", "timezone": "Europe/Budapest" },
+        "status": { "code": "scheduled" },
+        "competition": { "name": "World Cup U17 - Group I", "country": "INT", "country_name": "World" },
+        "teams": { "home": { "id": "6585", "name": "Spain U17" },
+                   "away": { "id": "7476", "name": "Costa Rica U17" } }
+      }]
+    }"#;
+    let adapter = ResearchAdapter::default();
+    let observations = adapter.parse(&raw(daily), &ctx("day:2026-11-21")).unwrap();
+    for team in observations.iter().filter(|o| o.aspect == "team_identity") {
+        assert_eq!(
+            team.payload["age_group"], "youth",
+            "{}",
+            team.payload["name"]
+        );
+        assert_eq!(team.payload["branch"], "youth");
+    }
+}
+
+#[test]
 fn numeric_team_ids_are_accepted_and_prefixed() {
     let daily = r#"{
       "meta": { "generated_at": "2026-11-20T16:41:32Z" },

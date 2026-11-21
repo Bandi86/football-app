@@ -238,12 +238,19 @@ impl Canonicalizer {
                 }
                 // Élő út: a fail-closed linker oldja fel; nem egzakt → kimarad.
                 None => {
-                    let team_country = team_country_id(&mut tx, team, country_id).await?;
+                    // Nemzetközi (INT/XX) versenyeknél a csapat országa a kanonikus
+                    // névből jön — különben minden nemzeti csapat XX-re esne.
+                    let team_code = inferred_team_country_code(&mut tx, team).await?;
+                    let country_team = NormalizedTeam {
+                        country_code: team_code.clone(),
+                        ..team.clone()
+                    };
+                    let team_country = team_country_id(&mut tx, &country_team, country_id).await?;
                     let ctx = football_domain::identity::IdentityContext {
-                        country_code: if team.country_code.trim().is_empty() {
+                        country_code: if team_code.trim().is_empty() {
                             None
                         } else {
-                            Some(team.country_code.clone())
+                            Some(team_code)
                         },
                         gender: Some(team.gender.clone()),
                         age_group: Some(team.age_group.clone()),
@@ -270,7 +277,7 @@ impl Canonicalizer {
                             let created = create_team_on_miss(
                                 &mut tx,
                                 &day.source_code,
-                                team,
+                                &country_team,
                                 team_country,
                                 queue_id,
                             )
@@ -801,6 +808,39 @@ async fn observations_for_match(
     .fetch_all(&mut **tx)
     .await?;
     Ok(rows)
+}
+
+/// Nemzetközi versenynél a forrás `INT`/`XX` országot ad minden csapatra
+/// (pl. World Cup U17). Ilyenkor a kanonikus csapat nevére rákeresünk, és ha
+/// pontosan egy, nem-XX országú entitás illeszkedik (azonos nem/kor/ággal),
+/// annak kódját használjuk. Így a linker a meglévő nemzeti csapatot találja
+/// meg, és nem születik párhuzamos XX-országú entitás. Több találatnál vagy
+/// találat hiányában az eredeti (XX) kód marad — nincs találgatás.
+async fn inferred_team_country_code(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    team: &NormalizedTeam,
+) -> Result<String> {
+    let canonical = football_domain::identity::canonical_country_code(&team.country_code);
+    if !canonical.is_empty() && canonical != "XX" {
+        return Ok(canonical);
+    }
+    let codes: Vec<String> = sqlx::query_scalar(
+        "SELECT co.code FROM core.team t
+         JOIN core.country co ON co.id=t.country_id
+         WHERE lower(t.name)=lower($1) AND t.gender=$2 AND t.age_group=$3 AND t.branch=$4
+           AND co.code IS NOT NULL AND co.code <> 'XX'",
+    )
+    .bind(&team.name)
+    .bind(&team.gender)
+    .bind(&team.age_group)
+    .bind(&team.branch)
+    .fetch_all(&mut **tx)
+    .await?;
+    let unique: std::collections::BTreeSet<String> = codes.into_iter().collect();
+    if unique.len() == 1 {
+        return Ok(unique.into_iter().next().expect("egyetlen elem"));
+    }
+    Ok(canonical)
 }
 
 /// A csapat országa: a megfigyelt kód, ha van; különben a verseny országa

@@ -605,9 +605,12 @@ fn team_context(competition_name: &str) -> (&'static str, &'static str, &'static
     if women {
         return ("female", "senior", "women");
     }
+    // A kanonikus age_group csak `senior` / `youth`: a forrás U15–U21 tokenjei
+    // nem kerülhetnek be önálló értékként, mert azok párhuzamos (XX/u17 stb.)
+    // csapatentitásokat hoznak létre a meglévő youth entitások mellett.
     for group in ["u19", "u21", "u20", "u18", "u17", "u16", "u15"] {
         if lower.contains(group) {
-            return ("male", group, "youth");
+            return ("male", "youth", "youth");
         }
     }
     ("male", "senior", "senior")
@@ -768,7 +771,8 @@ mod tests {
         assert_eq!(team_context("WE League").0, "female");
         assert_eq!(team_context("NWSL").0, "female");
         assert_eq!(team_context("Premier League").0, "male");
-        assert_eq!(team_context("Premier League U18").1, "u18");
+        // A forrás U18 tokenje a kanonikus `youth` age_group-ra képeződik.
+        assert_eq!(team_context("Premier League U18").1, "youth");
         assert_eq!(team_context("Premier League").2, "senior");
     }
 }

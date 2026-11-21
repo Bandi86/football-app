@@ -474,6 +474,53 @@ async fn null_country_does_not_overwrite_existing_team_country() {
     );
 }
 
+/// Nemzetközi versenynél (INT/XX) a csapat országát a meglévő kanonikus
+/// névből kell átvenni, különben minden nemzeti csapat XX-országú duplikátum
+/// lesz (S69).
+#[tokio::test]
+async fn international_day_links_team_by_name_to_existing_country() {
+    let pool = test_pool().await;
+    let seed_source_id = seed_source(&pool).await;
+    let _int_source_id = seed_source_with_mode(&pool, "int-src", "create_on_miss").await;
+    let country_id = seed_country(&pool).await;
+    let existing = seed_linked_team(&pool, seed_source_id, country_id, "seed-hun", "Hungary").await;
+
+    let mut day = live_day(
+        &[("hun", "Hungary"), ("other", "Otherland")],
+        "hun",
+        "other",
+    );
+    day.source_code = "int-src".into();
+    day.competition.name = "Friendly International".into();
+    day.competition.country_code = "INT".into();
+    day.competition.country_name = "World".into();
+    for team in &mut day.teams {
+        team.country_code = "XX".into();
+    }
+    Canonicalizer::materialize(&pool, &day).await.unwrap();
+
+    let hungary_id: Uuid = sqlx::query_scalar("SELECT id FROM core.team WHERE name='Hungary'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        hungary_id, existing,
+        "a meglévő HU csapatot kellett megtalálni"
+    );
+
+    let xx_hungary: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core.team t JOIN core.country c ON c.id=t.country_id
+         WHERE c.code='XX' AND t.name='Hungary'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        xx_hungary, 0,
+        "a Hungary nem kaphat XX-országú párhuzamos entitást"
+    );
+}
+
 /// A forduló megjelenítési adat: két forrás eltérő forduló-jelöléssel
 /// ugyanazt a meccset írja le → egy kanonikus sor, frissülő címkével.
 #[tokio::test]

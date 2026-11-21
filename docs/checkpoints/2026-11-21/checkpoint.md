@@ -142,9 +142,37 @@
   resolve) `ops.audit_event` sorral rendelkezik; a törölt meccsek teljes
   payloadja az `ops.dedupe_archive`-ban.
 
+## S69 — a research-adatok gyökerének javítása
+
+- [x] **834/830 kérdés tisztázva**: a research API 11-21-i envelope-a 1464
+      meccset tartalmaz (630 `enriched` + 834 `fixture_only` részletes JSON),
+      de a v2 csak a **2026-11-20 18:34-i régi envelope-ot** (2,3 MB) töltötte
+      be — innen a 830. A friss fájl (5,6 MB) azóta kétszer is frissült.
+- [x] **Kódbug 1**: `football_ingest::research::team_context()` az `u17`/`u18`/
+      `u19`/`u21` tokeneket adta `age_group`-ként a kanonikus `youth` helyett —
+      ez hozta létre a párhuzamos U17-entitásokat. Javítva + 2 unit teszt.
+- [x] **Kódbug 2**: nemzetközi versenyeknél (`INT`→`XX`) minden csapat XX
+      országot kapott. A kanonikus út most név + nem/kor/ág alapján átveszi
+      a meglévő csapat országát, ha pontosan egy találat van; több találatnál
+      XX marad (nincs találgatás). Új DB-integrációs teszt.
+- [x] A meglévő 151 nem-kanonikus `age_group` (u15–u21) auditáltan `youth`-ra
+      állítva; teljes kapu: fmt, clippy `-D warnings`, **97 zöld tesztblokk**.
+- [x] Új bináris telepítve, a friss 11-21-i envelope újra betöltve:
+      **830 → 990 meccs** a napon (API: 974 megjeleníthető sor), 1464 új
+      `match_core` observation. Integritás **OK**, 0 árva provenance.
+- [ ] 474 meccs még mindig kimaradt a materializációból: a hozzájuk tartozó
+      csapatok `fuzzy_candidate` (165) / `multiple_candidates` (20) review-ban
+      ragadtak. Ezeket nem lehet automatikusan jóváhagyni (AGENTS.md: fuzzy
+      tiltott) — kézi döntés kell.
+- [ ] A `raw.capture` `request_key` ütközése miatt a régi (18:34-i) artifact
+      SHA-jét őrzi a capture, miközben az observation-ök a friss payloadból
+      jönnek. Provenance-pontossági kérdés, külön szelet.
+
 ## Következő döntési pont
 
-- A 248 XX-duplikátum és a 7 XX verseny forrásmapping-gyökerének javítása
-  (review-val, nem név alapján); az 5 forrás-ellentmondás withheld kézi
-  forrás-ellenőrzése; a `tick.rs`-ben lévő nem commitolt auto-dedupe változás
-  külön szelet (builder ≠ verifier).
+- A 248 XX-duplikátum és a 7 XX verseny review-alapú rendezése; az 185
+  research review egyenkénti (vagy kurált szabályos) feloldása; az 5 forrás-
+  ellentmondás withheld kézi ellenőrzése; a `tick.rs`-ben lévő nem commitolt
+  auto-dedupe változás külön szelet (builder ≠ verifier).
+- **UI kézi adatbevitel**: a felhasználó kérte, hogy a hiányzó eredményt/
+  adatot a kliensben tudja felvenni. APIs + SwiftUI szelet, terv szerint.
