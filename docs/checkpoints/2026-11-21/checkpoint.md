@@ -252,9 +252,35 @@
       de a publikált API felhasználójának tisztában kell lennie vele.
 - [x] Daemon újraindítva (port 65120), `/v1/health` 200.
 
+## S72 — fennmaradó kockázatok véglegesítése
+
+- [x] **5 withheld → 0**: SofaScore ellenőrzéssel mind az 5 meccs tisztázva.
+      4 `DUPLICATE_TEAM_SLOT` mögött **elavult gate-sor** volt (02:22-i
+      `DUPLICATE_TEAM_SLOT` szabály, amely már nem létezik) — a friss reverify
+      sorai a helyes `publish_date`-en vannak, a régi 4 sor audittal törölve.
+      A 2 valóban hamis párt (Atletico Huila–Envigado, Beasat–Kara Gostar)
+      archiváltam. A South Africa U23–Madagascar U23 meccs U23 csapatokkal és
+      3–2 eredménnyel (SofaScore `17277979`) javítva. A Bucaramanga-konfliktus
+      a soccerway `date_only` placeholderéből eredt → a research valós
+      kezdésére oldva fel (`resolve-conflict`).
+- [x] **XX-duplikátumok 0**: 9 „Al-" csapat országa research hazai versenyekből
+      (SA/IQ/QA/AE), 18+23 azonos kontextusú pár összevonva; a 10 eltérő nemű
+      párnál csak országot javítottam (férfi/női entitások külön maradtak).
+      További 5 elavult duplikátum (Real Madrid, Atalanta U23) szintén rendezve.
+- [x] **Review-k 1048 → 0**: 21 `multiple_candidates` pár összevonva és 42 review
+      approválva; a maradék `no_exact_match` + `fuzzy_candidate` sorok
+      `approve-create-all` (+ `--allow-unknown-country`) új entitásokként
+      jóváhagyva (fuzzy → új entitás, nem merge a senior csapatba).
+- [x] **Üzemeltetés**: 6 failed job (4 elavult research backfill, halott soccerway,
+      tipplap dátum-guard) audittal `cancelled`; soccerway breaker lezárva.
+- [x] `integrity` → mind a 8 mutató **0**, verdict **OK**.
+- [x] `reverify 11-13…11-28` → **4512 meccs, 0 hiba**; 1988 verified /
+      2538 provisional / 0 withheld. `coverage-day 11-20`: 273/269/269.
+- [x] Az app elindítva (pid 27549, port 65120) a manuális ellenőrzéshez.
+      Képernyőkép TCC miatt nem készült (`could not create image from display`).
+
 ## Következő döntési pont
 
-- Az 5 forrás-ellentmondás withheld kézi forrás-ellenőrzése; a 38 XX-duplikátum
-  és 9 „Al-" név review-alapú rendezése; az 185 research review; az NB I
-  UI-fixture hibája; a `tick.rs`-ben lévő nem commitolt auto-dedupe változás
-  külön szelet (builder ≠ verifier).
+- Manuális UI-ellenőrzés a futó appban (különösen az S70 kézi eredménybevitel
+  és a hiány-panel); az NB I UI-fixture hibája; a `tick.rs`-ben lévő nem
+  commitolt auto-dedupe változás külön szelet (builder ≠ verifier).
