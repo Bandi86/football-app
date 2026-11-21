@@ -1,6 +1,7 @@
 pub mod audit;
 pub mod competition;
 pub mod core;
+pub mod coverage;
 pub mod day;
 pub mod dedupe;
 pub mod identity;

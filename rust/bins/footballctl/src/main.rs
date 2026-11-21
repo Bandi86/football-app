@@ -187,6 +187,13 @@ enum Command {
         #[command(subcommand)]
         action: CompetitionsAction,
     },
+    /// Napi lefedettségi riport (S64): meccs, eredmény, odds, logó, hiányok.
+    CoverageDay {
+        #[arg(long)]
+        from: NaiveDate,
+        #[arg(long)]
+        to: NaiveDate,
+    },
     /// Liga-szezon lefedettségi riport (S23).
     Coverage {
         /// Csak ettől a szezon-kezdőévtől (pl. 2015).
@@ -1320,6 +1327,56 @@ async fn main() -> Result<()> {
             for (state, count) in states {
                 println!("  {state}: {count}");
             }
+        }
+        Command::CoverageDay { from, to } => {
+            let rows = football_storage::repositories::coverage::fetch_daily_coverage(
+                &pool,
+                from,
+                to,
+                "Europe/Budapest",
+            )
+            .await?;
+            println!(
+                "nap         meccs  lezárt  eredm.  odds  logó  idő nélkül  withheld  verified"
+            );
+            let mut totals = [0i64; 8];
+            for row in &rows {
+                println!(
+                    "{}  {:>5}  {:>6}  {:>6}  {:>4}  {:>4}  {:>10}  {:>8}  {:>8}",
+                    row.day,
+                    row.matches,
+                    row.finished,
+                    row.with_result,
+                    row.with_odds,
+                    row.with_both_logos,
+                    row.missing_kickoff,
+                    row.withheld,
+                    row.verified
+                );
+                for (slot, value) in totals.iter_mut().zip([
+                    row.matches,
+                    row.finished,
+                    row.with_result,
+                    row.with_odds,
+                    row.with_both_logos,
+                    row.missing_kickoff,
+                    row.withheld,
+                    row.verified,
+                ]) {
+                    *slot += value;
+                }
+            }
+            println!(
+                "ÖSSZESEN    {:>5}  {:>6}  {:>6}  {:>4}  {:>4}  {:>10}  {:>8}  {:>8}",
+                totals[0],
+                totals[1],
+                totals[2],
+                totals[3],
+                totals[4],
+                totals[5],
+                totals[6],
+                totals[7]
+            );
         }
         Command::Coverage {
             from,

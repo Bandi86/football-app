@@ -1936,3 +1936,18 @@ Csapatlogó-lefedettség: a 2026-11-13…11-30 ablakra a FotMob-import
 - Emiatt a maradék 129 meccs (Friendly International 21, Persha Liga 11,
   AFC U17 10, AFCON U23 9, Ligue 1 8, …) forrás nélkül marad; a hiány-panelben
   látszanak, és a napi research catch-up újrapróbálja. Dokumentált blokkoló.
+
+### Napi lefedettségi riport (S64 folytatás)
+- Új storage-lekérdezés: `rust/crates/storage/src/repositories/coverage.rs`
+  (`DayCoverage { day, matches, finished, with_result, with_odds, with_both_logos,
+  missing_kickoff, withheld, verified }`, `fetch_daily_coverage(pool, from, to, timezone)`),
+  időzóna-tudatos napbontással (`timezone($3, kickoff_at)::date`).
+- Új CLI: `footballctl coverage-day --from <D> --to <D>` — táblázatos napi
+  riport + összesítő sor; ez automatizálja a korábbi ad-hoc SQL-t.
+- Teszt: `rust/crates/storage/tests/coverage_query.rs` (eredmény/odds/logó/
+  withheld/verified számok két napra) → 1 passed; storage lib 29 passed;
+  `cargo fmt --all --check` OK; clippy `-D warnings` tiszta.
+- Minta (2026-11-20…22): 11-20: 244 meccs / 225 lezárt / 225 eredmény /
+  164 odds / 177 mindkét logó / 10 idő nélkül / 0 withheld / 98 verified;
+  11-21: 847 / 6 / 5 / 276 / 637 / 22 / 3 / 244; 11-22: 408 / 0 / 0 / 43 /
+  358 / 0 / 7 / 175.
