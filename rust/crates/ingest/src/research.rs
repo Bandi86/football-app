@@ -2,10 +2,11 @@
 //! olvassa (nincs hálózat, `Transport::LocalFile`).
 //!
 //! A napi envelope (`daily/YYYY/MM/<date>.json`) adja a meccseket, a
-//! csapat-identitást, a játékvezetőt és a versenyt; az oddsok a meccs-detail
-//! fájlokból (`matches/YYYY/MM/DD/<slug>.json`, `odds.markets`) jönnek.
-//! A terv egy napi kérést és a naphoz tartozó, oddsot tartalmazó
-//! detail-fájlokat tartalmaz.
+//! csapat-identitást, a játékvezetőt és a versenyt; a meccs-detail fájlokból
+//! (`matches/YYYY/MM/DD/<slug>.json`) jön az odds (`odds.markets`), a
+//! mérkőzés-események (`events[]`) és a csapatstatisztika
+//! (`team_statistics.groups[].items[]`). A terv egy napi kérést és a naphoz
+//! tartozó detail-fájlokat tartalmaz (S82: egységes `detail:<uid>` kulccsal).
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -19,6 +20,7 @@ use serde_json::json;
 
 use crate::adapter::{AdapterMeta, Observation, ParseCtx, SourceAdapter};
 use crate::fetch::{FetchRequest, RawPayload};
+use crate::normalized::NormalizedTeamStats;
 
 pub const SOURCE_SLUG: &str = "research";
 pub const ADAPTER_VERSION: &str = "1.0.0";
@@ -62,7 +64,8 @@ impl ResearchAdapter {
         )
     }
 
-    fn odds_rel(link: &str) -> Option<String> {
+    /// A napi `links.self` értékéből a detail-fájl gyökérhez viszonyított útja.
+    fn detail_rel(link: &str) -> Option<String> {
         let rel = link.trim_start_matches("/api/v1/").trim_start_matches('/');
         if rel.starts_with("matches/") && rel.ends_with(".json") {
             Some(rel.to_string())
@@ -98,6 +101,9 @@ struct DayMatch {
     links: Option<Links>,
     #[serde(default)]
     coverage: Option<Coverage>,
+    /// `enriched` | `fixture_only`; a részletes forrás-adat jelzése.
+    #[serde(default)]
+    data_tier: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -187,15 +193,83 @@ struct Links {
 struct Coverage {
     #[serde(default)]
     odds: bool,
+    /// `ok` | `none`; hiányzó mező (idősebb envelope) → `None`.
+    #[serde(default)]
+    detail: Option<String>,
 }
 
-/// A detal-fájl (meccs) releváns része az oddsokhoz.
+/// A detail-fájl (meccs) releváns része: odds, események, statisztika.
+///
+/// A séma-drift tolerancia: ismeretlen gyökér-mezőket a serde kihagy, a
+/// hiányzó blokkok `None`/üres értéket adnak, a mezők hiánya NULL-lá válik.
 #[derive(Debug, Deserialize)]
 struct DetailDoc {
+    #[serde(default)]
+    meta: Option<DetailMeta>,
     #[serde(default)]
     uid: Option<String>,
     #[serde(default)]
     odds: Option<OddsSection>,
+    #[serde(default)]
+    events: Vec<DetailEvent>,
+    #[serde(default)]
+    team_statistics: Option<TeamStatistics>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DetailMeta {
+    #[serde(default)]
+    generated_at: Option<DateTime<Utc>>,
+}
+
+/// Egy esemény a `events[]` tömbből; minden mező opcionális (hiányzó = NULL).
+#[derive(Debug, Deserialize)]
+struct DetailEvent {
+    #[serde(default)]
+    minute: Option<i32>,
+    #[serde(default, rename = "type")]
+    incident_type: Option<String>,
+    #[serde(default)]
+    team: Option<String>,
+    #[serde(default)]
+    player: Option<String>,
+    #[serde(default)]
+    player_in: Option<String>,
+    #[serde(default)]
+    player_out: Option<String>,
+    #[serde(default)]
+    assist: Option<String>,
+    #[serde(default)]
+    score_after: Option<Vec<i16>>,
+    #[serde(default)]
+    detail: Option<String>,
+}
+
+/// A `team_statistics` blokk (period-groups-items); csak a `groups` kell.
+#[derive(Debug, Deserialize)]
+struct TeamStatistics {
+    #[serde(default)]
+    groups: Vec<StatGroup>,
+}
+
+#[derive(Debug, Deserialize)]
+struct StatGroup {
+    #[serde(default)]
+    items: Vec<StatItem>,
+}
+
+/// Egy statisztika-sor; az érték bármilyen JSON lehet (szám vagy formázott
+/// szöveg), a szöveges/formázott értékeket nem találgatjuk át.
+#[derive(Debug, Deserialize)]
+struct StatItem {
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    key: Option<String>,
+    #[serde(default)]
+    home: Option<serde_json::Value>,
+    #[serde(default)]
+    away: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -234,30 +308,38 @@ impl SourceAdapter for ResearchAdapter {
             bearer_token: None,
         }];
 
-        // Az oddsot tartalmazó meccs-detail fájlok: a napi envelope-ből
-        // tudjuk, melyik meccshez van odds (`coverage.odds`).
+        // S82: a detail-fájlok egyetlen jobban hozzák az oddsot, az
+        // eseményeket és a csapatstatisztikát, ezért a korábbi `odds:<uid>`
+        // request_key helyett egységes `detail:<uid>` kulcs megy. A parse a
+        // régi `odds:<uid>` kulcsot is elfogadja (a stádiumban maradt
+        // payloadok és a korábban tervezett jobok miatt); a plan már csak az
+        // új kulcsot állítja elő.
+        //
+        // Detail jobot akkor kérünk, ha a napi envelope szerint van odds
+        // (`coverage.odds`), van részletes adat (`coverage.detail != "none"`),
+        // vagy a meccs `data_tier` értéke `enriched`.
         let path = self.api_root.join(&daily_rel);
         if let Ok(bytes) = std::fs::read(&path)
             && let Ok(doc) = serde_json::from_slice::<DailyDoc>(&bytes)
         {
             let mut seen = BTreeSet::new();
             for m in &doc.data {
-                if !m.coverage.as_ref().map(|c| c.odds).unwrap_or(false) {
+                if !wants_detail(m) {
                     continue;
                 }
                 let Some(link) = m.links.as_ref().and_then(|l| l.self_link.as_deref()) else {
                     continue;
                 };
-                let Some(rel) = Self::odds_rel(link) else {
+                let Some(rel) = Self::detail_rel(link) else {
                     continue;
                 };
                 if !seen.insert(rel.clone()) {
                     continue;
                 }
                 requests.push(FetchRequest {
-                    url: rel.clone(),
-                    request_key: format!("odds:{}", m.uid),
-                    endpoint_key: "odds".into(),
+                    url: rel,
+                    request_key: format!("detail:{}", m.uid),
+                    endpoint_key: "detail".into(),
                     ready_marker: None,
                     bearer_token: None,
                 });
@@ -269,8 +351,8 @@ impl SourceAdapter for ResearchAdapter {
     fn parse(&self, raw: &RawPayload, ctx: &ParseCtx) -> Result<Vec<Observation>, ParseError> {
         if ctx.request_key.starts_with("day:") {
             self.parse_day(raw)
-        } else if ctx.request_key.starts_with("odds:") {
-            self.parse_odds(raw, ctx)
+        } else if ctx.request_key.starts_with("detail:") || ctx.request_key.starts_with("odds:") {
+            self.parse_detail(raw, ctx)
         } else {
             Err(ParseError::Parse(format!(
                 "ismeretlen research kérés: {}",
@@ -360,6 +442,7 @@ impl ResearchAdapter {
                         .clone()
                         .unwrap_or_else(|| "Europe/Budapest".into()),
                     "competition": {
+                        "source_entity_id": comp_name.as_str(),
                         "name": comp_name,
                         "country_code": country_code,
                         "country_name": country_name,
@@ -391,12 +474,46 @@ impl ResearchAdapter {
         Ok(observations)
     }
 
-    fn parse_odds(&self, raw: &RawPayload, ctx: &ParseCtx) -> Result<Vec<Observation>, ParseError> {
+    /// Egy detail-fájl teljes feldolgozása: odds + események + statisztika.
+    ///
+    /// Az ismeretlen kulcsok a serde viselkedése miatt nem dobnak hibát; a
+    /// hiányzó blokk kimarad, a hiányzó mező NULL lesz a payloadban.
+    fn parse_detail(
+        &self,
+        raw: &RawPayload,
+        ctx: &ParseCtx,
+    ) -> Result<Vec<Observation>, ParseError> {
         let doc: DetailDoc = serde_json::from_slice(&raw.bytes)
             .map_err(|e| ParseError::SchemaDrift(format!("research detail: {e}")))?;
-        let Some(odds) = doc.odds else {
-            return Ok(Vec::new());
-        };
+        let match_key = doc.uid.clone().unwrap_or_else(|| {
+            ctx.request_key
+                .trim_start_matches("detail:")
+                .trim_start_matches("odds:")
+                .to_string()
+        });
+        // A detail-fájl generálási ideje a közös rögzítési idő; ha hiányzik,
+        // a feldolgozás ideje (a régi odds-viselkedéshez hasonlóan).
+        let captured_at = doc
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.generated_at)
+            .unwrap_or_else(Utc::now);
+        let mut observations = Vec::new();
+        if let Some(odds) = self.odds_observation(&doc, &match_key) {
+            observations.push(odds);
+        }
+        if let Some(events) = self.events_observation(&doc, &match_key, captured_at) {
+            observations.push(events);
+        }
+        if let Some(stats) = self.stats_observation(&doc, &match_key, captured_at) {
+            observations.push(stats);
+        }
+        Ok(observations)
+    }
+
+    /// Az odds-megfigyelés (a korábbi `odds:<uid>` parse tartalma).
+    fn odds_observation(&self, doc: &DetailDoc, match_key: &str) -> Option<Observation> {
+        let odds = doc.odds.as_ref()?;
         let phase = match odds.phase.as_deref() {
             Some("closing") => "closing",
             _ => "opening",
@@ -408,11 +525,9 @@ impl ResearchAdapter {
             .and_then(|m| m.keys().next())
             .cloned()
             .unwrap_or_else(|| SOURCE_SLUG.to_string());
-        let Some(markets) = odds.markets else {
-            return Ok(Vec::new());
-        };
+        let markets = odds.markets.as_ref()?;
         let mut quotes = Vec::new();
-        for (market_name, outcomes) in &markets {
+        for (market_name, outcomes) in markets {
             let Some(outcomes) = outcomes.as_object() else {
                 continue;
             };
@@ -438,7 +553,7 @@ impl ResearchAdapter {
             }
         }
         if quotes.is_empty() {
-            return Ok(Vec::new());
+            return None;
         }
         // A forrás-oldali megfigyelési idő (pl. "2026-11-18 17:46:23");
         // ha nem értelmezhető, a feldolgozás ideje lesz a rögzítés.
@@ -450,29 +565,245 @@ impl ResearchAdapter {
             })
             .map(|naive| naive.and_utc())
             .unwrap_or_else(Utc::now);
-        let match_key = doc
-            .uid
-            .unwrap_or_else(|| ctx.request_key.trim_start_matches("odds:").to_string());
         let market_count = quotes
             .iter()
             .filter_map(|q| q.get("market").and_then(|m| m.as_str()))
             .collect::<BTreeSet<_>>()
             .len() as i64;
-        Ok(vec![Observation {
+        Some(Observation {
             entity_kind: "match".into(),
             aspect: "match_odds".into(),
-            natural_key: match_key.clone(),
+            natural_key: match_key.to_string(),
             // A napi match_core observation `source_record_key`-jével kell
             // egyeznie, különben az összeállítás nem kapcsolja a meccshez.
-            source_record_key: match_key.clone(),
+            source_record_key: match_key.to_string(),
             observed_at,
             payload: json!({
                 "canonical_match_id": null,
                 "quotes": quotes,
                 "market_count": market_count,
             }),
-        }])
+        })
     }
+
+    /// A `match_events` megfigyelés: a forrás sorrendjében, csak a névvel
+    /// rendelkező típusok (a NULL típusú sor kimarad, mert a DB-ben kötelező).
+    fn events_observation(
+        &self,
+        doc: &DetailDoc,
+        match_key: &str,
+        captured_at: DateTime<Utc>,
+    ) -> Option<Observation> {
+        let incidents: Vec<serde_json::Value> =
+            doc.events.iter().filter_map(incident_payload).collect();
+        if incidents.is_empty() {
+            return None;
+        }
+        Some(Observation {
+            entity_kind: "match".into(),
+            aspect: "match_events".into(),
+            natural_key: match_key.to_string(),
+            source_record_key: match_key.to_string(),
+            observed_at: captured_at,
+            payload: json!({ "incidents": incidents }),
+        })
+    }
+
+    /// A `match_stats` megfigyelés: a `team_statistics` blokk kanonikus
+    /// metrikái. Formázott/százalékos értéket nem találgatunk át.
+    fn stats_observation(
+        &self,
+        doc: &DetailDoc,
+        match_key: &str,
+        captured_at: DateTime<Utc>,
+    ) -> Option<Observation> {
+        let groups = &doc.team_statistics.as_ref()?.groups;
+        let home = team_stats_from_groups(groups, true);
+        let away = team_stats_from_groups(groups, false);
+        if home.is_empty() && away.is_empty() {
+            return None;
+        }
+        Some(Observation {
+            entity_kind: "match".into(),
+            aspect: "match_stats".into(),
+            natural_key: match_key.to_string(),
+            source_record_key: match_key.to_string(),
+            observed_at: captured_at,
+            payload: json!({
+                "home_shots": home.shots,
+                "away_shots": away.shots,
+                "home_shots_on_target": home.shots_on_target,
+                "away_shots_on_target": away.shots_on_target,
+                "home_corners": home.corners,
+                "away_corners": away.corners,
+                "home_yellow": home.yellow,
+                "away_yellow": away.yellow,
+                "home_red": home.red,
+                "away_red": away.red,
+                "home_fouls": home.fouls,
+                "away_fouls": away.fouls,
+                "home_xg": home.xg,
+                "away_xg": away.xg,
+            }),
+        })
+    }
+}
+
+/// S82: kér-e a nap meccse detail-fájlt?
+///
+/// Akkor igen, ha `coverage.odds` igaz, a `coverage.detail` értéke nem
+/// `none` (tehát van részletes adat), vagy a meccs `data_tier` értéke
+/// `enriched`. A hiányzó coverage/data_tier nem igényel detail jobot.
+fn wants_detail(m: &DayMatch) -> bool {
+    let odds = m.coverage.as_ref().map(|c| c.odds).unwrap_or(false);
+    let has_detail = m
+        .coverage
+        .as_ref()
+        .and_then(|c| c.detail.as_deref())
+        .map(|value| !value.eq_ignore_ascii_case("none"))
+        .unwrap_or(false);
+    let enriched = m.data_tier.as_deref() == Some("enriched");
+    odds || has_detail || enriched
+}
+
+/// Egy detail-esemény → `match_events` payload-elem; a NULL típusú sor
+/// kimarad (a kanonikus `incident_type` kötelező).
+fn incident_payload(event: &DetailEvent) -> Option<serde_json::Value> {
+    let incident_type = event.incident_type.as_deref()?.trim();
+    if incident_type.is_empty() {
+        return None;
+    }
+    let side = match event.team.as_deref() {
+        Some("home") => Some("home"),
+        Some("away") => Some("away"),
+        _ => None,
+    };
+    let (player_name, related_player_name) = match incident_type {
+        // A cserénél a bejövő a főszereplő, a lecserélt a kapcsolódó játékos.
+        "Substitution" => (
+            event.player_in.clone().or_else(|| event.player.clone()),
+            event.player_out.clone(),
+        ),
+        // A gólnál az assziszt a kapcsolódó név; a "player" a gólszerző.
+        "Goal" => (event.player.clone(), assist_name(event.assist.as_deref())),
+        _ => (event.player.clone(), None),
+    };
+    let (score_after_home, score_after_away) = match event.score_after.as_deref() {
+        Some([home, away]) => (Some(*home), Some(*away)),
+        _ => (None, None),
+    };
+    Some(json!({
+        "minute": event.minute,
+        "incident_type": incident_type,
+        "side": side,
+        "player_name": player_name,
+        "related_player_name": related_player_name,
+        "detail": event.detail,
+        "score_after_home": score_after_home,
+        "score_after_away": score_after_away,
+    }))
+}
+
+/// "assist by Marcus Kirchheiner" → "Marcus Kirchheiner"; más forma → NULL.
+fn assist_name(assist: Option<&str>) -> Option<String> {
+    let value = assist?.trim();
+    value
+        .strip_prefix("assist by ")
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+}
+
+/// A team_statistics egy kanonikus metrikája.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StatMetric {
+    Shots,
+    ShotsOnTarget,
+    Corners,
+    Yellow,
+    Red,
+    Fouls,
+    Xg,
+}
+
+/// `key` vagy `title` alapján felismert metrika; mindkettőt ékezet- és
+/// írásjel-függetlenül hasonlítjuk (pl. `total_shots` = "Total shots").
+fn metric_of(item: &StatItem) -> Option<StatMetric> {
+    let folded = |value: &str| {
+        value
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .flat_map(char::to_lowercase)
+            .collect::<String>()
+    };
+    for candidate in [&item.key, &item.title].into_iter().flatten() {
+        let metric = match folded(candidate).as_str() {
+            "totalshots" => StatMetric::Shots,
+            "shotsontarget" => StatMetric::ShotsOnTarget,
+            "corners" => StatMetric::Corners,
+            "yellowcards" => StatMetric::Yellow,
+            "redcards" => StatMetric::Red,
+            "fouls" | "foulscommitted" => StatMetric::Fouls,
+            "expectedgoals" | "expectedgoalsxg" => StatMetric::Xg,
+            _ => continue,
+        };
+        return Some(metric);
+    }
+    None
+}
+
+/// A `groups[].items[]` listából az egyik oldal hét metrikája.
+///
+/// Determinisztikus: a csoportok és a sorok forrás-sorrendjében az első
+/// értelmezhető érték nyer (a duplikált kulcsok értéke a forrásban egyezik;
+/// a group-header sorok értéke NULL, az nem nyer).
+fn team_stats_from_groups(groups: &[StatGroup], is_home: bool) -> NormalizedTeamStats {
+    let mut stats = NormalizedTeamStats::default();
+    for group in groups {
+        for item in &group.items {
+            let Some(metric) = metric_of(item) else {
+                continue;
+            };
+            let value = if is_home { &item.home } else { &item.away };
+            let Some(value) = value.as_ref().filter(|v| !v.is_null()) else {
+                continue;
+            };
+            match metric {
+                StatMetric::Shots => stats.shots = stats.shots.or_else(|| int_value(value)),
+                StatMetric::ShotsOnTarget => {
+                    stats.shots_on_target = stats.shots_on_target.or_else(|| int_value(value))
+                }
+                StatMetric::Corners => stats.corners = stats.corners.or_else(|| int_value(value)),
+                StatMetric::Yellow => stats.yellow = stats.yellow.or_else(|| int_value(value)),
+                StatMetric::Red => stats.red = stats.red.or_else(|| int_value(value)),
+                StatMetric::Fouls => stats.fouls = stats.fouls.or_else(|| int_value(value)),
+                StatMetric::Xg => stats.xg = stats.xg.or_else(|| xg_value(value)),
+            }
+        }
+    }
+    stats
+}
+
+/// Egész statisztika-érték; csak JSON-szám, a formázott szöveg NULL marad.
+fn int_value(value: &serde_json::Value) -> Option<i32> {
+    i32::try_from(value.as_i64()?).ok()
+}
+
+/// xG-érték: JSON-szám vagy tiszta tizedestört-szöveg ("1.32"); százalékos
+/// vagy más formázott szöveg nem értelmezhető (NULL, nem találgatunk).
+fn xg_value(value: &serde_json::Value) -> Option<f64> {
+    if let Some(number) = value.as_f64() {
+        return Some(number);
+    }
+    let text = value.as_str()?.trim();
+    if text.is_empty()
+        || !text
+            .chars()
+            .all(|c| c.is_ascii_digit() || c == '.' || c == '-')
+    {
+        return None;
+    }
+    text.parse().ok()
 }
 
 /// A research `country` mezője lehet ISO3 (`GER`, `ENG`, `WAL`) vagy már

@@ -237,6 +237,7 @@ pub fn build_observations(fixture: &FixtureSource) -> Result<Vec<Observation>> {
 
     let competition = serde_json::json!({
         "id": fixture.competition.id,
+        "source_entity_id": null,
         "name": fixture.competition.name,
         "country_code": fixture.competition.country_code,
         "country_name": fixture.competition.country_name,

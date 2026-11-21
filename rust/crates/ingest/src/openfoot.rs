@@ -412,6 +412,7 @@ impl OpenFootAdapter {
                     "competition_timezone": "UTC",
                     "competition": {
                         "id": null,
+                        "source_entity_id": (!competition_id.is_empty()).then_some(competition_id),
                         "name": competition.name,
                         "country_code": competition.country_code,
                         "country_name": competition.country_name,

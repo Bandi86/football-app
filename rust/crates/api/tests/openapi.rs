@@ -71,6 +71,33 @@ fn sample_uri(path: &str, item: &Value) -> String {
     uri
 }
 
+#[test]
+// S82: a meccs-részletező válasz `incidents` tömbje és annak elemsémája
+// dokumentált, a kliens ezekre épít.
+fn match_detail_documents_incidents() {
+    let doc = document();
+    assert!(
+        schema_properties(&doc, "MatchDetailRow")
+            .iter()
+            .any(|key| key == "incidents"),
+        "a MatchDetailRow sémája leírja az incidents mezőt"
+    );
+    assert_eq!(
+        schema_properties(&doc, "MatchIncidentRow"),
+        vec![
+            "detail".to_string(),
+            "incident_type".to_string(),
+            "minute".to_string(),
+            "player_name".to_string(),
+            "related_player_name".to_string(),
+            "score_after_away".to_string(),
+            "score_after_home".to_string(),
+            "side".to_string(),
+        ],
+        "az esemény-elemséma mezőkészlete"
+    );
+}
+
 #[tokio::test]
 async fn every_documented_path_is_routed() {
     let pool = test_pool().await;

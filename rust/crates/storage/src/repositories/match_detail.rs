@@ -92,8 +92,78 @@ pub struct MatchDetailRow {
     /// A tabella kivágása a két csapat helyezése körül (opcionális).
     #[serde(default)]
     pub table_slice: Vec<crate::repositories::competition::CompetitionStandingRow>,
+    /// A meccs eseményei (S82, research forrás): perc szerint növekvő,
+    /// azonos percen belül a forrás sorrendje (`incident_no`) dönt.
+    /// Üres esetén is üres tömb, nem `null`.
+    #[serde(default)]
+    pub incidents: Vec<MatchIncidentRow>,
 }
 
+/// Egy meccs-esemény a részletező válaszban (S82).
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
+pub struct MatchIncidentRow {
+    /// A perc; hiányzó adat → `null` (a félidő/hosszabbítás jelzőknél lehet).
+    pub minute: Option<i32>,
+    /// A forrás esemény-típusa (`Goal`, `Card`, `Substitution`, `Half`, ...).
+    pub incident_type: String,
+    /// `home` | `away`; ismeretlen oldal → `null`.
+    pub side: Option<String>,
+    pub player_name: Option<String>,
+    pub related_player_name: Option<String>,
+    pub detail: Option<String>,
+    pub score_after_home: Option<i16>,
+    pub score_after_away: Option<i16>,
+}
+
+/// A meccs eseményei: `minute` szerint növekvő (a NULL a végére kerül),
+/// azon belül az `incident_no` (forrás-sorrend) dönt. Az `source_id` csak
+/// determinisztikus végső döntetlen-feltörés (ma egy forrás ír ide).
+async fn fetch_match_incidents(pool: &PgPool, match_id: Uuid) -> Result<Vec<MatchIncidentRow>> {
+    let rows = sqlx::query_as::<_, MatchIncidentDbRow>(
+        "SELECT minute, incident_type, side, player_name, related_player_name,
+                detail, score_after_home, score_after_away
+         FROM fact.match_incidents
+         WHERE match_id = $1
+         ORDER BY minute ASC NULLS LAST, incident_no ASC, source_id",
+    )
+    .bind(match_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(Into::into).collect())
+}
+
+#[derive(sqlx::FromRow)]
+struct MatchIncidentDbRow {
+    minute: Option<i32>,
+    incident_type: String,
+    side: Option<String>,
+    player_name: Option<String>,
+    related_player_name: Option<String>,
+    detail: Option<String>,
+    score_after_home: Option<i16>,
+    score_after_away: Option<i16>,
+}
+
+impl From<MatchIncidentDbRow> for MatchIncidentRow {
+    fn from(row: MatchIncidentDbRow) -> Self {
+        Self {
+            minute: row.minute,
+            incident_type: row.incident_type,
+            side: row.side,
+            player_name: row.player_name,
+            related_player_name: row.related_player_name,
+            detail: row.detail,
+            score_after_home: row.score_after_home,
+            score_after_away: row.score_after_away,
+        }
+    }
+}
+
+/// A meccs részletező sora + az események (S82).
+///
+/// Statisztika: forrás-preferencia `research` először, aztán a legfrissebb
+/// rögzítés (`captured_at DESC`); események: `minute ASC`, majd
+/// `incident_no ASC`. Üres esemény-lista esetén is üres tömböt ad.
 pub async fn fetch_match_detail(pool: &PgPool, match_id: Uuid) -> Result<Option<MatchDetailRow>> {
     let row = sqlx::query_as::<_, MatchDetailDbRow>(
         "SELECT
@@ -193,7 +263,10 @@ pub async fn fetch_match_detail(pool: &PgPool, match_id: Uuid) -> Result<Option<
              FROM fact.match_stats ms
              JOIN ops.source src ON src.id = ms.source_id
              WHERE ms.match_id = m.id
-             ORDER BY ms.captured_at DESC
+             -- S82: determinisztikus forrás-preferencia: a research (esemény-
+             -- és statisztika-forrás) előbb, azon belül a legfrissebb rögzítés.
+             -- Így a két forrás nem villog, ha mindkettő ír statisztikát.
+             ORDER BY (src.code = 'research') DESC, ms.captured_at DESC
              LIMIT 1
          ) st ON true
          LEFT JOIN LATERAL (
@@ -235,7 +308,14 @@ pub async fn fetch_match_detail(pool: &PgPool, match_id: Uuid) -> Result<Option<
     .fetch_optional(pool)
     .await?;
 
-    Ok(row.map(Into::into))
+    // Az események külön lekérdezéssel jönnek (a nagy join ne hízlalja a
+    // fő sort); a sorrend determinisztikus, üres esetben is üres tömb marad.
+    let Some(db_row) = row else {
+        return Ok(None);
+    };
+    let mut detail: MatchDetailRow = db_row.into();
+    detail.incidents = fetch_match_incidents(pool, match_id).await?;
+    Ok(Some(detail))
 }
 
 #[derive(sqlx::FromRow)]
@@ -363,6 +443,7 @@ impl From<MatchDetailDbRow> for MatchDetailRow {
             home_position: None,
             away_position: None,
             table_slice: Vec::new(),
+            incidents: Vec::new(),
         }
     }
 }

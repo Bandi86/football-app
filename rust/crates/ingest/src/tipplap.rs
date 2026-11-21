@@ -697,6 +697,8 @@ impl SourceAdapter for TipplapAdapter {
                     "competition_timezone": "Europe/Budapest",
                     "competition": {
                         "id": null,
+                        "source_entity_id": (!league_meta.name.is_empty())
+                            .then_some(league_meta.name),
                         "name": league_meta.name,
                         "country_code": country_code,
                         "country_name": country_name,

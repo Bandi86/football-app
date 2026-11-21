@@ -150,4 +150,85 @@ struct MatchDetailTests {
         #expect(detail.tableSlice?.last?.name == "Beta")
         #expect(detail.tableSlice?.last?.points == 15)
     }
+
+    // MARK: - Esemény-idővonal (incidents)
+
+    /// A régi tesztek teljes JSON-ját nem kell ismételni: a nem kötelező
+    /// mezők hiányozhatnak, ezért egy minimális törzs elég az incidents vizsgálatához.
+    private func detailJSON(incidents: String?) -> Data {
+        let incidentsField = incidents.map { ",\n \"incidents\": \($0)" } ?? ""
+        return """
+        {"id":"00000000-0000-0000-0000-0000000000aa","kickoff_at":"2026-11-16T15:00:00Z",
+         "kickoff_precision":"exact","status":"finished","round_label":null,
+         "competition_name":"NB I","tier":1,"priority":8,"season_label":"2026/27",
+         "home_name":"Újpest","away_name":"Győr","gate_blockers":[]\(incidentsField)}
+        """.data(using: .utf8)!
+    }
+
+    @Test func decodesIncidents() throws {
+        let data = detailJSON(incidents: """
+        [{"minute":34,"incident_type":"Goal","side":"home","player_name":"Varga Barnabás",
+          "related_player_name":"Szoboszlai Dominik","detail":"Header",
+          "score_after_home":1,"score_after_away":0},
+         {"minute":45,"incident_type":"Half","side":null,"player_name":null,
+          "related_player_name":null,"detail":null,
+          "score_after_home":1,"score_after_away":0},
+         {"minute":null,"incident_type":"VAR","side":"away","player_name":null,
+          "related_player_name":null,"detail":"Goal check",
+          "score_after_home":null,"score_after_away":null}]
+        """)
+        let detail = try APIDecoding.makeDecoder().decode(MatchDetail.self, from: data)
+
+        #expect(detail.incidents?.count == 3)
+        let goal = detail.incidents?.first
+        #expect(goal?.minute == 34)
+        #expect(goal?.incidentType == "Goal")
+        #expect(goal?.kind == .goal)
+        #expect(goal?.isHome == true)
+        #expect(goal?.isAway == false)
+        #expect(goal?.playerName == "Varga Barnabás")
+        #expect(goal?.relatedPlayerName == "Szoboszlai Dominik")
+        #expect(goal?.detail == "Header")
+        #expect(goal?.scoreAfterHome == 1)
+        #expect(goal?.scoreAfterAway == 0)
+
+        #expect(detail.incidents?[1].kind == .half)
+        #expect(detail.incidents?[1].minute == 45)
+
+        let varReview = detail.incidents?[2]
+        #expect(varReview?.minute == nil)
+        #expect(varReview?.kind == .varReview)
+        #expect(varReview?.isAway == true)
+        #expect(varReview?.scoreAfterHome == nil)
+    }
+
+    @Test func decodesEmptyIncidentsAsEmptyList() throws {
+        let detail = try APIDecoding.makeDecoder()
+            .decode(MatchDetail.self, from: detailJSON(incidents: "[]"))
+        #expect(detail.incidents?.isEmpty == true)
+    }
+
+    @Test func toleratesUnknownIncidentTypeAndUnknownSide() throws {
+        let data = detailJSON(incidents: """
+        [{"minute":null,"incident_type":"FanChant","side":"neutral",
+          "player_name":null,"related_player_name":null,"detail":"Tribune",
+          "score_after_home":null,"score_after_away":null}]
+        """)
+        let detail = try APIDecoding.makeDecoder().decode(MatchDetail.self, from: data)
+
+        let incident = detail.incidents?.first
+        #expect(incident?.incidentType == "FanChant")
+        #expect(incident?.kind == .other("FanChant"))
+        #expect(incident?.minute == nil)
+        #expect(incident?.isHome == false)
+        #expect(incident?.isAway == false)
+    }
+
+    @Test func decodesLegacyPayloadWithoutIncidents() throws {
+        let detail = try APIDecoding.makeDecoder()
+            .decode(MatchDetail.self, from: detailJSON(incidents: nil))
+        #expect(detail.incidents == nil)
+        #expect(detail.homeName == "Újpest")
+        #expect(detail.status == "finished")
+    }
 }

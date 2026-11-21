@@ -75,6 +75,53 @@ const DETAIL: &str = r#"{
   }
 }"#;
 
+/// S82: egy detail fájl odds + események + csapatstatisztika; a valós
+/// forrásból vett mezőnevekkel, ismeretlen extra mezőkkel (schema-drift)
+/// és hiányzó/százalékos értékekkel együtt.
+const DETAIL_FULL: &str = r#"{
+  "uid": "espn:401932578",
+  "meta": { "generated_at": "2026-11-20T21:55:00Z" },
+  "ismeretlen_gyoker_mezö": { "barmi": [1, 2, 3] },
+  "events": [
+    { "minute": 12, "type": "Goal", "team": "home", "player": "Harry Kane",
+      "player_in": null, "player_out": null,
+      "assist": "assist by Joshua Kimmich", "own_goal": false, "penalty": false,
+      "score_after": [1, 0], "detail": null, "ismeretlen_esemeny_mezö": 1 },
+    { "minute": 34, "type": "Card", "team": "away", "player": "Jan Thielmann",
+      "score_after": null, "detail": "Yellow card" },
+    { "minute": 46, "type": "Half", "team": null, "player": null,
+      "score_after": [1, 1], "detail": null },
+    { "minute": 60, "type": "Substitution", "team": "home", "player": "Leroy Sane",
+      "player_in": "Kingsley Coman", "player_out": "Leroy Sane",
+      "assist": "out: Leroy Sane", "score_after": null },
+    { "minute": null, "type": null, "team": "home", "player": "Ghost" },
+    { "minute": 88, "type": "Card", "team": "ismeretlen", "player": "X" }
+  ],
+  "team_statistics": {
+    "period": "ALL",
+    "groups": [
+      { "group": "Top stats", "items": [
+        { "title": "Ball Possesion", "key": "BallPossesion", "home": 44, "away": 56, "format": "integer" },
+        { "title": "Shots", "key": "total_shots", "home": 16, "away": 8, "format": "integer" },
+        { "title": "Shots on target", "key": "ShotsOnTarget", "home": 5, "away": 3, "format": "integer" },
+        { "title": "Corners", "key": "corners", "home": 7, "away": 2, "format": "integer" },
+        { "title": "Expected goals (xG)", "key": "expected_goals", "home": "1.32", "away": "2.87", "format": "double" }
+      ]},
+      { "group": "Discipline", "items": [
+        { "title": "Yellow cards", "key": "yellow_cards", "home": 2, "away": 3, "format": "integer" },
+        { "title": "Red cards", "key": "red_cards", "home": 0, "away": null, "format": "integer" },
+        { "title": "Fouls committed", "key": "fouls", "home": 11, "away": 14, "format": "integer" },
+        { "title": "Accurate passes", "key": "accurate_passes", "home": "311 (76%)", "away": "280 (68%)", "format": "integerWithPercentage" }
+      ]}
+    ]
+  },
+  "odds": {
+    "phase": "closing",
+    "by_bookmaker": { "tipplap": { "home": 2.1 } },
+    "markets": { "1X2": { "home": 2.1, "draw": 3.4, "away": 3.2 } }
+  }
+}"#;
+
 #[test]
 fn day_parse_emits_teams_matches_and_referee() {
     let adapter = ResearchAdapter::default();
@@ -162,6 +209,188 @@ fn odds_parse_maps_markets_outcomes_and_phase() {
     assert!(find("dc", "home_draw").is_some());
 }
 
+#[test]
+// S82: egy detail job mind a három megfigyelést előállítja, a forrás
+// sorrendjét és a hiányzó/ismertelen mezőket tolerálva.
+fn detail_parse_emits_events_and_team_statistics() {
+    let adapter = ResearchAdapter::default();
+    let observations = adapter
+        .parse(&raw(DETAIL_FULL), &ctx("detail:espn:401932578"))
+        .unwrap();
+    assert_eq!(observations.len(), 3, "odds + események + statisztika");
+
+    let by_aspect = |aspect: &str| {
+        observations
+            .iter()
+            .find(|o| o.aspect == aspect)
+            .unwrap_or_else(|| panic!("hiányzó {aspect} megfigyelés"))
+    };
+
+    let events = by_aspect("match_events");
+    assert_eq!(events.natural_key, "espn:401932578");
+    assert_eq!(
+        events.observed_at,
+        Utc.with_ymd_and_hms(2026, 11, 20, 21, 55, 0).unwrap(),
+        "a rögzítési idő a detail meta.generated_at-ja"
+    );
+    let incidents = events.payload["incidents"].as_array().expect("incidents");
+    // 6 forrás-esemény, ebből 1 NULL típusú kimarad.
+    assert_eq!(incidents.len(), 5);
+    assert_eq!(incidents[0]["incident_type"], "Goal");
+    assert_eq!(incidents[0]["minute"], 12);
+    assert_eq!(incidents[0]["side"], "home");
+    assert_eq!(incidents[0]["player_name"], "Harry Kane");
+    assert_eq!(
+        incidents[0]["related_player_name"], "Joshua Kimmich",
+        "az assist 'assist by ' prefixe levágva"
+    );
+    assert_eq!(incidents[0]["score_after_home"], 1);
+    assert_eq!(incidents[0]["score_after_away"], 0);
+    // Félidő: nincs csapat → side NULL, a score_after viszont megvan.
+    let half = incidents
+        .iter()
+        .find(|i| i["incident_type"] == "Half")
+        .expect("félidő");
+    assert!(half["side"].is_null());
+    assert_eq!(half["score_after_home"], 1);
+    assert_eq!(half["score_after_away"], 1);
+    // Csere: a bejövő a player_name, a kimenő a related_player_name.
+    let sub = incidents
+        .iter()
+        .find(|i| i["incident_type"] == "Substitution")
+        .expect("csere");
+    assert_eq!(sub["player_name"], "Kingsley Coman");
+    assert_eq!(sub["related_player_name"], "Leroy Sane");
+    assert_eq!(sub["minute"], 60);
+    // Ismeretlen oldal → NULL, az esemény nem vész el.
+    let unknown_side = incidents.last().expect("utolsó esemény");
+    assert_eq!(unknown_side["incident_type"], "Card");
+    assert!(unknown_side["side"].is_null());
+
+    let stats = by_aspect("match_stats");
+    let payload = &stats.payload;
+    assert_eq!(payload["home_shots"], 16);
+    assert_eq!(payload["away_shots"], 8);
+    assert_eq!(payload["home_shots_on_target"], 5);
+    assert_eq!(payload["away_shots_on_target"], 3);
+    assert_eq!(payload["home_corners"], 7);
+    assert_eq!(payload["away_corners"], 2);
+    assert_eq!(payload["home_yellow"], 2);
+    assert_eq!(payload["away_yellow"], 3);
+    assert_eq!(payload["home_red"], 0, "a 0 valós érték, nem hiányzó adat");
+    assert!(payload["away_red"].is_null(), "hiányzó érték → NULL");
+    assert_eq!(payload["home_fouls"], 11);
+    assert_eq!(payload["away_fouls"], 14);
+    assert_eq!(payload["home_xg"], 1.32);
+    assert_eq!(payload["away_xg"], 2.87);
+
+    let odds = by_aspect("match_odds");
+    assert_eq!(odds.payload["market_count"], 1);
+    assert_eq!(odds.payload["quotes"].as_array().expect("quotes").len(), 3);
+}
+
+#[test]
+// S82: hiányzó mezők nem hibák; a formázott/százalékos értéket nem
+// találgatjuk át, és üres statisztikából nem lesz megfigyelés.
+fn detail_parse_tolerates_missing_fields_and_empty_stats() {
+    let adapter = ResearchAdapter::default();
+    let minimal = r#"{
+      "uid": "fm:123",
+      "events": [ { "type": "Goal" } ],
+      "team_statistics": { "groups": [ { "group": "Top stats", "items": [
+        { "title": "Corners", "key": "corners", "home": null, "away": 3, "format": "integer" },
+        { "title": "Accurate passes", "key": "accurate_passes", "home": "311 (76%)", "away": "280 (68%)", "format": "integerWithPercentage" }
+      ] } ] }
+    }"#;
+    let observations = adapter.parse(&raw(minimal), &ctx("detail:fm:123")).unwrap();
+    assert_eq!(observations.len(), 2, "esemény + statisztika, odds nélkül");
+    let incident = &observations
+        .iter()
+        .find(|o| o.aspect == "match_events")
+        .expect("esemény")
+        .payload["incidents"][0];
+    assert_eq!(incident["incident_type"], "Goal");
+    assert!(incident["minute"].is_null());
+    assert!(incident["side"].is_null());
+    assert!(incident["player_name"].is_null());
+    assert!(incident["score_after_home"].is_null());
+
+    let stats = &observations
+        .iter()
+        .find(|o| o.aspect == "match_stats")
+        .expect("statisztika")
+        .payload;
+    assert!(stats["home_corners"].is_null());
+    assert_eq!(stats["away_corners"], 3);
+    assert!(stats["home_xg"].is_null());
+    assert!(
+        stats["home_shots"].is_null(),
+        "amit a forrás nem ad, az NULL, nem 0"
+    );
+
+    // Csak formázott értékek → nincs mit kanonizálni.
+    let formatted_only = r#"{
+      "team_statistics": { "groups": [ { "group": "Top stats", "items": [
+        { "title": "Accurate passes", "key": "accurate_passes", "home": "311 (76%)", "away": "280 (68%)", "format": "integerWithPercentage" },
+        { "title": "Expected goals (xG)", "key": "expected_goals", "home": null, "away": null, "format": "double" }
+      ] } ] }
+    }"#;
+    let empty = adapter
+        .parse(&raw(formatted_only), &ctx("detail:fm:123"))
+        .unwrap();
+    assert!(empty.is_empty(), "nincs megfigyelés formázott adatokból");
+
+    // Teljesen üres detail (ismeretlen extra mezőkkel) sem hiba.
+    let none = adapter
+        .parse(
+            &raw(r#"{ "uid": "fm:9", "valami_uj": true }"#),
+            &ctx("detail:fm:9"),
+        )
+        .unwrap();
+    assert!(none.is_empty());
+}
+
+#[test]
+// S82: a `data_tier = enriched` és a `coverage.detail != none` is detail
+// jobot kér, akkor is, ha nincs odds; a request_key egységes `detail:<uid>`.
+fn plan_requests_detail_for_enriched_or_detail_matches() {
+    let daily = r#"{
+      "meta": { "generated_at": "2026-11-20T16:41:32Z" },
+      "data": [
+        { "uid": "espn:1", "kickoff": { "utc": "2026-11-20T18:00:00Z", "timezone": "Europe/Budapest" },
+          "status": { "code": "finished" }, "competition": { "name": "Bundesliga", "country": "GER" },
+          "teams": { "home": { "id": "1", "name": "A" }, "away": { "id": "2", "name": "B" } },
+          "links": { "self": "/api/v1/matches/2026/11/20/a.json" },
+          "coverage": { "odds": false, "detail": "ok" }, "data_tier": "fixture_only" },
+        { "uid": "espn:2", "kickoff": { "utc": "2026-11-20T19:00:00Z", "timezone": "Europe/Budapest" },
+          "status": { "code": "scheduled" }, "competition": { "name": "Bundesliga", "country": "GER" },
+          "teams": { "home": { "id": "3", "name": "C" }, "away": { "id": "4", "name": "D" } },
+          "links": { "self": "/api/v1/matches/2026/11/20/c.json" },
+          "coverage": { "odds": false }, "data_tier": "enriched" },
+        { "uid": "espn:3", "kickoff": { "utc": "2026-11-20T20:00:00Z", "timezone": "Europe/Budapest" },
+          "status": { "code": "scheduled" }, "competition": { "name": "Bundesliga", "country": "GER" },
+          "teams": { "home": { "id": "5", "name": "E" }, "away": { "id": "6", "name": "F" } },
+          "links": { "self": "/api/v1/matches/2026/11/20/e.json" },
+          "coverage": { "odds": false, "detail": "none" }, "data_tier": "fixture_only" }
+      ]
+    }"#;
+    let dir = std::env::temp_dir().join(format!("research-plan-detail-{}", Uuid::now_v7()));
+    let daily_path = dir.join("daily/2026/11/2026-11-20.json");
+    std::fs::create_dir_all(daily_path.parent().unwrap()).unwrap();
+    std::fs::write(&daily_path, daily).unwrap();
+
+    let adapter = ResearchAdapter::new(dir.clone());
+    let requests = adapter.plan(&job("2026-11-20"));
+    // 1 napi + espn:1 (detail ok) + espn:2 (enriched); espn:3 nem kér.
+    assert_eq!(requests.len(), 3);
+    assert_eq!(requests[1].request_key, "detail:espn:1");
+    assert_eq!(requests[2].request_key, "detail:espn:2");
+    assert_eq!(requests[1].url, "matches/2026/11/20/a.json");
+    assert_eq!(requests[2].url, "matches/2026/11/20/c.json");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 fn job(date: &str) -> FetchJob {
     FetchJob {
         id: Uuid::now_v7(),
@@ -176,7 +405,7 @@ fn job(date: &str) -> FetchJob {
 }
 
 #[test]
-fn plan_requests_day_then_only_odds_matches() {
+fn plan_requests_day_then_only_detail_matches() {
     let dir = std::env::temp_dir().join(format!("research-plan-{}", Uuid::now_v7()));
     let daily_path = dir.join("daily/2026/11/2026-11-20.json");
     std::fs::create_dir_all(daily_path.parent().unwrap()).unwrap();
@@ -187,11 +416,14 @@ fn plan_requests_day_then_only_odds_matches() {
     assert_eq!(
         requests.len(),
         2,
-        "1 napi + 1 oddsos meccs (a WAL meccsnek nincs oddsa)"
+        "1 napi + 1 detail-os meccs (a WAL meccsnek nincs oddsa/detailje)"
     );
     assert_eq!(requests[0].url, "daily/2026/11/2026-11-20.json");
     assert_eq!(requests[1].url, "matches/2026/11/20/bayern.json");
-    assert_eq!(requests[1].request_key, "odds:espn:401932578");
+    assert_eq!(
+        requests[1].request_key, "detail:espn:401932578",
+        "S82: egységes detail:<uid> kulcs (a régi odds:<uid> parse-kulcs megmarad)"
+    );
 
     std::fs::remove_dir_all(&dir).ok();
 }

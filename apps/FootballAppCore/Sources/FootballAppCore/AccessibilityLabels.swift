@@ -103,4 +103,61 @@ public enum AccessibilityLabels {
     public static func matchIdentifier(for id: UUID) -> String {
         "match.row.\(id.uuidString)"
     }
+
+    /// Az idővonal-esemény típusának magyar, felolvasható neve. Az ismeretlen
+    /// forrás-stringet sem hallgatjuk el, hanem egyértelműen "egyéb"-ként mondjuk.
+    public static func incidentTypeLabel(_ kind: MatchIncidentKind) -> String {
+        switch kind {
+        case .goal: return "Gól"
+        case .card: return "Kártya"
+        case .substitution: return "Csere"
+        case .half: return "Félidő"
+        case .addedTime: return "Ráadásidő"
+        case .varReview: return "VAR-ellenőrzés"
+        case .missedPenalty: return "Kihagyott büntető"
+        case .penaltyShootout: return "Tizenegyespárbaj"
+        case .other(let raw):
+            return raw.isEmpty ? "Egyéb esemény" : "Egyéb esemény: \(raw)"
+        }
+    }
+
+    /// Egy idővonal-sor teljes, felolvasható tartalma. A hiányzó percet
+    /// kimondja, a hiányzó oldalt nem találja ki; a gól utáni állást csak
+    /// akkor mondja, ha az esemény valóban gól és mindkét érték megvan.
+    public static func matchIncidentLabel(
+        minute: Int?,
+        kind: MatchIncidentKind,
+        side: String?,
+        playerName: String?,
+        relatedPlayerName: String?,
+        detail: String?,
+        scoreAfterHome: Int?,
+        scoreAfterAway: Int?
+    ) -> String {
+        var parts: [String] = []
+        if let minute {
+            parts.append("\(minute). perc")
+        } else {
+            parts.append("perc nélkül")
+        }
+        switch side {
+        case "home": parts.append("hazai")
+        case "away": parts.append("vendég")
+        default: break
+        }
+        parts.append(incidentTypeLabel(kind))
+        if let playerName, !playerName.isEmpty {
+            parts.append(playerName)
+        }
+        if let relatedPlayerName, !relatedPlayerName.isEmpty {
+            parts.append("másik játékos: \(relatedPlayerName)")
+        }
+        if let detail, !detail.isEmpty {
+            parts.append(detail)
+        }
+        if kind == .goal, let scoreAfterHome, let scoreAfterAway {
+            parts.append("\(scoreAfterHome) – \(scoreAfterAway)")
+        }
+        return parts.joined(separator: ", ")
+    }
 }

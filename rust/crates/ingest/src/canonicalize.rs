@@ -145,42 +145,32 @@ impl Canonicalizer {
                 .context("forrás identity_mode")?;
         let create_on_miss = identity_mode == "create_on_miss";
 
-        // Élő módban nincs id-hint: natural-key find-or-create.
-        let competition_id = match competition.id {
-            Some(id) => id,
-            None => {
-                let exact: Option<Uuid> = sqlx::query_scalar(
-                    "SELECT id FROM core.competition
-                     WHERE country_id IS NOT DISTINCT FROM $1 AND name=$2 LIMIT 1",
-                )
-                .bind(country_id)
-                .bind(&competition.name)
-                .fetch_optional(&mut *tx)
-                .await?;
-                match exact {
-                    Some(id) => id,
-                    None => {
-                        // Ékezet/kisbetű-változat felismerése: országon belül
-                        // foldolt név-egyezés, csak egyértelmű találatnál.
-                        let candidates: Vec<(Uuid, String)> = sqlx::query_as(
-                            "SELECT id, name FROM core.competition
-                             WHERE country_id IS NOT DISTINCT FROM $1",
-                        )
-                        .bind(country_id)
-                        .fetch_all(&mut *tx)
-                        .await?;
-                        let key = football_domain::identity::fold_name(&competition.name);
-                        let mut hits = candidates
-                            .into_iter()
-                            .filter(|(_, name)| football_domain::identity::fold_name(name) == key);
-                        match (hits.next(), hits.next()) {
-                            (Some((id, _)), None) => id,
-                            _ => Uuid::now_v7(),
-                        }
-                    }
-                }
-            }
-        };
+        // S81: a verseny-identitás egyetlen find-or-create szabálya a storage
+        // helperben él (source-ref → fold alias → természetes kulcs → create);
+        // id-hint is csak lookup után számít, vak create nincs. A forrás saját
+        // verseny-azonosítóját is átadjuk, hogy az első létrehozáskor
+        // source_entity_ref íródjon.
+        let competition_resolution =
+            football_storage::repositories::competition_identity::find_or_create_competition(
+                &mut tx,
+                &football_storage::repositories::competition_identity::CompetitionIdentity {
+                    id_hint: competition.id,
+                    name: &competition.name,
+                    country_id,
+                    country_code: if canonical_country.is_empty() {
+                        None
+                    } else {
+                        Some(canonical_country.as_str())
+                    },
+                    tier: Some(competition.tier),
+                    priority: Some(competition.priority),
+                    source_id: Some(source_id),
+                    source_entity_id: competition.source_entity_id.as_deref(),
+                },
+            )
+            .await?;
+        let competition_id = competition_resolution.competition_id;
+
         let season_id = match day.season.id {
             Some(id) => id,
             None => sqlx::query_scalar(
@@ -192,25 +182,6 @@ impl Canonicalizer {
             .await?
             .unwrap_or_else(Uuid::now_v7),
         };
-
-        upsert_entity(&mut tx, competition_id, "competition", &competition.name).await?;
-
-        sqlx::query(
-            "INSERT INTO core.competition (id, entity_id, country_id, name, tier, priority)
-             VALUES ($1,$1,$2,$3,$4,$5)
-             ON CONFLICT (id) DO UPDATE SET
-               country_id = COALESCE(EXCLUDED.country_id, core.competition.country_id),
-               name = EXCLUDED.name,
-               tier = EXCLUDED.tier,
-               priority = EXCLUDED.priority",
-        )
-        .bind(competition_id)
-        .bind(country_id)
-        .bind(&competition.name)
-        .bind(competition.tier)
-        .bind(competition.priority)
-        .execute(&mut *tx)
-        .await?;
 
         sqlx::query(
             "INSERT INTO core.season (id, competition_id, label)
@@ -540,6 +511,18 @@ impl Canonicalizer {
             if !reversed {
                 if let Some(stats) = &fixture_match.stats {
                     write_stats(&mut tx, match_id, source_id, day.captured_at, stats).await?;
+                }
+                // S82: a research eseményei; fordított oldalú forrás-sornál a
+                // kanonikus oldalak nem írhatók át (a stats/eredmény mintájára).
+                if !fixture_match.incidents.is_empty() {
+                    write_incidents(
+                        &mut tx,
+                        match_id,
+                        source_id,
+                        day.captured_at,
+                        &fixture_match.incidents,
+                    )
+                    .await?;
                 }
                 if let Some(name) = &fixture_match.referee {
                     link_referee(pool, &mut tx, source_id, &day.source_code, match_id, name)
@@ -1074,7 +1057,69 @@ async fn write_odds(
     Ok(())
 }
 
+/// Meccs-események teljes cseréje per match+source (S82): a forrás
+/// sorrendje adja az `incident_no`-t 1..n; a hiányzó oldal NULL, a
+/// `score_after` csak akkor megy, ha mindkét érték jelen van.
+///
+/// A DELETE+INSERT a write_odds mintáját követi: az új payload a forrás
+/// pillanatképe, a régi sorok nem maradhatnak meg mellette.
+async fn write_incidents(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    match_id: Uuid,
+    source_id: Uuid,
+    captured_at: chrono::DateTime<Utc>,
+    incidents: &[crate::normalized::NormalizedIncident],
+) -> Result<()> {
+    sqlx::query("DELETE FROM fact.match_incidents WHERE match_id = $1 AND source_id = $2")
+        .bind(match_id)
+        .bind(source_id)
+        .execute(&mut **tx)
+        .await?;
+    for (index, incident) in incidents.iter().enumerate() {
+        let Ok(incident_no) = i32::try_from(index + 1) else {
+            anyhow::bail!("túl sok esemény egy meccshez: {match_id}");
+        };
+        // Az ismeretlen oldal NULL (nem tippelünk); a DB CHECK csak a két
+        // ismert értéket engedi, a NULL-t nem vizsgálja.
+        let side = match incident.side.as_deref() {
+            Some("home") => Some("home"),
+            Some("away") => Some("away"),
+            _ => None,
+        };
+        let (score_after_home, score_after_away) =
+            match (incident.score_after_home, incident.score_after_away) {
+                (Some(home), Some(away)) => (Some(home), Some(away)),
+                _ => (None, None),
+            };
+        sqlx::query(
+            "INSERT INTO fact.match_incidents
+             (match_id, source_id, captured_at, incident_no, side, incident_type,
+              minute, detail, player_name, related_player_name,
+              score_after_home, score_after_away)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
+        )
+        .bind(match_id)
+        .bind(source_id)
+        .bind(captured_at)
+        .bind(incident_no)
+        .bind(side)
+        .bind(&incident.incident_type)
+        .bind(incident.minute)
+        .bind(&incident.detail)
+        .bind(&incident.player_name)
+        .bind(&incident.related_player_name)
+        .bind(score_after_home)
+        .bind(score_after_away)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
 /// Meccs-statisztika upsert (per match+source; hiányzó érték NULL).
+///
+/// S82 óta a research forrás is ezt használja (a `day.source_code` alapján
+/// feloldott `source_id`-vel), a football-data mellett.
 async fn write_stats(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     match_id: Uuid,

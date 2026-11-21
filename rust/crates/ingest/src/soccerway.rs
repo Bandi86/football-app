@@ -704,6 +704,7 @@ impl SourceAdapter for SoccerwayAdapter {
                     "competition_timezone": COMPETITION_TIMEZONE,
                     "competition": {
                         "id": null,
+                        "source_entity_id": (!group.name.is_empty()).then_some(group.name.as_str()),
                         "name": group.name,
                         "country_code": group.country_code,
                         "country_name": group.country_name,

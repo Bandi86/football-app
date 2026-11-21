@@ -489,6 +489,14 @@ struct MatchDetailContent: View {
                     periodChips
                 }
 
+                if let incidents = detail.incidents, !incidents.isEmpty {
+                    MatchTimeline(
+                        homeName: detail.homeName,
+                        awayName: detail.awayName,
+                        incidents: incidents
+                    )
+                }
+
                 if !(detail.homeForm ?? []).isEmpty || !(detail.awayForm ?? []).isEmpty {
                     FormStrip(
                         homeName: detail.homeName,
@@ -528,7 +536,8 @@ struct MatchDetailContent: View {
                     StatsDuel(
                         homeName: detail.homeName,
                         awayName: detail.awayName,
-                        rows: statRows
+                        rows: statRows,
+                        source: detail.statsSource
                     )
                     .accessibilityIdentifier("match.detail.stats")
                 }

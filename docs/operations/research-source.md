@@ -23,10 +23,12 @@ megadott könyvtárból olvassa ugyanazokat a fájlokat, amelyeket a research a
 
 - `daily/YYYY/MM/<dátum>.json` — napi envelope: meccsek (uid, kickoff, status,
   verseny, csapatok, eredmény, játékvezető) + `coverage.odds` jelző.
-- `matches/YYYY/MM/DD/<slug>.json` — a `coverage.odds`-szal jelölt meccsek
-  detail-fájlja; az odds a `odds.markets` alatt (`1X2`, `BTTS`, `DC`, `OU2.5`,
+- `matches/YYYY/MM/DD/<slug>.json` — a részletes adattal jelölt meccsek
+  detail-fájlja. Az odds a `odds.markets` alatt (`1X2`, `BTTS`, `DC`, `OU2.5`,
   `OU3.5`, `OU4.5`), `phase` = `pre_match`/`closing`, `observed_at` a forrás
-  megfigyelési ideje.
+  megfigyelési ideje. Emellett az `events` (események/gólszerzők) és a
+  `team_statistics` (csapatstatisztika) is feldolgozásra kerül — lásd
+  „Detail JSON: események és csapatstatisztika (S82)”.
 
 ## Kanonikus leképezés
 
@@ -109,3 +111,31 @@ legfeljebb 2 óra eltérés, szigorú névegyezés) és fixture-szintű pár (az
 verseny+szezon+csapatpár+UTC-nap, eltérő kickoff). A research saját fuzzy
 duplikátumai (egy forrás órás időzóna-eltéréssel) így a betöltés után
 automatikusan lezáródnak.
+
+## Detail JSON: események és csapatstatisztika (S82)
+
+A detail job (`detail:<uid>`) eddig csak az oddsot dolgozta fel; mostantól
+három megfigyelést állít elő: `match_odds`, `match_events` és `match_stats`.
+A detail lekérés akkor történik, ha a napi envelope-ban `coverage.odds` van,
+vagy `coverage.detail != "none"`, vagy a nap `data_tier = "enriched"` — tehát
+a részletes adattal rendelkező napok minden meccse detail jobot kap.
+
+- **Események** → `fact.match_incidents`: `incident_no` a forrás sorrendje,
+  `incident_type` a forrás szövege (Goal/Card/Substitution/Half/AddedTime/VAR/
+  MissedPenalty/PenaltyShootout…), `minute`, `side` (home/away; a félidő/VAR/
+  hosszabbítás-jelzőnél NULL), `player_name`, `related_player_name` (assist
+  vagy lecserélt játékos), `detail`, `score_after_home/away` csak teljes párnál.
+  Új forrás-megfigyelés nem hoz létre player entitást: nincs stabil játékos-ID
+  a forrásban, ezért a név szövegként tárolódik (a player_entity_id NULL marad).
+- **Csapatstatisztika** → `fact.match_stats` `source_code='research'`: shots,
+  shots_on_target, corners, yellow, red, fouls, xg. A százalékos/formázott
+  értékek NULL-lá válnak (nincs tippelés), a hiányzó adat NULL, nem 0.
+- Az API `GET /v1/match/{id}` `incidents` tömböt ad (`minute ASC NULLS LAST,
+  incident_no ASC`), a statisztika-lateral a `research` forrást preferálja,
+  azon belül a legfrissebb `captured_at`-et.
+- A 0019 migráció a `fact.match_incidents` táblát bővíti (player_name,
+  related_player_name, score_after_*) és a `side` NOT NULL-t megszünteti,
+  mert a forrás egyes eseményeinél nincs csapat.
+- Ellenőrzés: `cargo test -p football-ingest --test research --test
+  research_materialize` és `cargo test -p football-api --test routes
+  match_detail`.

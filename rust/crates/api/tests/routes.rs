@@ -497,6 +497,11 @@ async fn match_detail_returns_verified_fields_and_gate() {
         "a kliens a verseny időzónájából számolja a helyi kezdés-időt"
     );
     assert!(value["season_label"].is_string());
+    assert_eq!(
+        value["incidents"],
+        serde_json::json!([]),
+        "esemény nélkül is üres tömb, nem null"
+    );
 
     let missing = app
         .oneshot(
@@ -509,6 +514,170 @@ async fn match_detail_returns_verified_fields_and_gate() {
         .await
         .unwrap();
     assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn match_detail_incidents_are_ordered_and_stats_prefer_research() {
+    let pool = test_pool().await;
+    let base = seed_day_base(&pool).await;
+    let match_id = seed_day_match(&pool, &base, 22).await;
+
+    let research_id = Uuid::now_v7();
+    let other_id = Uuid::now_v7();
+    for (id, code, name) in [
+        (research_id, "research", "Research"),
+        (other_id, "tipplap", "Tipplap"),
+    ] {
+        sqlx::query("INSERT INTO ops.source (id, code, display_name) VALUES ($1,$2,$3)")
+            .bind(id)
+            .bind(code)
+            .bind(name)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    // Szándékosan kevert beszúrási sorrend: az `incident_no` a forrás
+    // sorrendje, a válasz viszont perc, azon belül incident_no szerint rendez.
+    // (incident_no, minute, type, side, player, related, detail, score_after_*)
+    type IncidentSeed<'a> = (
+        i32,
+        Option<i32>,
+        &'a str,
+        Option<&'a str>,
+        Option<&'a str>,
+        Option<&'a str>,
+        Option<&'a str>,
+        Option<i16>,
+        Option<i16>,
+    );
+    let rows: [IncidentSeed; 4] = [
+        (3, None, "Half", None, None, None, None, Some(1), Some(1)),
+        (
+            2,
+            Some(34),
+            "Card",
+            Some("away"),
+            Some("Jan Thielmann"),
+            None,
+            Some("Yellow card"),
+            Some(1),
+            Some(0),
+        ),
+        (
+            1,
+            Some(12),
+            "Goal",
+            Some("home"),
+            Some("Harry Kane"),
+            Some("Joshua Kimmich"),
+            None,
+            Some(1),
+            Some(0),
+        ),
+        (
+            4,
+            Some(34),
+            "Substitution",
+            Some("home"),
+            Some("Kingsley Coman"),
+            Some("Leroy Sane"),
+            None,
+            Some(1),
+            Some(0),
+        ),
+    ];
+    for (no, minute, kind, side, player, related, detail, sh, sa) in rows {
+        sqlx::query(
+            "INSERT INTO fact.match_incidents
+             (match_id, source_id, captured_at, incident_no, side, incident_type,
+              minute, detail, player_name, related_player_name,
+              score_after_home, score_after_away)
+             VALUES ($1,$2,now(),$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+        )
+        .bind(match_id)
+        .bind(research_id)
+        .bind(no)
+        .bind(side)
+        .bind(kind)
+        .bind(minute)
+        .bind(detail)
+        .bind(player)
+        .bind(related)
+        .bind(sh)
+        .bind(sa)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    // A research statisztika korábbi, a tipplap frissebb: a research nyer,
+    // mert a forrás-preferencia determinisztikus (nem a captured_at dönt).
+    sqlx::query(
+        "INSERT INTO fact.match_stats (match_id, source_id, captured_at, home_shots)
+         VALUES ($1,$2,$3,16)",
+    )
+    .bind(match_id)
+    .bind(research_id)
+    .bind(Utc.with_ymd_and_hms(2026, 11, 20, 20, 0, 0).unwrap())
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO fact.match_stats (match_id, source_id, captured_at, home_shots)
+         VALUES ($1,$2,$3,5)",
+    )
+    .bind(match_id)
+    .bind(other_id)
+    .bind(Utc.with_ymd_and_hms(2026, 11, 20, 23, 0, 0).unwrap())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let app = router(AppState {
+        pool,
+        read_token: "read-test".into(),
+        ops_token: "ops-test".into(),
+        data_dir: std::env::temp_dir(),
+    });
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/match/{match_id}"))
+                .header("authorization", "Bearer read-test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+
+    let incidents = value["incidents"].as_array().expect("incidents tömb");
+    assert_eq!(incidents.len(), 4);
+    assert_eq!(incidents[0]["incident_type"], "Goal");
+    assert_eq!(incidents[0]["minute"], 12);
+    assert_eq!(incidents[0]["side"], "home");
+    assert_eq!(incidents[0]["player_name"], "Harry Kane");
+    assert_eq!(incidents[0]["related_player_name"], "Joshua Kimmich");
+    assert_eq!(incidents[0]["score_after_home"], 1);
+    assert_eq!(incidents[0]["score_after_away"], 0);
+    assert_eq!(incidents[1]["incident_type"], "Card");
+    assert_eq!(
+        incidents[2]["incident_type"], "Substitution",
+        "azonos percen belül az incident_no dönt"
+    );
+    assert_eq!(incidents[3]["incident_type"], "Half");
+    assert!(
+        incidents[3]["minute"].is_null(),
+        "a NULL perc a végére kerül"
+    );
+    assert!(incidents[3]["side"].is_null());
+    assert_eq!(incidents[3]["score_after_home"], 1);
+
+    assert_eq!(value["home_shots"], 16, "research statisztika előbb");
+    assert_eq!(value["stats_source"], "research");
 }
 
 #[tokio::test]

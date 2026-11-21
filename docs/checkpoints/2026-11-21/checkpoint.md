@@ -529,3 +529,92 @@
   `find_or_create_competition`, verseny-alias + `source_entity_ref`, `footballctl`
   competition merge, majd UNIQUE(country, fold)); utána research események/
   csapatstatisztika beemelése a meccsrészletezőbe; végül validációs retenció.
+
+## S81 — Verseny-identitás és verseny-merge (2026-11-21 délután)
+
+**Induló állapot:** a versenyeknek nem volt közös find-or-create útja (két
+létrehozási út, id-hint lookup nélkül), nem volt verseny-alias és
+verseny-merge, a linker csak a megjelenített nevet ismerte. A dev DB-ben 30
+azonos-fold csoport / 32 felesleges verseny, 271/816 verseny 0 meccsel.
+
+- [x] **Közös find-or-create** (`football_storage::competition_identity::find_or_create_competition`):
+      id_hint (merge-láncon át) → source_entity_ref → fold alias → **entitás
+      kanonikus név (S81 kiegészítés)** → természetes kulcs → create. A create
+      aliast (`lang='und'`, reviewed, import) és source-refet ír. Minden
+      forrásadapter és a `footballctl competitions` ezen megy át.
+- [x] **Verseny-merge CLI**: `footballctl identity merge-competition --from
+      --into [--note] [--apply] [--force]` dry-runnal; guardok (típus, nem
+      merged, fold-olt entitás- **vagy** versenynév egyezés, ország, survivor
+      meccsszám); tranzakció, archív, season-ütközés kezelése, meccs/season/
+      alias/ref átmozgatás, `merged_into_id`, audit `competition_merge`.
+- [x] **Merge utáni alias-backfill**: a túlélő entitásra felíródik mindkét
+      versenynév és mindkét kanonikus entitás-név, így a következő ingest nem
+      hozza létre újra a beolvadó versenyt (a merge-tesztek ezt ellenőrzik).
+- [x] **Éles verseny-merge**: 24 azonos-országos fold-csoport egyesítve
+      (0 meccs és 0 season átmozgatás, 1 season-ütközés, alias/ref 0; a
+      `core.competition` sorok megmaradnak). Utána a CL „La Liga” tükrök
+      (0 meccses) is beolvadtak a 9 meccses „Liga de Primera” versenybe.
+      Aktív (nem merged) verseny: **816 → 792**; merged competition entity
+      123 → **149**; audit `competition_merge` összesen **27**.
+- [x] **Research idempotencia-ellenőrzés**: a 2026-11-20-i nap újrafuttatása
+      után **nem keletkezett új verseny és új meccs** (`core.match` 283 622,
+      `core.competition` 817 sor — a merged sorok megmaradnak), ami igazolja,
+      hogy a canonical-name lookup + alias-backfill bezárja a lyukat.
+- [x] **Dokumentáció**: `docs/operations/competition-merge.md` (új),
+      `docs/operations/research-source.md` frissítve (find-or-create sorrend,
+      merge, detail), `.dsh/skills/football-app-v2/references/data-ops.md`
+      verseny-merge bullet.
+- [ ] **Nem ellenőrzött**: `UNIQUE(country_id, foldolt név)` megkötés még
+      nincs (a duplikátumok lezárása után jöhet); a verseny-aliasok
+      tömeges visszamenőleges feltöltése nem történt meg (a canonical-name
+      lookup pótolja); kereszt-országos namesake-ek továbbra is review-t
+      igényelnek.
+
+## S82 — Research események és csapatstatisztika a meccsrészletezőben
+
+**Induló állapot:** a research detail JSON-ban van 6 944 esemény, 11 513
+csapatstatisztika-tétel és felállás, de a v2 csak az oddsot olvasta; a
+meccsrészletező statisztika-panelje a friss feedben üres volt.
+
+- [x] **DB**: `db/migrations/0019_match_incidents_research.sql` (player_name,
+      related_player_name, score_after_home/away; `side` NOT NULL megszüntetve);
+      dev DB-n Applied 19.
+- [x] **Ingest**: `research.rs` DetailDoc kibővítve (events, team_statistics),
+      `plan()` detail-kérés `coverage.detail != none` / `data_tier=enriched`
+      esetén is (`request_key = detail:<uid>`); `write_incidents` (per
+      match+source DELETE+INSERT, `incident_no` a forrás sorrendje) és
+      `write_stats` (source `research`); új aspectek `match_events`,
+      `match_stats`; játékos-entitás szándékosan nem keletkezik (nincs stabil
+      forrás-ID, a név szöveg).
+- [x] **API**: `GET /v1/match/{id}` `incidents` tömb (minute ASC NULLS LAST,
+      incident_no ASC); a statisztika-lateral a `research` forrást preferálja,
+      azon belül a legfrissebb `captured_at`-et; openapi frissítve.
+- [x] **Kliens**: `MatchTimeline.swift` + `MatchIncident`/`MatchIncidentKind`
+      toleráns dekódolással, magyar accessibility-címkékkel; a részletező a
+      periódus-chipek után jeleníti meg; a statisztika-párbaj forrásfelirata
+      („research”). Core 96/96 teszt, FootballAppTests 60 teszt,
+      `xcodebuild build` BUILD SUCCEEDED.
+- [x] **Éles betöltés (2026-11-20)**: 1 787 esemény / 129 meccs,
+      80 meccs research csapatstatisztikával; `core.match` 283 622 (+12 új
+      fixture a napból); a napi dedupe 4 új duplikátumot zárt le
+      (`match_dedupe_merge` audit), adatvesztés nélkül.
+- [x] **Élő API e2e**: `GET /v1/match/01a1f9ee-229f-764e-861d-519a0be77492`
+      → HTTP 200, 27 esemény (15' Goal Yuri César, assist Mateusão, 1–0;
+      21' Card Bilal Yousef), `stats_source=research`, lövések 9–14.
+- [x] **Kapu**: `./scripts/check.sh` → **EXIT=0** (fmt, clippy `-D warnings`,
+      teljes workspace-teszt); `cargo build -p footballd -p footballctl
+      --features obscura` OK; daemon újratelepítve, új port **56489**,
+      `/v1/health` ok, `/v1/day/2026-11-21` HTTP 200 (938 meccs),
+      `footballctl integrity` → **OK** (0 duplikált fixture/kickoff, 0 árva
+      provenance, 0 withheld, 0 failed job, 0 nyitott breaker).
+- [ ] **Nem ellenérzett**: a futó app a régi build (az új szerkesztő/timeline
+      valódi kattintgatása még nem történt meg); a felállás (`lineups`) továbbra
+      sem kerül be a DB-be (játékosidentitás döntés kell); a statisztika
+      forrásütközésnél (footballdata vs research) a research élvez elsőbbséget,
+      de a konfliktus nem jelenik meg a gate-ben; a validációs retenció még nem
+      történt meg.
+
+**Következő döntési pont:** a) a futó app friss buildjének telepítése és a
+szerkesztő/timeline valódi macOS ellenőrzése; b) research felállás +
+játékosidentitás döntés (player entitás vagy név-alapú lista); c) validációs
+retenció (1,47 GB, ~130 MB/nap) és a `UNIQUE(country, fold)` verseny-megkötés.

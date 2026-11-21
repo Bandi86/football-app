@@ -91,6 +91,7 @@ fn live_day(teams: &[(&str, &str)], home: &str, away: &str) -> NormalizedDay {
         captured_at: kickoff,
         competition: NormalizedCompetition {
             id: None,
+            source_entity_id: None,
             name: "Premier League".into(),
             country_code: "HU".into(),
             country_name: "Hungary".into(),
@@ -127,6 +128,7 @@ fn live_day(teams: &[(&str, &str)], home: &str, away: &str) -> NormalizedDay {
             odds: None,
             stats: None,
             referee: None,
+            incidents: Vec::new(),
         }],
         standings: None,
     }
@@ -167,7 +169,9 @@ async fn create_on_miss_source_creates_unknown_teams_and_match() {
     assert_eq!(
         count(
             &pool,
-            "SELECT count(*) FROM identity.alias WHERE method='import' AND status='reviewed'"
+            "SELECT count(*) FROM identity.alias
+             WHERE method='import' AND status='reviewed'
+               AND entity_id IN (SELECT id FROM core.entity WHERE kind='team')"
         )
         .await,
         2
@@ -560,6 +564,7 @@ async fn localised_competition_titles_merge_into_one_entity() {
     let mut hu = live_day(&[("ujpest", "Újpest"), ("gyor", "Győr")], "ujpest", "gyor");
     hu.competition = NormalizedCompetition {
         id: None,
+        source_entity_id: None,
         name: "Kings Cup - Thaiföld".into(),
         country_code: String::new(),
         country_name: String::new(),

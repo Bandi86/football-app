@@ -71,6 +71,9 @@ public struct MatchDetail: Decodable, Equatable, Sendable {
     public let awayPosition: Int?
     /// A tabella kivágása a két csapat helyezése körül.
     public let tableSlice: [CompetitionStanding]?
+    /// A meccs eseményeinek idővonala (perc szerint rendezve). Régi válaszokból
+    /// hiányozhat, ezért opcionális; a nézet a hiányt üres listaként kezeli.
+    public let incidents: [MatchIncident]?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -134,6 +137,81 @@ public struct MatchDetail: Decodable, Equatable, Sendable {
         case homePosition = "home_position"
         case awayPosition = "away_position"
         case tableSlice = "table_slice"
+        case incidents
+    }
+}
+
+/// Egy meccsesemény az idővonalon. A szerződés szerint minden mező a
+/// `minute`/`incident_type` kivételével hiányozhat; az ismeretlen
+/// `incident_type` értéket nem elutasítjuk, hanem `.other` kategóriaként
+/// jelenítjük meg, hogy egy új forrás-esemény se törje el a dekódolást.
+public struct MatchIncident: Decodable, Equatable, Sendable {
+    public let minute: Int?
+    public let incidentType: String
+    public let side: String?
+    public let playerName: String?
+    public let relatedPlayerName: String?
+    public let detail: String?
+    public let scoreAfterHome: Int?
+    public let scoreAfterAway: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case minute
+        case incidentType = "incident_type"
+        case side
+        case playerName = "player_name"
+        case relatedPlayerName = "related_player_name"
+        case detail
+        case scoreAfterHome = "score_after_home"
+        case scoreAfterAway = "score_after_away"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        minute = try container.decodeIfPresent(Int.self, forKey: .minute)
+        incidentType = try container.decodeIfPresent(String.self, forKey: .incidentType) ?? ""
+        side = try container.decodeIfPresent(String.self, forKey: .side)
+        playerName = try container.decodeIfPresent(String.self, forKey: .playerName)
+        relatedPlayerName = try container.decodeIfPresent(String.self, forKey: .relatedPlayerName)
+        detail = try container.decodeIfPresent(String.self, forKey: .detail)
+        scoreAfterHome = try container.decodeIfPresent(Int.self, forKey: .scoreAfterHome)
+        scoreAfterAway = try container.decodeIfPresent(Int.self, forKey: .scoreAfterAway)
+    }
+
+    /// A nyers `side` érték: a szerződés a `home`/`away` értékeket használja,
+    /// de ismeretlen érték esetén sem dobunk, csak semlegesnek kezeljük.
+    public var isHome: Bool { side == "home" }
+    public var isAway: Bool { side == "away" }
+
+    /// Az esemény ismert kategóriája; az ismeretlen forrás-stringet megőrzi.
+    public var kind: MatchIncidentKind { MatchIncidentKind(rawType: incidentType) }
+}
+
+/// Az idővonalon ismert eseménytípusok. Az ismeretlen értéket az `.other`
+/// hordozza, így a megjelenítés és a felolvasás is tudja kezelni.
+public enum MatchIncidentKind: Equatable, Sendable {
+    case goal
+    case card
+    case substitution
+    case half
+    case addedTime
+    case varReview
+    case missedPenalty
+    case penaltyShootout
+    case other(String)
+
+    public init(rawType: String) {
+        switch rawType.lowercased() {
+        case "goal": self = .goal
+        case "card": self = .card
+        case "substitution": self = .substitution
+        case "half": self = .half
+        case "addedtime": self = .addedTime
+        case "var": self = .varReview
+        case "missedpenalty": self = .missedPenalty
+        case "penaltyshootout": self = .penaltyShootout
+        default: self = .other(rawType)
+        }
     }
 }
 

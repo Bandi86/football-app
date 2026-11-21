@@ -1,5 +1,7 @@
 pub mod audit;
 pub mod competition;
+pub mod competition_identity;
+pub mod competition_merge;
 pub mod core;
 pub mod coverage;
 pub mod day;

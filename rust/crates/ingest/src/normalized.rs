@@ -25,6 +25,9 @@ pub struct NormalizedDay {
 #[derive(Debug, Clone)]
 pub struct NormalizedCompetition {
     pub id: Option<Uuid>,
+    /// A forrás saját verseny-azonosítója (source_entity_ref kulcsa); a
+    /// fixture/demo út nem ad ilyet.
+    pub source_entity_id: Option<String>,
     pub name: String,
     pub country_code: String,
     pub country_name: String,
@@ -65,6 +68,51 @@ pub struct NormalizedMatch {
     pub odds: Option<NormalizedOdds>,
     pub stats: Option<NormalizedStats>,
     pub referee: Option<String>,
+    /// A meccs eseményei a forrás sorrendjében (üres = nincs esemény-adat).
+    pub incidents: Vec<NormalizedIncident>,
+}
+
+/// Egy meccs-esemény (a forrás sorrendjében); a hiányzó adat `None`.
+///
+/// A `side` a forrás oldala (`home`/`away`), ismeretlen esetben `None`; a
+/// kanonizálás képezi a DB-oldali értékre. A `score_after_*` csak akkor
+/// kerül tovább, ha mindkét oldal jelen van.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NormalizedIncident {
+    pub minute: Option<i32>,
+    pub incident_type: String,
+    pub side: Option<String>,
+    pub player_name: Option<String>,
+    pub related_player_name: Option<String>,
+    pub detail: Option<String>,
+    pub score_after_home: Option<i16>,
+    pub score_after_away: Option<i16>,
+}
+
+/// Egy csapat statisztikája (hét metrika; hiányzó = NULL, soha nem 0).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NormalizedTeamStats {
+    pub shots: Option<i32>,
+    pub shots_on_target: Option<i32>,
+    pub corners: Option<i32>,
+    pub yellow: Option<i32>,
+    pub red: Option<i32>,
+    pub fouls: Option<i32>,
+    pub xg: Option<f64>,
+}
+
+impl NormalizedTeamStats {
+    /// Igaz, ha a forrás egyetlen ismert metrikát sem adott (ilyenkor nincs
+    /// mit írni: üres statisztika-sor nem keletkezik).
+    pub fn is_empty(&self) -> bool {
+        self.shots.is_none()
+            && self.shots_on_target.is_none()
+            && self.corners.is_none()
+            && self.yellow.is_none()
+            && self.red.is_none()
+            && self.fouls.is_none()
+            && self.xg.is_none()
+    }
 }
 
 /// Meccs-statisztika (football-data oszlopok; hiányzó = NULL).
@@ -178,6 +226,8 @@ struct TeamPayload {
 #[derive(Deserialize)]
 struct CompetitionPayload {
     id: Option<Uuid>,
+    #[serde(default)]
+    source_entity_id: Option<String>,
     name: String,
     country_code: String,
     country_name: String,
@@ -279,6 +329,29 @@ struct RefereePayload {
     name: String,
 }
 
+#[derive(Deserialize)]
+struct IncidentsPayload {
+    incidents: Vec<IncidentPayload>,
+}
+
+#[derive(Deserialize)]
+struct IncidentPayload {
+    minute: Option<i32>,
+    incident_type: String,
+    #[serde(default)]
+    side: Option<String>,
+    #[serde(default)]
+    player_name: Option<String>,
+    #[serde(default)]
+    related_player_name: Option<String>,
+    #[serde(default)]
+    detail: Option<String>,
+    #[serde(default)]
+    score_after_home: Option<i16>,
+    #[serde(default)]
+    score_after_away: Option<i16>,
+}
+
 impl NormalizedDay {
     /// Az observation-aspketekből (verziózott payload-séma) épített nap.
     pub fn from_observations(observations: &[Observation]) -> Result<Self> {
@@ -287,6 +360,7 @@ impl NormalizedDay {
         let mut standings = Vec::new();
         let mut odds_by_key: Vec<(String, NormalizedOdds)> = Vec::new();
         let mut stats_by_key: Vec<(String, NormalizedStats)> = Vec::new();
+        let mut incidents_by_key: Vec<(String, Vec<NormalizedIncident>)> = Vec::new();
         let mut referee_by_key: Vec<(String, String)> = Vec::new();
         let mut meta: Option<(
             NormalizedCompetition,
@@ -317,6 +391,7 @@ impl NormalizedDay {
                         meta = Some((
                             NormalizedCompetition {
                                 id: p.competition.id,
+                                source_entity_id: p.competition.source_entity_id,
                                 name: p.competition.name,
                                 country_code: p.competition.country_code,
                                 country_name: p.competition.country_name,
@@ -355,6 +430,7 @@ impl NormalizedDay {
                         odds: None,
                         stats: None,
                         referee: None,
+                        incidents: Vec::new(),
                     });
                 }
                 "match_odds" => {
@@ -414,6 +490,26 @@ impl NormalizedDay {
                         },
                     ));
                 }
+                "match_events" => {
+                    let p: IncidentsPayload = serde_json::from_value(obs.payload.clone())
+                        .context("match_events payload")?;
+                    incidents_by_key.push((
+                        obs.source_record_key.clone(),
+                        p.incidents
+                            .into_iter()
+                            .map(|i| NormalizedIncident {
+                                minute: i.minute,
+                                incident_type: i.incident_type,
+                                side: i.side,
+                                player_name: i.player_name,
+                                related_player_name: i.related_player_name,
+                                detail: i.detail,
+                                score_after_home: i.score_after_home,
+                                score_after_away: i.score_after_away,
+                            })
+                            .collect(),
+                    ));
+                }
                 "match_referee" => {
                     let p: RefereePayload = serde_json::from_value(obs.payload.clone())
                         .context("match_referee payload")?;
@@ -449,6 +545,12 @@ impl NormalizedDay {
                 .find(|(key, _)| *key == m.source_match_id)
             {
                 m.referee = Some(name.clone());
+            }
+            if let Some((_, incidents)) = incidents_by_key
+                .iter()
+                .find(|(key, _)| *key == m.source_match_id)
+            {
+                m.incidents = incidents.clone();
             }
         }
 
@@ -564,7 +666,7 @@ impl NormalizedDay {
             slice.extend(matches);
             for obs in observations {
                 match obs.aspect.as_str() {
-                    "match_odds" | "match_stats" | "match_referee" => {
+                    "match_odds" | "match_stats" | "match_referee" | "match_events" => {
                         if records.contains(&obs.source_record_key) {
                             slice.push(obs.clone());
                         }
@@ -588,6 +690,7 @@ impl From<&FixtureSource> for NormalizedDay {
             captured_at: fixture.captured_at,
             competition: NormalizedCompetition {
                 id: Some(fixture.competition.id),
+                source_entity_id: None,
                 name: fixture.competition.name.clone(),
                 country_code: fixture.competition.country_code.clone(),
                 country_name: fixture.competition.country_name.clone(),
@@ -641,6 +744,7 @@ impl From<&FixtureSource> for NormalizedDay {
                     }),
                     stats: None,
                     referee: None,
+                    incidents: Vec::new(),
                 })
                 .collect(),
             standings: fixture.standings.as_ref().map(|rows| {

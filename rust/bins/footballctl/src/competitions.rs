@@ -122,6 +122,7 @@ fn canonical_competition_name(
     }
     let competition = NormalizedCompetition {
         id: None,
+        source_entity_id: None,
         name: observed_name.to_string(),
         country_code: canonical_country.to_string(),
         country_name: observed_country_name.to_string(),
@@ -763,64 +764,34 @@ fn hungarian_country_name(code: &str) -> Option<&'static str> {
     }
 }
 
-/// Cél-verseny find-or-create a (ország, kanonikus név) kulcsra.
+/// Cél-verseny find-or-create a közös storage-helperen át (S81).
 ///
-/// Először pontos név, majd `fold_name` egyezés (az ingest `canonicalize`
-/// logikájával egyezően); egyezés nélkül új verseny-entitás készül.
+/// A verseny-identitás szabálya (source-ref → fold alias → természetes kulcs →
+/// create) a `football_storage::repositories::competition_identity` modulban él,
+/// így a javító parancs és az ingest ugyanazt a döntést hozza. Itt nincs forrás-
+/// kontextus, ezért source-ref írás nem történik; a meglévő tier/priority
+/// értékeket nem írjuk felül.
 async fn find_or_create_competition(
     tx: &mut Transaction<'_, Postgres>,
     country_id: Uuid,
     name: &str,
 ) -> Result<(Uuid, bool)> {
-    if let Some(id) = sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM core.competition WHERE country_id = $1 AND name = $2 ORDER BY id LIMIT 1",
-    )
-    .bind(country_id)
-    .bind(name)
-    .fetch_optional(&mut **tx)
-    .await?
-    {
-        return Ok((id, false));
-    }
-    let candidates: Vec<(Uuid, String, i64)> = sqlx::query_as(
-        "SELECT c.id, c.name, count(m.id)::bigint AS match_count
-           FROM core.competition c
-           LEFT JOIN core.match m ON m.competition_id = c.id
-          WHERE c.country_id = $1
-          GROUP BY c.id, c.name",
-    )
-    .bind(country_id)
-    .fetch_all(&mut **tx)
-    .await?;
-    let key = fold_name(name);
-    let mut hits: Vec<(Uuid, i64)> = candidates
-        .iter()
-        .filter(|(_, candidate_name, _)| fold_name(candidate_name) == key)
-        .map(|(id, _, match_count)| (*id, *match_count))
-        .collect();
-    hits.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-    if let Some((id, _)) = hits.first() {
-        return Ok((*id, false));
-    }
-    let id = Uuid::now_v7();
-    sqlx::query(
-        "INSERT INTO core.entity (id, kind, canonical_name) VALUES ($1, 'competition', $2)",
-    )
-    .bind(id)
-    .bind(name)
-    .execute(&mut **tx)
-    .await
-    .context("verseny-entitás létrehozása")?;
-    sqlx::query(
-        "INSERT INTO core.competition (id, entity_id, country_id, name) VALUES ($1, $1, $2, $3)",
-    )
-    .bind(id)
-    .bind(country_id)
-    .bind(name)
-    .execute(&mut **tx)
-    .await
-    .context("verseny létrehozása")?;
-    Ok((id, true))
+    let resolution =
+        football_storage::repositories::competition_identity::find_or_create_competition(
+            tx,
+            &football_storage::repositories::competition_identity::CompetitionIdentity {
+                id_hint: None,
+                name,
+                country_id: Some(country_id),
+                country_code: None,
+                tier: None,
+                priority: None,
+                source_id: None,
+                source_entity_id: None,
+            },
+        )
+        .await?;
+    Ok((resolution.competition_id, resolution.created))
 }
 
 /// Cél-szezon find-or-create ugyanazzal a címkével, mint a meccs jelenlegi

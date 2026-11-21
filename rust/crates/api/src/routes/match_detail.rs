@@ -17,6 +17,12 @@ use crate::error::{ApiError, AppError};
     path = "/v1/match/{id}",
     tag = "meccs",
     summary = "Egy kanonikus meccs teljes, ellenőrzött képe",
+    description = "A válasz tartalmazza az `incidents` tömböt (perccel és a forrás \
+                   sorrendjével rendezve, üres esetben is üres tömb): minute, \
+                   incident_type, side (home|away|null), player_name, \
+                   related_player_name, detail, score_after_home, \
+                   score_after_away. A statisztikánál a forrás-preferencia \
+                   determinisztikus: research, majd a legfrissebb rögzítés.",
     params(("id" = String, Path, description = "Meccs UUID")),
     responses(
         (status = 200, body = MatchDetailRow),

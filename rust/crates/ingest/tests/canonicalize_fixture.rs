@@ -221,6 +221,7 @@ fn create_on_miss_day(source_code: &str) -> NormalizedDay {
         captured_at: kickoff,
         competition: NormalizedCompetition {
             id: None,
+            source_entity_id: None,
             name: "Ligue 2".into(),
             country_code: "FR".into(),
             country_name: "Franciaország".into(),
@@ -251,6 +252,7 @@ fn create_on_miss_day(source_code: &str) -> NormalizedDay {
             odds: None,
             stats: None,
             referee: None,
+            incidents: Vec::new(),
         }],
         standings: None,
     }
@@ -269,12 +271,20 @@ async fn create_on_miss_alias_country_is_canonical_not_int() {
     assert_eq!(count(&pool, "SELECT count(*) FROM core.team").await, 2);
 
     let aliases: Vec<(String, String, Option<String>, String, String)> = sqlx::query_as(
-        "SELECT alias, lang, country_code, status, method FROM identity.alias ORDER BY alias",
+        "SELECT a.alias, a.lang, a.country_code, a.status, a.method
+         FROM identity.alias a
+         JOIN core.entity e ON e.id = a.entity_id
+         WHERE e.kind = 'team'
+         ORDER BY a.alias",
     )
     .fetch_all(&pool)
     .await
     .unwrap();
-    assert_eq!(aliases.len(), 2, "minden új csapathoz alias íródik");
+    assert_eq!(
+        aliases.len(),
+        2,
+        "minden új csapathoz alias íródik (a verseny-alias külön entitásé)"
+    );
     // A hamis 'hu' helyett semleges 'und' nyelv.
     for (_, lang, _, status, method) in &aliases {
         assert_eq!(lang, "und");

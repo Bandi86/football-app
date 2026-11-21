@@ -268,10 +268,20 @@ struct StatsDuel: View {
     let homeName: String
     let awayName: String
     let rows: [(label: String, home: Double?, away: Double?, format: String)]
+    var source: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.s) {
-            Text("Statisztika").sectionLabel()
+            HStack(alignment: .firstTextBaseline) {
+                Text("Statisztika").sectionLabel()
+                Spacer()
+                if let source, !source.isEmpty {
+                    Text("forrás: \(source)")
+                        .font(.appLabel(9))
+                        .foregroundStyle(AppTheme.tertiaryText)
+                        .accessibilityIdentifier("match.detail.stats.source")
+                }
+            }
             VStack(spacing: AppTheme.Spacing.s) {
                 HStack {
                     Text(homeName)

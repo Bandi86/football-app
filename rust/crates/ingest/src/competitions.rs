@@ -402,6 +402,7 @@ pub fn canonicalize(competition: &NormalizedCompetition) -> NormalizedCompetitio
     };
     NormalizedCompetition {
         id: competition.id,
+        source_entity_id: competition.source_entity_id.clone(),
         name: entry.name.to_string(),
         country_code,
         country_name,
@@ -485,6 +486,7 @@ mod tests {
     fn comp(name: &str, country: &str, country_name: &str) -> NormalizedCompetition {
         NormalizedCompetition {
             id: None,
+            source_entity_id: None,
             name: name.into(),
             country_code: country.into(),
             country_name: country_name.into(),
@@ -661,6 +663,7 @@ mod spanish_probe {
     fn la_liga_variants_map() {
         let c = NormalizedCompetition {
             id: None,
+            source_entity_id: None,
             name: "La Liga 2".into(),
             country_code: "ES".into(),
             country_name: "Spain".into(),

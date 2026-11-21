@@ -181,6 +181,7 @@ impl SourceAdapter for FootballdataAdapter {
         }
         let (country_code, country_name, competition_name, tier, priority) =
             Self::league_token(ctx)?;
+        let league_domain = request_league_domain(&ctx.request_key);
         // S23: backfill módban a kérés a teljes szezon-CSV-t hozza; a szezon
         // címkéje és dátum-sávja a request_key-ből jön, nincs ±7 napos ablak.
         let season_scope = parse_season_scope(&ctx.request_key)?;
@@ -289,6 +290,7 @@ impl SourceAdapter for FootballdataAdapter {
             if competition.is_none() {
                 competition = Some(serde_json::json!({
                     "id": null,
+                    "source_entity_id": league_domain,
                     "name": competition_name,
                     "country_code": country_code,
                     "country_name": country_name,
@@ -444,6 +446,16 @@ impl SourceAdapter for FootballdataAdapter {
         }
         team_obs.extend(observations);
         Ok(team_obs)
+    }
+}
+
+/// A request_key-ből a liga domain-kódja (a forrás verseny-azonosítója).
+fn request_league_domain(request_key: &str) -> Option<&str> {
+    let parts: Vec<&str> = request_key.split(':').collect();
+    match parts.as_slice() {
+        [_, "backfill", league, _] => Some(*league),
+        [_, league, _] => Some(*league),
+        _ => None,
     }
 }
 
@@ -812,6 +824,7 @@ fn parse_new_league(raw: &RawPayload, ctx: &ParseCtx) -> Result<Vec<Observation>
                 "competition_timezone": zone_name,
                 "competition": {
                     "id": null,
+                    "source_entity_id": code.as_str(),
                     "name": league,
                     "country_code": country_code,
                     "country_name": country_name,

@@ -94,4 +94,40 @@ import Testing
         #expect(!withoutOdds.contains("odds"))
         #expect(withoutOdds.contains("Újpest, 18:00"))
     }
+
+    @Test func incidentTypeLabelsAreHungarian() {
+        #expect(AccessibilityLabels.incidentTypeLabel(.goal) == "Gól")
+        #expect(AccessibilityLabels.incidentTypeLabel(.card) == "Kártya")
+        #expect(AccessibilityLabels.incidentTypeLabel(.substitution) == "Csere")
+        #expect(AccessibilityLabels.incidentTypeLabel(.half) == "Félidő")
+        #expect(AccessibilityLabels.incidentTypeLabel(.addedTime) == "Ráadásidő")
+        #expect(AccessibilityLabels.incidentTypeLabel(.varReview) == "VAR-ellenőrzés")
+        #expect(AccessibilityLabels.incidentTypeLabel(.missedPenalty) == "Kihagyott büntető")
+        #expect(AccessibilityLabels.incidentTypeLabel(.penaltyShootout) == "Tizenegyespárbaj")
+        #expect(
+            AccessibilityLabels.incidentTypeLabel(.other("FanChant"))
+                == "Egyéb esemény: FanChant"
+        )
+    }
+
+    @Test func matchIncidentLabelSpeaksMinuteSidePlayerAndGoalScore() {
+        let goal = AccessibilityLabels.matchIncidentLabel(
+            minute: 34, kind: .goal, side: "home", playerName: "Varga Barnabás",
+            relatedPlayerName: "Szoboszlai Dominik", detail: nil,
+            scoreAfterHome: 1, scoreAfterAway: 0
+        )
+        #expect(
+            goal == "34. perc, hazai, Gól, Varga Barnabás, másik játékos: Szoboszlai Dominik, 1 – 0"
+        )
+
+        let varReview = AccessibilityLabels.matchIncidentLabel(
+            minute: nil, kind: .varReview, side: nil, playerName: nil,
+            relatedPlayerName: nil, detail: "Goal check",
+            scoreAfterHome: nil, scoreAfterAway: nil
+        )
+        #expect(varReview.contains("perc nélkül"))
+        #expect(varReview.contains("VAR-ellenőrzés"))
+        #expect(!varReview.contains("hazai"))
+        #expect(!varReview.contains("vendég"))
+    }
 }

@@ -64,6 +64,7 @@ use crate::error::ApiError;
         football_storage::repositories::team::TeamListRow,
         football_storage::repositories::team::TeamDetailRow,
         football_storage::repositories::match_detail::MatchDetailRow,
+        football_storage::repositories::match_detail::MatchIncidentRow,
         football_domain::verification::Finding,
         football_domain::verification::Severity,
         football_domain::trust::OddsValues,

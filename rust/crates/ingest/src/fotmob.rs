@@ -221,6 +221,11 @@ impl SourceAdapter for FotMobAdapter {
             let name = league.get("name").and_then(|v| v.as_str()).unwrap_or("");
             let ccode = league.get("ccode").and_then(|v| v.as_str()).unwrap_or("");
             let meta = self.league_meta(name, ccode);
+            let source_competition_id = league
+                .get("id")
+                .and_then(|v| v.as_i64())
+                .map(|v| v.to_string())
+                .or_else(|| (!name.is_empty()).then(|| name.to_string()));
             let matches = league
                 .get("matches")
                 .and_then(|m| m.as_array())
@@ -322,6 +327,7 @@ impl SourceAdapter for FotMobAdapter {
                         "competition_timezone": "UTC",
                         "competition": {
                             "id": null,
+                            "source_entity_id": source_competition_id.as_deref(),
                             "name": name,
                             "country_code": meta.country_code,
                             "country_name": meta.country_name,

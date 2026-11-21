@@ -19,6 +19,7 @@ use football_ingest::openfoot::OpenFootAdapter;
 use football_ingest::soccerway::SoccerwayAdapter;
 use football_storage::object_store::ObjectStore;
 use football_storage::repositories::audit as audit_repo;
+use football_storage::repositories::competition_merge;
 use football_storage::repositories::day::{DayFilter, fetch_day};
 use football_storage::repositories::identity as identity_repo;
 use football_storage::repositories::identity_merge;
@@ -427,6 +428,22 @@ enum IdentityAction {
         /// az áldozat neve reviewed aliasként rögzítődik a túlélőn.
         #[arg(long)]
         via_alias: Option<String>,
+    },
+    /// S81: duplikált verseny-entitás összevonása a túlélőbe (alapból dry-run).
+    MergeCompetition {
+        /// A beolvadó (áldozat) verseny-entitás.
+        #[arg(long)]
+        from: Uuid,
+        /// A túlélő verseny-entitás.
+        #[arg(long, alias = "to")]
+        into: Uuid,
+        #[arg(long, default_value = "S81 verseny-entity merge")]
+        note: String,
+        #[arg(long)]
+        apply: bool,
+        /// A meccsszám-őr megkerülése: a survivor kevesebb meccsel is nyerhet.
+        #[arg(long)]
+        force: bool,
     },
     CrosswalkCheck,
     /// S41: a forrás csapat-crosswalkjának újraépítése a legfrissebb
@@ -2061,6 +2078,54 @@ async fn identity_command(pool: &sqlx::PgPool, action: IdentityAction) -> Result
                 report.assets_dropped,
                 report.duplicate_matches
             );
+        }
+        IdentityAction::MergeCompetition {
+            from,
+            into,
+            note,
+            apply,
+            force,
+        } => {
+            let preview =
+                competition_merge::competition_merge_preview(pool, into, from, force).await?;
+            if preview.already_merged {
+                println!(
+                    "a beolvadó verseny már a survivorba van merge-elve: {from} → {into} (nincs írás)"
+                );
+                return Ok(());
+            }
+            println!(
+                "merge: {} ← {} | meccsek: {} (survivor: {}) | season: {} (+{} ütköző) | alias: {} | ref: {}",
+                preview.survivor_name,
+                preview.duplicate_name,
+                preview.matches_to_move,
+                preview.survivor_matches,
+                preview.seasons_moved,
+                preview.seasons_merged,
+                preview.aliases,
+                preview.refs
+            );
+            if !apply {
+                println!("dry-run: nincs írás (--apply a merge-hez)");
+                return Ok(());
+            }
+            match competition_merge::merge_competition(pool, into, from, &note, force).await? {
+                competition_merge::CompetitionMergeOutcome::Merged(report) => {
+                    println!(
+                        "verseny-merge kész: meccsek {} | season {} (ütköző: {}) | alias {} (eldobva {}) | ref {} | merge utáni duplikált meccscsoportok: {}",
+                        report.matches_moved,
+                        report.seasons_moved,
+                        report.seasons_merged,
+                        report.aliases_moved,
+                        report.aliases_dropped,
+                        report.refs_moved,
+                        report.duplicate_match_groups
+                    );
+                }
+                competition_merge::CompetitionMergeOutcome::AlreadyMerged { .. } => {
+                    println!("a beolvadó verseny már a survivorba van merge-elve (nincs írás)");
+                }
+            }
         }
         IdentityAction::RebuildRefs { source, apply } => {
             let report =
