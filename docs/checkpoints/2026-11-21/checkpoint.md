@@ -199,10 +199,62 @@
       Az elfogadási mérő még nem zöld (0 → most 2 blokk), de a `deep-verify`
       0 hiba és a napi lefedettség javult (4023 → 3675 nyitott mező).
 
+## S71 — átfogó adat- és research-audit
+
+### v2 adatok
+
+- [x] **1678 történelmi duplikátum** (1994–2014, v1 import) `dedupe matches
+      --date 1994-01-01 --to 2014-12-31 --apply`-vel összevonva — mind
+      `ops.dedupe_archive`-ban és auditban. A teljes DB integritása FAIL-ről
+      **OK**-ra állt (0 duplikált kickoff/fixture).
+- [x] **191 XX-országú csapatduplikátum** egyértelmű párja összevonva (kontextus
+      korrekció + audited merge). A 9 többértelmű „Al-" nevet és a 40+ esetleges
+      párt nem olvasztottam össze. XX-duplikátumok 248 → 38.
+- [x] Egy téves merge visszafordítása: a mexikói **Guadalajara** a spanyol
+      azonos nevű csapatba került; a Liga MX meccs és a `research espn:219` ref
+      a mexikói **Chivas** entitásra, a Cruz Azul országa MX-re, auditálva.
+- [x] 3 CD/CG Ligue 1 csapat országa/duplikátuma javítva (CD-re); a hamis
+      „La Liga – Palestino–Unión La Calera" sor archiválva (a chilei Primera
+      División sor a helyes), 10 árva provenance takarítva.
+- [x] 5 `MATERIAL_SOURCE_CONFLICT` álkonfliktus feloldva a kanonikussal egyező
+      research observation javára (`resolve-conflict`, audit). Withheld 18 → **5**.
+- [x] A 11-21-i friss envelope betöltése után 990 → 974 megjeleníthető sor.
+- [ ] 5 withheld maradt: 4 `DUPLICATE_TEAM_SLOT` (pl. Envigado két meccsen
+      egyszerre; research forrás maga adja mindkettőt) és 1
+      `Categoría Primera A` source-conflict. Ezek **valódi forrás-ellentmondások**,
+      kézi forrás-ellenőrzés kell — nem találtam ki eredményt.
+
+### Research JSON-minőség (read-only audit + javítások)
+
+- [x] 16 napi envelope / 5364 detail JSON teljes átvilágítása: **16/16 napon
+      1:1 UID–detail egyezés**, 5363/5363 `links.self` feloldódik, 11-20-n
+      **284/284** lejátszott meccs eredménye egyezik a detail JSON-nal,
+      875 odds-dokumentumban 0 szabálytalanság. Az adat **pontos**, a gond a
+      **teljességgel** van.
+- [x] Két párhuzamos kimenet: a `tools/football.py` 630 ESPN/FotMob meccset
+      ír Markdown + verify célra, a `docs/api-export.py` ezt 834 LiveScore
+      fixture-tel összevonva **1464** API-meccscé teszi. A verify/acceptance
+      csak a 630-as szeletet méri — ezért volt „0 hiba" 834 adatlap mellett.
+- [x] Kódbugok javítva a research-ben: `manifest.generated_at` most valódi idő
+      (konstans helyett); a `build_daily` régi slug-file-okat nem hagy árván;
+      a `data_tier` a tényleges `detail_status` (ok/stub/none) alapján épül,
+      nem a forrás neve alapján; a séma dokumentációja ezt tükrözi.
+- [x] Az export cleanup által tévesen törölt **437 livescore adatlap** pótolva
+      a napi envelope summaryiból (`docs/restore_missing_details.py`) —
+      11-21: **1464/1464 detail JSON**, 0 hiány.
+- [x] Egy hiányos kutatási blokk (angol „No injury information" sor) magyar
+      negatív megfogalmazásra javítva → `acceptance-check 2026-11-21` most
+      **ELFOGADHATÓ (0 hiba)**; deep-verify 0 hiba, napi lefedettség
+      4023 → 3409 nyitott mező.
+- [ ] További kockázat (dokumentált): 1684 „enriched" JSON valójában `stub`;
+      834 `fixture_only` JSON-nak nincs mély adata (events/lineups/stats).
+      Ez **nem adathamisítás** (a `data_quality`/`provenance` őszintén jelzi),
+      de a publikált API felhasználójának tisztában kell lennie vele.
+- [x] Daemon újraindítva (port 65120), `/v1/health` 200.
+
 ## Következő döntési pont
 
-- A 248 XX-duplikátum és a 7 XX verseny review-alapú rendezése; az 185
-  research review egyenkénti (vagy kurált szabályos) feloldása; az 5 forrás-
-  ellentmondás withheld kézi ellenőrzése; az NB I UI-fixture hibája; a
-  `tick.rs`-ben lévő nem commitolt auto-dedupe változás külön szelet
-  (builder ≠ verifier).
+- Az 5 forrás-ellentmondás withheld kézi forrás-ellenőrzése; a 38 XX-duplikátum
+  és 9 „Al-" név review-alapú rendezése; az 185 research review; az NB I
+  UI-fixture hibája; a `tick.rs`-ben lévő nem commitolt auto-dedupe változás
+  külön szelet (builder ≠ verifier).
