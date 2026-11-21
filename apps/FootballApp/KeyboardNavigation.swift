@@ -9,6 +9,12 @@ enum KeyCode {
     static let escape: UInt16 = 53
     static let up: UInt16 = 126
     static let down: UInt16 = 125
+    static let left: UInt16 = 123
+    static let right: UInt16 = 124
+    /// ⌘T — ugrás a mai napra.
+    static let today: UInt16 = 17
+    /// ⌘R — a nap újratöltése.
+    static let refresh: UInt16 = 15
 }
 
 /// Helyi billentyűfigyelő a SwiftUI nézet mögött.

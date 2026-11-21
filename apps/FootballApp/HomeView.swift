@@ -109,9 +109,28 @@ struct HomeView: View {
         let modifiers = rawModifiers
             .intersection(.deviceIndependentFlagsMask)
             .subtracting([.function, .numericPad])
-        guard modifiers.isEmpty || modifiers == .shift else { return false }
         // A naptár-popover nyitva saját ablakként viselkedik: ilyenkor nem nyúlunk a billentyűkhöz.
         guard !showCalendar else { return false }
+        // ⌘/⌥ gyorsbillentyűk: nap-léptetés, mai nap, újratöltés.
+        if modifiers.contains(.command) || modifiers.contains(.option) {
+            switch keyCode {
+            case KeyCode.left:
+                model.goToPreviousDay()
+                return true
+            case KeyCode.right:
+                model.goToNextDay()
+                return true
+            case KeyCode.today where modifiers.contains(.command):
+                model.goToToday()
+                return true
+            case KeyCode.refresh where modifiers.contains(.command):
+                Task { await model.load() }
+                return true
+            default:
+                return false
+            }
+        }
+        guard modifiers.isEmpty || modifiers == .shift else { return false }
 
         switch keyCode {
         case KeyCode.tab:

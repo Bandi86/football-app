@@ -2005,3 +2005,21 @@ Csapatlogó-lefedettség: a 2026-11-13…11-30 ablakra a FotMob-import
 - App unit tesztek: új `MatchFilterTests.testMissingOddsSelectsMatchesWithoutOdds`
   és `testMissingLogoSelectsMatchesLackingEitherCrest`; a futtatásuk az `xcodebuild
   test` környezeti hibája (test runner nem indult el) miatt nem történt meg — nyitott.
+
+## S67 — napi gyorsbillentyűk
+
+### Változások
+- `apps/FootballApp/KeyboardNavigation.swift`: `KeyCode` + `left/right/today/refresh`.
+- `apps/FootballApp/HomeView.swift`: a billentyű-figyelő ⌘/⌥ módosítóval kezeli a
+  nap-léptetést és a gyors műveleteket — `⌘←`/`⌥←` előző nap, `⌘→`/`⌥→` következő
+  nap, `⌘T` mai nap, `⌘R` újratöltés. A szövegmezőben való gépelést nem zavarja,
+  mert csak a módosítós kombinációkat fogja el; nyitott naptár-popover mellett
+  továbbra sem nyúl a billentyűkhöz.
+- `scripts/ax-key.swift`: új `cmd-left`, `cmd-right`, `cmd-t`, `cmd-r` esetek a
+  billentyű-parancsokhoz (manuális/AX-alapú ellenőrzéshez).
+
+### Ellenőrzések
+- `xcodebuild build` → BUILD SUCCEEDED.
+- Élő: `ax-key cmd-right` → a fejléc „november 22." + „HOLNAP" jelvény, 390 meccs
+  (`/tmp/s67_nextday.png`); `ax-key cmd-t` → vissza „november 21." (832 meccs,
+  `/tmp/s67_today.png`). A billentyűparancsok működnek.
