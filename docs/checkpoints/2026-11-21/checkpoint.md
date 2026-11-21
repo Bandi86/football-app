@@ -353,6 +353,36 @@
 - [x] `reverify 11-21` → 1016 meccs, 0 hiba; `integrity` mind a 8 mutató **0**,
       verdict OK. Az app Cmd+R-rel frissítve.
 
+## S76 — nagy adat-audit (felhasználói lista alapján)
+
+- [x] **349 azonos országú és kontextusú csapatduplikátum** összevonva
+      (`--via-alias` a névváltozatokhoz; túlélő = több mecccsel). Ezután
+      **316 duplikált fixture** `dedupe matches`-szel archiválva.
+- [x] **17 azonos nevű verseny** (2 entitásra szakadva) összevonva; további
+      célzott merge-k: osztrák/svájci/malaj/paraguayi/portugál/svéd párok,
+      olasz női Serie A (3 név), Vietnam V-League (3 név), Chile/Bolívia stb.
+- [x] **14 hazai verseny XX országa** javítva (Austrian Bundesliga→AT,
+      Bundesliga→DE, Liga F→ES, Taça de Portugal→PT, Danish Superliga→DK,
+      Ligue 1→FR, LigaPro Ecuador→EC, Greek Super League→GR, Brazilian Serie B→BR,
+      Turkish Super Lig→TR, Women's Super League→GB, Dutch Vrouwen Eredivisie→NL,
+      Paraguayan Primera→PY, Guatemalan Liga Nacional→GT). A nemzetközi kupák
+      (UCL, CAF, AFC, World Cup U17 stb.) jogosan XX maradtak.
+- [x] **Névváltozat-pairok**: Győr/Győri ETO, Atl. Madrid/Atlético de Madrid,
+      Atletico Madrid B/Ath Madrid B, Rizespor/Caykur Rizespor, Tomayapo/Real
+      Tomayapo, Colón/Club Atletico Colon, Sturm Graz 2/II, Nam Định/Nam Dinh,
+      Đồng Nai/Binh Phuoc, Deportivo Moron/Colón duplikátumai rendezve.
+- [x] **Logók**: M'gladbach v1 megapackből importálva (daemon adatkönyvtárába
+      is); az argentin **Atlanta** téves amerikai Atlanta SC-logója eltávolítva
+      (nincs megbízható argentin forrás → monogram).
+- [x] **Withheld 0**: Paraguay/Brazil/TBD placeholder csapatok országa,
+      Recoleta–Guaraní álkonfliktusa (`resolve-conflict`) rendezve.
+- [x] Megjegyzés: az **Észak-Írország GB zászlója** tudatos döntés (S41), mert
+      nincs külön GB-NIR zászló-emodzsi; a `Group I` és hasonló jelölések a
+      World Cup U17 csoportjai, jogosan nemzetköziek. Az ukrán Persha Liga
+      `date_only` maradt — a v1-ben is 12:00 placeholder volt, nincs valódi idő.
+- [x] `reverify 11-13…11-28` → **4499 meccs, 0 hiba**; `integrity` mind a 8
+      mutató **0**, verdict OK. `acceptance-check` **ELFOGADHATÓ**. Az app fut.
+
 ## Következő döntési pont
 
 - Manuális UI-ellenőrzés a futó appban (különösen az S70 kézi eredménybevitel
