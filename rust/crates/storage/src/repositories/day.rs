@@ -236,17 +236,17 @@ pub async fn fetch_day_gaps(pool: &PgPool, filter: &DayFilter) -> Result<DayGaps
               AND g.publish_date = (m.kickoff_at AT TIME ZONE $2)::date
             LEFT JOIN core.match_result r ON r.match_id = m.id
             LEFT JOIN LATERAL (
-                SELECT a.storage_key AS logo FROM ops.asset a
+                SELECT COALESCE(a.storage_key, a.url) AS logo FROM ops.asset a
                 WHERE a.entity_kind = 'team' AND a.kind = 'logo' AND a.entity_id = m.home_team_id
                 ORDER BY (a.storage_key IS NULL), a.captured_at DESC LIMIT 1
             ) hl ON true
             LEFT JOIN LATERAL (
-                SELECT a.storage_key AS logo FROM ops.asset a
+                SELECT COALESCE(a.storage_key, a.url) AS logo FROM ops.asset a
                 WHERE a.entity_kind = 'team' AND a.kind = 'logo' AND a.entity_id = m.away_team_id
                 ORDER BY (a.storage_key IS NULL), a.captured_at DESC LIMIT 1
             ) al ON true
             LEFT JOIN LATERAL (
-                SELECT a.storage_key AS logo FROM ops.asset a
+                SELECT COALESCE(a.storage_key, a.url) AS logo FROM ops.asset a
                 WHERE a.entity_kind = 'competition' AND a.kind = 'logo' AND a.entity_id = c.entity_id
                 ORDER BY (a.storage_key IS NULL), a.captured_at DESC LIMIT 1
             ) cl ON true

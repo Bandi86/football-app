@@ -73,4 +73,41 @@ final class MatchFilterTests: XCTestCase {
         XCTAssertTrue(LeagueGroup.fromDay(womens)[0].isWomens)
         XCTAssertFalse(LeagueGroup.fromDay(womens)[0].isCup)
     }
+
+    func testMissingOddsSelectsMatchesWithoutOdds() throws {
+        let json = """
+        {"date":"2026-11-11","timezone":"Europe/Budapest","matches":[
+          {"id":"00000000-0000-0000-0000-000000000011","kickoff_at":"2026-11-21T18:00:00Z",
+           "kickoff_precision":"exact","status":"scheduled","home":"A","away":"B",
+           "publish_state":"verified_publish","blockers":[],
+           "competition_name":"Teszt Liga","country_code":"HUN","country_name":"Hungary","tier":1,
+           "odds":{"home":2.1,"draw":3.4,"away":3.2}},
+          {"id":"00000000-0000-0000-0000-000000000012","kickoff_at":"2026-11-21T20:00:00Z",
+           "kickoff_precision":"exact","status":"scheduled","home":"C","away":"D",
+           "publish_state":"verified_publish","blockers":[],
+           "competition_name":"Teszt Liga","country_code":"HUN","country_name":"Hungary","tier":1}
+        ]}
+        """
+        let matches = try decode(json)
+        let ids = matches.filter { MatchFilter.missingOdds.matches($0) }.map(\.home)
+        XCTAssertEqual(ids, ["C"])
+    }
+
+    func testMissingLogoSelectsMatchesLackingEitherCrest() throws {
+        let json = """
+        {"date":"2026-11-11","timezone":"Europe/Budapest","matches":[
+          {"id":"00000000-0000-0000-0000-000000000021","kickoff_at":"2026-11-21T18:00:00Z",
+           "kickoff_precision":"exact","status":"scheduled","home":"A","away":"B",
+           "home_logo":"/v1/asset/a","away_logo":"/v1/asset/b","publish_state":"verified_publish",
+           "blockers":[],"competition_name":"Teszt Liga","country_code":"HUN","country_name":"Hungary","tier":1},
+          {"id":"00000000-0000-0000-0000-000000000022","kickoff_at":"2026-11-21T20:00:00Z",
+           "kickoff_precision":"exact","status":"scheduled","home":"C","away":"D",
+           "home_logo":"/v1/asset/c","publish_state":"verified_publish",
+           "blockers":[],"competition_name":"Teszt Liga","country_code":"HUN","country_name":"Hungary","tier":1}
+        ]}
+        """
+        let matches = try decode(json)
+        let ids = matches.filter { MatchFilter.missingLogo.matches($0) }.map(\.home)
+        XCTAssertEqual(ids, ["C"])
+    }
 }

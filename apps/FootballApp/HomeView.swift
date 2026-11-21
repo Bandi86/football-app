@@ -1057,6 +1057,8 @@ private struct DayGapsCard: View {
     private static let filterFor: [String: MatchFilter] = [
         "kickoff": .missingKickoff,
         "open": .missingResult,
+        "odds": .missingOdds,
+        "teamlogo": .missingLogo,
     ]
 
     private struct Item: Identifiable {

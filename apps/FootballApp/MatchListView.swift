@@ -9,7 +9,7 @@ import FootballAppCore
 /// hiány-panel `open_past` definícióját tükrözi (kezdés több mint 3 órával
 /// ezelőtt, és a meccs még nincs lezárva).
 enum MatchFilter: String, CaseIterable, Identifiable {
-    case all, upcoming, live, finished, missingKickoff, missingResult
+    case all, upcoming, live, finished, missingKickoff, missingResult, missingOdds, missingLogo
 
     var id: String { rawValue }
 
@@ -21,13 +21,20 @@ enum MatchFilter: String, CaseIterable, Identifiable {
         case .finished: return "Befejezett"
         case .missingKickoff: return "Idő nélkül"
         case .missingResult: return "Eredmény nélkül"
+        case .missingOdds: return "Odds nélkül"
+        case .missingLogo: return "Logó nélkül"
         }
     }
 
     /// Hiány-szűrő: nem státusz alapján dönt, ezért a státusz-alapú
     /// csoportosításból (kártya-szín, "Következik/Élő/Befejezett") kimarad.
     var isGapFilter: Bool {
-        self == .missingKickoff || self == .missingResult
+        switch self {
+        case .missingKickoff, .missingResult, .missingOdds, .missingLogo:
+            return true
+        default:
+            return false
+        }
     }
 
     func matches(status: String) -> Bool {
@@ -40,7 +47,7 @@ enum MatchFilter: String, CaseIterable, Identifiable {
             return ["live", "halftime"].contains(status)
         case .finished:
             return ["finished", "awarded"].contains(status)
-        case .missingKickoff, .missingResult:
+        case .missingKickoff, .missingResult, .missingOdds, .missingLogo:
             return false
         }
     }
@@ -56,6 +63,10 @@ enum MatchFilter: String, CaseIterable, Identifiable {
             ]
             guard !settled.contains(match.status) else { return false }
             return match.kickoffAt < now.addingTimeInterval(-3 * 60 * 60)
+        case .missingOdds:
+            return match.odds == nil
+        case .missingLogo:
+            return (match.homeLogo ?? "").isEmpty || (match.awayLogo ?? "").isEmpty
         default:
             return matches(status: match.status)
         }
@@ -72,6 +83,10 @@ enum MatchFilter: String, CaseIterable, Identifiable {
             ]
             guard !settled.contains(card.status) else { return false }
             return card.kickoffAt < now.addingTimeInterval(-3 * 60 * 60)
+        case .missingOdds:
+            return card.odds == nil
+        case .missingLogo:
+            return (card.homeLogo ?? "").isEmpty || (card.awayLogo ?? "").isEmpty
         default:
             return matches(status: card.status)
         }

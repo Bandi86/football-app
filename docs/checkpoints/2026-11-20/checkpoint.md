@@ -1979,3 +1979,29 @@ Csapatlogó-lefedettség: a 2026-11-13…11-30 ablakra a FotMob-import
   Real Madrid / Atlético / Real Betis sorok — kép `/tmp/s65_table.png`.
 - UI-tesztek: a korábbi futások környezeti hibával álltak le (test runner nem indult);
   a szelet UI-tesztjei nem futottak, nyitott.
+
+## S66 — odds- és logóhiány-szűrők, hiány-panel konzisztencia
+
+### Változások
+- `apps/FootballApp/MatchListView.swift`: a `MatchFilter` új esetei `.missingOdds`
+  („Odds nélkül") és `.missingLogo` („Logó nélkül"); a `matches(DayMatch)` és
+  `matches(MatchCardModel)` is kezeli őket (odds == nil, illetve valamelyik címer
+  hiányzik); a hiány-szűrők a státusz-alapú csoportosításból kimaradnak.
+- `apps/FootballApp/HomeView.swift`: a hiány-panel chipjei közül az „odds" és a
+  „teamlogo" mostantól kattintható és szűrőt aktivál.
+- `rust/crates/storage/src/repositories/day.rs`: a `fetch_day_gaps` logó-lateráljai
+  `COALESCE(storage_key, url)`-t használnak, így a hiány-panel számlálója egyezik a
+  napi lista tényleges logó-mezőivel (korábban a csak URL-lel rendelkező asseteket
+  hiányzónak számolta: 223 vs 206).
+
+### Ellenőrzések
+- Élő API (2026-11-21, 832 meccs): gaps `missing_team_logo 206` = a listában
+  logó nélküli meccsek száma (206), `missing_odds 561` = odds nélküli sorok (561).
+- `cargo test -p football-storage --test day_query` 5 passed; storage lib 31 passed;
+  `cargo fmt --all --check` OK; clippy `-D warnings` tiszta.
+- App: BUILD SUCCEEDED; élőben az „Odds nélkül 561" chip aktív állapotba került és a
+  lista csak odds nélküli meccseket mutat (La Liga: Vallecano–Valencia,
+  Real Madrid–Celta), kép: a felhasználói nézetben rögzítve.
+- App unit tesztek: új `MatchFilterTests.testMissingOddsSelectsMatchesWithoutOdds`
+  és `testMissingLogoSelectsMatchesLackingEitherCrest`; a futtatásuk az `xcodebuild
+  test` környezeti hibája (test runner nem indult el) miatt nem történt meg — nyitott.
