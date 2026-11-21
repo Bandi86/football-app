@@ -652,3 +652,90 @@ valódi duplikátum.
 **Következő döntési pont:** a) játékos-identitás + felállás betöltése;
 b) validációs retenció (1,47 GB, ~130 MB/nap); c) `UNIQUE(country, fold)`
 verseny-megkötés; d) a felhasználó app-ellenőrzésének visszajelzése.
+
+## S84–S87 — Salvador-duplikátum, cross-source verseny-nevek, idővonal
+
+**Induló állapot:** a felhasználó jelezte, hogy Salvadorban 2026-11-21-re
+kétszer szerepel az Isidro Metapán meccse, és a meccsrészletezőben nincs
+idővonal/gólszerző. Kiinduló mérés: ugyanaz a fixture három forrásból
+(fotmob `fm:5962495` „Primera Division - Apertura”, espn `espn:401899660`
+„Salvadoran Primera”, livescore `ls1844534` „Primera Division: Apertura”),
+mind 21:00 UTC; a három verseny és az ellenfél három neve
+(Inter Santa Tecla / Inter FA / Internacional Santa Tecla) külön entitás volt.
+Esemény-betöltés csak 2026-11-20-ra futott (1886 esemény/134 meccs); 11-21-re
+0, mert az automatikus discovery 01:00-kor a 15:45-ös envelope előtt futott.
+
+- [x] **Research betöltés 11-21-re**: `ops.job` discovery
+      (`s84-2026-11-21`) → a worker feldolgozta; 11-21-re **89 meccs / 767
+      esemény** (45 finished + 38 live), 11-20: 132 meccs / 1829 esemény.
+      (A nap előtti meccsek részletei a 15:45-ös pillanatképből származnak,
+      ezért a később lezárult meccseknél még hiányosak lehetnek.)
+- [x] **Idővonal üres-állapot (S87)**: új
+      `apps/FootballAppCore/Sources/FootballAppCore/TimelineEmptyStateRules.swift:1-34`
+      (`shouldShowTimelineEmptyState(status:incidents:)`),
+      `AccessibilityLabels.swift:107-118` (magyar címke + `match.timeline.empty`),
+      `MatchTimeline.swift:277-321` `MatchTimelineEmptyState`,
+      `MatchDetailSheet.swift:498-503` else-ág; Core **100 teszt/15 suite**
+      zöld, `xcodebuild build` BUILD SUCCEEDED.
+- [x] **Fold 0020 (S85)**: `db/migrations/0020_fold_punctuation.sql:1-79`
+      (`:` és `;` eldobása a fold-kulcsból, 3 expression index újraépítése);
+      `domain/src/identity.rs:74-80`, `team_dup_groups.py:61-64` szinkronban;
+      dev DB-n **Applied 20** (171 ms), `Primera Division: Apertura` =
+      `Primera Division - Apertura` kulcs.
+- [x] **Azonos-fold verseny-duplikátumok (14 pár) merge-elve**, pl.
+      Bundesliga (AT), Super League, Cup, Liga 1, 1st Division, Primera B
+      Metropolitana Playoff, Primera Division: Apertura, A Lyga Qualification,
+      Super Liga, USL Championship Play-off, 1. Liga, Liga Nacional Apertura,
+      Primera Division Apertura, Liga Nacional Apertura.
+- [x] **Salvador rendezése**: „Primera Division: Apertura” (10 meccs) fogadta
+      be a „Primera Division - Apertura” (2) és „Salvadoran Primera” (2)
+      versenyt; az Inter FA (2 meccs) és Internacional Santa Tecla (1) csapat
+      az Inter Santa Tecla entitásba merge-ölve `--via-alias` bizonyítékkal;
+      `dedupe matches --date 2026-11-21 --apply` → 1 csoport, 2 merge;
+      Isidro Metapán 2026-11-21-re **1 meccs** maradt. 2026-11-20: 2 csoport,
+      2 merge.
+- [x] **Cross-source verseny-névváltozatok (27 pár) merge-elve** a
+      `competition_merge` `--force` ágával (1. Lig, Allsvenskan Qualification,
+      Austrian Bundesliga, Bundesliga (női), CAF CL Grp. D, Challenger Pro
+      League, 2nd league, Indian Football League, Japanese J1 League,
+      J. League 3, K-League 1 Final Group A, Guatemalan Liga Nacional,
+      Persian Gulf, Russian Premier, Premiere Ligue Femenine, Premiere Ligue,
+      Primera B Clausura PO, Primera Division RFEF G1/G2, Regionalliga
+      Southwest, Saudi Professional League, Segunda Division RFEF G4,
+      LigaPro Ecuador, Serie C - C csoport, Southern League Premier: South,
+      Turkish Super Lig, WE League). A guard csak `--force`-szal engedi a
+      eltérő fold-nevet (`competition_merge.rs:217`), a merge aliasokat ír a
+      túlélőre; új teszt: `force_merges_cross_source_name_variant_and_keeps_alias`
+      (`storage/tests/competition_merge.rs`), **4/4 zöld**.
+- [x] **Cross-source fixture-híd (S86, preventív)**: `canonicalize.rs`
+      `MatchLink::Bridge` + `find_cross_source_fixture` (:1108-1170) +
+      `apply_cross_source_bridge` (:1173-1370): azonos ország, 15 percen belüli
+      kickoff, legalább egy közös csapat-ID, nem törölt meccs → nincs új
+      `core.match`, a túlélő kapja az adatot, aliasok a verseny- és csapat-
+      entitásra; 0/1/>1 jelölt kezelése. Új teszt: `ingest/tests/cross_source_bridge.rs`
+      **5/5 zöld**; `cargo test -p football-ingest` **115 passed, 0 failed**;
+      clippy tiszta. Nem gyógyítja a már meglévő duplikátumokat (azt a merge-ek
+      tették), és több jelöltnél szándékosan nem linkel.
+- [x] **Maradó, tudatosan nem merge-elt párok (4)**: Ligue 1 vs Première
+      Ligue (női) — a női meccs férfi csapat-ID-re oldódik (70 `(W)` nevű
+      csapat `gender=male` adathiba); A-Liga Women vs A-Liga (2 pár) — a női
+      meccsek a férfi liga-versenyben is szerepelnek; FA Trophy vs Southern
+      League: Central Division — két külön sorozat, forrás-oldali ütközés.
+      Ezek forrás-szintű review-t igényelnek, nem vak merge-et.
+- [x] **DB állapot a szelet után**: `core.match` **283 631** (+9 új research
+      fixture), aktív verseny **744** (792 → 48 merge), aktív csapat **6 792**,
+      `fact.match_incidents` **2 596 sor / 221 meccs**, alias **7 405**.
+- [x] **Kapu**: `./scripts/check.sh` → **EXIT=0**; a Rust oldalon a teljes
+      workspace zöld, a Swift oldalon Core 100 teszt + build zöld.
+- [ ] **Nem ellenőrzött**: a friss app-build valódi kattintgatása (a timeline
+      és az üres-állapot képernyőn még nem látszott); a női csapatok
+      `gender=male` adathibája (70 csapat) javítása külön szelet; a 4 maradó
+      verseny-pár forrás-oldali review-ja; a research detail frissítés
+      napközben csak a 01/07/13-as slotokban fut, ezért a késő délutáni
+      meccsek eseményei másnapra teljesednek ki.
+
+**Következő döntési pont:** a) a női csapat-gender adathiba javítása
+(név-marker alapú inferencia + 70 sor revíziója) és a 4 maradó pár rendezése;
+b) a research detail frissítés ütemezése lezárt meccsek után (ne only
+01/07/13); c) a validációs retenció (1,47 GB, ~130 MB/nap); d) az app friss
+buildjének telepítése és a felhasználó végleges ellenőrzése.

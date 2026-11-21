@@ -214,7 +214,7 @@ async fn load_pair(
         == football_domain::identity::fold_name(&duplicate.name);
     let competition_fold_same = football_domain::identity::fold_name(&survivor_comp.name)
         == football_domain::identity::fold_name(&duplicate_comp.name);
-    if !entity_fold_same && !competition_fold_same {
+    if !force && !entity_fold_same && !competition_fold_same {
         bail!(
             "a két verseny fold-olt neve eltér: {:?}/{:?} != {:?}/{:?}",
             survivor.name,

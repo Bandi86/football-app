@@ -495,6 +495,11 @@ struct MatchDetailContent: View {
                         awayName: detail.awayName,
                         incidents: incidents
                     )
+                } else if TimelineEmptyStateRules.shouldShowTimelineEmptyState(
+                    status: detail.status,
+                    incidents: detail.incidents
+                ) {
+                    MatchTimelineEmptyState()
                 }
 
                 if !(detail.homeForm ?? []).isEmpty || !(detail.awayForm ?? []).isEmpty {

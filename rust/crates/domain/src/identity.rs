@@ -61,7 +61,8 @@ pub fn fold_keep_separators(s: &str) -> String {
 ///
 /// A linker exact kulcsa ez (a fuzzy jelöltképzés továbbra is a
 /// `normalize_name`/token-overlap marad). Az SQL `identity.fold_name`
-/// (db/migrations/0018_identity_fold.sql) ugyanezt a karaktertáblát és
+/// (db/migrations/0018_identity_fold.sql; írásjel-készlet: S85 óta
+/// db/migrations/0020_fold_punctuation.sql) ugyanezt a karaktertáblát és
 /// ugyanezt a sorrendet követi; a két implementáció egyezését a storage
 /// identity_repos teszt bizonyítja.
 pub fn fold_name(s: &str) -> String {
@@ -70,10 +71,13 @@ pub fn fold_name(s: &str) -> String {
         // Az exact kulcsban a szóköz és a leggyakoribb írásjelek nem
         // hordoznak identitást: "K. Lierse S.K." = "K Lierse SK",
         // "Bodø/Glimt" = "Bodø Glimt", "Queen's Park" = "Queens Park".
+        // S85: a ':' és ';' is ide tartozik, különben a
+        // "Primera Division: Apertura" és a "Primera Division - Apertura"
+        // (illetve a "Liga Nacional; Apertura" párja) külön entitás marad.
         .filter(|c| {
             !matches!(
                 c,
-                ' ' | '.' | '\'' | '\u{2019}' | '-' | '_' | '&' | '/' | '(' | ')' | ','
+                ' ' | '.' | '\'' | '\u{2019}' | '-' | '_' | '&' | '/' | '(' | ')' | ',' | ':' | ';'
             )
         })
         .collect()

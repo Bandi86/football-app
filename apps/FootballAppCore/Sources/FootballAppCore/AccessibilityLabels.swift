@@ -104,6 +104,19 @@ public enum AccessibilityLabels {
         "match.row.\(id.uuidString)"
     }
 
+    /// Az idővonal üres állapotának stabil accessibility-identifierje.
+    public static let timelineEmptyIdentifier = "match.timeline.empty"
+
+    /// Az idővonal üres állapotának megjelenített és felolvasott szövege
+    /// ugyanabból a forrásból jön, hogy a kettő ne csússzon el egymástól.
+    public static let timelineEmptyTitle = "Az események még nem érkeztek meg."
+    public static let timelineEmptySubtitle = "A részletes adatok betöltése folyamatban lehet."
+
+    /// Az üres idővonal felolvasható tartalma: a címet és az alcímet mondja ki.
+    public static func timelineEmptyLabel() -> String {
+        "\(timelineEmptyTitle) \(timelineEmptySubtitle)"
+    }
+
     /// Az idővonal-esemény típusának magyar, felolvasható neve. Az ismeretlen
     /// forrás-stringet sem hallgatjuk el, hanem egyértelműen "egyéb"-ként mondjuk.
     public static func incidentTypeLabel(_ kind: MatchIncidentKind) -> String {

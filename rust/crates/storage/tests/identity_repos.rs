@@ -602,6 +602,13 @@ async fn sql_fold_name_matches_rust_fold_name() {
         "ß",
         "ЦСКА Москва",
         "FC東京",
+        // S85: a ':' és ';' is eltűnik a foldolt kulcsból.
+        "Primera Division: Apertura",
+        "Primera Division - Apertura",
+        "Liga Nacional; Apertura",
+        "Liga Nacional Apertura",
+        "CD FAS: Reserve",
+        "CD FAS",
     ];
     for sample in samples {
         let sql_folded: String = sqlx::query_scalar("SELECT identity.fold_name($1)")
@@ -621,6 +628,38 @@ async fn sql_fold_name_matches_rust_fold_name() {
         .await
         .unwrap();
     assert_eq!(null_folded, None);
+}
+
+/// S85: a SQL fold a ':' és ';' karaktert is eldobja, ezért a
+/// "Primera Division: Apertura" és a "Primera Division - Apertura" azonos
+/// kulcsot kap, a "CD FAS: Reserve" viszont nem esik egybe a "CD FAS"-szal.
+#[tokio::test]
+async fn sql_fold_name_drops_colon_and_semicolon() {
+    let pool = test_pool().await;
+    let fold = |sample: &'static str| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_scalar::<_, String>("SELECT identity.fold_name($1)")
+                .bind(sample)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+        }
+    };
+    let primera_colon = fold("Primera Division: Apertura").await;
+    let primera_dash = fold("Primera Division - Apertura").await;
+    let liga_semicolon = fold("Liga Nacional; Apertura").await;
+    let liga_space = fold("Liga Nacional Apertura").await;
+    let fas_colon = fold("CD FAS: Reserve").await;
+    let fas = fold("CD FAS").await;
+
+    assert_eq!(primera_colon, "primeradivisionapertura");
+    assert_eq!(primera_colon, primera_dash);
+    assert_eq!(liga_semicolon, "liganacionalapertura");
+    assert_eq!(liga_semicolon, liga_space);
+    assert_ne!(fas_colon, fas);
+    assert_eq!(fas_colon, "cdfasreserve");
+    assert_eq!(fas, "cdfas");
 }
 
 #[tokio::test]

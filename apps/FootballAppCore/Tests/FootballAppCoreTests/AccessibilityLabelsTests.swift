@@ -130,4 +130,13 @@ import Testing
         #expect(!varReview.contains("hazai"))
         #expect(!varReview.contains("vendég"))
     }
+
+    @Test func timelineEmptyStateHasHungarianLabelAndStableIdentifier() {
+        #expect(AccessibilityLabels.timelineEmptyIdentifier == "match.timeline.empty")
+        #expect(AccessibilityLabels.timelineEmptyTitle == "Az események még nem érkeztek meg.")
+        #expect(AccessibilityLabels.timelineEmptySubtitle == "A részletes adatok betöltése folyamatban lehet.")
+        let label = AccessibilityLabels.timelineEmptyLabel()
+        #expect(label.contains(AccessibilityLabels.timelineEmptyTitle))
+        #expect(label.contains(AccessibilityLabels.timelineEmptySubtitle))
+    }
 }

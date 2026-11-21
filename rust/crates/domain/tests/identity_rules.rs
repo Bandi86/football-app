@@ -145,6 +145,36 @@ fn fold_name_extended_transliteration_and_separator_stripping() {
 }
 
 #[test]
+fn fold_name_drops_colon_and_semicolon() {
+    // S85: a ':' és a ';' nem hordoz identitást az exact kulcsban, különben
+    // a "Primera Division: Apertura" és a "Primera Division - Apertura"
+    // külön verseny-entitást kapna.
+    assert_eq!(
+        fold_name("Primera Division: Apertura"),
+        fold_name("Primera Division - Apertura")
+    );
+    assert_eq!(
+        fold_name("Liga Nacional; Apertura"),
+        fold_name("Liga Nacional Apertura")
+    );
+    assert_eq!(
+        fold_name("Primera Division: Apertura"),
+        "primeradivisionapertura"
+    );
+    assert_eq!(fold_name("Liga Nacional; Apertura"), "liganacionalapertura");
+    // A fold nem üríti ki a nevet: a teljesebb név kulcsa továbbra is
+    // különbözik a rövidebbétől.
+    assert_ne!(fold_name("CD FAS: Reserve"), fold_name("CD FAS"));
+    assert_eq!(fold_name("CD FAS: Reserve"), "cdfasreserve");
+    assert_eq!(fold_name("CD FAS"), "cdfas");
+    // Idempotens marad a bővített írásjel-készlettel is.
+    assert_eq!(
+        fold_name(&fold_name("Liga Nacional; Apertura")),
+        "liganacionalapertura"
+    );
+}
+
+#[test]
 fn neutral_country_codes_act_as_wildcards() {
     let fr = IdentityContext {
         country_code: Some("FR".into()),

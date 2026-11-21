@@ -3,8 +3,9 @@ import FootballAppCore
 
 /// A meccs esemény-idővonala: percenkénti események, típus szerinti ikonnal,
 /// csapatoldal-jelzéssel és a gól utáni állással. A félidő szekció-elválasztó
-/// vonal, hogy a két játékrész vizuálisan is elváljon. Csak akkor jelenik meg,
-/// ha van esemény; üres állapotban a szakasz rejtve marad.
+/// vonal, hogy a két játékrész vizuálisan is elváljon. Ha a meccs státusza
+/// szerint esemény várható, de az még nem érkezett meg, a `MatchTimelineEmptyState`
+/// mondja ki a hiány okát ugyanebben a design nyelvben.
 struct MatchTimeline: View {
     let homeName: String
     let awayName: String
@@ -271,5 +272,50 @@ struct MatchTimeline: View {
     private func isRedCard(_ incident: MatchIncident) -> Bool {
         guard let detail = incident.detail else { return false }
         return detail.lowercased().contains("red")
+    }
+}
+
+/// Az idővonal üres állapota: a meccs státusza szerint esemény várható, de az
+/// még nem érkezett meg. Ugyanazt a szakasz-fejlécet, kártya-sarkot, tipográfiát
+/// és rail-elemet használja, mint a valódi idővonal, így a hiány oka nem tűnik
+/// hibának. A megjelenési szabály a Core-ban él (`TimelineEmptyStateRules`).
+struct MatchTimelineEmptyState: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.s) {
+            Text("Események").sectionLabel()
+
+            HStack(alignment: .top, spacing: AppTheme.Spacing.s) {
+                Image(systemName: "clock")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(AppTheme.tertiaryText)
+                    .frame(width: 20, height: 18)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(AccessibilityLabels.timelineEmptyTitle)
+                        .font(.appText(12.5))
+                        .foregroundStyle(AppTheme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(AccessibilityLabels.timelineEmptySubtitle)
+                        .font(.appText(10.5))
+                        .foregroundStyle(AppTheme.tertiaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, AppTheme.Spacing.m)
+            .padding(.vertical, AppTheme.Spacing.m)
+            .overlay(alignment: .leading) {
+                Capsule()
+                    .fill(AppTheme.hairlineStrong)
+                    .frame(width: 2)
+                    .padding(.vertical, 6)
+            }
+            .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: AppTheme.Radius.panel, style: .continuous))
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(AccessibilityLabels.timelineEmptyLabel())
+        .accessibilityIdentifier(AccessibilityLabels.timelineEmptyIdentifier)
     }
 }

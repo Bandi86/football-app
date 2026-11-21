@@ -586,3 +586,50 @@ async fn merge_backfills_aliases_for_future_lookup() {
         "a túlélő versenyre oldódik fel"
     );
 }
+
+/// S84: cross-source névváltozat (pl. "Turkish Super Lig" vs "Süper Lig")
+/// csak --force-szal merge-elhető, és a merge után a beolvadó neve aliasként
+/// a túlélőn marad, hogy a következő ingest ne hozza létre újra.
+#[tokio::test]
+async fn force_merges_cross_source_name_variant_and_keeps_alias() {
+    let pool = test_pool().await;
+    let country = seed_country(&pool, "TR", "Turkey").await;
+    let survivor = seed_competition(&pool, Some(country), "Süper Lig", "Süper Lig").await;
+    let duplicate = seed_competition(
+        &pool,
+        Some(country),
+        "Turkish Super Lig",
+        "Turkish Super Lig",
+    )
+    .await;
+
+    let error = merge_competition(&pool, survivor.entity, duplicate.entity, "teszt", false)
+        .await
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("fold-olt neve eltér"),
+        "force nélkül a névváltozat merge-nek hibáznia kell: {error}"
+    );
+
+    let outcome = merge_competition(
+        &pool,
+        survivor.entity,
+        duplicate.entity,
+        "S84 cross-source teszt",
+        true,
+    )
+    .await
+    .unwrap();
+    assert!(matches!(outcome, CompetitionMergeOutcome::Merged(_)));
+
+    let aliases: Vec<String> =
+        sqlx::query_scalar("SELECT alias FROM identity.alias WHERE entity_id = $1 ORDER BY alias")
+            .bind(survivor.entity)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        aliases,
+        vec!["Süper Lig".to_string(), "Turkish Super Lig".to_string()]
+    );
+}

@@ -33,18 +33,53 @@ enum MatchLink {
     /// Név-variáns alapján linkelt sor: a kanonikus meccs adatai
     /// érintetlenek, csak a forrás-hozzájárulás és az odds kerül rá.
     Variant { id: Uuid, reversed: bool },
+    /// S86: cross-source fixture-híd. A forrás verseny-neve (és/vagy a másik
+    /// csapat neve) eltér, ezért a versenyen belüli keresés nem találta meg;
+    /// az ország + kickoff + ID-szerint egyező csapat alapján linkelünk.
+    Bridge(BridgeLink),
+}
+
+/// A híd által megtalált túlélő meccs (S86) a hozzá tartozó verseny/season és
+/// csapat-azonosítókkal, hogy a materialize a túlélő kontextusába írjon.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BridgeLink {
+    id: Uuid,
+    reversed: bool,
+    competition_id: Uuid,
+    season_id: Uuid,
+    home_team_id: Uuid,
+    away_team_id: Uuid,
+}
+
+/// A híd oldalhatásainak bemenete (a hívás helyén ismert kontextus).
+struct BridgeResolution<'a> {
+    bridge: BridgeLink,
+    home: Uuid,
+    away: Uuid,
+    home_name: &'a str,
+    away_name: &'a str,
+    /// A most feloldott (esetleg újonnan létrehozott) verseny.
+    resolved_competition_id: Uuid,
+    /// A feloldott versenyt ebben a tranzakcióban hoztuk létre.
+    competition_created: bool,
+    /// A materialize indulásakor feloldott verseny (a merge-guardhoz).
+    original_competition_id: Uuid,
+    /// A megfigyelt verseny-név (a túlélő entitás aliasa).
+    observed_competition_name: &'a str,
 }
 
 impl MatchLink {
     fn id(self) -> Uuid {
         match self {
             MatchLink::Exact { id, .. } | MatchLink::Variant { id, .. } => id,
+            MatchLink::Bridge(bridge) => bridge.id,
         }
     }
 
     fn reversed(self) -> bool {
         match self {
             MatchLink::Exact { reversed, .. } | MatchLink::Variant { reversed, .. } => reversed,
+            MatchLink::Bridge(bridge) => bridge.reversed,
         }
     }
 
@@ -169,9 +204,12 @@ impl Canonicalizer {
                 },
             )
             .await?;
-        let competition_id = competition_resolution.competition_id;
+        let mut competition_id = competition_resolution.competition_id;
+        // S86: a cross-source híd csak az ebben a tranzakcióban létrehozott
+        // versenyt olvaszthatja be a túlélőbe; a guardhoz kell az eredeti id.
+        let original_competition_id = competition_id;
 
-        let season_id = match day.season.id {
+        let mut season_id = match day.season.id {
             Some(id) => id,
             None => sqlx::query_scalar(
                 "SELECT id FROM core.season WHERE competition_id=$1 AND label=$2 LIMIT 1",
@@ -306,6 +344,14 @@ impl Canonicalizer {
             // `reversed`: a forrás a meccset fordított hazai/vendég oldallal
             // listázza; ilyenkor a meglévő kanonikus sor az igazság, az
             // eredmény/statisztika nem írható, az odds oldalt cserélve megy.
+            let home_name = team_names
+                .get(fixture_match.home_source_entity_id.as_str())
+                .copied()
+                .unwrap_or_default();
+            let away_name = team_names
+                .get(fixture_match.away_source_entity_id.as_str())
+                .copied()
+                .unwrap_or_default();
             let link = match fixture_match.id {
                 Some(id) => MatchLink::Exact {
                     id,
@@ -320,19 +366,44 @@ impl Canonicalizer {
                             fixture: fixture_match,
                             home,
                             away,
-                            home_name: team_names
-                                .get(fixture_match.home_source_entity_id.as_str())
-                                .copied()
-                                .unwrap_or_default(),
-                            away_name: team_names
-                                .get(fixture_match.away_source_entity_id.as_str())
-                                .copied()
-                                .unwrap_or_default(),
+                            home_name,
+                            away_name,
                         },
                     )
                     .await?
                 }
             };
+
+            // S86: cross-source híd — a forrás más verseny-/csapatnévvel
+            // hozza ugyanazt a fixture-t. A túlélő meccs kontextusába írunk:
+            // a híd által feloldott másik csapatnévre pending alias, más
+            // versenynél reviewed alias a túlélő versenyre, és a most
+            // létrehozott 0 meccses versenyt beolvasztjuk, hogy ne maradjon
+            // ghost verseny.
+            if let MatchLink::Bridge(bridge) = link {
+                apply_cross_source_bridge(
+                    &mut tx,
+                    &BridgeResolution {
+                        bridge,
+                        home,
+                        away,
+                        home_name,
+                        away_name,
+                        resolved_competition_id: competition_id,
+                        competition_created: competition_resolution.created,
+                        original_competition_id,
+                        observed_competition_name: &day.competition.name,
+                    },
+                )
+                .await?;
+                if bridge.competition_id != competition_id {
+                    competition_id = bridge.competition_id;
+                    season_id = bridge.season_id;
+                } else if bridge.season_id != season_id {
+                    season_id = bridge.season_id;
+                }
+            }
+
             let match_id = link.id();
             let reversed = link.reversed();
             let status = parse_status(&fixture_match.status)?;
@@ -344,6 +415,14 @@ impl Canonicalizer {
                     home = %fixture_match.home_source_entity_id,
                     away = %fixture_match.away_source_entity_id,
                     "fordított oldalú forrás-sor: a kanonikus meccs adatai érintetlenek"
+                );
+            } else if matches!(link, MatchLink::Bridge(_)) {
+                tracing::info!(
+                    source = %day.source_code,
+                    match_id = %match_id,
+                    home = %fixture_match.home_source_entity_id,
+                    away = %fixture_match.away_source_entity_id,
+                    "cross-source fixture-híd: a kanonikus meccshez linkelve, az adatai érintetlenek (S86)"
                 );
             } else if !link.writes_canonical() {
                 tracing::warn!(
@@ -925,6 +1004,13 @@ async fn find_or_insert_match_id(
         return Ok(link);
     }
 
+    // S86: ha a forrás más verseny-névvel (és más csapat-névvel) hozza
+    // ugyanazt a fixture-t, a versenyen belüli keresés nem talál. Ország +
+    // kickoff + ID-szerint egyező csapat alapján hidat keresünk.
+    if let Some(link) = find_cross_source_fixture(tx, lookup).await? {
+        return Ok(link);
+    }
+
     Ok(MatchLink::Exact {
         id: Uuid::now_v7(),
         reversed: false,
@@ -992,6 +1078,319 @@ async fn find_variant_match(
             }))
         }
     }
+}
+
+/// Cross-source fixture-jelölt (S86): ugyanaz a meccs más forrásból, eltérő
+/// verseny- és/vagy csapat-névvel.
+#[derive(Debug, sqlx::FromRow)]
+struct CrossSourceCandidate {
+    id: Uuid,
+    competition_id: Uuid,
+    season_id: Uuid,
+    home_team_id: Uuid,
+    away_team_id: Uuid,
+}
+
+/// Cross-source fixture-híd keresése (S86).
+///
+/// A napi envelope-ban több upstream forrás ugyanazt a meccset különböző
+/// verseny- és csapatnévvel hozza; a kanonizálás versenyenként és csapatonként
+/// oldja fel, ezért ugyanaz a fixture 2-3 `core.match` sorrá válik. A híd
+/// szabálya:
+/// - ugyanabban az országban (a feloldott verseny `country_id`-ja; NULL
+///   országnál nincs híd),
+/// - a kickoff legfeljebb 15 perccel tér el,
+/// - legalább az egyik oldal csapata ID szerint pontosan egyezik (tükrözött
+///   párt is kezelve),
+/// - élő (nem merged) versenyhez tartozó, nem `canceled` meccs,
+/// - pontosan egy jelölt; 0 vagy >1 esetén nincs link (a hívó a régi úton
+///   megy tovább), >1 esetén figyelmeztetés.
+async fn find_cross_source_fixture(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    lookup: &MatchLookup<'_>,
+) -> Result<Option<MatchLink>> {
+    let country_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT country_id FROM core.competition WHERE id = $1")
+            .bind(lookup.competition_id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .flatten();
+    let Some(country_id) = country_id else {
+        return Ok(None);
+    };
+
+    let candidates: Vec<CrossSourceCandidate> = sqlx::query_as(
+        "SELECT m.id, m.competition_id, m.season_id, m.home_team_id, m.away_team_id
+         FROM core.match m
+         JOIN core.competition c ON c.id = m.competition_id
+         JOIN core.entity e ON e.id = c.entity_id
+         WHERE c.country_id = $1
+           AND e.kind = 'competition'
+           AND e.merged_into_id IS NULL
+           AND m.status <> 'canceled'
+           AND m.kickoff_at BETWEEN $2 - interval '15 minutes'
+                                AND $2 + interval '15 minutes'
+           AND (m.home_team_id IN ($3, $4) OR m.away_team_id IN ($3, $4))
+         ORDER BY m.kickoff_at, m.id",
+    )
+    .bind(country_id)
+    .bind(lookup.fixture.kickoff_at)
+    .bind(lookup.home)
+    .bind(lookup.away)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let candidate = match candidates.as_slice() {
+        [] => return Ok(None),
+        [candidate] => candidate,
+        _ => {
+            tracing::warn!(
+                candidates = candidates.len(),
+                home = %lookup.home,
+                away = %lookup.away,
+                kickoff = %lookup.fixture.kickoff_at,
+                "több cross-source fixture jelölt: nem linkelünk (S86)"
+            );
+            return Ok(None);
+        }
+    };
+    // A híd akkor is működik, ha a forrás a meccset tükrözve listázza: a
+    // jelölt hazai oldala a mi vendégünk (vagy a vendég oldala a mi hazaink).
+    let reversed = candidate.home_team_id == lookup.away || candidate.away_team_id == lookup.home;
+    Ok(Some(MatchLink::Bridge(BridgeLink {
+        id: candidate.id,
+        reversed,
+        competition_id: candidate.competition_id,
+        season_id: candidate.season_id,
+        home_team_id: candidate.home_team_id,
+        away_team_id: candidate.away_team_id,
+    })))
+}
+
+/// A cross-source híd oldalhatásai (S86): csapat-név alias a híd által
+/// feloldott oldalra, más versenynél reviewed verseny-alias a túlélőre, és a
+/// 0 meccses, ebben a tranzakcióban létrehozott verseny beolvasztása.
+async fn apply_cross_source_bridge(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    resolution: &BridgeResolution<'_>,
+) -> Result<()> {
+    let bridge = resolution.bridge;
+
+    // 1) A híd által feloldott MÁSIK csapatnév: név-alias a túlélő csapat
+    // entitására (pending; ez NEM entitás-merge, a meglévő reviewed aliast
+    // nem írjuk felül).
+    let pairs = if bridge.reversed {
+        [
+            (resolution.home, resolution.home_name, bridge.away_team_id),
+            (resolution.away, resolution.away_name, bridge.home_team_id),
+        ]
+    } else {
+        [
+            (resolution.home, resolution.home_name, bridge.home_team_id),
+            (resolution.away, resolution.away_name, bridge.away_team_id),
+        ]
+    };
+    for (our_team, our_name, survivor_team) in pairs {
+        write_bridge_team_alias(tx, our_team, our_name, survivor_team).await?;
+    }
+
+    if bridge.competition_id == resolution.resolved_competition_id {
+        return Ok(());
+    }
+
+    // 2) A megfigyelt verseny-név a túlélő verseny entitására (reviewed).
+    write_bridge_competition_alias(
+        tx,
+        bridge.competition_id,
+        resolution.observed_competition_name,
+    )
+    .await?;
+
+    // 3) Az ebben a tranzakcióban létrehozott, 0 meccses verseny beolvasztása.
+    // Csak az eredeti feloldás olvasztható be: egy későbbi híd már a túlélő
+    // versenyt látja feloldottként, azt nem szabad törölni.
+    if !resolution.competition_created
+        || resolution.resolved_competition_id != resolution.original_competition_id
+    {
+        return Ok(());
+    }
+    let match_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM core.match WHERE competition_id = $1")
+            .bind(resolution.resolved_competition_id)
+            .fetch_one(&mut **tx)
+            .await?;
+    if match_count == 0 {
+        merge_created_competition_into(
+            tx,
+            resolution.resolved_competition_id,
+            bridge.competition_id,
+        )
+        .await?;
+    } else {
+        tracing::warn!(
+            competition_id = %resolution.resolved_competition_id,
+            matches = match_count,
+            "a híd miatt nem törölhető az új verseny: már van meccse (S86)"
+        );
+    }
+    Ok(())
+}
+
+/// Pending név-alias a híd által feloldott csapat kanonikus entitására (S86).
+async fn write_bridge_team_alias(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    our_team: Uuid,
+    our_name: &str,
+    survivor_team: Uuid,
+) -> Result<()> {
+    if our_team == survivor_team || our_name.trim().is_empty() {
+        return Ok(());
+    }
+    let row: Option<(Uuid, Option<String>)> = sqlx::query_as(
+        "SELECT t.entity_id, c.code
+         FROM core.team t
+         LEFT JOIN core.country c ON c.id = t.country_id
+         WHERE t.id = $1",
+    )
+    .bind(survivor_team)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some((entity_id, country_code)) = row else {
+        return Ok(());
+    };
+    let country = football_domain::identity::alias_country_code(country_code.as_deref());
+    insert_entity_alias(tx, entity_id, our_name, "pending", country.as_deref()).await
+}
+
+/// Reviewed verseny-név alias a túlélő verseny entitására (S86).
+async fn write_bridge_competition_alias(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    survivor_competition_id: Uuid,
+    observed_name: &str,
+) -> Result<()> {
+    if observed_name.trim().is_empty() {
+        return Ok(());
+    }
+    let row: Option<(Uuid, Option<String>)> = sqlx::query_as(
+        "SELECT c.entity_id, co.code
+         FROM core.competition c
+         LEFT JOIN core.country co ON co.id = c.country_id
+         WHERE c.id = $1",
+    )
+    .bind(survivor_competition_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some((entity_id, country_code)) = row else {
+        return Ok(());
+    };
+    let country = football_domain::identity::alias_country_code(country_code.as_deref());
+    insert_entity_alias(tx, entity_id, observed_name, "reviewed", country.as_deref()).await
+}
+
+/// Egy `identity.alias` sor írása (S86); a meglévő sorokat nem írja felül.
+async fn insert_entity_alias(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    entity_id: Uuid,
+    alias: &str,
+    status: &str,
+    country_code: Option<&str>,
+) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO identity.alias
+         (id, entity_id, alias, lang, country_code, status, method)
+         VALUES ($1,$2,$3,'und',$4,$5,'import')
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(Uuid::now_v7())
+    .bind(entity_id)
+    .bind(alias)
+    .bind(country_code)
+    .bind(status)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// A híd miatt létrehozott, 0 meccses verseny beolvasztása a túlélőbe (S86):
+/// aliasok és source-refek átírása, majd season/competition/entity törlése.
+async fn merge_created_competition_into(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    created_competition_id: Uuid,
+    survivor_competition_id: Uuid,
+) -> Result<()> {
+    let created_entity_id: Uuid =
+        sqlx::query_scalar("SELECT entity_id FROM core.competition WHERE id = $1")
+            .bind(created_competition_id)
+            .fetch_one(&mut **tx)
+            .await?;
+    let survivor_entity_id: Uuid =
+        sqlx::query_scalar("SELECT entity_id FROM core.competition WHERE id = $1")
+            .bind(survivor_competition_id)
+            .fetch_one(&mut **tx)
+            .await?;
+
+    // Aliasok: a túlélőn már létező (duplikált) sorokat töröljük, a többit
+    // átírjuk — a NULLS NOT DISTINCT unique kulcs miatt törlés nélkül
+    // sérülne az UPDATE.
+    sqlx::query(
+        "DELETE FROM identity.alias a
+         WHERE a.entity_id = $1
+           AND EXISTS (
+             SELECT 1 FROM identity.alias b
+             WHERE b.entity_id = $2
+               AND b.alias = a.alias
+               AND b.lang = a.lang
+               AND b.country_code IS NOT DISTINCT FROM a.country_code
+               AND b.gender IS NOT DISTINCT FROM a.gender
+               AND b.age_group IS NOT DISTINCT FROM a.age_group
+               AND b.branch IS NOT DISTINCT FROM a.branch
+           )",
+    )
+    .bind(created_entity_id)
+    .bind(survivor_entity_id)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query("UPDATE identity.alias SET entity_id = $2 WHERE entity_id = $1")
+        .bind(created_entity_id)
+        .bind(survivor_entity_id)
+        .execute(&mut **tx)
+        .await?;
+
+    // Source-refek: ugyanaz a minta (a unique kulcs: source + kind + forrás-id).
+    sqlx::query(
+        "DELETE FROM identity.source_entity_ref r
+         WHERE r.entity_id = $1
+           AND EXISTS (
+             SELECT 1 FROM identity.source_entity_ref x
+             WHERE x.entity_id = $2
+               AND x.source_id = r.source_id
+               AND x.entity_kind = r.entity_kind
+               AND x.source_entity_id = r.source_entity_id
+           )",
+    )
+    .bind(created_entity_id)
+    .bind(survivor_entity_id)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query("UPDATE identity.source_entity_ref SET entity_id = $2 WHERE entity_id = $1")
+        .bind(created_entity_id)
+        .bind(survivor_entity_id)
+        .execute(&mut **tx)
+        .await?;
+
+    sqlx::query("DELETE FROM core.season WHERE competition_id = $1")
+        .bind(created_competition_id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query("DELETE FROM core.competition WHERE id = $1")
+        .bind(created_competition_id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query("DELETE FROM core.entity WHERE id = $1")
+        .bind(created_entity_id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
 }
 
 /// Odds-fejléc upsert + a forrás quote-blokkjának teljes cseréje

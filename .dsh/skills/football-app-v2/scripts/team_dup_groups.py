@@ -28,7 +28,8 @@ from collections import defaultdict
 
 
 # A Rust `football_domain::identity::fold_name` karaktertáblájának pontos
-# tükre (db/migrations/0018_identity_fold.sql). A két implementáció csak
+# tükre (db/migrations/0018_identity_fold.sql, írásjelek: S85 óta
+# db/migrations/0020_fold_punctuation.sql). A két implementáció csak
 # együtt változhat; a paritást a storage identity_repos teszt is ellenőrzi.
 FOLD_TRANSLITERATION = {
     **dict.fromkeys("áàâäãåą", "a"),
@@ -57,8 +58,10 @@ FOLD_TRANSLITERATION = {
 
 # Az exact kulcsból elhagyott szóköz/írásjelek + a török İ maradék combining
 # dotja. Szándékosan nincs `[^a-z0-9]` jellegű szűrés: a nem-latin betűk
-# megmaradnak.
-FOLD_STRIP = set(" .'\u2019-_&/(),") | {"\u0307"}
+# megmaradnak. S85: a ':' és ';' is ide tartozik, hogy a
+# "Primera Division: Apertura" és a "Primera Division - Apertura" azonos
+# kulcsot kapjon (db/migrations/0020_fold_punctuation.sql).
+FOLD_STRIP = set(" .'\u2019-_&/(),:;") | {"\u0307"}
 
 
 def fold(name: str) -> str:
