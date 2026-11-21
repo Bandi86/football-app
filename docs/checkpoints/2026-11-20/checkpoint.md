@@ -1860,3 +1860,37 @@ források maguk is így adják, ezért merge/withhold nélkül dokumentálva mar
 
 A SW Bregenz 2026-11-21-i téves „Austria–SW Bregenz" sora editorial hold alá
 került (a FotMob csak a First Vienna–SW Bregenz meccset ismeri).
+
+## S63c — teljes történelmi audit (2015–2027)
+
+A 2020–2027 mellett a korábbi évekre is lefutott ugyanaz a pipeline
+(marker → azonos fixture → azonos név → azonos verseny+kickoff+egyező oldal
+→ alias-token átfedés), évenkénti újraaudittal. Eredmény:
+
+| Év | Meccs | Klaszter | Dupla szereplés | Verseny-dup. |
+|----|-------|----------|-----------------|--------------|
+| 2015 | 8962 | 0 | 21 | 0 |
+| 2016 | 8867 | 0 | 43 | 0 |
+| 2017 | 9136 | 0 | 45 | 0 |
+| 2018 | 8809 | 0 | 39 | 0 |
+| 2019 | 8908 | 0 | 22 | 0 |
+| 2020 | 7724 | 0 | 0 | 0 |
+| 2021 | 9488 | 0 | 0 | 0 |
+| 2022 | 8653 | 0 | 15 | 0 |
+| 2023 | 9163 | 0 | 18 | 0 |
+| 2024 | 8684 | 0 | 17 | 0 |
+| 2025 | 8693 | 0 | 0 | 0 |
+| 2026 | 12480 | 0 | 3 | 0 |
+| 2027 | 3697 | 0 | 0 | 0 |
+
+A maradék dupla szereplések mind forrás-ellentmondások (a forrás maga ad két
+különböző ellenfelet ugyanarra a napra), ezeket nem javítjuk találgatással.
+
+Kézi javítások a záró körben: Ajaccio/Ajaccio GFCO (2015, 2016 Ligue 1),
+Barcelona–Deportivo Alavés B → Alavés (2018), Deportivo La Coruña II →
+La Coruña (2018) — a duplikált meccssorok merge-elve, a csapatnevek a helyes
+entitásra állítva, auditálva.
+
+Csapatlogó-lefedettség: a 2026-11-13…11-30 ablakra a FotMob-import
+1734 további csapatlogót töltött le (összesen 5026 csapatnak van logója a
+6429-ből); a napi hiány 227 → 222 csapat a 11-21-i napon.
