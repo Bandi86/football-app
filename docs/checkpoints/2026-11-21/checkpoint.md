@@ -878,3 +878,24 @@ események 15:45 után nem töltődtek be.
 **Következő döntési pont:** a) a research napi gyűjtő automatikusítása
 (launchd engedélyezés vagy gyakoribb slotok) — külön döntés; b) a 3 hiányzó
 eredmény pótlása; c) a LaLiga 2 – AR átsorolás; d) validációs retenció.
+
+### S89 folytatás — maradék verseny-névváltozatok rendezése
+
+- [x] **Verseny-merge-ek:** CZ „1st League” (4 meccs) → „1. Liga” (9);
+      UZ „Superliga” (6) → „Super League” (12); AT „Bundesliga” (8, a S84-es
+      osztrák séma miatt a DE entitásba merge-ölt entity-vel) → „Austrian
+      Bundesliga” (3) — az AT ágat entitás-javítással kellett rendezni (új
+      entitás, majd meccs-átmozgatás + alias `Bundesliga`/AT a túlélőre).
+- [x] **Női/férfi keveredés:** 2 dán női A-Liga meccs a férfi A-Ligából a
+      „A-Liga Women” versenybe olvasztva (`dedupe pair`, túlélő a női sor).
+- [x] **Névvariáns meccsek:** 4 pár (`Allsvenskan` Östersunds, AT LASK, AT
+      WSG Tirol, AT Grazer AK) összevonva; a túlélőnél megmaradt az élő/finished
+      állapot.
+- [x] **Eredmény:** ±3 napra 0 fold-azonos duplikált csoport; 1 cross-competition
+      pár maradt: FR „Ligue 1” vs „Première Ligue (női)” Paris FC–Angers
+      11-22 — ez a női csapatok `gender=male` adathibájának következménye
+      (külön szelet, fuzzy merge nélkül nem javítható).
+- [x] **DB:** `core.match` **283 612**, aktív verseny **747**, 11-21
+      incidents **4 850 / 450 meccs**, day API **932 sor**; reverify 11-21 →
+      verified 488 / provisional 458 / withheld **3** (változatlan
+      MATCH_RESULT_REQUIRED); `integrity` → **OK**.
