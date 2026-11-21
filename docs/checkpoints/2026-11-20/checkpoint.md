@@ -1675,3 +1675,23 @@ Nyitott:
 - Élő API: `/v1/match/01a1e9e8-…` → Real Madrid 2., Celta 13.
 - Élő UI: a Real Madrid–Celta részletezőn a helyezés-jelvények, forma, egymás
   elleni mérleg és következő meccsek együtt (`/tmp/s58_detail.png`).
+
+## S59 — odds-frissítés a következő hétre + napi frissítés dokumentálása
+
+### Adatműveletek
+- A research odds pipeline lefutott 2026-11-21…28-ra (`football fetch`, `odds`,
+  `api-export`); a 11-21-i napra 266 meccshez került piac (≈3 900 `fact.odds_quote`
+  research forrásból), 11-22-re 41-hez, a többi napra 0–7-hez (a fogadóirodák
+  távolabbra még nem adnak oddsot).
+- A hét napjaira `odds-resync-<dátum>` research refresh jobok futottak
+  (feldolgozva 7/7); a beragadt, lejárt lease-eket visszaállítottam, a hibás
+  `rescan-*` soccerway jobokat lezártam (az „üres fetch-terv" és a hiányzó
+  obscura-feature miatt).
+- Új üzemeltetési útmutató: `docs/operations/daily-refresh.md` (research napi
+  futás, v2 catch-up, odds-lefedettség értelmezése, hiány-panel/audit).
+
+### Ellenőrzések
+- Odds-lefedettség (publishable, 2026-11-21…28): 271/844, 34/396, 6/101, 1/149,
+  1/147, 0/78, 1/141, 1/621 — a 11-21-i nap a legjobban fedett, a jövőbeli
+  napok a források publikálási ütemét követik.
+- A daemon a legfrissebb binárison fut (S58 végi állapot).
