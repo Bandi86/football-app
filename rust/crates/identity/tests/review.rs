@@ -461,6 +461,77 @@ async fn approve_create_makes_entity_and_links() {
     assert_eq!(ref_count(&pool, source_id, "rev-new").await, 1);
 }
 
+/// S1.7: az új entitás jóváhagyása reviewed aliast is ír a javasolt névre,
+/// kanonikus országgal és `manual_review` módszerrel; a linker a későbbi
+/// írásmód-variánst ("Epinal") ugyanarra az entitásra oldja fel.
+#[tokio::test]
+async fn approve_create_writes_reviewed_alias_and_linker_finds_variant() {
+    let pool = test_pool().await;
+    let source_id = seed_source(&pool, "demo-synthetic").await;
+    let _fr = seed_country(&pool, "FR", "Franciaország").await;
+    let ctx = IdentityContext {
+        country_code: Some("FR".into()),
+        ..Default::default()
+    };
+    let queue_id = match resolve(
+        &pool,
+        source_id,
+        "demo-synthetic",
+        "team",
+        "rev-alias-1",
+        "Épinal",
+        &ctx,
+    )
+    .await
+    .unwrap()
+    {
+        Resolution::NotFound { queue_id } => queue_id,
+        other => panic!("NotFound helyett: {other:?}"),
+    };
+    let entity_id = review::approve_create(&pool, queue_id, "cli", Some("új klub"))
+        .await
+        .unwrap();
+
+    let (alias, lang, country, status, method): (String, String, Option<String>, String, String) =
+        sqlx::query_as(
+            "SELECT alias, lang, country_code, status, method FROM identity.alias
+             WHERE entity_id = $1",
+        )
+        .bind(entity_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(alias, "Épinal");
+    // A hamis 'hu' helyett semleges nyelv, az ország kanonikus ISO2.
+    assert_eq!(lang, "und");
+    assert_eq!(country.as_deref(), Some("FR"));
+    assert_eq!(status, "reviewed");
+    assert_eq!(method, "manual_review");
+
+    // A linker az ékezet nélküli variánst ugyanarra az entitásra oldja.
+    let res = resolve(
+        &pool,
+        source_id,
+        "demo-synthetic",
+        "team",
+        "rev-alias-2",
+        "Epinal",
+        &ctx,
+    )
+    .await
+    .unwrap();
+    match res {
+        Resolution::Exact {
+            entity_id: e,
+            method,
+        } => {
+            assert_eq!(e, entity_id);
+            assert_eq!(method, ResolveMethod::ReviewedAlias);
+        }
+        other => panic!("Exact(ReviewedAlias) helyett: {other:?}"),
+    }
+}
+
 #[tokio::test]
 async fn approve_create_pending_batches_all_pending_rows() {
     let pool = test_pool().await;

@@ -56,4 +56,106 @@ final class MatchDetailModelTests: XCTestCase {
         await model.load(matchId: UUID())
         XCTAssertEqual(model.state, .error(.notFound))
     }
+
+    // MARK: - Teljes meccsszerkesztés
+
+    private actor RecordingManualService: ManualEntryService {
+        private(set) var lastMatchId: UUID?
+        private(set) var lastEdit: ManualEditRequest?
+        private let result: Result<ManualResultResponse, APIError>
+
+        init(result: Result<ManualResultResponse, APIError>) {
+            self.result = result
+        }
+
+        func submitResult(matchId: UUID, request: ManualResultRequest) async throws -> ManualResultResponse {
+            try result.get()
+        }
+
+        func submitEdit(matchId: UUID, request: ManualEditRequest) async throws -> ManualResultResponse {
+            lastMatchId = matchId
+            lastEdit = request
+            return try result.get()
+        }
+    }
+
+    private func manualResponse() -> ManualResultResponse {
+        let json = """
+        {"match_id":"00000000-0000-0000-0000-0000000000aa",
+         "observation_id":"00000000-0000-0000-0000-0000000000cc",
+         "audit_id":"00000000-0000-0000-0000-0000000000dd",
+         "state":"provisional_publish"}
+        """.data(using: .utf8)!
+        return try! APIDecoding.makeDecoder().decode(ManualResultResponse.self, from: json)
+    }
+
+    private func editRequest() -> ManualEditRequest {
+        ManualEditRequest(
+            note: "kézi javítás",
+            kickoffAt: Date(timeIntervalSince1970: 1_800_000_000),
+            kickoffPrecision: "exact",
+            status: "finished",
+            homeFt: 3,
+            awayFt: 1,
+            homeHt: 2,
+            awayHt: 0,
+            decidedBy: "ft"
+        )
+    }
+
+    func testSubmitEditForwardsRequestAndReloads() async {
+        let detail = sample()
+        let recorder = RecordingManualService(result: .success(manualResponse()))
+        let model = MatchDetailModel(
+            loader: StubLoader(result: .success(info)),
+            serviceFactory: { _ in StubService(result: .success(detail)) },
+            manualServiceFactory: { _ in recorder }
+        )
+        await model.load(matchId: detail.id)
+        let request = editRequest()
+        await model.submitEdit(matchId: detail.id, request: request)
+
+        let recorded = await recorder.lastEdit
+        let recordedMatchId = await recorder.lastMatchId
+        XCTAssertEqual(recorded, request)
+        XCTAssertEqual(recordedMatchId, detail.id)
+        XCTAssertNil(model.submitError)
+        XCTAssertFalse(model.isSubmitting)
+        XCTAssertEqual(model.state, .loaded(detail))
+    }
+
+    func testSubmitEditSurfacesServerMessage() async {
+        let detail = sample()
+        let recorder = RecordingManualService(
+            result: .failure(.serverMessage("A kezdés nem lehet a jövőben."))
+        )
+        let model = MatchDetailModel(
+            loader: StubLoader(result: .success(info)),
+            serviceFactory: { _ in StubService(result: .success(detail)) },
+            manualServiceFactory: { _ in recorder }
+        )
+        await model.load(matchId: detail.id)
+        await model.submitEdit(matchId: detail.id, request: editRequest())
+
+        XCTAssertEqual(model.submitError, .serverMessage("A kezdés nem lehet a jövőben."))
+        XCTAssertFalse(model.isSubmitting)
+        // Hiba esetén nincs újratöltés: a betöltött részletek megmaradnak.
+        XCTAssertEqual(model.state, .loaded(detail))
+    }
+
+    func testSubmitEditRejectsBlankNoteWithoutCallingService() async {
+        let detail = sample()
+        let recorder = RecordingManualService(result: .success(manualResponse()))
+        let model = MatchDetailModel(
+            loader: StubLoader(result: .success(info)),
+            serviceFactory: { _ in StubService(result: .success(detail)) },
+            manualServiceFactory: { _ in recorder }
+        )
+        await model.load(matchId: detail.id)
+        await model.submitEdit(matchId: detail.id, request: ManualEditRequest(note: "   "))
+
+        XCTAssertEqual(model.submitError, .badRequest)
+        let recorded = await recorder.lastEdit
+        XCTAssertNil(recorded)
+    }
 }

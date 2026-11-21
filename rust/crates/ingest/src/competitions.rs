@@ -370,7 +370,10 @@ const ENTRIES: &[Entry] = &[
 /// A megfigyelt verseny-meta kanonizált változata (ismeretlen cím → változatlan).
 pub fn canonicalize(competition: &NormalizedCompetition) -> NormalizedCompetition {
     let key = fold_name(&competition.name);
-    let Some(entry) = ENTRIES.iter().find(|e| e.observed == key) else {
+    // S1: a fold_name most a szóközt és az írásjeleket is elhagyja, ezért a
+    // szótár korábbi, szóközös `observed` kulcsait is foldolva hasonlítjuk
+    // (a szótári literálok így változatlanul olvashatók maradnak).
+    let Some(entry) = ENTRIES.iter().find(|e| fold_name(e.observed) == key) else {
         return competition.clone();
     };
     let (country_code, country_name) = match entry.country {
@@ -461,7 +464,11 @@ pub fn country_specific_name(country_code: &str, observed_name: &str) -> Option<
     if folded.is_empty() {
         return None;
     }
-    let mentions = |needles: &[&str]| needles.iter().any(|needle| folded.contains(needle));
+    let mentions = |needles: &[&str]| {
+        needles
+            .iter()
+            .any(|needle| folded.contains(&fold_name(needle)))
+    };
     let is_cup = mentions(&["cup", "kupa"]);
     match country.as_str() {
         "CN" if is_cup => Some("Chinese FA Cup"),

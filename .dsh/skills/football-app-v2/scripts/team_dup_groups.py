@@ -23,25 +23,52 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-import unicodedata
 import uuid
 from collections import defaultdict
 
 
+# A Rust `football_domain::identity::fold_name` karaktertáblájának pontos
+# tükre (db/migrations/0018_identity_fold.sql). A két implementáció csak
+# együtt változhat; a paritást a storage identity_repos teszt is ellenőrzi.
+FOLD_TRANSLITERATION = {
+    **dict.fromkeys("áàâäãåą", "a"),
+    **dict.fromkeys("éèêëę", "e"),
+    **dict.fromkeys("íìîïı", "i"),
+    **dict.fromkeys("óòôöőõø", "o"),
+    **dict.fromkeys("úùûüű", "u"),
+    **dict.fromkeys("çćč", "c"),
+    **dict.fromkeys("ñń", "n"),
+    **dict.fromkeys("šśş", "s"),
+    **dict.fromkeys("žźż", "z"),
+    **dict.fromkeys("ýÿ", "y"),
+    "đ": "d",
+    "ł": "l",
+    "ř": "r",
+    "ť": "t",
+    "ŧ": "t",
+    "ğ": "g",
+    "ħ": "h",
+    "ß": "s",
+    "æ": "a",
+    "œ": "o",
+    "ð": "d",
+    "þ": "t",
+}
+
+# Az exact kulcsból elhagyott szóköz/írásjelek + a török İ maradék combining
+# dotja. Szándékosan nincs `[^a-z0-9]` jellegű szűrés: a nem-latin betűk
+# megmaradnak.
+FOLD_STRIP = set(" .'\u2019-_&/(),") | {"\u0307"}
+
+
 def fold(name: str) -> str:
-    """Ékezet-független, kisbetűs név (török ı/İ is)."""
-    lowered = " ".join(name.split()).lower()
-    decomposed = unicodedata.normalize("NFKD", lowered)
+    """A Rust fold_name pontos tükre: lower + ékezet-hajtás + szóköz/írásjel
+    elhagyás. Nem NFKD-alapú, hogy a nem-latin betűk ne tűnjenek el."""
     out = []
-    for ch in decomposed:
-        if unicodedata.combining(ch):
+    for ch in "".join(name.split()).lower():
+        if ch in FOLD_STRIP:
             continue
-        if ch == "ı":
-            out.append("i")
-        elif ch == "ß":
-            out.append("ss")
-        else:
-            out.append(ch)
+        out.append(FOLD_TRANSLITERATION.get(ch, ch))
     return "".join(out)
 
 
@@ -50,6 +77,7 @@ SQL = """SELECT t.id, t.entity_id, t.name, coalesce(k.code, ''),
        (SELECT count(*) FROM core.match m
          WHERE m.home_team_id = t.id OR m.away_team_id = t.id)
   FROM core.team t
+  JOIN core.entity e ON e.id = t.entity_id AND e.merged_into_id IS NULL
   LEFT JOIN core.country k ON k.id = t.country_id"""
 
 

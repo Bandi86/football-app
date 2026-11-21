@@ -9,10 +9,22 @@ pub fn normalize_name(s: &str) -> String {
         .to_lowercase()
 }
 
-/// Ékezet-független, kisbetűs alak — crosswalk-seed összehasonlításhoz.
-/// A linker kulcsa a `normalize_name` (lower), ezért a seed mindkét alakot
-/// eltárolja, ha a forrás neve ékezetes.
-pub fn fold_name(s: &str) -> String {
+/// Exact-lookup kulcs: ékezet-független, kisbetűs, whitespace- és
+/// írásjel-mentes alak.
+///
+/// A linker exact kulcsa ez (a fuzzy jelöltképzés továbbra is a
+/// `normalize_name`/token-overlap marad). Az SQL `identity.fold_name`
+/// (db/migrations/0018_identity_fold.sql) ugyanezt a karaktertáblát és
+/// ugyanezt a sorrendet követi; a két implementáció egyezését a storage
+/// identity_repos teszt bizonyítja.
+/// A fold karaktertáblája a szóköz/írásjel elhagyása nélkül.
+///
+/// A `name_markers`, `name_tokens` és `strip_age_markers` token-felismeréséhez
+/// kell a szóhatár, ezért ez a változat megtartja a szóközt és az
+/// írásjeleket; a külső [`fold_name`] ebből dobja el őket. Publikus, mert a
+/// token-alapú fogyasztók (audit nem/életkor markerek, v1 seed aliasok) is
+/// ezt használják — a [`fold_name`] a lookup kulcsa, ez a tokeneké.
+pub fn fold_keep_separators(s: &str) -> String {
     normalize_name(s)
         .chars()
         .filter_map(|c| match c {
@@ -29,11 +41,40 @@ pub fn fold_name(s: &str) -> String {
             'đ' => Some('d'),
             'ł' => Some('l'),
             'ř' => Some('r'),
-            'ť' => Some('t'),
+            'ť' | 'ŧ' => Some('t'),
             'ğ' => Some('g'),
+            'ħ' => Some('h'),
+            'ß' => Some('s'),
+            'æ' => Some('a'),
+            'œ' => Some('o'),
+            'ð' => Some('d'),
+            'þ' => Some('t'),
             // A török nagy İ kisbetűsítése "i" + combining dot lesz.
             '\u{0307}' => None,
             other => Some(other),
+        })
+        .collect()
+}
+
+/// Exact-lookup kulcs: ékezet-független, kisbetűs, whitespace- és
+/// írásjel-mentes alak.
+///
+/// A linker exact kulcsa ez (a fuzzy jelöltképzés továbbra is a
+/// `normalize_name`/token-overlap marad). Az SQL `identity.fold_name`
+/// (db/migrations/0018_identity_fold.sql) ugyanezt a karaktertáblát és
+/// ugyanezt a sorrendet követi; a két implementáció egyezését a storage
+/// identity_repos teszt bizonyítja.
+pub fn fold_name(s: &str) -> String {
+    fold_keep_separators(s)
+        .chars()
+        // Az exact kulcsban a szóköz és a leggyakoribb írásjelek nem
+        // hordoznak identitást: "K. Lierse S.K." = "K Lierse SK",
+        // "Bodø/Glimt" = "Bodø Glimt", "Queen's Park" = "Queens Park".
+        .filter(|c| {
+            !matches!(
+                c,
+                ' ' | '.' | '\'' | '\u{2019}' | '-' | '_' | '&' | '/' | '(' | ')' | ','
+            )
         })
         .collect()
 }
@@ -203,15 +244,31 @@ pub fn canonical_country_code_with_name(code: &str, name: &str) -> String {
         return "GB-WLS".to_string();
     }
     if has(&[
-        "northern ireland",
-        "eszak-irorszag",
-        "eszak irorszag",
+        "northernireland",
+        "eszakiroorszag",
+        "eszakirorszag",
         "nordirland",
-        "irlande du nord",
+        "irlandedunord",
     ]) {
         return "GB-NIR".to_string();
     }
     base
+}
+
+/// Alias-orország: kanonikus országkód, vagy `None`, ha a forrás csak
+/// semleges kódot adott (XX/INT/UNK/ZZ/üres).
+///
+/// A semleges kód nem valódi ország: ha az aliasba bekerülne, a
+/// kontextus-szűrő wildcardként kezelné (S2), viszont egy valódi országú
+/// megfigyelés mellett félrevezető lenne. Ezért az aliasban a hiányt
+/// `NULL` jelzi (AGENTS.md: hiányzó adat NULL, nem 0).
+pub fn alias_country_code(raw: Option<&str>) -> Option<String> {
+    let canonical = canonical_country_code(raw?);
+    if neutral_country_code(&canonical) {
+        None
+    } else {
+        Some(canonical)
+    }
 }
 
 /// ISO 3166-1 alpha-3 → alpha-2 (a labdarúgásban gyakori kódokkal, illetve a
@@ -398,9 +455,23 @@ fn iso3_to_iso2(code: &str) -> Option<&'static str> {
     Some(iso2)
 }
 
+/// Semleges országkód: nem valódi ország, ezért a kontextus-egyeztetésnél
+/// wildcard. A források nemzetközi versenynél `INT`-et, a kanonikus sor
+/// `XX`-et, hiányzó/ismeretlen adat `UNK`/`ZZ`-t vagy üres stringet adhat.
+fn neutral_country_code(code: &str) -> bool {
+    let normalized = normalize_country_code(code);
+    normalized.is_empty() || matches!(normalized.as_str(), "XX" | "INT" | "UNK" | "ZZ")
+}
+
 fn country_matches(a: &Option<String>, b: &Option<String>) -> bool {
     match (a, b) {
-        (Some(x), Some(y)) => normalize_country_code(x) == normalize_country_code(y),
+        (Some(x), Some(y)) => {
+            // S2: a semleges kód bármely valódi országgal egyezik (wildcard),
+            // de két különböző valódi ország továbbra sem egyezik.
+            neutral_country_code(x)
+                || neutral_country_code(y)
+                || normalize_country_code(x) == normalize_country_code(y)
+        }
         _ => true,
     }
 }
@@ -433,7 +504,7 @@ impl NameMarkers {
 /// szabályával összhangban). Női ág: `W`, `Women`, `Womens`, `női`/`noi`.
 /// A `W` jelölő csak önálló tokenként számít, hogy a klubnevekbe ne fusson bele.
 pub fn name_markers(name: &str) -> NameMarkers {
-    let folded = fold_name(name);
+    let folded = fold_keep_separators(name);
     let tokens: Vec<&str> = folded
         .split(|c: char| !c.is_alphanumeric())
         .filter(|t| !t.is_empty())
@@ -587,7 +658,7 @@ const CLUB_TOKENS: [&str; 19] = [
 ];
 
 fn name_tokens(name: &str) -> Vec<String> {
-    fold_name(name)
+    fold_keep_separators(name)
         .split(|c: char| !c.is_alphanumeric())
         .filter(|t| !t.is_empty() && !CLUB_TOKENS.contains(t))
         .map(String::from)
@@ -658,7 +729,7 @@ fn edit_distance_one(a: &str, b: &str) -> bool {
 /// (női)" → "Bodø / Glimt") — a források eltérően jelölik ugyanazt a csapatot.
 /// Csak összehasonlításra használható, kanonikus név képzésére nem.
 pub fn strip_age_markers(name: &str) -> String {
-    let folded = fold_name(name);
+    let folded = fold_keep_separators(name);
     folded
         .split_whitespace()
         .filter(|token| {

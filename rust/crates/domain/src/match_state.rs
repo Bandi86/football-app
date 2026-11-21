@@ -22,6 +22,37 @@ impl MatchStatus {
     pub fn requires_result(self) -> bool {
         matches!(self, Self::Finished | Self::Awarded)
     }
+
+    /// A `core.match.status` oszlopában tárolt érték.
+    pub fn as_db_str(self) -> &'static str {
+        match self {
+            Self::Scheduled => "scheduled",
+            Self::Confirmed => "confirmed",
+            Self::Live => "live",
+            Self::Halftime => "halftime",
+            Self::Finished => "finished",
+            Self::Postponed => "postponed",
+            Self::Canceled => "canceled",
+            Self::Abandoned => "abandoned",
+            Self::Awarded => "awarded",
+        }
+    }
+
+    /// A DB-ből vagy kérésből érkező szöveges státusz feloldása.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "scheduled" => Some(Self::Scheduled),
+            "confirmed" => Some(Self::Confirmed),
+            "live" => Some(Self::Live),
+            "halftime" => Some(Self::Halftime),
+            "finished" => Some(Self::Finished),
+            "postponed" => Some(Self::Postponed),
+            "canceled" => Some(Self::Canceled),
+            "abandoned" => Some(Self::Abandoned),
+            "awarded" => Some(Self::Awarded),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

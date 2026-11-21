@@ -766,6 +766,14 @@ pub async fn verify_and_publish(
         let date = local_publish_date(materialized.snapshot.kickoff_at, PUBLISH_TIMEZONE)?;
         evaluate_and_persist_gate(pool, materialized.match_id, date, &report, RULE_SET_VERSION)
             .await?;
+        // S80: a kickoff áthelyezése után a régi helyi dátumra írt gate sor
+        // elavult derivált adat (a publish_date a kickoffból számolódik),
+        // ezért töröljük — ugyanaz a szabály, mint a reverify útban.
+        sqlx::query("DELETE FROM ops.publish_gate WHERE match_id=$1 AND publish_date <> $2")
+            .bind(materialized.match_id)
+            .bind(date)
+            .execute(pool)
+            .await?;
         // Odds trust_state a gate után; üres odds listán nincs frissítés.
         let odds_state = evaluate_odds_trust(&odds_values, ODDS_TOLERANCE_DEFAULT);
         if odds_state != OddsTrustState::NoOdds {
@@ -924,6 +932,15 @@ pub async fn reverify_match(pool: &PgPool, match_id: Uuid) -> Result<()> {
     persist_report(pool, match_id, &report, RULE_SET_VERSION).await?;
     let date = local_publish_date(kickoff_at, PUBLISH_TIMEZONE)?;
     evaluate_and_persist_gate(pool, match_id, date, &report, RULE_SET_VERSION).await?;
+    // S80: a kickoff áthelyezése után a régi helyi dátumra írt gate sor elavult
+    // derivált adat (a publish_date a kickoffból számolódik), ezért töröljük.
+    // A friss sor már fentebb bekerült, így a meccsnek egyetlen aktuális
+    // gate állapota marad; a történetet az audit és a verification report adja.
+    sqlx::query("DELETE FROM ops.publish_gate WHERE match_id=$1 AND publish_date <> $2")
+        .bind(match_id)
+        .bind(date)
+        .execute(pool)
+        .await?;
     let odds_state = evaluate_odds_trust(&odds_values, ODDS_TOLERANCE_DEFAULT);
     if odds_state != OddsTrustState::NoOdds {
         trust::update_odds_trust_state(pool, match_id, odds_state).await?;

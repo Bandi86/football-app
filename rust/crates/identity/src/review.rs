@@ -11,7 +11,7 @@
 //! `InvalidInput` (fail-closed). A jegyzet nélküli elutasítás szintén
 //! `InvalidInput` („A jegyzet nem lehet üres.”).
 
-use football_domain::identity::{IdentityContext, context_matches, normalize_name};
+use football_domain::identity::{IdentityContext, alias_country_code, context_matches, fold_name};
 use football_storage::repositories::identity as repo;
 use serde_json::json;
 use sqlx::PgPool;
@@ -179,8 +179,8 @@ pub async fn approve_create_with(
     };
     let mut existing_entity: Option<Uuid> = None;
     if let Some(ctx) = &ctx {
-        let normalized = normalize_name(&row.proposed_name);
-        let entities = repo::team_entities_by_normalized_name(pool, &normalized)
+        let folded = fold_name(&row.proposed_name);
+        let entities = repo::team_entities_by_normalized_name(pool, &folded)
             .await
             .map_err(db_err)?;
         let hits: Vec<_> = entities
@@ -253,6 +253,36 @@ pub async fn approve_create_with(
         .await
         .map_err(|e| IdentityError::Db(e.to_string()))?;
     }
+
+    // S1.7: a jóváhagyás a javasolt nevet reviewed aliasként is rögzíti, hogy
+    // a későbbi írásmód-variáns ("Epinal" vs "Épinal") exact feloldást kapjon.
+    // A `lang` semleges 'und' (a korábbi hamis 'hu' helyett), az ország a
+    // kanonikus ISO2-kód, semleges kódnál (XX/INT/UNK/ZZ/üres) NULL. A
+    // kontextust a csapatnál a névjelölőkkel kiegészített `ctx` adja, más
+    // kindnál a review-sor nyers kontextusa. Ütközésnél nincs változás
+    // (idempotens).
+    let alias_ctx = ctx
+        .clone()
+        .unwrap_or_else(|| context_from_json(&row.context));
+    sqlx::query(
+        "INSERT INTO identity.alias
+         (id, entity_id, alias, lang, country_code, gender, age_group, branch,
+          status, method, reviewed_by, reviewed_at)
+         VALUES ($1,$2,$3,'und',$4,$5,$6,$7,'reviewed','manual_review',$8,now())
+         ON CONFLICT (entity_id, alias, lang, country_code, gender, age_group, branch)
+         DO NOTHING",
+    )
+    .bind(Uuid::now_v7())
+    .bind(entity_id)
+    .bind(&row.proposed_name)
+    .bind(alias_country_code(alias_ctx.country_code.as_deref()))
+    .bind(&alias_ctx.gender)
+    .bind(&alias_ctx.age_group)
+    .bind(&alias_ctx.branch)
+    .bind(decided_by)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| IdentityError::Db(e.to_string()))?;
 
     repo::insert_manual_ref(
         &mut *tx,

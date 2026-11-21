@@ -14,7 +14,7 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use chrono::NaiveDate;
-use football_domain::identity::{fold_name, names_likely_same};
+use football_domain::identity::{fold_keep_separators, fold_name, names_likely_same};
 use serde::Serialize;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -280,7 +280,7 @@ fn context_compatible(a: &DuplicateMatchRow, b: &DuplicateMatchRow) -> bool {
 }
 
 fn women_marked(name: &str) -> bool {
-    fold_name(name).split(' ').any(|token| {
+    fold_keep_separators(name).split(' ').any(|token| {
         matches!(
             token,
             "w" | "women" | "womens" | "woman" | "noi" | "femenine" | "feminine" | "ladies"
@@ -301,7 +301,7 @@ fn age_compatible(a: &str, b: &str) -> bool {
 }
 
 fn age_marker(name: &str) -> Option<String> {
-    let folded = fold_name(name);
+    let folded = fold_keep_separators(name);
     let tokens: Vec<&str> = folded.split(' ').filter(|t| !t.is_empty()).collect();
     for (i, token) in tokens.iter().enumerate() {
         let digits = if let Some(rest) = token.strip_prefix('u') {

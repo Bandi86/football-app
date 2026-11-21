@@ -9,7 +9,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use football_domain::identity::{AliasSeed, fold_name};
+use football_domain::identity::{AliasSeed, fold_keep_separators, fold_name};
 use football_storage::repositories::identity::EntityRow;
 
 /// Egy v1 csapat a hozzá tartozó nevekkel (név + aliasok, nyelvvel).
@@ -89,7 +89,7 @@ pub fn plan_seeds(v2: &[EntityRow], v1: &[V1Team]) -> (Vec<AliasSeed>, SeedStats
             if trimmed.is_empty() {
                 continue;
             }
-            let variants = [trimmed.to_string(), fold_name(trimmed)];
+            let variants = [trimmed.to_string(), fold_keep_separators(trimmed)];
             for alias in variants {
                 if !seen.insert((target.entity_id, alias.clone(), lang.clone())) {
                     continue;

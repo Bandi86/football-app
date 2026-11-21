@@ -470,3 +470,62 @@
 - A futó app manuális ellenőrzése; az NB I UI-fixture hibája; a `tick.rs`-ben
   lévő nem commitolt auto-dedupe változás most **bekerült a buildbe** és telepítve
   van — ha külön szeletként akarod kezelni, szólj.
+
+## S80 — identitás-fold, teljes kézi meccsszerkesztés, kapu- és dedupe-takarítás
+
+- [x] **Gyökérok (identitás)**: a linker/lookup ékezet-érzékeny `lower()` kulcson
+      futott, holott a `fold_name` létezett — csak seed/repair használta. Emiatt a
+      források ugyanazt a klubot más írásmóddal új entitásként hozták létre
+      (34 fold-azonos csoport), a versenyeknél pedig egyáltalán nincs alias-réteg
+      (30 fold-csoport, 271/816 verseny 0 meccsel).
+- [x] **SQL fold + expression indexek** (`db/migrations/0018_identity_fold.sql`):
+      `identity.fold_name(text)` IMMUTABLE STRICT SQL függvény; `core.idx_team_fold_name`,
+      `core.idx_entity_team_fold_name` (kind='team' parciális), `identity.idx_alias_fold_name`.
+      A Rust `fold_name` és a SQL függvény paritása 28+26 mintán 0 eltérés; a nem latin
+      nevek megmaradnak (`ЦСКА Москва → цскамосква`, `FC東京 → fc東京`).
+- [x] **Lookup + alias-írás minden létrehozásnál**: storage identity lekérdezések,
+      linker exact kulcs, `approve_create` és `create_on_miss` fold-alapon keresnek és
+      `lang='und'` aliast írnak; az ismeretlen ország (`XX/INT/UNK/ZZ/üres`) semleges
+      wildcard, a gender/age/branch kontextus-guard megmarad; a linker kizárja a
+      `merged_into_id`-vel jelölt entitásokat.
+- [x] **Dev migráció lefutott**: `sqlx migrate run` → `Applied 18 identity fold`
+      (141,5 ms), `_sqlx_migrations` v18 success=t; a 3 index létrejött.
+- [x] **Csapat-duplikátumok tényleges mergelése**: `team_dup_groups.py --apply`
+      28 csoportból **27 merge** + 1 kihagyva (Rennes: az egyik entitás már merged;
+      a ghost `core.team` sor 0 meccses, a linker kizárja). Ellenőrzés: `core.match`
+      **283 614** (változatlan), merged team entity **1 552 → 1 579**, 27
+      `team_merge` audit-esemény, `identity.alias` 7 213 (a variánsnevek már korábban
+      aliasok voltak). A script SQL-je mostantól szűri a merged entity-ket.
+- [x] **Teljes kézi meccsszerkesztés backend**: `domain/manual_edit.rs` (761 sor,
+      tesztelt validáció), `storage::apply_manual_match_edit` (tranzakció,
+      `SELECT FOR UPDATE`, natural key → 409 `conflict_match_id`, teljes result-csere
+      vagy törlés, provenance csak változott mezőkre `manual-2.0`, audit
+      `manual_match_edit` before/after), API `Present<T>` jelenlét-szemantika,
+      handler csak authorize→parse→domain→storage→reverify.
+- [x] **Kézi szerkesztő UI**: státusz, kickoff dátum/idő + precision (verseny
+      időzónájában, UTC payload), FT/HT/ET/pens feltételesen, `decided_by`,
+      kötelező indoklás, szerverhiba-üzenet dekódolás, 409 conflict megjelenítés;
+      `competition_timezone` az API-ból. SwiftPM 90 teszt/14 suite, FootballAppTests
+      60 teszt, `xcodebuild build` — mind 0 failure.
+- [x] **Kapu-takarítás**: kickoff-változás után a régi `publish_date`-ű gate sorok
+      törlődnek mind a `reverify_match`, mind a `verify_and_publish` útban (a
+      `publish_date` derivált érték, a day-lekérdezés a kickoff helyi dátumára joinol).
+- [x] **Kapu (teljes lánc)**: `./scripts/check.sh` → **EXIT=0**, **98 zöld
+      tesztblokk, 0 failure**, `fmt --check` és `clippy -D warnings` tiszta;
+      `cargo build -p footballd -p footballctl --features obscura` OK; daemon
+      újratelepítve (`install-footballd-agent.sh`), új port **51058**, `/v1/day/2026-11-21`
+      → 939 sor.
+- [x] **Élő e2e kézi szerkesztés**: PUT a futó API-ra (Recoleta–Guaraní 2–2,
+      HT 1–1, `decided_by=ft`, jegyzet) → `state=verified_publish`; DB-ben
+      `audit manual_match_edit` (actor ui), `match_result` 2–2/1–1 ft regular valid,
+      `fact.provenance` `decided_by=manual-2.0` selected, observation `match_core` +1.
+- [x] **Dokumentáció**: `docs/operations/manual-entry.md` újraírva az S80
+      szerződésre (UI, opcionális mezők, jelenlét-szemantika, 409, validáció,
+      provenance/audit, korlátok, visszaállítás, ellenőrzés).
+- [ ] **Nem ellenőrzött**: a szerkesztő lap valódi kattintgatása futó appban
+      (a futó app a régi build); a `date_only` normalizálás csak kliens-oldalon
+      történik; natural key versenyhelyzet 500-at adhat 409 helyett.
+- **Következő döntési pont**: verseny-identitás szelet (közös
+  `find_or_create_competition`, verseny-alias + `source_entity_ref`, `footballctl`
+  competition merge, majd UNIQUE(country, fold)); utána research események/
+  csapatstatisztika beemelése a meccsrészletezőbe; végül validációs retenció.

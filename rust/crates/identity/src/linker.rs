@@ -4,7 +4,7 @@
 //! 1. egzakt külső ID (aktív ref) → Exact,
 //! 2. crosswalk-lánc (csak strong/medium; weak teljesen kihagyva) → Exact,
 //! 3. reviewed alias kontextus-szűrővel, pontosan 1 entitás → Exact,
-//! 4. egzakt normalizált név kontextus-szűrővel, pontosan 1 → Exact,
+//! 4. egzakt foldolt név kontextus-szűrővel, pontosan 1 → Exact,
 //! 5. fuzzy jelöltek (token_overlap ≥ FUZZY_THRESHOLD, kontextus-szűrve,
 //!    soha nem Exact) → Candidates,
 //! 6. NotFound.
@@ -17,7 +17,7 @@ use std::collections::HashSet;
 
 use football_domain::identity::{
     Candidate, FUZZY_THRESHOLD, IdentityContext, Resolution, ResolveMethod, context_matches,
-    normalize_name, token_overlap,
+    fold_name, token_overlap,
 };
 use football_storage::repositories::identity as repo;
 use sqlx::PgPool;
@@ -80,10 +80,12 @@ pub async fn resolve(
         }
     }
 
-    let normalized = normalize_name(proposed_name);
+    // S1: az exact kulcs a foldolt név (ékezet + írásjel + whitespace nélkül);
+    // a fuzzy jelöltképzés továbbra is a normalize_name/token_overlap marad.
+    let folded = fold_name(proposed_name);
 
     // 3. review-olt alias + kontextus (pontosan 1 különböző entitás)
-    let aliases = repo::reviewed_aliases_by_name(pool, &normalized)
+    let aliases = repo::reviewed_aliases_by_name(pool, &folded)
         .await
         .map_err(db)?;
     let alias_entities: HashSet<Uuid> = aliases
@@ -100,8 +102,8 @@ pub async fn resolve(
         });
     }
 
-    // 4. egzakt normalizált név + kontextus (pontosan 1)
-    let entities = repo::team_entities_by_normalized_name(pool, &normalized)
+    // 4. egzakt foldolt név + kontextus (pontosan 1)
+    let entities = repo::team_entities_by_normalized_name(pool, &folded)
         .await
         .map_err(db)?;
     let name_hits: Vec<_> = entities

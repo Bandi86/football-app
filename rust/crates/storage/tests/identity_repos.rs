@@ -5,7 +5,7 @@
 //! all_team_entities, review upsert/get/list, decide, manual ref, entity_exists,
 //! entity_context, audit, list_aliases. A magyar nyelvű szövegeket visszaolvassuk.
 
-use football_domain::identity::IdentityContext;
+use football_domain::identity::{IdentityContext, fold_name};
 use football_storage::repositories::identity as repo;
 use football_storage::test_support::test_pool;
 use serde_json::json;
@@ -513,6 +513,114 @@ async fn reviewed_aliases_by_name_filters_and_context() {
             .unwrap()
             .is_empty()
     );
+
+    // S1: a lookup foldolt kulcson megy — az ékezet-, írásjel- és
+    // szóköz-variáns ugyanazt az aliast adja.
+    let accented = seed_team(&pool, "Épinal FC", None, "male", "senior", "senior").await;
+    seed_alias(
+        &pool,
+        accented,
+        "Épinal",
+        "hu",
+        Some("FR"),
+        Some("male"),
+        Some("senior"),
+        Some("senior"),
+        "reviewed",
+    )
+    .await;
+    for variant in ["Épinal", "Epinal", " epinal ", "E-PINAL"] {
+        let rows = repo::reviewed_aliases_by_name(&pool, variant)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1, "fold-alt alias: {variant:?}");
+        assert_eq!(rows[0].entity_id, accented);
+    }
+
+    // S2: az összevont entitás aliasa soha nem old fel.
+    let survivor = seed_team(&pool, "Épinal", None, "male", "senior", "senior").await;
+    let merged = seed_team(&pool, "Epinal Régi", None, "male", "senior", "senior").await;
+    sqlx::query("UPDATE core.entity SET merged_into_id=$1 WHERE id=$2")
+        .bind(survivor)
+        .bind(merged)
+        .execute(&pool)
+        .await
+        .unwrap();
+    seed_alias(
+        &pool,
+        merged,
+        "Epinal Régi",
+        "hu",
+        None,
+        None,
+        None,
+        None,
+        "reviewed",
+    )
+    .await;
+    assert!(
+        repo::reviewed_aliases_by_name(&pool, "Epinal Régi")
+            .await
+            .unwrap()
+            .is_empty(),
+        "merged entitás aliasa nem oldhat fel"
+    );
+}
+
+#[tokio::test]
+async fn sql_fold_name_matches_rust_fold_name() {
+    let pool = test_pool().await;
+    // A minta a gyakorlatban előforduló variánsokat fedi: ékezet, török
+    // betű, skandináv/német különleges betűk, írásjel/szóköz-eltérés és
+    // nem-latin nevek (ezeket a fold nem dobhatja el).
+    let samples = [
+        "Épinal",
+        "Epinal",
+        "Bourg-Péronnas",
+        "Göztepe",
+        "Deportivo Morón",
+        "Racing Besançon",
+        "Sablé FC",
+        "Bodø/Glimt",
+        "Bodø Glimt",
+        "Queen's Park",
+        "Queens Park",
+        "K. Lierse S.K.",
+        "Harland & Wolff Welders F.C.",
+        "Ostia Mare",
+        "AS FAN",
+        "  Ferencvárosi   TC ",
+        "İstanbulspor",
+        "Beşiktaş",
+        "ŁKS Łódź",
+        "Þór",
+        "Æsir",
+        "Œuvre",
+        "Ðor",
+        "ħ",
+        "ŧ",
+        "ß",
+        "ЦСКА Москва",
+        "FC東京",
+    ];
+    for sample in samples {
+        let sql_folded: String = sqlx::query_scalar("SELECT identity.fold_name($1)")
+            .bind(sample)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            sql_folded,
+            fold_name(sample),
+            "SQL és Rust fold eltér: {sample:?}"
+        );
+    }
+    // A függvény STRICT: NULL → NULL.
+    let null_folded: Option<String> = sqlx::query_scalar("SELECT identity.fold_name(NULL::text)")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(null_folded, None);
 }
 
 #[tokio::test]
@@ -598,6 +706,48 @@ async fn team_entities_by_normalized_name_join_and_context() {
             .await
             .unwrap()
             .is_empty()
+    );
+
+    // S1: foldolt egyezés — az írásjel/szóköz-variáns is megtalálja.
+    for variant in ["demófc", "DEMO FC", "Demó-FC."] {
+        let rows = repo::team_entities_by_normalized_name(&pool, variant)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1, "fold-variáns: {variant:?}");
+        assert_eq!(rows[0].entity_id, entity_id);
+    }
+
+    // S2: az összevont entitás nem jelölt és nem oldható fel.
+    let merged = Uuid::now_v7();
+    sqlx::query("INSERT INTO core.entity (id, kind, canonical_name) VALUES ($1,'team','Demó FC')")
+        .bind(merged)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO core.team (id, entity_id, country_id, name, gender, age_group, branch)
+         VALUES ($1,$1,$2,'Demó FC','male','senior','senior')",
+    )
+    .bind(merged)
+    .bind(country_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE core.entity SET merged_into_id=$1 WHERE id=$2")
+        .bind(entity_id)
+        .bind(merged)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let rows = repo::team_entities_by_normalized_name(&pool, "demó fc")
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1, "merged entitás nem lehet találat");
+    assert_eq!(rows[0].entity_id, entity_id);
+    let all = repo::all_team_entities(&pool).await.unwrap();
+    assert!(
+        all.iter().all(|r| r.entity_id != merged),
+        "all_team_entities is szűri a merged entitást"
     );
 }
 

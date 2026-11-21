@@ -492,6 +492,10 @@ async fn match_detail_returns_verified_fields_and_gate() {
     assert_eq!(value["competition_name"], "NB I");
     assert_eq!(value["gate_state"], "verified_publish");
     assert_eq!(value["kickoff_precision"], "exact");
+    assert_eq!(
+        value["competition_timezone"], "Europe/Budapest",
+        "a kliens a verseny időzónájából számolja a helyi kezdés-időt"
+    );
     assert!(value["season_label"].is_string());
 
     let missing = app

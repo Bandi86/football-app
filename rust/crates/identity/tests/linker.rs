@@ -738,3 +738,285 @@ fn hungarian_error_messages() {
         "Érvénytelen entitásazonosító."
     );
 }
+
+// ---------------------------------------------------------------------------
+// S1/S2: fold-alapú exact lookup, semleges ország, merged védelem
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn folded_exact_name_resolves_across_accent_and_neutral_country() {
+    let pool = test_pool().await;
+    let source_id = seed_source(&pool, "demo-synthetic").await;
+    let fr_id = seed_country(&pool, "FR", "Franciaország").await;
+    let entity_id = seed_team(&pool, "Épinal", Some(fr_id), "male", "senior", "senior").await;
+
+    // „Epinal" (ékezet nélkül) + a research semleges ország-kódjai (INT/XX/
+    // UNK/ZZ): a fold megtalálja az „Épinal" entitást, a semleges ország
+    // wildcardként viselkedik → Exact(ExactName) ugyanarra az entitásra.
+    for (ext, country) in [
+        ("int-1", "INT"),
+        ("xx-1", "XX"),
+        ("unk-1", "UNK"),
+        ("zz-1", "ZZ"),
+        ("unknown-1", ""),
+    ] {
+        let ctx = IdentityContext {
+            country_code: Some(country.into()),
+            ..ctx_hu()
+        };
+        let res = resolve(
+            &pool,
+            source_id,
+            "demo-synthetic",
+            "team",
+            ext,
+            "Epinal",
+            &ctx,
+        )
+        .await
+        .unwrap();
+        match res {
+            Resolution::Exact {
+                entity_id: e,
+                method,
+            } => {
+                assert_eq!(e, entity_id, "semleges ország: {country:?}");
+                assert_eq!(method, ResolveMethod::ExactName);
+            }
+            other => panic!("Exact(ExactName) helyett semleges országgal: {other:?}"),
+        }
+    }
+
+    // Valódi ország-kontextussal is ugyanaz az entitás.
+    let res = resolve(
+        &pool,
+        source_id,
+        "demo-synthetic",
+        "team",
+        "fr-1",
+        "Epinal",
+        &IdentityContext {
+            country_code: Some("FR".into()),
+            ..ctx_hu()
+        },
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        res,
+        Resolution::Exact {
+            entity_id: e,
+            method: ResolveMethod::ExactName
+        } if e == entity_id
+    ));
+
+    // Az összevont entitás aliasa sem oldhat fel (S1.3 + S2.10).
+    let survivor = seed_team(&pool, "Épinal FC", Some(fr_id), "male", "senior", "senior").await;
+    let merged = seed_team(
+        &pool,
+        "Epinal Régi",
+        Some(fr_id),
+        "male",
+        "senior",
+        "senior",
+    )
+    .await;
+    sqlx::query("UPDATE core.entity SET merged_into_id=$1 WHERE id=$2")
+        .bind(survivor)
+        .bind(merged)
+        .execute(&pool)
+        .await
+        .unwrap();
+    seed_alias(&pool, merged, "Epinal Régi", "hu", Some("FR"), "reviewed").await;
+    let res = resolve(
+        &pool,
+        source_id,
+        "demo-synthetic",
+        "team",
+        "merged-1",
+        "Epinal Régi",
+        &ctx_hu(),
+    )
+    .await
+    .unwrap();
+    match res {
+        Resolution::NotFound { queue_id } => {
+            let row = repo::get_review(&pool, queue_id).await.unwrap().unwrap();
+            assert_eq!(row.reason, "no_exact_match");
+        }
+        other => panic!("merged entitás nem oldható fel: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn same_folded_name_in_two_real_countries_is_not_exact() {
+    let pool = test_pool().await;
+    let source_id = seed_source(&pool, "demo-synthetic").await;
+    let fr_id = seed_country(&pool, "FR", "Franciaország").await;
+    let pt_id = seed_country(&pool, "PT", "Portugália").await;
+    let fr = seed_team(&pool, "Sporting", Some(fr_id), "male", "senior", "senior").await;
+    let pt = seed_team(&pool, "Sporting", Some(pt_id), "male", "senior", "senior").await;
+
+    // Semleges forrás-ország: mindkét valódi ország jelölt → nem Exact,
+    // hanem Candidates + review (nem automatikus fuzzy merge).
+    let res = resolve(
+        &pool,
+        source_id,
+        "demo-synthetic",
+        "team",
+        "two-country-1",
+        "Sporting",
+        &IdentityContext {
+            country_code: Some("XX".into()),
+            ..ctx_hu()
+        },
+    )
+    .await
+    .unwrap();
+    match res {
+        Resolution::Candidates {
+            candidates,
+            queue_id,
+        } => {
+            assert_eq!(candidates.len(), 2);
+            let row = repo::get_review(&pool, queue_id).await.unwrap().unwrap();
+            assert_eq!(row.reason, "multiple_candidates");
+        }
+        other => panic!("két valódi ország esetén Candidates kell: {other:?}"),
+    }
+
+    // Valódi ország-kontextus egyértelműsít.
+    let res = resolve(
+        &pool,
+        source_id,
+        "demo-synthetic",
+        "team",
+        "two-country-2",
+        "Sporting",
+        &IdentityContext {
+            country_code: Some("PT".into()),
+            ..ctx_hu()
+        },
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        res,
+        Resolution::Exact {
+            entity_id: e,
+            method: ResolveMethod::ExactName
+        } if e == pt
+    ));
+    assert_ne!(fr, pt);
+}
+
+#[tokio::test]
+async fn merged_entity_is_never_resolved() {
+    let pool = test_pool().await;
+    let source_id = seed_source(&pool, "demo-synthetic").await;
+    let other_source = seed_source(&pool, "demo-other").await;
+    let fr = seed_country(&pool, "FR", "Franciaország").await;
+
+    // Az összevont entitás lenyomat: core.team sora és reviewed aliasa is
+    // megmaradt, de a canonical survivor már más entitás.
+    let survivor = seed_team(
+        &pool,
+        "Épinal Survivor",
+        Some(fr),
+        "male",
+        "senior",
+        "senior",
+    )
+    .await;
+    let merged = seed_team(&pool, "Épinal", Some(fr), "male", "senior", "senior").await;
+    sqlx::query("UPDATE core.entity SET merged_into_id = $1 WHERE id = $2")
+        .bind(survivor)
+        .bind(merged)
+        .execute(&pool)
+        .await
+        .unwrap();
+    seed_alias(&pool, merged, "Épinal", "und", Some("FR"), "reviewed").await;
+    seed_ref(
+        &pool,
+        source_id,
+        "merged-ref",
+        merged,
+        "manual_review",
+        "active",
+    )
+    .await;
+    seed_ref(
+        &pool,
+        other_source,
+        "cw-target",
+        merged,
+        "manual_review",
+        "active",
+    )
+    .await;
+    seed_crosswalk(
+        &pool,
+        "demo-synthetic",
+        "merged-cw",
+        "demo-other",
+        "cw-target",
+        "strong",
+    )
+    .await;
+
+    let ctx = IdentityContext {
+        country_code: Some("FR".into()),
+        ..Default::default()
+    };
+
+    // 1. aktív ref a merged entitásra: nem Exact.
+    let res = resolve(
+        &pool,
+        source_id,
+        "demo-synthetic",
+        "team",
+        "merged-ref",
+        "Épinal",
+        &ctx,
+    )
+    .await
+    .unwrap();
+    assert!(
+        matches!(res, Resolution::NotFound { .. }),
+        "merged ref: {res:?}"
+    );
+
+    // 2. crosswalk-lánc a merged entitásra: nem Exact.
+    let res = resolve(
+        &pool,
+        source_id,
+        "demo-synthetic",
+        "team",
+        "merged-cw",
+        "Épinal",
+        &ctx,
+    )
+    .await
+    .unwrap();
+    assert!(
+        matches!(res, Resolution::NotFound { .. }),
+        "merged crosswalk: {res:?}"
+    );
+
+    // 3. reviewed alias és pontos név a merged entitáson: nem Exact.
+    let res = resolve(
+        &pool,
+        other_source,
+        "demo-other",
+        "team",
+        "merged-name",
+        "Epinal",
+        &ctx,
+    )
+    .await
+    .unwrap();
+    assert!(
+        matches!(res, Resolution::NotFound { .. }),
+        "merged alias/name: {res:?}"
+    );
+}

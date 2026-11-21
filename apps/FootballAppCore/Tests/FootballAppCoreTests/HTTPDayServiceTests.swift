@@ -214,4 +214,107 @@ struct HTTPDayServiceTests {
             }
         }
     }
+
+    // MARK: - Teljes meccsszerkesztő (S71)
+
+    private static func makeEditRequest(
+        note: String = "javítás",
+        withResult: Bool = true
+    ) -> ManualEditRequest {
+        ManualEditRequest(
+            note: note,
+            kickoffAt: Date(timeIntervalSince1970: 1_800_000_000),
+            kickoffPrecision: "exact",
+            status: "finished",
+            homeFt: withResult ? 2 : nil,
+            awayFt: withResult ? 1 : nil,
+            homeHt: withResult ? 1 : nil,
+            awayHt: withResult ? 0 : nil,
+            homeEt: nil,
+            awayEt: nil,
+            homePens: nil,
+            awayPens: nil,
+            decidedBy: withResult ? "ft" : nil
+        )
+    }
+
+    @Test func submitEditSendsPutWithFullResultBlock() async throws {
+        defer { StubURLProtocol.handler = nil }
+        let captured = CapturedRequest()
+        let matchId = UUID()
+        let service = makeManualService { request in
+            captured.store(request)
+            let body = """
+            {"match_id":"\(matchId.uuidString.lowercased())",
+             "observation_id":"00000000-0000-0000-0000-0000000000aa",
+             "audit_id":"00000000-0000-0000-0000-0000000000bb",
+             "state":"provisional_publish"}
+            """.data(using: .utf8)!
+            return (self.response(request.url, 200), body)
+        }
+        let result = try await service.submitEdit(
+            matchId: matchId,
+            request: Self.makeEditRequest()
+        )
+        let request = try #require(captured.value)
+        #expect(request.httpMethod == "PUT")
+        #expect(request.url?.path == "/v1/match/\(matchId.uuidString.lowercased())/manual-result")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer ops-token")
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+        let payload = try #require(Self.bodyData(request))
+        let json = try #require(try JSONSerialization.jsonObject(with: payload) as? [String: Any])
+        #expect(json["kickoff_at"] as? String == "2027-01-15T08:00:00Z")
+        #expect(json["status"] as? String == "finished")
+        #expect(json["home_ft"] as? Int == 2)
+        #expect(json["away_ft"] as? Int == 1)
+        #expect(json["home_ht"] as? Int == 1)
+        #expect(json["away_ht"] as? Int == 0)
+        #expect(json["home_et"] is NSNull)
+        #expect(json["decided_by"] as? String == "ft")
+        #expect(result.state == "provisional_publish")
+    }
+
+    @Test func submitEditSurfacesServerMessageForBadRequest() async throws {
+        defer { StubURLProtocol.handler = nil }
+        let matchId = UUID()
+        let service = makeManualService { request in
+            let body = Data(#"{"code":"BAD_REQUEST","message":"A kezdés nem lehet a jövőben."}"#.utf8)
+            return (self.response(request.url, 400), body)
+        }
+        do {
+            _ = try await service.submitEdit(matchId: matchId, request: Self.makeEditRequest())
+            Issue.record("a 400 státusznak hibát kellett volna adnia")
+        } catch let error as APIError {
+            #expect(error == .serverMessage("A kezdés nem lehet a jövőben."))
+        }
+    }
+
+    @Test func submitEditFallsBackToBadRequestWithoutServerMessage() async throws {
+        defer { StubURLProtocol.handler = nil }
+        let matchId = UUID()
+        for body in [Data(), Data(#"{"code":"BAD_REQUEST"}"#.utf8)] {
+            let service = makeManualService { request in (self.response(request.url, 400), body) }
+            do {
+                _ = try await service.submitEdit(matchId: matchId, request: Self.makeEditRequest())
+                Issue.record("a 400 státusznak hibát kellett volna adnia")
+            } catch let error as APIError {
+                #expect(error == .badRequest)
+            }
+        }
+    }
+
+    @Test func submitEditMapsConflictWithServerMessage() async throws {
+        defer { StubURLProtocol.handler = nil }
+        let matchId = UUID()
+        let service = makeManualService { request in
+            let body = Data(#"{"code":"CONFLICT","message":"Már létezik ilyen natural key."}"#.utf8)
+            return (self.response(request.url, 409), body)
+        }
+        do {
+            _ = try await service.submitEdit(matchId: matchId, request: Self.makeEditRequest())
+            Issue.record("a 409 státusznak hibát kellett volna adnia")
+        } catch let error as APIError {
+            #expect(error == .conflict("Már létezik ilyen natural key."))
+        }
+    }
 }

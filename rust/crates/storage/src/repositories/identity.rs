@@ -129,9 +129,13 @@ pub async fn active_ref(
     source_entity_id: &str,
 ) -> Result<Option<(Uuid, String)>> {
     sqlx::query_as(
-        "SELECT entity_id, method FROM identity.source_entity_ref
-         WHERE source_id = $1 AND entity_kind = $2 AND source_entity_id = $3
-           AND status = 'active'",
+        // S2: az összevont entitás soha nem oldódhat fel. A merge a refeket
+        // átirányítja, de a védelem itt is kell (kézi/újraírt ref, crosswalk
+        // lánc ugyanezen a függvényen megy át).
+        "SELECT r.entity_id, r.method FROM identity.source_entity_ref r
+         JOIN core.entity e ON e.id = r.entity_id AND e.merged_into_id IS NULL
+         WHERE r.source_id = $1 AND r.entity_kind = $2 AND r.source_entity_id = $3
+           AND r.status = 'active'",
     )
     .bind(source_id)
     .bind(entity_kind)
@@ -194,19 +198,19 @@ fn alias_from_row(row: &PgRow) -> Result<AliasRow> {
     })
 }
 
-/// Reviewed aliasok normalizált név szerint (lower(alias) = normalized).
-/// Csak `status='reviewed'`; pending/rejected alias nem old fel.
-pub async fn reviewed_aliases_by_name(
-    pool: &PgPool,
-    normalized_alias: &str,
-) -> Result<Vec<AliasRow>> {
+/// Reviewed aliasok foldolt név szerint (S1: `identity.fold_name(alias)`).
+/// Csak `status='reviewed'`; pending/rejected alias nem old fel, és az
+/// összevont (`core.entity.merged_into_id` nem NULL) entitás aliasa sem —
+/// a merged entitás soha nem oldódhat fel (S2).
+pub async fn reviewed_aliases_by_name(pool: &PgPool, folded_alias: &str) -> Result<Vec<AliasRow>> {
     let sql = format!(
-        "SELECT {ALIAS_COLUMNS} FROM identity.alias
-         WHERE status = 'reviewed' AND lower(alias) = $1
-         ORDER BY created_at, alias"
+        "SELECT {ALIAS_COLUMNS} FROM identity.alias a
+         JOIN core.entity e ON e.id = a.entity_id AND e.merged_into_id IS NULL
+         WHERE a.status = 'reviewed' AND identity.fold_name(a.alias) = identity.fold_name($1)
+         ORDER BY a.created_at, a.alias"
     );
     let rows = sqlx::query(&sql)
-        .bind(normalized_alias)
+        .bind(folded_alias)
         .fetch_all(pool)
         .await
         .context("reviewed alias lekérés")?;
@@ -287,20 +291,23 @@ fn entity_from_row(row: &PgRow) -> Result<EntityRow> {
     })
 }
 
-/// Csapat-entitások normalizált kanonikus név szerint (core.entity kind='team'
-/// JOIN core.team LEFT JOIN core.country). A LEFT JOIN miatt az ország nélküli
-/// csapat is megjelenik (country_code = None), nem vesz el adat.
+/// Csapat-entitások foldolt név szerint (S1: `identity.fold_name` mindkét
+/// oldalon; core.entity canonical_name vagy core.team name). Az összevont
+/// (`merged_into_id` nem NULL) entitásokat kihagyja. A LEFT JOIN miatt az
+/// ország nélküli csapat is megjelenik (country_code = None), nem vesz el adat.
 pub async fn team_entities_by_normalized_name(
     pool: &PgPool,
-    normalized: &str,
+    folded_name: &str,
 ) -> Result<Vec<EntityRow>> {
     let sql = format!(
         "SELECT {ENTITY_COLUMNS} {ENTITY_JOIN}
-         WHERE e.kind = 'team' AND (lower(e.canonical_name) = $1 OR lower(t.name) = $1)
+         WHERE e.kind = 'team' AND e.merged_into_id IS NULL
+           AND (identity.fold_name(e.canonical_name) = identity.fold_name($1)
+                OR identity.fold_name(t.name) = identity.fold_name($1))
          ORDER BY e.canonical_name"
     );
     let rows = sqlx::query(&sql)
-        .bind(normalized)
+        .bind(folded_name)
         .fetch_all(pool)
         .await
         .context("csapat entitás lekérés név szerint")?;
@@ -309,12 +316,14 @@ pub async fn team_entities_by_normalized_name(
 
 /// Összes csapat-entitás a fuzzy jelölt-képzéshez.
 ///
-/// Dokumentált korlát: teljes szkennelés (nincs szűrés); S2b-1 szintetikus
-/// skálán elfogadható, S3-ban szűkítendő (pl. verseny/ország szerinti halmaz).
+/// S2: az összevont entitás nem lehet jelölt sem, ezért `merged_into_id IS
+/// NULL` szűrő van. Dokumentált korlát: teljes szkennelés (nincs más szűrés);
+/// S2b-1 szintetikus skálán elfogadható, S3-ban szűkítendő (pl. verseny/ország
+/// szerinti halmaz).
 pub async fn all_team_entities(pool: &PgPool) -> Result<Vec<EntityRow>> {
     let sql = format!(
         "SELECT {ENTITY_COLUMNS} {ENTITY_JOIN}
-         WHERE e.kind = 'team'
+         WHERE e.kind = 'team' AND e.merged_into_id IS NULL
          ORDER BY e.canonical_name"
     );
     let rows = sqlx::query(&sql)

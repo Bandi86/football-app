@@ -5,6 +5,13 @@ public enum APIError: Error, Equatable, Sendable {
     case unauthorized
     case notFound
     case badRequest
+    /// A szerver 400-as válasza saját, felhasználónak szánt üzenettel
+    /// ({"code","message"}). A nyers üzenetet jelenítjük meg, mert az
+    /// pontosabban mondja meg, melyik mezővel van baj.
+    case serverMessage(String)
+    /// 409: a természetes kulcs ütközése (pl. ugyanarra a meccsre már van
+    /// kézi megfigyelés). Az üzenet a szerverről jön.
+    case conflict(String)
     case server
     case network
     case decoding
@@ -18,7 +25,15 @@ public enum APIError: Error, Equatable, Sendable {
         case .notFound:
             return "A keresett elem nem található."
         case .badRequest:
-            return "Hibás dátum."
+            return "A kérés érvénytelen. Ellenőrizd a megadott adatokat."
+        case .serverMessage(let message):
+            return message.isEmpty
+                ? "A szerver elutasította a kérést. Ellenőrizd a megadott adatokat."
+                : message
+        case .conflict(let message):
+            return message.isEmpty
+                ? "A meccshez már tartozik ilyen kézi megfigyelés."
+                : message
         case .server:
             return "A szerver hibát adott. Próbáld újra."
         case .network:

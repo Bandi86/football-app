@@ -57,6 +57,12 @@ final class MatchDetailModel {
         }
     }
 
+    /// A betöltött meccs részletei, ha éppen van ilyen.
+    var detail: MatchDetail? {
+        if case .loaded(let detail) = state { return detail }
+        return nil
+    }
+
     /// Kézi eredmény felvétele, majd a részletező frissítése a kanonikus adatból.
     func submitResult(matchId: UUID, homeFt: Int, awayFt: Int, note: String) async {
         guard homeFt >= 0, awayFt >= 0, !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -73,6 +79,31 @@ final class MatchDetailModel {
                 matchId: matchId,
                 request: ManualResultRequest(homeFt: homeFt, awayFt: awayFt, note: note)
             )
+            await load(matchId: matchId)
+        } catch is CancellationError {
+            return
+        } catch let error as APIError {
+            submitError = error
+        } catch {
+            submitError = .network
+        }
+    }
+
+    /// Teljes meccsszerkesztés mentése (kezdés, státusz, eredmény, indoklás),
+    /// majd a részletező frissítése. A szerverüzenet a `submitError`-on át
+    /// kerül az űrlapra.
+    func submitEdit(matchId: UUID, request: ManualEditRequest) async {
+        guard !request.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            submitError = .badRequest
+            return
+        }
+        isSubmitting = true
+        submitError = nil
+        defer { isSubmitting = false }
+        do {
+            let info = try loader.load()
+            let service = try manualServiceFactory(info)
+            _ = try await service.submitEdit(matchId: matchId, request: request)
             await load(matchId: matchId)
         } catch is CancellationError {
             return

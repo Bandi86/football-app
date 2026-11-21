@@ -655,21 +655,24 @@ async fn create_team_on_miss(
     };
     upsert_team(tx, &normalized, country_id, source_code).await?;
 
+    // S1.6: az alias országa a kanonikus ISO2-kód (a `country_team` már a
+    // kikövetkeztetett országot hordozza), semleges kódnál (XX/INT/UNK/ZZ/üres)
+    // NULL — soha nem nyers INT/XX/üres. A `lang` semleges 'und' a hamis 'hu'
+    // helyett; a unique kulcsot ez nem zavarja, mert a lang a kulcs része és
+    // az INSERT `ON CONFLICT DO NOTHING`.
     sqlx::query(
         "INSERT INTO identity.alias
          (id, entity_id, alias, lang, country_code, gender, age_group, branch,
           status, method)
-         VALUES ($1,$2,$3,'hu',$4,$5,$6,$7,'reviewed','import')
+         VALUES ($1,$2,$3,'und',$4,$5,$6,$7,'reviewed','import')
          ON CONFLICT DO NOTHING",
     )
     .bind(Uuid::now_v7())
     .bind(team_id)
     .bind(&team.name)
-    .bind(if team.country_code.trim().is_empty() {
-        None
-    } else {
-        Some(team.country_code.clone())
-    })
+    .bind(football_domain::identity::alias_country_code(Some(
+        team.country_code.as_str(),
+    )))
     .bind(&team.gender)
     .bind(&team.age_group)
     .bind(&team.branch)
@@ -824,10 +827,13 @@ async fn inferred_team_country_code(
     if !canonical.is_empty() && canonical != "XX" {
         return Ok(canonical);
     }
+    // S2.9: a név-egyezés foldolt kulcson megy (ékezet/írásjel/kisbetű
+    // független), nem `lower()`-on: "Epinal" így megtalálja az "Épinal" sort.
     let codes: Vec<String> = sqlx::query_scalar(
         "SELECT co.code FROM core.team t
          JOIN core.country co ON co.id=t.country_id
-         WHERE lower(t.name)=lower($1) AND t.gender=$2 AND t.age_group=$3 AND t.branch=$4
+         WHERE identity.fold_name(t.name) = identity.fold_name($1)
+           AND t.gender=$2 AND t.age_group=$3 AND t.branch=$4
            AND co.code IS NOT NULL AND co.code <> 'XX'",
     )
     .bind(&team.name)

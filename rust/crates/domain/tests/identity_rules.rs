@@ -1,6 +1,6 @@
 use football_domain::identity::{
-    Candidate, FUZZY_THRESHOLD, IdentityContext, Resolution, ResolveMethod, context_matches,
-    fold_name, normalize_country_code, normalize_name, token_overlap,
+    Candidate, FUZZY_THRESHOLD, IdentityContext, Resolution, ResolveMethod, alias_country_code,
+    context_matches, fold_name, normalize_country_code, normalize_name, token_overlap,
 };
 use uuid::Uuid;
 
@@ -113,6 +113,77 @@ fn fold_name_handles_turkish_diacritics() {
     assert_eq!(fold_name("Gençlerbirliği"), "genclerbirligi");
     assert_eq!(fold_name("İstanbulspor"), "istanbulspor");
     assert_eq!(fold_name("Eskişehirspor"), "eskisehirspor");
+}
+
+#[test]
+fn fold_name_extended_transliteration_and_separator_stripping() {
+    // S1: a fold az ékezet-hajtást a teljes karaktertáblával végzi…
+    assert_eq!(fold_name("ß"), "s");
+    assert_eq!(fold_name("Æsir"), "asir");
+    assert_eq!(fold_name("Œuvre"), "ouvre");
+    assert_eq!(fold_name("Ðor"), "dor");
+    assert_eq!(fold_name("Þór"), "tor");
+    assert_eq!(fold_name("ħ"), "h");
+    assert_eq!(fold_name("ŧ"), "t");
+    assert_eq!(fold_name("Bodø/Glimt"), "bodoglimt");
+    assert_eq!(fold_name("ŁKS Łódź"), "lkslodz");
+    // …majd elhagyja a szóközt és a leggyakoribb írásjeleket.
+    assert_eq!(fold_name("Queen's Park"), "queenspark");
+    assert_eq!(fold_name("K. Lierse S.K."), "kliersesk");
+    assert_eq!(fold_name("AS FAN"), "asfan");
+    assert_eq!(fold_name("  Ferencvárosi   TC "), "ferencvarositc");
+    assert_eq!(fold_name("Ostia Mare"), fold_name("Ostiamare"));
+    assert_eq!(
+        fold_name("Harland & Wolff Welders F.C."),
+        "harlandwolffweldersfc"
+    );
+    // Nem-latin betűket nem dob el (nincs [^a-z0-9] szűrés).
+    assert_eq!(fold_name("ЦСКА Москва"), "цскамосква");
+    assert_eq!(fold_name("FC東京"), "fc東京");
+    // Idempotens: a foldolt kulcs újra foldolva ugyanaz.
+    assert_eq!(fold_name(&fold_name("Bodø/Glimt")), "bodoglimt");
+}
+
+#[test]
+fn neutral_country_codes_act_as_wildcards() {
+    let fr = IdentityContext {
+        country_code: Some("FR".into()),
+        gender: Some("male".into()),
+        age_group: Some("senior".into()),
+        branch: Some("senior".into()),
+    };
+    for neutral in ["XX", "INT", "UNK", "ZZ", "", " "] {
+        let other = IdentityContext {
+            country_code: Some(neutral.into()),
+            ..fr.clone()
+        };
+        assert!(context_matches(&fr, &other), "semleges kód: {neutral:?}");
+    }
+    // A hiányzó ország eddig is wildcard volt.
+    let unknown = IdentityContext {
+        country_code: None,
+        ..fr.clone()
+    };
+    assert!(context_matches(&fr, &unknown));
+    // Két különböző valódi ország továbbra sem egyezik.
+    let de = IdentityContext {
+        country_code: Some("DE".into()),
+        ..fr.clone()
+    };
+    assert!(!context_matches(&fr, &de));
+}
+
+#[test]
+fn alias_country_code_is_canonical_or_null() {
+    assert_eq!(alias_country_code(Some("FRA")), Some("FR".into()));
+    assert_eq!(alias_country_code(Some("fr")), Some("FR".into()));
+    // Semleges/üres kód nem valódi ország → NULL, nem nyers INT/XX.
+    assert_eq!(alias_country_code(Some("INT")), None);
+    assert_eq!(alias_country_code(Some("XX")), None);
+    assert_eq!(alias_country_code(Some("UNK")), None);
+    assert_eq!(alias_country_code(Some("ZZ")), None);
+    assert_eq!(alias_country_code(Some("")), None);
+    assert_eq!(alias_country_code(None), None);
 }
 
 #[test]

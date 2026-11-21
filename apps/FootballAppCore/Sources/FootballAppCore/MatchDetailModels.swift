@@ -5,6 +5,9 @@ public struct MatchDetail: Decodable, Equatable, Sendable {
     public let id: UUID
     public let kickoffAt: Date
     public let kickoffPrecision: String
+    /// A verseny időzónája (IANA név), amiben a kezdés helyi ideje értendő.
+    /// Régi válaszokból hiányozhat, ezért opcionális.
+    public let competitionTimezone: String?
     public let status: String
     public let roundLabel: String?
     public let competitionName: String
@@ -73,6 +76,7 @@ public struct MatchDetail: Decodable, Equatable, Sendable {
         case id
         case kickoffAt = "kickoff_at"
         case kickoffPrecision = "kickoff_precision"
+        case competitionTimezone = "competition_timezone"
         case status
         case roundLabel = "round_label"
         case competitionName = "competition_name"

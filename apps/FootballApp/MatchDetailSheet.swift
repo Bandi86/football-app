@@ -1,6 +1,13 @@
 import SwiftUI
 import FootballAppCore
 
+/// A szerkesztőlap célpontja: a betöltött meccs pillanatképe, hogy a mentés
+/// utáni újratöltés ne tüntesse el a lap tartalmát.
+private struct ManualEditTarget: Identifiable {
+    let detail: MatchDetail
+    var id: UUID { detail.id }
+}
+
 /// Meccs-részletező panel: eredménytábla-fejléc, meta-rács, odds-mátrix,
 /// statisztika-párbaj és ellenőrzési sáv. Minden szakasz adatvezérelt:
 /// ami hiányzik, az nem jelenik meg, hamis értéket nem rajzolunk.
@@ -8,7 +15,7 @@ struct MatchDetailSheet: View {
     let matchId: UUID
     @Environment(\.dismiss) private var dismiss
     @State private var model = MatchDetailModel()
-    @State private var showingManualEntry = false
+    @State private var manualEditTarget: ManualEditTarget?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,12 +26,16 @@ struct MatchDetailSheet: View {
                     .foregroundStyle(AppTheme.secondaryText)
                 Spacer()
                 Button {
-                    showingManualEntry = true
+                    manualEditTarget = model.detail.map(ManualEditTarget.init)
                 } label: {
-                    Label("Eredmény javítása", systemImage: "square.and.pencil")
+                    Label("Meccs szerkesztése", systemImage: "square.and.pencil")
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(AppTheme.accent)
+                .foregroundStyle(model.detail == nil ? AppTheme.tertiaryText : AppTheme.accent)
+                .disabled(model.detail == nil)
+                .help(model.detail == nil
+                      ? "A szerkesztés a meccs betöltése után érhető el."
+                      : "Kezdés, státusz és eredmény szerkesztése")
                 .accessibilityIdentifier("match.detail.manual")
                 Button("Bezárás") { dismiss() }
                     .keyboardShortcut(.cancelAction)
@@ -42,8 +53,8 @@ struct MatchDetailSheet: View {
         .background(AppTheme.background)
         .accessibilityIdentifier("match.detail")
         .task(id: matchId) { await model.load(matchId: matchId) }
-        .sheet(isPresented: $showingManualEntry) {
-            ManualResultSheet(model: model, matchId: matchId)
+        .sheet(item: $manualEditTarget) { target in
+            ManualResultSheet(model: model, detail: target.detail)
         }
     }
 
@@ -65,62 +76,350 @@ struct MatchDetailSheet: View {
     }
 }
 
-/// Kézi eredménybevitel: csak egész, nem negatív gólszám és indoklás engedélyezett.
-/// A sikeres írás után a részletező újratölti a kanonikus adatot.
+/// Teljes meccsszerkesztő lap: kezdés, státusz, pontosság, eredmény-blokkok
+/// és a kötelező indoklás. A payloadot a `ManualEditRules` építi, a lap csak
+/// megjelenít és összegyűjt; a kiszolgáló hibaszövegét változtatás nélkül
+/// jeleníti meg.
 struct ManualResultSheet: View {
     let model: MatchDetailModel
-    let matchId: UUID
+    let detail: MatchDetail
     @Environment(\.dismiss) private var dismiss
-    @State private var home = ""
-    @State private var away = ""
-    @State private var note = ""
 
-    private var isValid: Bool {
-        guard let h = Int(home), let a = Int(away), h >= 0, a >= 0 else { return false }
-        return !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    @State private var status: String
+    @State private var kickoff: Date
+    @State private var precision: String
+    @State private var homeFt: String
+    @State private var awayFt: String
+    @State private var homeHt: String
+    @State private var awayHt: String
+    @State private var homeEt: String
+    @State private var awayEt: String
+    @State private var homePens: String
+    @State private var awayPens: String
+    @State private var note = ""
+    @State private var showValidation = false
+
+    init(model: MatchDetailModel, detail: MatchDetail) {
+        self.model = model
+        self.detail = detail
+        let initialPrecision = KickoffPrecision(rawValue: detail.kickoffPrecision) ?? .exact
+        let initialStatus = ManualEditRules.statuses.contains(detail.status) ? detail.status : "scheduled"
+        let initialKickoff = initialPrecision == .dateOnly
+            ? ManualEditRules.dateOnlyPlaceholder(for: detail.kickoffAt)
+            : detail.kickoffAt
+        _status = State(initialValue: initialStatus)
+        _kickoff = State(initialValue: initialKickoff)
+        _precision = State(initialValue: initialPrecision.rawValue)
+        _homeFt = State(initialValue: Self.scoreText(detail.homeFt))
+        _awayFt = State(initialValue: Self.scoreText(detail.awayFt))
+        _homeHt = State(initialValue: Self.scoreText(detail.homeHt))
+        _awayHt = State(initialValue: Self.scoreText(detail.awayHt))
+        _homeEt = State(initialValue: Self.scoreText(detail.homeEt))
+        _awayEt = State(initialValue: Self.scoreText(detail.awayEt))
+        _homePens = State(initialValue: Self.scoreText(detail.homePens))
+        _awayPens = State(initialValue: Self.scoreText(detail.awayPens))
+    }
+
+    private static func scoreText(_ value: Int?) -> String {
+        value.map(String.init) ?? ""
+    }
+
+    private var isDateOnly: Bool {
+        precision == KickoffPrecision.dateOnly.rawValue
+    }
+
+    /// A pickerek a verseny időzónájában jelennek meg; `date_only` esetén
+    /// UTC-ben, mert a naptári nap a 12:00Z helyőrző UTC-dátuma.
+    private var displayTimeZone: TimeZone {
+        ManualEditRules.kickoffTimeZone(
+            competitionTimezone: detail.competitionTimezone,
+            precision: precision
+        )
+    }
+
+    private var ftHome: Int? { ManualEditRules.parseScore(homeFt) }
+    private var ftAway: Int? { ManualEditRules.parseScore(awayFt) }
+    private var etHome: Int? { ManualEditRules.parseScore(homeEt) }
+    private var etAway: Int? { ManualEditRules.parseScore(awayEt) }
+
+    private var currentDecidedBy: String? {
+        ManualEditRules.decidedBy(
+            status: status,
+            homeFt: ftHome,
+            awayFt: ftAway,
+            homeEt: etHome,
+            awayEt: etAway,
+            homePens: ManualEditRules.parseScore(homePens),
+            awayPens: ManualEditRules.parseScore(awayPens)
+        )
+    }
+
+    private var validation: ManualEditRules.ManualEditValidation {
+        ManualEditRules.validate(
+            status: status,
+            homeFt: homeFt,
+            awayFt: awayFt,
+            homeHt: homeHt,
+            awayHt: awayHt,
+            homeEt: homeEt,
+            awayEt: awayEt,
+            homePens: homePens,
+            awayPens: awayPens,
+            note: note
+        )
+    }
+
+    private var errorMessage: String? {
+        if let error = model.submitError {
+            return error.userMessage
+        }
+        guard showValidation, !validation.isValid else { return nil }
+        return validation.errors.joined(separator: "\n")
     }
 
     var body: some View {
+        VStack(spacing: 0) {
+            header
+            Rectangle().fill(AppTheme.hairline).frame(height: 1)
+            form
+            Rectangle().fill(AppTheme.hairline).frame(height: 1)
+            footer
+        }
+        .frame(width: 560)
+        .background(AppTheme.background)
+        .accessibilityIdentifier("manual.editor")
+        .onAppear { model.submitError = nil }
+        .onChange(of: precision) { _, newValue in
+            guard newValue == KickoffPrecision.dateOnly.rawValue else { return }
+            kickoff = ManualEditRules.dateOnlyPlaceholder(for: kickoff)
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Meccs szerkesztése")
+                    .font(.appText(16, weight: .semibold))
+                    .foregroundStyle(AppTheme.primaryText)
+                Text("\(detail.homeName) – \(detail.awayName)")
+                    .font(.appLabel(11))
+                    .foregroundStyle(AppTheme.secondaryText)
+            }
+            Spacer()
+            Button("Bezárás") { dismiss() }
+                .keyboardShortcut(.cancelAction)
+                .buttonStyle(.plain)
+                .foregroundStyle(AppTheme.secondaryText)
+        }
+        .padding(.horizontal, AppTheme.Spacing.xl)
+        .padding(.vertical, AppTheme.Spacing.m)
+    }
+
+    private var form: some View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.l) {
-            Text("Eredmény felvétele")
-                .font(.appText(16, weight: .semibold))
-            TextField("Hazai gólok", text: $home)
+            scheduleSection
+            if ManualEditRules.allowsResult(for: status) {
+                Rectangle().fill(AppTheme.hairline).frame(height: 1)
+                resultSection
+            }
+            Rectangle().fill(AppTheme.hairline).frame(height: 1)
+            noteSection
+        }
+        .padding(AppTheme.Spacing.xl)
+    }
+
+    private var scheduleSection: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.m) {
+            Text("Kezdés és státusz").sectionLabel()
+
+            HStack(spacing: AppTheme.Spacing.l) {
+                Picker("Státusz", selection: $status) {
+                    ForEach(ManualEditRules.statuses, id: \.self) { value in
+                        Text(ManualEditRules.statusLabel(for: value)).tag(value)
+                    }
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("manual.status")
+
+                Picker("Pontosság", selection: $precision) {
+                    ForEach(KickoffPrecision.allCases, id: \.rawValue) { option in
+                        Text(option.label).tag(option.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("manual.precision")
+            }
+
+            HStack(spacing: AppTheme.Spacing.l) {
+                DatePicker("Dátum", selection: $kickoff, displayedComponents: [.date])
+                    .environment(\.timeZone, displayTimeZone)
+                    .accessibilityIdentifier("manual.kickoff.date")
+
+                DatePicker("Idő", selection: $kickoff, displayedComponents: [.hourAndMinute])
+                    .environment(\.timeZone, displayTimeZone)
+                    .disabled(isDateOnly)
+                    .accessibilityIdentifier("manual.kickoff.time")
+            }
+
+            if isDateOnly {
+                Text("Csak dátum: a kezdés 12:00 UTC helyőrzővel kerül a rendszerbe, az idő szerkesztése letiltva.")
+                    .font(.appLabel(10))
+                    .foregroundStyle(AppTheme.tertiaryText)
+            }
+        }
+    }
+
+    private var resultSection: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.m) {
+            Text("Eredmény").sectionLabel()
+
+            scoreRow(
+                "Rendes játékidő (FT)",
+                home: $homeFt,
+                away: $awayFt,
+                homeID: "manual.home_ft",
+                awayID: "manual.away_ft"
+            )
+            if ManualEditRules.showsHalftime(for: status) {
+                scoreRow(
+                    "Félidő (HT)",
+                    home: $homeHt,
+                    away: $awayHt,
+                    homeID: "manual.home_ht",
+                    awayID: "manual.away_ht"
+                )
+            }
+            if ManualEditRules.showsExtraTime(for: status, homeFt: ftHome, awayFt: ftAway) {
+                scoreRow(
+                    "Hosszabbítás (ET)",
+                    home: $homeEt,
+                    away: $awayEt,
+                    homeID: "manual.home_et",
+                    awayID: "manual.away_et"
+                )
+            }
+            if ManualEditRules.showsPenalties(
+                for: status,
+                homeFt: ftHome,
+                awayFt: ftAway,
+                homeEt: etHome,
+                awayEt: etAway
+            ) {
+                scoreRow(
+                    "Tizenegyesek (PENS)",
+                    home: $homePens,
+                    away: $awayPens,
+                    homeID: "manual.home_pens",
+                    awayID: "manual.away_pens"
+                )
+            }
+
+            HStack {
+                Text("Döntés módja")
+                    .font(.appText(13))
+                    .foregroundStyle(AppTheme.secondaryText)
+                Spacer()
+                Text(ManualEditRules.decidedByLabel(currentDecidedBy))
+                    .font(.appText(13, weight: .semibold))
+                    .foregroundStyle(AppTheme.primaryText)
+                    .accessibilityIdentifier("manual.decided_by")
+            }
+            if status == "awarded" {
+                Text("Megítélt meccsnél csak a rendes játékidő eredménye szerkeszthető.")
+                    .font(.appLabel(10))
+                    .foregroundStyle(AppTheme.tertiaryText)
+            }
+        }
+    }
+
+    private func scoreRow(
+        _ title: String,
+        home: Binding<String>,
+        away: Binding<String>,
+        homeID: String,
+        awayID: String
+    ) -> some View {
+        HStack(spacing: AppTheme.Spacing.s) {
+            Text(title)
+                .font(.appText(13))
+                .foregroundStyle(AppTheme.secondaryText)
+                .frame(width: 190, alignment: .leading)
+            TextField("", text: home)
                 .textFieldStyle(.roundedBorder)
-                .accessibilityIdentifier("manual.home")
-            TextField("Vendég gólok", text: $away)
+                .multilineTextAlignment(.center)
+                .frame(width: 72)
+                .accessibilityLabel("\(title) – hazai")
+                .accessibilityIdentifier(homeID)
+            Text("–")
+                .font(.appText(13))
+                .foregroundStyle(AppTheme.tertiaryText)
+            TextField("", text: away)
                 .textFieldStyle(.roundedBorder)
-                .accessibilityIdentifier("manual.away")
-            TextField("Indoklás (kötelező)", text: $note)
+                .multilineTextAlignment(.center)
+                .frame(width: 72)
+                .accessibilityLabel("\(title) – vendég")
+                .accessibilityIdentifier(awayID)
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var noteSection: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.s) {
+            Text("Indoklás").sectionLabel()
+            TextField("Miért módosítod a meccset? (kötelező)", text: $note, axis: .vertical)
+                .lineLimit(2...4)
                 .textFieldStyle(.roundedBorder)
+                .accessibilityLabel("Indoklás (kötelező)")
                 .accessibilityIdentifier("manual.note")
-            if let error = model.submitError {
-                Text(error.userMessage)
+        }
+    }
+
+    private var footer: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.s) {
+            if let message = errorMessage {
+                Text(message)
                     .font(.appLabel(11))
                     .foregroundStyle(AppTheme.warning)
+                    .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("manual.error")
             }
             HStack {
                 Button("Mégse") { dismiss() }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(AppTheme.secondaryText)
                 Spacer()
-                Button("Mentés") {
-                    Task {
-                        await model.submitResult(
-                            matchId: matchId,
-                            homeFt: Int(home) ?? -1,
-                            awayFt: Int(away) ?? -1,
-                            note: note
-                        )
-                        if model.submitError == nil { dismiss() }
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!isValid || model.isSubmitting)
-                .accessibilityIdentifier("manual.save")
+                Button(model.isSubmitting ? "Mentés…" : "Mentés") { save() }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.isSubmitting)
+                    .accessibilityIdentifier("manual.submit")
             }
         }
-        .padding(AppTheme.Spacing.xl)
-        .frame(width: 360)
-        .background(AppTheme.background)
+        .padding(.horizontal, AppTheme.Spacing.xl)
+        .padding(.vertical, AppTheme.Spacing.m)
+    }
+
+    private func save() {
+        showValidation = true
+        guard validation.isValid else { return }
+        let request = ManualEditRules.makeRequest(
+            status: status,
+            kickoffAt: kickoff,
+            kickoffPrecision: precision,
+            homeFt: homeFt,
+            awayFt: awayFt,
+            homeHt: homeHt,
+            awayHt: awayHt,
+            homeEt: homeEt,
+            awayEt: awayEt,
+            homePens: homePens,
+            awayPens: awayPens,
+            note: note
+        )
+        Task {
+            await model.submitEdit(matchId: detail.id, request: request)
+            if model.submitError == nil { dismiss() }
+        }
     }
 }
 
