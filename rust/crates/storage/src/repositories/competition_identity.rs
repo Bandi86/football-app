@@ -110,7 +110,9 @@ pub async fn find_or_create_competition(
         });
     }
 
-    if let Some(competition_id) = competition_by_source_ref(conn, input).await? {
+    if let Some(competition_id) =
+        competition_by_source_ref(conn, input, effective.country_id).await?
+    {
         update_metadata(conn, competition_id, &effective).await?;
         return Ok(CompetitionResolution {
             competition_id,
@@ -276,6 +278,7 @@ async fn live_competition_by_id(conn: &mut PgConnection, id: Uuid) -> Result<Opt
 async fn competition_by_source_ref(
     conn: &mut PgConnection,
     input: &CompetitionIdentity<'_>,
+    country_id: Option<Uuid>,
 ) -> Result<Option<Uuid>> {
     let (Some(source_id), Some(source_entity_id)) = (input.source_id, input.source_entity_id)
     else {
@@ -297,7 +300,7 @@ async fn competition_by_source_ref(
     )
     .bind(source_id)
     .bind(source_entity_id)
-    .bind(input.country_id)
+    .bind(country_id)
     .fetch_optional(&mut *conn)
     .await
     .context("verseny source_entity_ref lookup")

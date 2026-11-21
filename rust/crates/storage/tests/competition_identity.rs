@@ -684,3 +684,78 @@ async fn country_code_only_input_keeps_country_context() {
         "az AUT kódú forrásnak az osztrák Bundesligát kell megtalálnia"
     );
 }
+
+/// S90: egy korábban elrontott, ország-szkópolt source_entity_ref (más ország
+/// versenyére mutat) nem térhet vissza a rossz országú versenyhez; a lookup
+/// tovább lép az aliasra és a helyes országú versenyt találja meg.
+#[tokio::test]
+async fn cross_country_source_ref_is_rejected_by_country_guard() {
+    let pool = test_pool().await;
+    let at = seed_country(&pool, "AT", "Austria").await;
+    let de = seed_country(&pool, "DE", "Germany").await;
+    let source = seed_source(&pool, "test-comp-ident").await;
+
+    let mut conn = pool.acquire().await.unwrap();
+    let at_comp = find_or_create_competition(
+        &mut conn,
+        &CompetitionIdentity {
+            id_hint: None,
+            name: "Bundesliga",
+            country_id: Some(at),
+            country_code: Some("AT"),
+            tier: Some(1),
+            priority: Some(10),
+            source_id: Some(source),
+            source_entity_id: Some("Bundesliga|AT"),
+        },
+    )
+    .await
+    .unwrap();
+    let de_comp = find_or_create_competition(
+        &mut conn,
+        &CompetitionIdentity {
+            id_hint: None,
+            name: "Bundesliga",
+            country_id: Some(de),
+            country_code: Some("DE"),
+            tier: Some(1),
+            priority: Some(10),
+            source_id: Some(source),
+            source_entity_id: Some("Bundesliga|DE"),
+        },
+    )
+    .await
+    .unwrap();
+    assert_ne!(at_comp.competition_id, de_comp.competition_id);
+
+    // Az AT refet átirányítjuk a DE verseny entitására (a régi hiba reprodukciója).
+    sqlx::query(
+        "UPDATE identity.source_entity_ref SET entity_id = $1
+         WHERE source_id = $2 AND entity_kind = 'competition' AND source_entity_id = 'Bundesliga|AT'",
+    )
+    .bind(de_comp.competition_id)
+    .bind(source)
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+
+    let resolved = find_or_create_competition(
+        &mut conn,
+        &CompetitionIdentity {
+            id_hint: None,
+            name: "Bundesliga",
+            country_id: None,
+            country_code: Some("AUT"),
+            tier: Some(1),
+            priority: Some(10),
+            source_id: Some(source),
+            source_entity_id: Some("Bundesliga|AT"),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        resolved.competition_id, at_comp.competition_id,
+        "az osztrák kódú forrás nem oldódhat fel a német versenyre"
+    );
+}

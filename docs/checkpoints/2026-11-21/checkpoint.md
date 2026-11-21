@@ -899,3 +899,50 @@ eredmény pótlása; c) a LaLiga 2 – AR átsorolás; d) validációs retenció
       incidents **4 850 / 450 meccs**, day API **932 sor**; reverify 11-21 →
       verified 488 / provisional 458 / withheld **3** (változatlan
       MATCH_RESULT_REQUIRED); `integrity` → **OK**.
+
+## S90 — research szinkron, forrás-ref ország-guard, női gender-adat
+
+**Induló állapot:** a S89 után a 18:28-as research szinkron újra létrehozta a
+Grazer AK–Rapid meccset a német Bundesligában, mert a korábban elrontott
+`Bundesliga|AT` forrás-ref és a 9 hibás ország-kontextusú alias a német
+versenyre mutatott; a research napi gyűjtő továbbra is le van tiltva, ezért a
+napközbeni frissítésnek nem volt belépőpontja.
+
+- [x] **Research szinkron:** új `scripts/research-sync.sh` (collect-only +
+      discovery job, lock, 20 perces dedupe, `--enqueue-only`) és
+      `docs/operations/research-sync.md` (használat, ütemezési minta,
+      ellenőrzés, visszaállítás). Éles futás: gyűjtés 18:20–18:28, job
+      `done`, a 11-21-i események 4 850 → 5 673 / 465 meccs, majd a következő
+      szinkronnal 5 725 / 470.
+- [x] **Forrás-ref ország-guard:** a `competition_by_source_ref` a feloldott
+      `country_id`-t használja (eddig a research `country_id=None` miatt a
+      guard nem élt); új teszt
+      `cross_country_source_ref_is_rejected_by_country_guard`
+      (storage 11/11).
+- [x] **Adatreparáció:** 104 ország-eltérésű research verseny-ref
+      újrapontosítva vagy `superseded`; 9 hibás ország-kontextusú alias
+      javítva (unique-ütközésnél a redundáns sor törölve); 3 aktív ref
+      merge-ölt entitásról a túlélőre átírva vagy lezárva; Grazer-duplikátum
+      és WSL-névváltozat összevonva.
+- [x] **Női gender-adat:** 8 női versenyű meccs férfi csapata női párra
+      cserélve (`match_team_reassign` audit, pl. Paris FC (W)); 129 csapat
+      `male`→`female` (névjelölő, illetve „csak női versenyben szerepel”;
+      `team_gender_infer` audit). Női csapatok száma 435 → 564.
+- [x] **Eredmény:** ±3 napra **0 cross-competition pár**, 0 fold-azonos
+      duplikált csoport; Grazer AK 1 meccs; ország-eltérés 1 (LaLiga 2 – AR,
+      történelmi); `core.match` 283 611; 11-21 incidents **5 725 / 470**;
+      reverify 11-21 → verified 493 / provisional 450 / withheld 6 (mind
+      valódi hiányzó eredmény); `footballctl integrity` → **OK**.
+- [x] **Kapu:** `./scripts/check.sh` → **EXIT=0**, 102 „test result: ok”
+      (`/tmp/gate_s90.log`).
+- [x] **Commit:** `feat(S90): research szinkron, forrás-ref ország-guard,
+      női gender-adat`.
+- [ ] **Nem ellenőrzött / nyitott:** 10 női versenyű meccsnél még férfi
+      csapat áll (nincs egyértelmű női pár, kézi mapping kell); a 6 withheld
+      meccs eredménye forrás-oldali pótlás; LaLiga 2 – AR; a research
+      szinkron launchd-ütemezése üzemeltetési döntés (a script kész, a
+      telepítés nincs elvégezve).
+
+**Következő döntési pont:** a) research szinkron ütemezése (launchd vagy kézi
+indítás); b) a 10 női meccs kézi csapat-mappingje; c) 6 hiányzó eredmény;
+d) LaLiga 2 – AR.
