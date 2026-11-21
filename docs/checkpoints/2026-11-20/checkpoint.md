@@ -2023,3 +2023,15 @@ Csapatlogó-lefedettség: a 2026-11-13…11-30 ablakra a FotMob-import
 - Élő: `ax-key cmd-right` → a fejléc „november 22." + „HOLNAP" jelvény, 390 meccs
   (`/tmp/s67_nextday.png`); `ax-key cmd-t` → vissza „november 21." (832 meccs,
   `/tmp/s67_today.png`). A billentyűparancsok működnek.
+
+### Goal-kör összegzés (S64–S67)
+- Szeletek: S64 (összecsukható szekciók, coverage CLI), S65 (tabella-környezet a
+  részletes nézetben), S66 (odds/logó hiány-szűrők + hiány-panel konzisztencia),
+  S67 (napi gyorsbillentyűk). Commitok: d4a7423, abc9977, bccaddf, b74731e, b2f39ee.
+- Kapuk: `cargo fmt --all --check` OK; `cargo clippy --workspace --all-targets --
+  -D warnings` tiszta; `cargo test --workspace -- --test-threads=1` → **97 zöld
+  tesztblokk, 0 hiba**; Swift Core 66/66; `xcodebuild build` BUILD SUCCEEDED.
+- Blokkolók dokumentálva: múltbeli napok eredménypótlása forrás-hiány miatt (soccerway
+  csak mai/tegnap, FotMob/LiveScore/OpenFoot nem fedi a kis ligákat); UI-tesztek
+  környezeti hibával (test runner) nem futottak; verseny-logók egy része FotMob-on
+  403-at ad.
