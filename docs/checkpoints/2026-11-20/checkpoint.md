@@ -1801,3 +1801,38 @@ Nyitott:
   CC nevek) klubonkénti kézi döntést igényel — az automatikus tömeges merge
   nem biztonságos.
 - 19 withheld (főleg CD/CG instabil forrás-országkód és hiányzó eredmény).
+
+## S63 — történelmi évek duplikátum-tisztítása (2019–2025)
+
+### Változások
+- **Konzervatív marker-párok:** a 2025-ös audit 583 klaszteréből kiindulva a
+  felnőtt csapatra tévesen felvitt tartalék-/utánpótlás-jelölős sorok
+  („X Res.", „X II", „X Under 19", „X CC") duplikátumait a marker nélküli
+  felnőtt sorba olvasztottuk (156 merge), majd a maradék azonos-fixture párokat
+  (329 merge, majd 1) — 2025 így **0 klaszter / 0 dupla szereplés**.
+- **2020–2024:** ugyanaz a pipeline (marker → azonos fixture → azonos név →
+  azonos verseny+kickoff+egyező oldal): 2020: 330→3 klaszter, 2021: 513→6,
+  2022: 539→12, 2023: 628→16, 2024: 537→11; a dupla szereplések 46/97/118/122/
+  118 → 0/2/17/18/17.
+- **Csapat-alias normalizálás:** 150 további azonos-klub pár merge-elve, ahol a
+  különbség csak klub-prefix/szuffix (FC/CF/SC/SK/VfL…), ékezet, vagy
+  tartalék-jelölés mindkét oldalon (pl. „Villarreal II" ↔ „Villarreal B",
+  „Annecy" ↔ „FC Annecy", „Beveren" ↔ „SK Beveren"). A korosztály- és
+  női-jelölők egyezése kötelező, a senior ↔ U17/U19/U21 és senior ↔ „X B/II"
+  párok **nem** olvadnak össze. Az érintett 93 nap meccs-duplikátumai külön
+  `dedupe matches` körrel merge-elve.
+
+### Ellenőrzések
+- 2025: `audit` → 0 klaszter, 0 dupla szereplés, 0 verseny-duplikátum.
+- 2026: 0 klaszter, 3 dupla szereplés (forrás-ellentmondás), 0 verseny-duplikátum.
+- 2027: 0 klaszter, 0 dupla szereplés.
+- `reverify 2026-11-20…22`: 960 provisional, 521 verified, 6 withheld; a napi
+  feed `open_past` 6 → 2 (a hátralévő kettő valóban most kezdődött/élő).
+
+### Nyitott
+- A 2020–2024 években maradt néhány tucat olyan klaszter, ahol a v1-adat két
+  különböző klubot nevezett meg ugyanarra a fixture-re (pl. „Jove Español" /
+  „Espanol", „Quevilly-Rouen Métropole" / „Rouen") — ezek klubonkénti,
+  forrás-alapú döntést igényelnek; a látható (2026-os) adatot nem érintik.
+- A történelmi „dupla szereplés" maradékok (más-más ellenfél ugyanazon a napon)
+  forrás nélkül nem dönthetők el, dokumentálva.
