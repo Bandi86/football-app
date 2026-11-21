@@ -1449,3 +1449,20 @@ Nyitott:
 
 ### Nyitott
 - 2026-os 301 klaszter kézi osztályozása (klubonkénti tudás); 2027-es 2 ütköző sor; verseny-logó lefedettség (FotMob 403); 116 forrás nélküli eredmény; részletes meccsoldal és további UI-fejlesztések.
+
+## S51 — verseny-logók, 2027-es ütközés, audit-állapot
+
+### Változások
+- `scripts/import-fotmob-competition-logos.py`: a FotMob napi JSON `leagues[]` (id, name, ccode) alapján párosítja a logó nélküli v2 versenyeket (pontos fold, majd egyértelmű hasonlóság ≥0.82), a `leaguelogo/{id}.png` képet böngésző User-Agent + Referer fejléccel tölti le (enélkül 403), tartalom-címzett útvonalra menti és `ops.asset` sort ír. Dry-run alapértelmezett.
+- Alkalmazva: 80 párosított verseny, 19 új verseny-logó (a többi FotMob-azonosító képe 403); a 11-21-i feed `missing_competition_logo` 647 → 616.
+- 2027-es ütköző sor (Brentford–Ipswich 2027-02-20 12:00, mert Brentford és Ipswich is más meccsen szerepel ugyanakkor) editorial holddal kizárva; a 2027-es audit így **TISZTA**.
+
+### Ellenőrzések
+- Audit: 11-01…11-30 TISZTA, 11-13…12-01 TISZTA, 11-22…11-30 TISZTA, 2026-12 TISZTA, 2027 TISZTA. 2026 egésze: 301 klaszter (történelmi v1-adathibák, klubonkénti kézi döntés).
+- `cargo test --workspace -- --test-threads=1` zöld; fmt/clippy tiszta.
+- Élő API: `/v1/day/2026-11-21` 827 meccs, `/v1/day/2026-11-20` 244 meccs; app újraindítva, kép `/tmp/s50_final.png`.
+
+### Blokkolt / nem ellenőrzött
+- UI-tesztek futtatása ebben a környezetben nem sikerült: a runner „Timed out while enabling automation mode", majd „hung before establishing connection" hibát adott (a Swift kód az utolsó zöld futás óta nem változott; a Rust-oldali S50/S51 változásokat a Rust kapuk fedik).
+- Soccerway visszamenőleges eredménypótlás nem lehetséges: a route csak a mai és a tegnapi napot szolgálja ki (`route_for`), a korábbi napokra „üres fetch-terv"; a tegnapi rescan breakeren blokkolt.
+- Verseny-logók: a FotMob 403 miatt csak részleges (19/80); további forrás kell.
