@@ -412,8 +412,32 @@
       szabályaiba ütközik — kurált alias-tábla vagy eseti, forrással
       alátámasztott döntés kell hozzá.
 
+## S78 — Algéria Ligue 1 (felhasználói forduló-adat alapján)
+
+- [x] A **10. forduló** (18–20/11) a v2-ben már helyesen volt: 8 meccs, mind
+      eredménnyel, a felhasználói adattal egyezően.
+- [x] A **11. fordulóra** a research hamis sorokat írt: 8 meccs 21/11-re
+      (`cancelled`/`postponed`), 3 meccs 23/11-re téves párosítással, 8 meccs
+      28/11-re `cancelled` státusszal — a valós forduló **25/11 – 01/12**.
+- [x] A 19 hamis sort `ops.dedupe_archive`-ba archiváltam (teljes payload +
+      gate + eredmény), audittal; egy `TBD Home–TBD Away` placeholder withheld
+      sort is töröltem.
+- [x] A felhasználói adatból **8 valódi meccs** létrehozva `ingest-fixture`-szel
+      (`user-provided` forrás, artifact + capture + observation + provenance):
+      25/11 15:00 CR Belouizdad–CS Constantine, USM Alger–MC Alger;
+      30/11 14:00 JS El Biar–ASO Chlef, US Biskra–MB Rouissat,
+      USM Khenchela–ES Sétif; 01/12 14:00 Olympique Akbou–CR Temouchent;
+      01/12 17:00 ES Ben Aknoun–MC Oran, JS Saoura–JS Kabylie.
+- [x] API ellenőrzés: 11-20 → 3 lezárt algériai meccs, **11-21 → 0**,
+      11-25 → 2, 11-30 → 3, 12-01 → 3 — pontosan a forrás szerint.
+- [x] `reverify 11-20…12-01` → 2899 meccs, 0 hiba; `integrity` mind a 8
+      mutató **0**, verdict OK. Az app Cmd+R-rel frissítve.
+- [ ] A research forrás-oldali JSON-ok még mindig a hamis 21/11-i és 28/11-i
+      algériai sorokat tartalmazzák — a következő catch-up újra betöltheti őket.
+      Forráskorrekció (`docs/fix_source_data_20261121.py` mintájára) szükséges.
+
 ## Következő döntési pont
 
-- Kurált alias-tábla készítése a leggyakoribb forrásnév-változatokhoz (nem fuzzy,
-  hanem dokumentált egyeztetés); manuális UI-ellenőrzés; az NB I UI-fixture
-  hibája; a `tick.rs`-ben lévő nem commitolt auto-dedupe változás külön szelet.
+- Kurált alias-tábla a forrásnév-változatokhoz; az algériai research JSON-ok
+  forráskorrekciója; manuális UI-ellenőrzés; az NB I UI-fixture hibája; a
+  `tick.rs`-ben lévő nem commitolt auto-dedupe változás külön szelet.
