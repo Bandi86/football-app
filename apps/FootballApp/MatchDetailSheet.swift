@@ -103,6 +103,8 @@ struct MatchDetailContent: View {
                     awayLogo: detail.awayLogo,
                     homeElo: detail.homeElo,
                     awayElo: detail.awayElo,
+                    homePosition: detail.homePosition,
+                    awayPosition: detail.awayPosition,
                     score: scoreText,
                     note: scoreNote,
                     statusLabel: MatchRowView.statusLabel(for: detail.status),

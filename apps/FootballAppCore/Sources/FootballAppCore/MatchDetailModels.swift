@@ -63,6 +63,9 @@ public struct MatchDetail: Decodable, Equatable, Sendable {
     /// A két csapat következő meccsei (legfeljebb 3-3).
     public let homeNext: [NextMatchEntry]?
     public let awayNext: [NextMatchEntry]?
+    /// A csapatok helyezése a verseny aktuális tabelláján (ha van).
+    public let homePosition: Int?
+    public let awayPosition: Int?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -122,6 +125,8 @@ public struct MatchDetail: Decodable, Equatable, Sendable {
         case headToHead = "head_to_head"
         case homeNext = "home_next"
         case awayNext = "away_next"
+        case homePosition = "home_position"
+        case awayPosition = "away_position"
     }
 }
 

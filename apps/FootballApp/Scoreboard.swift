@@ -97,6 +97,8 @@ struct ScoreboardHero: View {
     let awayLogo: String?
     let homeElo: Double?
     let awayElo: Double?
+    var homePosition: Int?
+    var awayPosition: Int?
     let score: String
     let note: String?
     let statusLabel: String
@@ -116,7 +118,7 @@ struct ScoreboardHero: View {
             }
 
             HStack(alignment: .center, spacing: AppTheme.Spacing.l) {
-                team(name: home, logo: homeLogo, elo: homeElo, alignment: .trailing)
+                team(name: home, logo: homeLogo, elo: homeElo, position: homePosition, alignment: .trailing)
                 VStack(spacing: 4) {
                     Text(score)
                         .font(.scoreboard(44))
@@ -129,7 +131,7 @@ struct ScoreboardHero: View {
                     }
                 }
                 .frame(minWidth: 140)
-                team(name: away, logo: awayLogo, elo: awayElo, alignment: .leading)
+                team(name: away, logo: awayLogo, elo: awayElo, position: awayPosition, alignment: .leading)
             }
         }
         .padding(AppTheme.Spacing.l)
@@ -148,7 +150,13 @@ struct ScoreboardHero: View {
         )
     }
 
-    private func team(name: String, logo: String?, elo: Double?, alignment: HorizontalAlignment) -> some View {
+    private func team(
+        name: String,
+        logo: String?,
+        elo: Double?,
+        position: Int?,
+        alignment: HorizontalAlignment
+    ) -> some View {
         VStack(alignment: alignment, spacing: AppTheme.Spacing.s) {
             CrestLogo(name: name, path: logo, store: logos, size: 64)
             Text(name)
@@ -156,13 +164,24 @@ struct ScoreboardHero: View {
                 .foregroundStyle(AppTheme.primaryText)
                 .multilineTextAlignment(alignment == .trailing ? .trailing : .leading)
                 .lineLimit(2)
-            if let elo {
-                Text("ELO \(Int(elo.rounded()))")
-                    .font(.appLabel(9).monospacedDigit())
-                    .foregroundStyle(AppTheme.secondaryText)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(AppTheme.surface, in: Capsule())
+            HStack(spacing: 6) {
+                if let position {
+                    Text("\(position).")
+                        .font(.appLabel(9).monospacedDigit())
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(AppTheme.accent, in: Capsule())
+                        .accessibilityLabel("\(position). helyezés a tabellán")
+                }
+                if let elo {
+                    Text("ELO \(Int(elo.rounded()))")
+                        .font(.appLabel(9).monospacedDigit())
+                        .foregroundStyle(AppTheme.secondaryText)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(AppTheme.surface, in: Capsule())
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: alignment == .trailing ? .trailing : .leading)

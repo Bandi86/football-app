@@ -58,6 +58,8 @@ pub async fn match_detail(
         detail.head_to_head = extras.head_to_head;
         detail.home_next = extras.home_next;
         detail.away_next = extras.away_next;
+        detail.home_position = extras.home_position;
+        detail.away_position = extras.away_position;
     }
     Ok(Json(detail))
 }

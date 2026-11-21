@@ -81,6 +81,12 @@ pub struct MatchDetailRow {
     /// A vendég csapat következő legfeljebb három meccse.
     #[serde(default)]
     pub away_next: Vec<NextMatchEntry>,
+    /// A hazai csapat helyezése a verseny aktuális tabelláján (opcionális).
+    #[serde(default)]
+    pub home_position: Option<i64>,
+    /// A vendég csapat helyezése a verseny aktuális tabelláján (opcionális).
+    #[serde(default)]
+    pub away_position: Option<i64>,
 }
 
 pub async fn fetch_match_detail(pool: &PgPool, match_id: Uuid) -> Result<Option<MatchDetailRow>> {
@@ -346,6 +352,8 @@ impl From<MatchDetailDbRow> for MatchDetailRow {
             head_to_head: Vec::new(),
             home_next: Vec::new(),
             away_next: Vec::new(),
+            home_position: None,
+            away_position: None,
         }
     }
 }
@@ -384,6 +392,9 @@ pub struct MatchExtras {
     pub home_form: Vec<FormEntry>,
     pub away_form: Vec<FormEntry>,
     pub head_to_head: Vec<HeadToHeadEntry>,
+    /// A csapat helyezése a verseny aktuális tabelláján (ha van ilyen).
+    pub home_position: Option<i64>,
+    pub away_position: Option<i64>,
     /// A meccs után következő legfeljebb három meccs csapatonként.
     pub home_next: Vec<NextMatchEntry>,
     pub away_next: Vec<NextMatchEntry>,
@@ -568,12 +579,13 @@ pub async fn fetch_match_extras(
     match_id: Uuid,
     before: DateTime<Utc>,
 ) -> Result<Option<MatchExtras>> {
-    let Some((home_team_id, away_team_id)) = sqlx::query_as::<_, (Uuid, Uuid)>(
-        "SELECT home_team_id, away_team_id FROM core.match WHERE id = $1",
-    )
-    .bind(match_id)
-    .fetch_optional(pool)
-    .await?
+    let Some((home_team_id, away_team_id, competition_id)) =
+        sqlx::query_as::<_, (Uuid, Uuid, Uuid)>(
+            "SELECT home_team_id, away_team_id, competition_id FROM core.match WHERE id = $1",
+        )
+        .bind(match_id)
+        .fetch_optional(pool)
+        .await?
     else {
         return Ok(None);
     };
@@ -582,10 +594,28 @@ pub async fn fetch_match_extras(
     let head_to_head = fetch_head_to_head(pool, home_team_id, away_team_id, before, 5).await?;
     let home_next = fetch_team_next(pool, home_team_id, before, 3).await?;
     let away_next = fetch_team_next(pool, away_team_id, before, 3).await?;
+    // A tabella-pozíció nem kritikus: ha a verseny tabellája nem számolható,
+    // a részletező egyszerűen jelzés nélkül jelenik meg.
+    let (home_position, away_position) =
+        match crate::repositories::competition::fetch_competition_standings(pool, competition_id)
+            .await
+        {
+            Ok(rows) => (
+                rows.iter()
+                    .find(|row| row.team_id == home_team_id)
+                    .map(|row| row.position),
+                rows.iter()
+                    .find(|row| row.team_id == away_team_id)
+                    .map(|row| row.position),
+            ),
+            Err(_) => (None, None),
+        };
     Ok(Some(MatchExtras {
         home_form,
         away_form,
         head_to_head,
+        home_position,
+        away_position,
         home_next,
         away_next,
     }))

@@ -1654,3 +1654,24 @@ Nyitott:
 - Élő API: `/v1/team/01a1da40-…(Real Madrid)` → form 5 (mind W), next 3.
 - Élő UI: a Csapatok → Real Madrid adatlap – forma-chipek és következő meccsek
   (`/tmp/s57_team.png`).
+
+## S58 — tabella-pozíció a meccs-részletezőben
+
+### Változások
+- `rust/crates/storage/src/repositories/match_detail.rs`: `MatchExtras` +
+  `home_position`/`away_position`; a `fetch_match_extras` a meccs versenyének
+  aktuális tabellájából (`fetch_competition_standings`) oldja fel a két csapat
+  helyezését. A `MatchDetailRow` is megkapta a két opcionális mezőt; hiba esetén
+  `None` (a részletező ugyanúgy működik).
+- `/v1/match/{id}` válasz: `home_position` / `away_position`.
+- Swift: `MatchDetail.homePosition/awayPosition`, a `ScoreboardHero` a csapatnév
+  alatt az ELO mellé helyezés-jelvényt tesz (borostyán kapszula, pl. „2.",
+  „13."), akadálymentes címkével.
+
+### Ellenőrzések
+- Core: 65/65 (`decodesNextMatches` kiegészítve a helyezés-dekódolással).
+- `cargo fmt --all --check` OK, clippy `-D warnings` tiszta, workspace tesztek
+  zöldek; `xcodebuild build` BUILD SUCCEEDED; daemon újratelepítve (port 57830).
+- Élő API: `/v1/match/01a1e9e8-…` → Real Madrid 2., Celta 13.
+- Élő UI: a Real Madrid–Celta részletezőn a helyezés-jelvények, forma, egymás
+  elleni mérleg és következő meccsek együtt (`/tmp/s58_detail.png`).

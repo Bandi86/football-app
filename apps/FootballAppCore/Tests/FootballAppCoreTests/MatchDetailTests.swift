@@ -101,9 +101,12 @@ struct MatchDetailTests {
            {"match_id":"20000000-0000-0000-0000-000000000001","kickoff_at":"2026-11-28T18:00:00Z",
             "competition_name":"La Liga","opponent_name":"Gamma","is_home":false}
          ],
-         "away_next":[]}
+         "away_next":[],
+         "home_position":2,"away_position":13}
         """.data(using: .utf8)!
         let detail = try APIDecoding.makeDecoder().decode(MatchDetail.self, from: data)
+        #expect(detail.homePosition == 2)
+        #expect(detail.awayPosition == 13)
         #expect(detail.homeNext?.count == 1)
         #expect(detail.homeNext?.first?.opponentName == "Gamma")
         #expect(detail.homeNext?.first?.isHome == false)
