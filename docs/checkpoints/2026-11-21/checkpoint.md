@@ -432,9 +432,13 @@
       11-25 → 2, 11-30 → 3, 12-01 → 3 — pontosan a forrás szerint.
 - [x] `reverify 11-20…12-01` → 2899 meccs, 0 hiba; `integrity` mind a 8
       mutató **0**, verdict OK. Az app Cmd+R-rel frissítve.
-- [ ] A research forrás-oldali JSON-ok még mindig a hamis 21/11-i és 28/11-i
-      algériai sorokat tartalmazzák — a következő catch-up újra betöltheti őket.
-      Forráskorrekció (`docs/fix_source_data_20261121.py` mintájára) szükséges.
+- [x] A research forrás-oldali JSON-okból is eltávolítva a 8 hamis algériai R11
+      sor: `2026/11/21/{matches.json, raw/fotmob-matches.json}`, a hozzá tartozó
+      detail fájlok, `api/v1/index/matches.json` és a napi envelope-ok
+      (11-21/23/28). Az API napi envelope 11-21-re **1016 meccs, 0 algériai sor**
+      — a következő catch-up nem hozza vissza őket. (Megjegyzés: a detail
+      fájlok száma 1456, az envelope 1016 — a korábbi exportokból maradt
+      árva detail fájlok, alacsony prioritású takarítás.)
 
 ## Következő döntési pont
 
