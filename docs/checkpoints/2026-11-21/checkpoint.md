@@ -618,3 +618,37 @@ meccsrészletező statisztika-panelje a friss feedben üres volt.
 szerkesztő/timeline valódi macOS ellenőrzése; b) research felállás +
 játékosidentitás döntés (player entitás vagy név-alapú lista); c) validációs
 retenció (1,47 GB, ~130 MB/nap) és a `UNIQUE(country, fold)` verseny-megkötés.
+
+## S83 — A maradék identitás-duplikátumok lezárása
+
+**Induló állapot:** a S81-es merge-ek után a dev DB-ben még 8 azonos-fold
+verseny-csoport (azonos név + ország, kétszer: CONCACAF Nations League A
+Playoffs, BF Ligue 1, GI National League, KE Premier League, LV Cup, MY Super
+League, RO Superliga, RS Prva Liga) és látszólag 61 csapat-fold-csoport
+maradt. Utóbbiak nagy része kontextus-különbség (nem/ korosztály/ág), nem
+valódi duplikátum.
+
+- [x] **8 legacy verseny-duplikátum merge-elése** a `footballctl identity
+      merge-competition` paranccsal (survivor = több meccses sor): 45 meccs
+      mozgatva, 8 season-ütközés kezelve, 3 source-ref átmozgatva, 0 elveszett
+      meccs (`core.match` 283 622 változatlan). Audit: `competition_merge`
+      összesen **35**.
+- [x] **Ellenőrzés**: azonos-országos, azonos-fold **aktív verseny-csoport: 0**;
+      csapat-fold csoport a kontextussal (ország + nem + korosztály + ág):
+      **0** (a korábbi 61 „csoport” mind kontextusban eltérő, legitim névrokon
+      volt — fuzzy merge-et nem alkalmaztunk).
+- [x] **Integritás**: `footballctl integrity` → **OK** (0 duplikált
+      fixture/kickoff, 0 árva provenance, 0 aktív ref összevont entitásra,
+      0 függő review, 0 withheld, 0 failed job, 0 nyitott breaker).
+- [x] **Célzott tesztek** a végleges kódon: `competition_identity` 6/6,
+      `competition_merge` 3/3 zöld (izolált `football_v2_test_comp` DB-n,
+      `--test-threads=1`).
+- [ ] **Nem ellenőrzött**: a futó app valódi kattintgatása (a felhasználó
+      nézi meg); a nem-foldos névváltozatok (pl. „Man United” vs „Manchester
+      United”) továbbra is review-t igényelnek — automatikus fuzzy merge
+      tilos; a játékos-identitás/felállás és a validációs retenció külön
+      döntés.
+
+**Következő döntési pont:** a) játékos-identitás + felállás betöltése;
+b) validációs retenció (1,47 GB, ~130 MB/nap); c) `UNIQUE(country, fold)`
+verseny-megkötés; d) a felhasználó app-ellenőrzésének visszajelzése.
