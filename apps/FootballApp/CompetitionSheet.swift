@@ -13,6 +13,7 @@ struct CompetitionSheet: View {
 
     enum CompetitionTab: String, CaseIterable, Identifiable {
         case matches = "Meccsek"
+        case standings = "Tabella"
         case teams = "Csapatok"
         case seasons = "Szezonok"
         var id: String { rawValue }
@@ -77,6 +78,8 @@ struct CompetitionSheet: View {
                         selectedMatch = SelectedMatch(id: uuid)
                     }
                 }
+            case .standings:
+                standingsList(detail.standings ?? [])
             case .teams:
                 teamsList(detail.teams)
             case .seasons:
@@ -177,6 +180,7 @@ struct CompetitionSheet: View {
     private func count(_ tab: CompetitionTab, _ detail: CompetitionDetail) -> Int {
         switch tab {
         case .matches: return detail.matches.count
+        case .standings: return detail.standings?.count ?? 0
         case .teams: return detail.teams.count
         case .seasons: return model.seasons.count
         }
@@ -214,6 +218,75 @@ struct CompetitionSheet: View {
                 }
             }
         }
+    }
+
+    private func standingsList(_ rows: [CompetitionStanding]) -> some View {
+        Group {
+            if rows.isEmpty {
+                VStack(spacing: 10) {
+                    Image(systemName: "tablecells")
+                        .font(.largeTitle)
+                        .foregroundStyle(AppTheme.secondaryText)
+                    Text("Ehhez a versenyhez még nincs tabella.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(AppTheme.secondaryText)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        HStack(spacing: 8) {
+                            Text("#").frame(width: 28, alignment: .leading)
+                            Text("CSAPAT").frame(maxWidth: .infinity, alignment: .leading)
+                            ForEach(["M", "GY", "D", "V", "LG", "KG", "GK", "P"], id: \.self) { label in
+                                Text(label).frame(width: 30, alignment: .trailing)
+                            }
+                        }
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .tracking(0.8)
+                        .foregroundStyle(AppTheme.secondaryText)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 8)
+                        Rectangle().fill(AppTheme.hairline).frame(height: 1)
+                        ForEach(rows) { row in
+                            HStack(spacing: 8) {
+                                Text("\(row.position)")
+                                    .font(.system(size: 11).monospacedDigit())
+                                    .foregroundStyle(row.position <= 4 ? AppTheme.accent : AppTheme.secondaryText)
+                                    .frame(width: 28, alignment: .leading)
+                                CrestLogo(name: row.name, path: row.logo, store: model.logos, size: 18)
+                                Text(row.name)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(AppTheme.primaryText)
+                                    .lineLimit(1)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                statValue(row.played)
+                                statValue(row.wins)
+                                statValue(row.draws)
+                                statValue(row.losses)
+                                statValue(row.goalsFor)
+                                statValue(row.goalsAgainst)
+                                statValue(row.goalDiff, signed: true)
+                                Text("\(row.points)")
+                                    .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                                    .foregroundStyle(AppTheme.primaryText)
+                                    .frame(width: 30, alignment: .trailing)
+                            }
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 7)
+                            Rectangle().fill(AppTheme.hairline).frame(height: 1)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func statValue(_ value: Int, signed: Bool = false) -> some View {
+        Text(signed && value > 0 ? "+\(value)" : "\(value)")
+            .font(.system(size: 11).monospacedDigit())
+            .foregroundStyle(AppTheme.secondaryText)
+            .frame(width: 30, alignment: .trailing)
     }
 
     private func teamsList(_ teams: [CompetitionTeam]) -> some View {

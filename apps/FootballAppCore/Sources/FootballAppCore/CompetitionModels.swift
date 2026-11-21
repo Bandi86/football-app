@@ -80,6 +80,33 @@ public struct CompetitionDetail: Decodable, Equatable, Sendable {
     public let detail: CompetitionInfo
     public let matches: [DayMatch]
     public let teams: [CompetitionTeam]
+    public let standings: [CompetitionStanding]?
+}
+
+/// Tabella-sor: a verseny aktuális szezonjának lejátszott meccseiből számolva.
+public struct CompetitionStanding: Decodable, Equatable, Sendable, Identifiable {
+    public let position: Int
+    public let teamId: UUID
+    public let name: String
+    public let logo: String?
+    public let played: Int
+    public let wins: Int
+    public let draws: Int
+    public let losses: Int
+    public let goalsFor: Int
+    public let goalsAgainst: Int
+    public let goalDiff: Int
+    public let points: Int
+
+    public var id: UUID { teamId }
+
+    enum CodingKeys: String, CodingKey {
+        case position, name, logo, played, wins, draws, losses, points
+        case teamId = "team_id"
+        case goalsFor = "goals_for"
+        case goalsAgainst = "goals_against"
+        case goalDiff = "goal_diff"
+    }
 }
 
 /// Egy verseny szezonja a kliens szezon-nézethez (S23f).

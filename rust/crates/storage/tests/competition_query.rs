@@ -1,6 +1,7 @@
 use chrono::{NaiveDate, TimeZone, Utc};
 use football_storage::repositories::competition::{
-    fetch_competition_detail, fetch_competition_teams, fetch_competitions,
+    fetch_competition_detail, fetch_competition_standings, fetch_competition_teams,
+    fetch_competitions,
 };
 use football_storage::repositories::day::{DayFilter, fetch_day};
 use football_storage::test_support::test_pool;
@@ -193,6 +194,28 @@ async fn competition_detail_aggregates_and_teams() {
     assert_eq!((ujpest.goals_for, ujpest.goals_against), (3, 2));
     // Rendezés: legtöbb győzelem elöl (Újpest), majd gólkülönbség.
     assert_eq!(teams[0].name, "Újpest");
+}
+
+#[tokio::test]
+async fn standings_are_computed_from_played_matches() {
+    let pool = test_pool().await;
+    let seed = seed(&pool).await;
+    let rows = fetch_competition_standings(&pool, seed.competition_id)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 3);
+    // Újpest 2 meccs: győzelem (2:1) + döntetlen (1:1) = 4 pont;
+    // Vasas 2 döntetlen (1:1, 0:0) = 2 pont; Győr vereség + döntetlen = 1 pont.
+    assert_eq!(rows[0].name, "Újpest");
+    assert_eq!((rows[0].played, rows[0].wins, rows[0].draws), (2, 1, 1));
+    assert_eq!((rows[0].goals_for, rows[0].goals_against), (3, 2));
+    assert_eq!(rows[0].points, 4);
+    assert_eq!(rows[0].position, 1);
+    assert_eq!(rows[1].name, "Vasas");
+    assert_eq!(rows[1].points, 2);
+    assert_eq!(rows[2].name, "Győr");
+    assert_eq!(rows[2].points, 1);
+    assert_eq!(rows[2].goal_diff, -1);
 }
 
 #[tokio::test]

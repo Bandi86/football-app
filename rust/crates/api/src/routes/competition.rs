@@ -6,9 +6,9 @@ use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use chrono::NaiveDate;
 use football_storage::repositories::competition::{
-    CompetitionDetailRow, CompetitionListRow, CompetitionSeasonRow, CompetitionTeamRow,
-    fetch_competition_detail, fetch_competition_seasons, fetch_competition_teams,
-    fetch_competitions,
+    CompetitionDetailRow, CompetitionListRow, CompetitionSeasonRow, CompetitionStandingRow,
+    CompetitionTeamRow, fetch_competition_detail, fetch_competition_seasons,
+    fetch_competition_standings, fetch_competition_teams, fetch_competitions,
 };
 use football_storage::repositories::day::{DayFilter, fetch_day};
 use serde::Deserialize;
@@ -38,6 +38,7 @@ pub struct CompetitionDetailResponse {
     pub detail: CompetitionDetailRow,
     pub matches: Vec<DayMatch>,
     pub teams: Vec<CompetitionTeamRow>,
+    pub standings: Vec<CompetitionStandingRow>,
 }
 
 #[utoipa::path(
@@ -123,6 +124,12 @@ pub async fn competition_detail(
         tracing::error!(error=%e, "verseny-meccsek lekérdezés");
         AppError::internal("A verseny meccseinek lekérdezése sikertelen.")
     })?;
+    let standings = fetch_competition_standings(&state.pool, competition_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(error=%e, "verseny-tabella lekérdezés");
+            AppError::internal("A verseny tabellájának lekérdezése sikertelen.")
+        })?;
     let teams = fetch_competition_teams(&state.pool, competition_id, query.date, TIMEZONE, window)
         .await
         .map_err(|e| {
@@ -134,6 +141,7 @@ pub async fn competition_detail(
         detail,
         matches: matches.into_iter().map(map_match).collect(),
         teams,
+        standings,
     }))
 }
 

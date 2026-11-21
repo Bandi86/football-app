@@ -255,3 +255,101 @@ pub async fn fetch_competition_seasons(
     .await
     .context("verseny szezonjainak lekérése")
 }
+
+/// Tabella-sor a verseny aktuális szezonjából, lejátszott meccsekből számolva.
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow, utoipa::ToSchema)]
+pub struct CompetitionStandingRow {
+    pub position: i64,
+    pub team_id: Uuid,
+    pub name: String,
+    pub logo: Option<String>,
+    pub played: i64,
+    pub wins: i64,
+    pub draws: i64,
+    pub losses: i64,
+    pub goals_for: i64,
+    pub goals_against: i64,
+    pub goal_diff: i64,
+    pub points: i64,
+}
+
+/// A verseny legtöbb meccset tartalmazó szezonjának tabellája. Csak lejátszott,
+/// érvényes eredménnyel rendelkező meccsekből számol (as-of: a szezon eddigi
+/// állása), a pont 3–1–0, a sorrend pont → gólkülönbség → lőtt gól → név.
+pub async fn fetch_competition_standings(
+    pool: &PgPool,
+    competition_id: Uuid,
+) -> Result<Vec<CompetitionStandingRow>> {
+    let rows = sqlx::query_as::<_, CompetitionStandingRow>(
+        "WITH current_season AS (
+             SELECT m.season_id
+             FROM core.match m
+             WHERE m.competition_id = $1
+             GROUP BY m.season_id
+             ORDER BY max(m.kickoff_at) DESC
+             LIMIT 1
+         ), played AS (
+             SELECT m.home_team_id AS home_id,
+                    m.away_team_id AS away_id,
+                    COALESCE(r.home_et, r.home_ft) AS hf,
+                    COALESCE(r.away_et, r.away_ft) AS af
+             FROM core.match m
+             JOIN current_season s ON s.season_id = m.season_id
+             JOIN core.match_result r ON r.match_id = m.id
+             WHERE m.status IN ('finished', 'awarded')
+               AND COALESCE(r.home_et, r.home_ft) IS NOT NULL
+               AND COALESCE(r.away_et, r.away_ft) IS NOT NULL
+               AND r.validity = 'valid'
+         ), appearances AS (
+             SELECT home_id AS team_id, hf AS goals_for, af AS goals_against FROM played
+             UNION ALL
+             SELECT away_id, af, hf FROM played
+         ), standing_calc AS (
+             SELECT
+                a.team_id,
+                count(*)::bigint AS played,
+                count(*) FILTER (WHERE a.goals_for > a.goals_against)::bigint AS wins,
+                count(*) FILTER (WHERE a.goals_for = a.goals_against)::bigint AS draws,
+                count(*) FILTER (WHERE a.goals_for < a.goals_against)::bigint AS losses,
+                COALESCE(sum(a.goals_for), 0)::bigint AS goals_for,
+                COALESCE(sum(a.goals_against), 0)::bigint AS goals_against
+             FROM appearances a
+             GROUP BY a.team_id
+         )
+         SELECT
+            row_number() OVER (
+                ORDER BY (t.wins * 3 + t.draws) DESC,
+                         (t.goals_for - t.goals_against) DESC,
+                         t.goals_for DESC,
+                         tm.name
+            )::bigint AS position,
+            t.team_id,
+            tm.name,
+            tl.logo,
+            t.played,
+            t.wins,
+            t.draws,
+            t.losses,
+            t.goals_for,
+            t.goals_against,
+            (t.goals_for - t.goals_against)::bigint AS goal_diff,
+            (t.wins * 3 + t.draws)::bigint AS points
+         FROM standing_calc t
+         JOIN core.team tm ON tm.id = t.team_id
+         LEFT JOIN LATERAL (
+             SELECT CASE WHEN ass.storage_key IS NOT NULL
+                         THEN '/v1/asset/' || ass.storage_key
+                         ELSE ass.url END AS logo
+             FROM ops.asset ass
+             WHERE ass.entity_kind = 'team' AND ass.kind = 'logo'
+               AND ass.entity_id = tm.id
+             ORDER BY (ass.storage_key IS NULL), ass.captured_at DESC
+             LIMIT 1
+         ) tl ON true
+         ORDER BY position",
+    )
+    .bind(competition_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}

@@ -1577,3 +1577,35 @@ Nyitott:
 ### Nyitott
 - A 140 eredmény nélküli meccs FotMob-alapú pótlása alias-tábla nélkül nem
   biztonságos (0 strict találat; a laza találatok hamisak) — dokumentálva.
+
+## S55 — tabella a verseny-adatlapon
+
+### Változások
+- `rust/crates/storage/src/repositories/competition.rs`: új
+  `CompetitionStandingRow` (position, team, logo, played/wins/draws/losses,
+  goals_for/against, goal_diff, points) és `fetch_competition_standings`.
+  A tabella a verseny legfrissebb meccsű szezonjából (max kickoff) számol, csak
+  lejátszott, érvényes eredményű (`status ∈ finished/awarded`, `validity='valid'`)
+  meccsekből; pont 3–1–0, sorrend pont → gólkülönbség → lőtt gól → név.
+- `/v1/competition/{id}` válasz új `standings` mezővel (a meccs- és csapatblokkok
+  mellett; a kliens opcionálisan dekódolja).
+- Swift: `CompetitionStanding` modell, `CompetitionDetail.standings`, a
+  `CompetitionSheet` új „Tabella" füle: #, csapat (címer + név), M, GY, D, V,
+  LG, KG, GK, P; a top 4 akcent színnel; üres állapot szöveggel.
+- Tesztek: `rust/crates/storage/tests/competition_query.rs
+  ::standings_are_computed_from_played_matches` (3 csapat, pont/ Sorrend/GK
+  ellenőrzés), Core `decodesStandingsTable`.
+
+### Ellenőrzések
+- `cargo test -p football-storage --test competition_query -- --test-threads=1`
+  → 5 passed; `cargo fmt --all --check` OK; clippy `-D warnings` tiszta;
+  `cargo test --workspace -- --test-threads=1` zöld.
+- Swift Core: 62/62; `xcodebuild build` BUILD SUCCEEDED.
+- Élő API: `/v1/competition/01a1d9dd-4963-72b2-854e-01d76519be27?date=2026-11-21`
+  → 2026/27 tabella 24 csapattal (Barcelona 33 pont, Real Madrid 33, Atlético 31).
+- Élő UI: a La Liga adatlap „Tabella" füle (`/tmp/s55_standings.png`).
+
+### Megjegyzés
+- A tabella a jelenlegi szezont a legfrissebb kickoff szerint választja; a
+  szezonon belüli meccsszám a forrásadatoktól függ (a synthetic v1-adatokban
+  néhol 24 csapat szerepel egy ligában).
