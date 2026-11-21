@@ -1379,3 +1379,34 @@ Nyitott:
 - [ ] Nyitott (következő szelet): a 25 dupla szereplés valós adathibáinak javítása
       (többnyire soccerway/v1 félre-mappelt csapatok: W-, B-, U23-csapatok a
       felnőtt entitáson, illetve spurious sorok, amelyeket a research nem ismer).
+
+## S48 — reconcile-alapú adatjavítás (B-/női csapatok, spurious sorok)
+
+- [x] Reconcile a research napi JSON-okkal (11-13…11-23, 2807 meccs): 2567 pár,
+      240 DB-oldali pár nélküli sor, 152 verseny-név eltérés; a valódi hibák
+      csoportjai: B-csapatok a felnőtt entitáson, női meccsek férfi versenyben,
+      forrás által nem ismert spurious sorok.
+- [x] Csapat-javítás: 8 új entitás (Eibar B, Girona B, Tenerife B, Las Palmas B,
+      Castellon B, Real Sociedad B, Le Havre W) + meccs-relink; a két francia női
+      meccs (Lens–Montpellier, Le Havre–Nantes) a „Première Ligue (női)" alá.
+- [x] Francia női versenyek összevonása „Première Ligue (női)" alá; alias-csapatok
+      merge-elése (H&W Welders → Harland & Wolff Welders FC, Reus → Reus FC Reddis,
+      Wolves → Wolverhampton Wanderers, Senegal XX → Senegal SN); az AFCON U23
+      South Sudan–Senegal sor a helyes U23 entitásokra kötve.
+- [x] Research/FotMob ellentmondás miatt visszatartva 10 spurious sor (Ards–H&W
+      Welders, Cavese–Sorrento, Savoia–Monopoli, Atletico Huila–Envigado,
+      South Africa–Madagascar, China–Mauritania, a National 1 Group C két 16:00-s
+      sora, Hyeres–Canet, Hauts Lyonnais–Etoile Frejus), a 21 szintetikus demó-sor
+      szintén withheld.
+- [x] Audit-finomítás: a visszatartott és a le nem játszott (canceled/postponed/
+      abandoned) sorok nem számítanak duplikátumnak/dupla szereplésnek.
+- [x] 11-01…11-12 és 11-24…11-30 korábbi duplikátumai merge-elve
+      (`dedupe variants` 6+3+1, `dedupe matches` 2), a hétvégi hibaosztályok
+      javítva; ország nélküli csapatok (12) országot kaptak.
+- [x] Audit-eredmény: 11-01…11-12 TISZTA, 11-13…11-23 TISZTA, 11-24…11-30 TISZTA
+      (a decemberi ablakban 1 kategória maradt, következő szelet).
+- [x] Kapuk: `cargo fmt --all --check` OK, clippy `-D warnings` tiszta,
+      `cargo test -p football-storage --lib` 25 passed.
+- [ ] Nyitott: decemberi ablak auditja, verseny-név aliasok beépítése az ingestbe
+      (hogy az újraingest ne hozza vissza a duplikátumokat), 30 visszatartott sor
+      felülvizsgálata, 116 forrás nélküli eredmény, logó/odds-lefedettség, UI.

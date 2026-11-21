@@ -120,8 +120,35 @@ pub async fn audit_range(
     to: NaiveDate,
 ) -> Result<DuplicateAuditReport> {
     let rows = match_rows(pool, from, to, false).await?;
-    let clusters = cluster_rows(&rows);
-    let double_bookings = find_double_bookings(&rows);
+    // A visszatartott sorok nem jelennek meg a napi listán, ezért a
+    // duplikáció- és dupla-szereplés-vizsgálatból kimaradnak.
+    let publishable: Vec<DuplicateMatchRow> = rows
+        .iter()
+        .filter(|row| {
+            !matches!(
+                row.gate_state.as_deref(),
+                Some("withheld") | Some("quarantined")
+            )
+        })
+        .cloned()
+        .collect();
+    // A le nem játszott (elmaradt, törölt, félbeszakadt) meccsek nem
+    // számítanak dupla szereplésnek.
+    let ids: Vec<Uuid> = publishable.iter().map(|row| row.match_id).collect();
+    let played: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM core.match \
+         WHERE id = ANY($1) AND status NOT IN ('canceled', 'postponed', 'abandoned')",
+    )
+    .bind(&ids)
+    .fetch_all(pool)
+    .await?;
+    let played: std::collections::HashSet<Uuid> = played.into_iter().collect();
+    let active: Vec<DuplicateMatchRow> = publishable
+        .into_iter()
+        .filter(|row| played.contains(&row.match_id))
+        .collect();
+    let clusters = cluster_rows(&active);
+    let double_bookings = find_double_bookings(&active);
     let competition_duplicates = competition_duplicates(pool, from, to).await?;
     let consistency = consistency_report(pool, from, to).await?;
     Ok(DuplicateAuditReport {
