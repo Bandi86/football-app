@@ -93,6 +93,10 @@ struct MatchListView: View {
     let logos: LogoStore
     let focusedMatch: String?
     let onSelect: (String) -> Void
+    /// A kedvenc versenyek kulcsai (a szekciófejléc csillagához).
+    var favorites: Set<String> = []
+    /// A kedvenc be-/kikapcsolása; `nil` esetén nincs csillag a fejlécben.
+    var onToggleFavorite: ((String) -> Void)? = nil
 
     /// A kártyasor elrendezésének váltópontja a rendelkezésre álló szélességben
     /// (a kártya a 48 pt oldalpaddel ennél keskenyebb). Ez nem a kártya szélessége:
@@ -130,7 +134,11 @@ struct MatchListView: View {
                                     logos: logos,
                                     isWide: isWide,
                                     focusedMatch: focusedMatch,
-                                    onSelect: onSelect
+                                    onSelect: onSelect,
+                                    isFavorite: favorites.contains(league.id),
+                                    onToggleFavorite: onToggleFavorite.map { toggle in
+                                        { toggle(league.id) }
+                                    }
                                 )
                             }
                         }
@@ -155,20 +163,13 @@ private struct LeagueSectionView: View {
     let isWide: Bool
     let focusedMatch: String?
     let onSelect: (String) -> Void
+    let isFavorite: Bool
+    let onToggleFavorite: (() -> Void)?
 
     private var sortedMatches: [MatchCardModel] {
         // Azonos kezdésnél az id dönt, hogy a fókuszsorrend és a kirajzolt
         // sorrend ugyanaz legyen (a Swift rendezés nem stabil).
         league.matches.sorted { ($0.time, $0.id) < ($1.time, $1.id) }
-    }
-
-    /// A fejléc egyetlen kiolvasott címkéje: liga, ország, opcionális forduló
-    /// és a meccsszám. A forduló csak akkor kerül bele, ha a csoport egységes.
-    private var sectionAccessibilityLabel: String {
-        var parts = [league.name, league.subtitle]
-        if let round = league.roundSummary { parts.append(round) }
-        parts.append("\(league.matches.count) meccs")
-        return parts.joined(separator: ", ")
     }
 
     var body: some View {
@@ -204,12 +205,25 @@ private struct LeagueSectionView: View {
                 Text("\(league.matches.count) meccs")
                     .font(.appLabel(10))
                     .foregroundStyle(AppTheme.secondaryText)
+                if let onToggleFavorite {
+                    Button(action: onToggleFavorite) {
+                        Image(systemName: isFavorite ? "star.fill" : "star")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(isFavorite ? AppTheme.accent : AppTheme.secondaryText)
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.plain)
+                    .help(isFavorite ? "Eltávolítás a kedvencek közül" : "Hozzáadás a kedvencekhez")
+                    .accessibilityLabel(isFavorite
+                        ? "\(league.name) eltávolítása a kedvencek közül"
+                        : "\(league.name) hozzáadása a kedvencekhez")
+                    .accessibilityIdentifier("league.favorite.\(league.id)")
+                }
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 12)
             .background(AppTheme.surface)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(sectionAccessibilityLabel)
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("league.section.\(league.id)")
 
             Rectangle().fill(AppTheme.hairline).frame(height: 1)

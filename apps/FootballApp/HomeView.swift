@@ -22,6 +22,8 @@ struct HomeView: View {
     @State private var division: DivisionFilter? = nil
     @State private var searchText = ""
     @State private var womensOnly = false
+    @State private var favoritesOnly = false
+    @State private var favorites: Set<String> = LeagueFavorites().load()
     @State private var tab: AppTab = .day
     @State private var featuredOnly = false
     @State private var selected: SelectedMatch?
@@ -177,6 +179,7 @@ struct HomeView: View {
 
             FilterBar(filter: $filter, country: $country, division: $division,
                       featuredOnly: $featuredOnly, womensOnly: $womensOnly,
+                      favoritesOnly: $favoritesOnly,
                       searchText: $searchText, focused: focus,
                       counts: filterCounts, countries: allCountries,
                       compact: width < 1_000)
@@ -201,11 +204,18 @@ struct HomeView: View {
             if leagues.isEmpty, featuredOnly, !groups(feed.matches, featured: false).isEmpty {
                 featuredEmptyHint
             } else {
-                MatchListView(leagues: leagues, logos: model.logos, focusedMatch: focusedMatchID) { id in
-                    if let uuid = UUID(uuidString: id) {
-                        selected = SelectedMatch(id: uuid)
-                    }
-                }
+                MatchListView(
+                    leagues: leagues,
+                    logos: model.logos,
+                    focusedMatch: focusedMatchID,
+                    onSelect: { id in
+                        if let uuid = UUID(uuidString: id) {
+                            selected = SelectedMatch(id: uuid)
+                        }
+                    },
+                    favorites: favorites,
+                    onToggleFavorite: toggleFavorite
+                )
             }
         case .empty:
             EmptyStateView()
@@ -245,7 +255,8 @@ struct HomeView: View {
             (!featured || LeagueGroup.featured([league]).isEmpty == false) &&
             (country == nil || league.country == country) &&
             (division == nil || division!.matches(league)) &&
-            (!womensOnly || league.isWomens)
+            (!womensOnly || league.isWomens) &&
+            (!favoritesOnly || favorites.contains(league.id))
         }
     }
 
@@ -291,6 +302,14 @@ struct HomeView: View {
                                countryCode: filtered.countryCode, flag: filtered.flag,
                                logo: filtered.logo, tier: filtered.tier,
                                priority: filtered.priority, matches: kept)
+        }
+    }
+
+    /// A szekciófejléc csillagának művelete: kedvenc be/ki, azonnal mentve.
+    private func toggleFavorite(_ key: String) {
+        favorites = LeagueFavorites().toggle(key)
+        if favoritesOnly && favorites.isEmpty {
+            favoritesOnly = false
         }
     }
 }
@@ -621,6 +640,7 @@ private struct FilterBar: View {
     @Binding var division: DivisionFilter?
     @Binding var featuredOnly: Bool
     @Binding var womensOnly: Bool
+    @Binding var favoritesOnly: Bool
     @Binding var searchText: String
     let focused: AppFocus?
     let counts: [MatchFilter: Int]
@@ -640,6 +660,7 @@ private struct FilterBar: View {
                 searchField
                 featuredButton
                 womensButton
+                favoritesButton
                 Spacer(minLength: 8)
                 menus
             }
@@ -747,6 +768,33 @@ private struct FilterBar: View {
               ? "Csak a női bajnokságok meccsei látszanak. Kattints a teljes naphoz."
               : "Csak a női bajnokságok meccseinek mutatása.")
         .accessibilityIdentifier("filter.womens")
+    }
+
+    private var favoritesButton: some View {
+        Button {
+            favoritesOnly.toggle()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: favoritesOnly ? "star.fill" : "star")
+                    .font(.system(size: 10, weight: .semibold))
+                Text("Kedvencek")
+                    .font(.system(size: 12.5, weight: .medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(favoritesOnly ? AppTheme.accent : AppTheme.secondaryText)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(
+                (favoritesOnly ? AppTheme.accent.opacity(0.12) : AppTheme.surface),
+                in: Capsule()
+            )
+            .overlay(Capsule().strokeBorder(AppTheme.hairline))
+        }
+        .buttonStyle(.plain)
+        .help(favoritesOnly
+              ? "Csak a kedvenc versenyek meccsei látszanak. Kattints a teljes naphoz."
+              : "Csak a kedvenc versenyek meccseinek mutatása.")
+        .accessibilityIdentifier("filter.favorites")
     }
 
     private var menus: some View {

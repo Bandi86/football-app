@@ -1609,3 +1609,26 @@ Nyitott:
 - A tabella a jelenlegi szezont a legfrissebb kickoff szerint választja; a
   szezonon belüli meccsszám a forrásadatoktól függ (a synthetic v1-adatokban
   néhol 24 csapat szerepel egy ligában).
+
+## S56 — kedvenc versenyek (csillag + szűrő)
+
+### Változások
+- Új `apps/FootballAppCore/Sources/FootballAppCore/LeagueFavorites.swift`: a
+  kedvenc versenyek a kanonikus liga-kulccsal (`LeagueGroup.id`, pl. `"ES|la liga"`)
+  a UserDefaults-ban (`day.favoriteLeagues`) tárolódnak, így liga-átnevezés és
+  entitás-összevonás után is megmaradnak; `load/contains/toggle/save` API.
+- `apps/FootballApp/MatchListView.swift`: a szekciófejléc opcionális csillag
+  gombot kapott (`favorites`, `onToggleFavorite` paraméterek; a többi hívó
+  változatlan, mert a paraméterek defaulttal rendelkeznek); a csillag AX-címkéje
+  és azonosítója (`league.favorite.<id>`) a be-/kikapcsolást mondja.
+- `apps/FootballApp/HomeView.swift`: `favorites` állapot a UserDefaults-ból, új
+  „Kedvencek" chip (`filter.favorites`) a női szűrő mellett; a csoportosítás a
+  kedvencekre is szűr, a `toggleFavorite` azonnal ment.
+
+### Ellenőrzések
+- Core tesztek: 64/64 (új `LeagueFavoritesTests`: toggle/mentés, rendezett
+  kulcsok izolált UserDefaults suite-dal).
+- `xcodebuild build` BUILD SUCCEEDED.
+- Élő UI: a La Liga csillagozva (`/tmp/s56_star.png`), a „Kedvencek" szűrő
+  aktiválva csak a La Liga 4 meccsét mutatja, a chip-számlálók is igazodnak
+  (`/tmp/s56_favorites_filter.png`).
