@@ -402,6 +402,11 @@ pub async fn competition_duplicates(
     .fetch_all(pool)
     .await?;
 
+    Ok(cluster_competition_rows(rows))
+}
+
+/// A verseny-duplikátumok tiszta klaszterezése (tesztelhető, DB nélkül).
+pub fn cluster_competition_rows(rows: Vec<CompetitionRow>) -> Vec<CompetitionDuplicate> {
     let mut by_name: HashMap<String, Vec<CompetitionRow>> = HashMap::new();
     for row in rows {
         by_name.entry(fold_name(&row.name)).or_default().push(row);
@@ -411,52 +416,69 @@ pub async fn competition_duplicates(
         if group.len() < 2 {
             continue;
         }
-        // Országonként (semleges = wildcard) klaszterezzük a versenyeket.
-        let mut assigned: Vec<bool> = vec![false; group.len()];
-        for i in 0..group.len() {
-            if assigned[i] {
-                continue;
-            }
-            let mut cluster = vec![i];
-            assigned[i] = true;
-            let mut changed = true;
-            while changed {
-                changed = false;
-                for j in 0..group.len() {
-                    if assigned[j] {
-                        continue;
-                    }
-                    if cluster
-                        .iter()
-                        .any(|&k| countries_compatible(&group[k], &group[j]))
-                    {
-                        assigned[j] = true;
-                        cluster.push(j);
-                        changed = true;
-                    }
+        // Országonként csoportosítunk; a semleges (üres/XX/INT) országú
+        // versenyek csak akkor számítanak duplikátumnak, ha egyetlen valódi
+        // ország mellett élnek. Több valódi ország esetén az azonos nevű
+        // bajnokságok legitim módon különböznek (pl. Ligue 1 FR/DZ/CD), ezért
+        // a semleges sor nem kötheti össze őket.
+        let mut by_country: HashMap<String, Vec<usize>> = HashMap::new();
+        for (idx, row) in group.iter().enumerate() {
+            by_country
+                .entry(country_key(&row.country_code))
+                .or_default()
+                .push(idx);
+        }
+        let is_neutral = |key: &str| key.is_empty() || key == "XX" || key == "INT";
+        let concrete: Vec<String> = by_country
+            .keys()
+            .filter(|key| !is_neutral(key))
+            .cloned()
+            .collect();
+        let mut neutral_indices: Vec<usize> = by_country
+            .iter()
+            .filter(|(key, _)| is_neutral(key))
+            .flat_map(|(_, indices)| indices.iter().copied())
+            .collect();
+        neutral_indices.sort_unstable();
+        match concrete.len() {
+            0 => {
+                if neutral_indices.len() >= 2 {
+                    out.push(CompetitionDuplicate {
+                        name_key: name_key.clone(),
+                        competitions: neutral_indices.iter().map(|&i| group[i].clone()).collect(),
+                    });
                 }
             }
-            if cluster.len() >= 2 {
-                out.push(CompetitionDuplicate {
-                    name_key: name_key.clone(),
-                    competitions: cluster.into_iter().map(|k| group[k].clone()).collect(),
-                });
+            1 => {
+                let mut cluster = by_country.get(&concrete[0]).cloned().unwrap_or_default();
+                cluster.extend(neutral_indices);
+                if cluster.len() >= 2 {
+                    out.push(CompetitionDuplicate {
+                        name_key: name_key.clone(),
+                        competitions: cluster.iter().map(|&i| group[i].clone()).collect(),
+                    });
+                }
+            }
+            _ => {
+                // Több valódi ország: nem duplikátum. A semleges sorok
+                // külön, saját csoportként legfeljebb egymással egyeznek.
+                if neutral_indices.len() >= 2 {
+                    out.push(CompetitionDuplicate {
+                        name_key: name_key.clone(),
+                        competitions: neutral_indices.iter().map(|&i| group[i].clone()).collect(),
+                    });
+                }
             }
         }
     }
     out.sort_by(|a, b| a.name_key.cmp(&b.name_key));
-    Ok(out)
+    out
 }
 
-fn countries_compatible(a: &CompetitionRow, b: &CompetitionRow) -> bool {
-    let key = |c: &Option<String>| {
-        c.as_deref()
-            .map(football_domain::identity::canonical_country_code)
-            .unwrap_or_default()
-    };
-    let (ka, kb) = (key(&a.country_code), key(&b.country_code));
-    let neutral = |k: &str| k.is_empty() || k == "XX" || k == "INT";
-    ka == kb || neutral(&ka) || neutral(&kb)
+fn country_key(code: &Option<String>) -> String {
+    code.as_deref()
+        .map(football_domain::identity::canonical_country_code)
+        .unwrap_or_default()
 }
 
 async fn consistency_report(
@@ -633,6 +655,48 @@ mod tests {
         assert_eq!(clusters.len(), 1);
         assert_eq!(clusters[0].matches.len(), 2);
         assert_eq!(clusters[0].reason, MatchReason::Exact);
+    }
+
+    fn competition_row(name: &str, country: Option<&str>, count: i64) -> CompetitionRow {
+        CompetitionRow {
+            competition_id: Uuid::nil(),
+            name: name.to_string(),
+            country_code: country.map(str::to_string),
+            match_count: count,
+        }
+    }
+
+    #[test]
+    fn same_league_name_in_different_countries_is_not_a_duplicate() {
+        let rows = vec![
+            competition_row("Ligue 1", Some("FR"), 292),
+            competition_row("Ligue 1", Some("DZ"), 28),
+            competition_row("Ligue 1", Some("BF"), 14),
+        ];
+        assert!(cluster_competition_rows(rows).is_empty());
+    }
+
+    #[test]
+    fn neutral_country_duplicate_is_flagged_next_to_a_real_country() {
+        let rows = vec![
+            competition_row("Coupe de France", Some("FR"), 87),
+            competition_row("Coupe de France", Some("XX"), 36),
+        ];
+        let clusters = cluster_competition_rows(rows);
+        assert_eq!(clusters.len(), 1);
+        assert_eq!(clusters[0].competitions.len(), 2);
+    }
+
+    #[test]
+    fn neutral_bridge_does_not_merge_two_real_countries() {
+        let rows = vec![
+            competition_row("Ligue 1", Some("FR"), 1),
+            competition_row("Ligue 1", Some("XX"), 1),
+            competition_row("Ligue 1", Some("DZ"), 1),
+        ];
+        // Az XX nem kötheti össze a két valódi országot; külön csoportként
+        // sem duplikátum, mert egyedül van.
+        assert!(cluster_competition_rows(rows).is_empty());
     }
 
     #[test]

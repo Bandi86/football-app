@@ -578,11 +578,25 @@ async fn upsert_country(
     // hogy ne keletkezzen `ESP` sor az `ES` mellett.
     let code = football_domain::identity::canonical_country_code(code);
     let name = name.trim();
-    let name = if name.is_empty() { code.as_str() } else { name };
+    // Ha a forrás a nevet kódként adja (pl. "NED"), ne írjuk felül vele a
+    // rendes megjelenített nevet.
+    let code_like =
+        !name.is_empty() && name.len() <= 3 && name.chars().all(|c| c.is_ascii_uppercase());
+    let name = if name.is_empty() || code_like {
+        code.as_str()
+    } else {
+        name
+    };
     sqlx::query_scalar(
         "INSERT INTO core.country (id, code, name)
          VALUES ($1,$2,$3)
-         ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name
+         ON CONFLICT (code) DO UPDATE SET name = CASE
+             WHEN core.country.name IS NULL
+               OR core.country.name = ''
+               OR core.country.name = core.country.code
+             THEN EXCLUDED.name
+             ELSE core.country.name
+         END
          RETURNING id",
     )
     .bind(Uuid::now_v7())

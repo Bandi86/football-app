@@ -2317,8 +2317,8 @@ async fn load_team_context(
 
 /// A meccs versenyének ország-kódja (FOREIGN_TEAMS_DOMESTIC_COMPETITION).
 async fn load_competition_country(pool: &sqlx::PgPool, match_id: Uuid) -> Result<Option<String>> {
-    let code: Option<Option<String>> = sqlx::query_scalar(
-        "SELECT ctry.code
+    let row: Option<(Option<String>, String)> = sqlx::query_as(
+        "SELECT ctry.code, c.name
            FROM core.match m
            JOIN core.competition c ON c.id = m.competition_id
            LEFT JOIN core.country ctry ON ctry.id = c.country_id
@@ -2327,7 +2327,15 @@ async fn load_competition_country(pool: &sqlx::PgPool, match_id: Uuid) -> Result
     .bind(match_id)
     .fetch_optional(pool)
     .await?;
-    Ok(code.flatten())
+    let Some((code, name)) = row else {
+        return Ok(None);
+    };
+    // Kupákban külföldi résztvevők is lehetnek: itt ne tüzeljen a
+    // FOREIGN_TEAMS_DOMESTIC_COMPETITION szabály.
+    if football_domain::identity::looks_like_cup_competition(&name) {
+        return Ok(None);
+    }
+    Ok(code)
 }
 
 async fn duplicate_count(

@@ -1719,3 +1719,85 @@ Nyitott:
 - Megjegyzés: a frissítés ütemezése SwiftUI `.task`-ban fut, közvetlen
   vizuális bizonyíték (pl. hálózati számláló) nincs rá; a frissítés
   szemantikáját a fenti unit tesztek fedik.
+
+## S61 — 2026-os történelmi duplikátumok és csapatnevek
+
+### Változások
+- **Történelmi audit:** a teljes 2026-os évre 12 905 meccs, 326 név-variáns
+  klaszter, 200 dupla szereplés. A klaszterek 329 párja automatizálva merge-elve
+  (`footballctl dedupe pair --survivor … --duplicate …`) használtság → verified
+  gate → eredmény → provenance sorrendű túlélő-választással.
+- **Csapat-alias merge-ek:** a maradék dupla szereplésekből 9 klubpár derült ki,
+  ahol ugyanaz a klub két entitásként élt (pl. „1. FC Frankfurt (Oder)" ↔
+  „Ein Frankfurt", „Jagiellonia II" ↔ „Jagiellonia Białystok"). A merge-ek
+  alias-bejegyzést, standing/statisztika-átkötést, meccs-átsorolást és
+  `core.entity.merged_into_id`-t írnak, audit `identity_team_merge`.
+- **Kanonikus nevek:** Eintracht Frankfurt, 1. FC Nürnberg, Termalica Nieciecza,
+  Paris Saint-Germain (a magyaros/rövid alakok alias-ként maradnak).
+- **75 további meccs-merge** a csapat-merge-ek után azonossá vált sorokra.
+- **Forrás-ellentmondások dokumentálva:** CR Bélouizdad (Ligue 1 vs CAF Confed
+  Cup), KFUM Oslo (két Eliteserien-fixture), Schwarz-Weiß Bregenz (Austria vs
+  First Vienna ellenfél ugyanabban az időben) — ezeknél a források maguk
+  mondanak ellent, ezért merge nem biztonságos.
+- **Hibás tartalék-bekötések javítva:** Eibar B, Las Palmas B, Śląsk Wrocław II
+  entitás létrehozása/relink; seed „FA Kupa" demo sor editorial hold alá.
+- **Hibás merge visszaállítva:** egy `--allow-loose` kör felnőtt/youth párt
+  olvasztott össze (Real Madrid–PSV vs Real Madrid U19–PSV U19); a
+  `ops.dedupe_archive` payloadból teljes visszaállítás történt (match +
+  provenance + gate), audit `dedupe_merge_restore`.
+
+### Ellenőrzések
+- `footballctl audit --from 2026-01-01 --to 2026-12-31`: klaszter 0, dupla
+  szereplés 9 → a javítások után 2–3, verseny-duplikátum 0 (ország-tudatos
+  csoportosítás után).
+- `reverify --from 2026-11-13 --to 2026-11-30`: 2612 provisional, 1779 verified,
+  19 withheld.
+- `cargo test -p football-storage --lib` 29 passed; `cargo test -p football-domain
+  --lib` 9 passed.
+
+## S62 — ország-tudatos audit, kupa-kivétel, holland duplikátumok
+
+### Változások
+- **Audit ország-tudatos verseny-duplikátum:** a `cluster_competition_rows`
+  tiszta függvény országonként particionál; két valódi országot egy semleges sor
+  nem köthet össze. Így a Ligue 1 FR/DZ/CD/BJ/SN nem hamis pozitív, viszont a
+  XX (nemzetközi) duplikátumok továbbra is jelződnek.
+- **Ország-kód kanonizálás bővítése:** `HOL → NL`, `SIN → SG`, `KVX → XK`,
+  `CAN → CA`; a `core.country` 3 betűs sorai (CAN/HOL/KVX/SIN) auditáltan
+  merge-elve a kétbetűs párba, a holland sor neve „Hollandia" (a forrás „NED"
+  kód-neve nem írja felül többé).
+- **Kupa-kivétel:** a `FOREIGN_TEAMS_DOMESTIC_COMPETITION` szabály nem tüzel
+  kupa-versenyekben (Coupe de France, Taça de Portugal stb. tengerentúli
+  résztvevői). A kupa-felismerés `football_domain::identity::looks_like_cup_competition`,
+  a verseny betöltése (`worker/tick.rs`, `footballctl`) ad `None` országot.
+- **Ingest név-védelem:** ha a forrás ország-neve kód alakú (pl. „NED"), az
+  `upsert_country` nem írja felül a meglévő megjelenített nevet.
+- **Holland duplikátumok:** az ország-merge után felszínre jött 3 duplikált
+  verseny (Eerste Divisie, Eredivisie, Tweede Divisie) összevonva, 18 duplikált
+  csapatpár merge-elve (De Graafschap, FC Den Bosch, FC Dordrecht, FC Emmen,
+  FC Twente, FC Utrecht, FC Volendam, Helmond Sport, Heracles Almelo, HHC
+  Hardenberg, MVV Maastricht, NAC Breda, RKC Waalwijk, Roda JC Kerkrade,
+  TOP Oss, Vitesse, VVV-Venlo, Almere City FC) — a Jong- és W-entitások
+  érintetlenek. A holland nap duplikált meccsei (`dedupe matches`) merge-elve.
+- **Korosztály-guard szigorítása:** ha csak az egyik csapatnév hordoz
+  korosztály-jelölőt („U19"), a másik oldal `age_group` mezőjének kell
+  igazolnia ugyanazt — felnőtt és utánpótlás meccs soha nem olvad össze. A
+  csapat-kontextus ellenőrzés tükrözött orientációban is helyes.
+
+### Ellenőrzések
+- `cargo test -p football-storage --lib` 29 passed (új teszt:
+  `one_sided_age_marker_never_matches_a_senior_team`, flipped-orientációs
+  fixture-ök javítva).
+- `footballctl audit --from 2026-11-13 --to 2026-11-30`: klaszter 0, dupla
+  szereplés 2 (CR Bélouizdad, SW Bregenz — forrás-ellentmondás), verseny-
+  duplikátum 0, konzisztencia tiszta (0 eredmény nélküli lezárt, 0 ország
+  nélküli csapat).
+- `reverify` ugyanarra: 2612 provisional, 1779 verified, 19 withheld.
+
+### Nyitott
+- A 2 forrás-ellentmondásos dupla szereplés dokumentálva, további javítás csak
+  új forrásból lehetséges.
+- A 2026-os év 301-es „maradék" klaszter-listája (Jove Español, Res./Under 19/
+  CC nevek) klubonkénti kézi döntést igényel — az automatikus tömeges merge
+  nem biztonságos.
+- 19 withheld (főleg CD/CG instabil forrás-országkód és hiányzó eredmény).

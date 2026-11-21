@@ -640,8 +640,8 @@ async fn load_team_context(
 
 /// A meccs versenyének ország-kódja (FOREIGN_TEAMS_DOMESTIC_COMPETITION).
 async fn load_competition_country(pool: &PgPool, match_id: Uuid) -> Result<Option<String>> {
-    let code: Option<Option<String>> = sqlx::query_scalar(
-        "SELECT ctry.code
+    let row: Option<(Option<String>, String)> = sqlx::query_as(
+        "SELECT ctry.code, c.name
            FROM core.match m
            JOIN core.competition c ON c.id = m.competition_id
            LEFT JOIN core.country ctry ON ctry.id = c.country_id
@@ -651,7 +651,16 @@ async fn load_competition_country(pool: &PgPool, match_id: Uuid) -> Result<Optio
     .fetch_optional(pool)
     .await
     .context("verseny-ország betöltése a verification-höz")?;
-    Ok(code.flatten())
+    let Some((code, name)) = row else {
+        return Ok(None);
+    };
+    // A kupákban (pl. Coupe de France, Taça de Portugal) tengerentúli csapatok
+    // is indulhatnak, ezért ott a FOREIGN_TEAMS_DOMESTIC_COMPETITION szabály
+    // ne kapjon országot (ne tüzeljen).
+    if football_domain::identity::looks_like_cup_competition(&name) {
+        return Ok(None);
+    }
+    Ok(code)
 }
 
 /// Kanonikus materializálás + meccsenkénti verification és publish gate.

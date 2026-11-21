@@ -87,7 +87,7 @@ pub fn normalize_country_code(code: &str) -> String {
         "HUN" => "HU",
         "ITA" => "IT",
         "ESP" => "ES",
-        "NED" | "NLD" => "NL",
+        "NED" | "NLD" | "HOL" => "NL",
         "POR" | "PRT" => "PT",
         "SUI" | "CHE" => "CH",
         "SWE" => "SE",
@@ -113,6 +113,7 @@ pub fn normalize_country_code(code: &str) -> String {
         "CHL" => "CL",
         "MEX" => "MX",
         "USA" => "US",
+        "CAN" => "CA",
         "JPN" => "JP",
         "KOR" => "KR",
         "CHN" => "CN",
@@ -244,7 +245,7 @@ fn iso3_to_iso2(code: &str) -> Option<&'static str> {
         "ISR" => "IL",
         "ITA" => "IT",
         "KAZ" => "KZ",
-        "KOS" => "XK",
+        "KOS" | "KVX" => "XK",
         "LVA" => "LV",
         "LIE" => "LI",
         "LTU" => "LT",
@@ -252,7 +253,7 @@ fn iso3_to_iso2(code: &str) -> Option<&'static str> {
         "MLT" => "MT",
         "MDA" => "MD",
         "MNE" => "ME",
-        "NED" | "NLD" => "NL",
+        "NED" | "NLD" | "HOL" => "NL",
         "MKD" => "MK",
         "NOR" => "NO",
         "POL" => "PL",
@@ -294,6 +295,7 @@ fn iso3_to_iso2(code: &str) -> Option<&'static str> {
         "TRI" | "TTO" => "TT",
         "URU" | "URY" => "UY",
         "USA" => "US",
+        "CAN" => "CA",
         "VEN" => "VE",
         // Ázsia / Óceánia
         "AFG" => "AF",
@@ -325,7 +327,7 @@ fn iso3_to_iso2(code: &str) -> Option<&'static str> {
         "PRK" => "KP",
         "KOR" => "KR",
         "KSA" | "SAU" => "SA",
-        "SGP" => "SG",
+        "SGP" | "SIN" => "SG",
         "SRI" => "LK",
         "SYR" => "SY",
         "TJK" => "TJ",
@@ -966,5 +968,30 @@ mod tests {
             "Sheffield United",
             "Sheffield Wednesday"
         ));
+    }
+}
+
+/// Kupa-jellegű versenynév: ezekben a versenyekben a hazai bajnokságokkal
+/// ellentétben külföldi (tengerentúli, meghívott) csapatok is indulhatnak.
+pub fn looks_like_cup_competition(name: &str) -> bool {
+    let folded = fold_name(name);
+    [
+        "cup", "kupa", "copa", "coupe", "taca", "trophy", "pokal", "pokale",
+    ]
+    .iter()
+    .any(|marker| folded.contains(marker))
+}
+#[cfg(test)]
+mod cup_name_tests {
+    use super::looks_like_cup_competition;
+
+    #[test]
+    fn cup_names_are_recognised() {
+        assert!(looks_like_cup_competition("Coupe de France"));
+        assert!(looks_like_cup_competition("Taca de Portugal"));
+        assert!(looks_like_cup_competition("FA Kupa"));
+        assert!(looks_like_cup_competition("Copa de la Reina"));
+        assert!(!looks_like_cup_competition("Premier League"));
+        assert!(!looks_like_cup_competition("LaLiga 2"));
     }
 }

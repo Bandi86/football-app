@@ -299,34 +299,62 @@ fn cross_competition_compatible(a: &DuplicateMatchRow, b: &DuplicateMatchRow) ->
     // entitás alatt áll. A semleges országot ezért wildcardként kezeljük — a
     // csapat-kontextus (nem/korosztály/ág) és a név-egyezés továbbra is kötelező.
     let neutral = |key: &str| key.is_empty() || key == "XX" || key == "INT";
-    (ka == kb || neutral(&ka) || neutral(&kb))
-        && a.home_gender == b.home_gender
-        && a.away_gender == b.away_gender
-        // A v1-import csapatainál az age_group hiányos/`senior`, a research
-        // sornál `youth` lehet, miközben a név U17-est mond. Ha mindkét névben
-        // van korosztály-jelölő, azok egyezése a mérvadó.
-        && age_compatible(
-            &a.home_name,
-            &a.home_age_group,
-            &b.home_name,
-            &b.home_age_group,
-        )
-        && age_compatible(
-            &a.away_name,
-            &a.away_age_group,
-            &b.away_name,
-            &b.away_age_group,
-        )
-        // A research/openfoot csapat-metaadatában a branch gyakran `senior`,
-        // míg a név U21-est/U17-est mond; ha mindkét név hordoz korosztályt,
-        // a név a mérvadó, a branch-et nem hasonlítjuk.
-        && branch_compatible(&a.home_name, &a.home_branch, &b.home_name, &b.home_branch)
-        && branch_compatible(&a.away_name, &a.away_branch, &b.away_name, &b.away_branch)
-        // A v1-importban a női csapatok `gender` oszlopa is `male` lehet
-        // (pl. „Marseille W"), ezért a név nem-jelölője is számít: férfi és
-        // női meccs soha nem olvadhat össze.
-        && name_marks_womens(&a.home_name) == name_marks_womens(&b.home_name)
-        && name_marks_womens(&a.away_name) == name_marks_womens(&b.away_name)
+    let country_ok = ka == kb || neutral(&ka) || neutral(&kb);
+    let side_ok = |gender_a: &str,
+                   gender_b: &str,
+                   name_a: &str,
+                   name_b: &str,
+                   age_a: &str,
+                   age_b: &str,
+                   branch_a: &str,
+                   branch_b: &str| {
+        gender_a == gender_b
+            && age_compatible(name_a, age_a, name_b, age_b)
+            && branch_compatible(name_a, branch_a, name_b, branch_b)
+            && name_marks_womens(name_a) == name_marks_womens(name_b)
+    };
+    // A két sor tükrözött orientációban is ugyanazt a fixture-t írhatja le
+    // (a források eltérően adják meg a hazai/vendég oldalt), ezért a
+    // csapat-kontextust mindkét irányban elfogadjuk.
+    let normal = side_ok(
+        &a.home_gender,
+        &b.home_gender,
+        &a.home_name,
+        &b.home_name,
+        &a.home_age_group,
+        &b.home_age_group,
+        &a.home_branch,
+        &b.home_branch,
+    ) && side_ok(
+        &a.away_gender,
+        &b.away_gender,
+        &a.away_name,
+        &b.away_name,
+        &a.away_age_group,
+        &b.away_age_group,
+        &a.away_branch,
+        &b.away_branch,
+    );
+    let flipped = side_ok(
+        &a.home_gender,
+        &b.away_gender,
+        &a.home_name,
+        &b.away_name,
+        &a.home_age_group,
+        &b.away_age_group,
+        &a.home_branch,
+        &b.away_branch,
+    ) && side_ok(
+        &a.away_gender,
+        &b.home_gender,
+        &a.away_name,
+        &b.home_name,
+        &a.away_age_group,
+        &b.home_age_group,
+        &a.away_branch,
+        &b.home_branch,
+    );
+    country_ok && (normal || flipped)
 }
 
 /// A névből kiolvasott korosztály-jelölő (`U17`, `U-17`, `U 17`), normalizálva.
@@ -363,9 +391,19 @@ fn branch_compatible(name_a: &str, branch_a: &str, name_b: &str, branch_b: &str)
 /// Két csapat korosztálya összeegyeztethető-e: erős név-jelölő esetén a
 /// jelölők egyezése, egyébként az `age_group` oszlop.
 fn age_compatible(name_a: &str, age_a: &str, name_b: &str, age_b: &str) -> bool {
+    // Ha csak az egyik oldal neve hordoz korosztály-jelölőt (pl. „Real Madrid"
+    // vs „Real Madrid U19"), a másik oldal `age_group` mezőjének kell igazolnia
+    // ugyanazt a korosztályt — különben felnőtt és utánpótlás meccs olvadna össze.
+    let group_matches = |marker: &str, group: &str| {
+        group.eq_ignore_ascii_case(marker)
+            || group.eq_ignore_ascii_case(&format!("u{marker}"))
+            || group.eq_ignore_ascii_case(&format!("under {marker}"))
+    };
     match (age_marker(name_a), age_marker(name_b)) {
         (Some(x), Some(y)) => x == y,
-        _ => age_a == age_b,
+        (Some(x), None) => group_matches(&x, age_b),
+        (None, Some(y)) => group_matches(&y, age_a),
+        (None, None) => age_a == age_b,
     }
 }
 
@@ -1084,6 +1122,22 @@ mod tests {
     }
 
     #[test]
+    fn one_sided_age_marker_never_matches_a_senior_team() {
+        let mut a = row(1);
+        a.home_name = "Real Madrid".to_string();
+        a.away_name = "PSV Eindhoven".to_string();
+        a.home_age_group = "senior".to_string();
+        a.away_age_group = "senior".to_string();
+        let mut b = row(2);
+        b.competition_id = Uuid::from_u128(200);
+        b.home_name = "Real Madrid U19".to_string();
+        b.away_name = "PSV Eindhoven U19".to_string();
+        b.home_age_group = "u19".to_string();
+        b.away_age_group = "u19".to_string();
+        assert!(!variant_pair(&a, &b, true));
+    }
+
+    #[test]
     fn variant_pair_rejects_different_team_context() {
         let a = row(1);
         let mut b = row(2);
@@ -1123,6 +1177,10 @@ mod tests {
         b.competition_id = Uuid::from_u128(200);
         b.home_name = a.away_name.clone();
         b.away_name = a.home_name.clone();
+        b.home_age_group = a.away_age_group.clone();
+        b.away_age_group = a.home_age_group.clone();
+        b.home_branch = a.away_branch.clone();
+        b.away_branch = a.home_branch.clone();
         assert!(variant_pair(&a, &b, true));
     }
 
@@ -1147,6 +1205,10 @@ mod tests {
         b.competition_id = Uuid::from_u128(200);
         b.home_name = a.away_name.clone();
         b.away_name = a.home_name.clone();
+        b.home_age_group = a.away_age_group.clone();
+        b.away_age_group = a.home_age_group.clone();
+        b.home_branch = a.away_branch.clone();
+        b.away_branch = a.home_branch.clone();
         b.has_result = true;
         assert!(!variant_pair_mergeable(&a, &b, true));
 
