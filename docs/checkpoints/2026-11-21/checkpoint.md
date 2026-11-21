@@ -330,6 +330,29 @@
 - [x] `reverify 11-21` → 1018 meccs, 0 hiba; `integrity` mind a 8 mutató **0**,
       verdict OK. Az app Cmd+R-rel frissítve.
 
+## S75 — UI második körös észrevételei
+
+- [x] **Chile/Bolívia a lista elején**: az összevont versenyek prioritása 6
+      (top-5-tel azonos) volt → audittal **50**-re állítva a négy érintett
+      versenyentitásnál.
+- [x] **Palestino 2×**: a 13:00-s „live U. Calera" sor a research szerint
+      hamis (a valós kezdés 23:30Z, FT 0–1, `fm:1000013272`) → `dedupe pair`-vel
+      archiválva; most egy sor, logóval és odds-szal.
+- [x] **Ferencváros–Győr 2× (egyik odds nélkül)**: a „Győr" és „Győri ETO"
+      ugyanaz a klub → `--via-alias` merge, majd `dedupe matches` → most egy sor,
+      odds-szal és mindkét logóval.
+- [x] **Hiányzó logók**: „Atl. Madrid", „Atlético Madrid", „Atletico Madrid B"
+      és „Győr" névváltozatok kanonikus entitásba olvasztva (alias-szal), ahol
+      a logó megvan. „M'gladbach" logója a v1 megapackből (team 2386) importálva
+      a v2 objektumtárba **és** a daemon adatkönyvtárába — HTTP 200, 10 998 bájt.
+      „Real Madrid C"-hez nincs megbízható logóforrás → monogram marad.
+- [x] **„női" felirat a francia/spanyol első osztálynál**: téves észrevétel —
+      az API-ban a `Première Ligue (női)` (FR) és `Liga F` (ES) külön női
+      bajnokság, a férfi `Ligue 1` / `La Liga` nem kap „(női)" jelölést; a női
+      szűrő nincs aktívan.
+- [x] `reverify 11-21` → 1016 meccs, 0 hiba; `integrity` mind a 8 mutató **0**,
+      verdict OK. Az app Cmd+R-rel frissítve.
+
 ## Következő döntési pont
 
 - Manuális UI-ellenőrzés a futó appban (különösen az S70 kézi eredménybevitel
