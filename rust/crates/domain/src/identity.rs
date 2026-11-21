@@ -600,6 +600,12 @@ fn expand_abbreviation(token: &str) -> &str {
         "utd" => "united",
         "weds" => "wednesday",
         "ath" | "athl" => "athletic",
+        // Kurált német/svéd átírás-variánsok: az ékezetes alak a fold után
+        // `o`, a forrás viszont gyakran `oe`-vel írja. Csak ezek a konkrét
+        // esetek vannak engedélyezve — nem általános `oe -> o` szabály.
+        "enkoeping" => "enkoping",
+        "goeteborg" => "goteborg",
+        "koeln" => "koln",
         _ => token,
     }
 }

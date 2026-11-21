@@ -58,6 +58,13 @@ const CLAIM_LIMIT: i64 = 10;
 const FETCH_TIMEOUT_SECS: u64 = 60;
 const RULE_SET_VERSION: &str = "verification-1.3";
 const PUBLISH_TIMEZONE: &str = "Europe/Budapest";
+/// A job-utáni dedupe csak a frissen feldolgozott napot takarítja. A review
+/// jóváhagyás, a kézi import és a különböző források viszont később is
+/// létrehozhatnak névvariáns-duplikátumokat — ezért időzített, korábbi napokra
+/// is kiterjedő sweep kell (S79). 30 perces throttle: a tick 60 s-es, a
+/// párosítás O(n²) ezért nem fut minden körben.
+const DEDUPE_SWEEP_INTERVAL: chrono::Duration = chrono::Duration::minutes(30);
+static LAST_DEDUPE_SWEEP: std::sync::Mutex<Option<DateTime<Utc>>> = std::sync::Mutex::new(None);
 
 /// Egy tick kör összesítése: feldolgozott (done), blokkolt (kapuk/cancelled)
 /// és sikertelen (failed) jobok száma.
@@ -125,6 +132,36 @@ pub async fn tick(
             }
         }
     }
+
+    // Időzített dedupe sweep az előző és a mai napra: a research job-utáni
+    // pass nem fedi le a később keletkezett duplikátumokat (S79).
+    let sweep_due = match LAST_DEDUPE_SWEEP.lock() {
+        Ok(mut guard) => {
+            let due = guard
+                .map(|last| now.signed_duration_since(last) >= DEDUPE_SWEEP_INTERVAL)
+                .unwrap_or(true);
+            if due {
+                *guard = Some(now);
+            }
+            due
+        }
+        Err(_) => false,
+    };
+    if sweep_due {
+        for days_ago in 0..=1i64 {
+            let date = (now - chrono::Duration::days(days_ago)).date_naive();
+            match auto_dedupe_day(pool, date).await {
+                Ok((0, _)) => {}
+                Ok((merged, skipped)) => {
+                    tracing::info!(%date, merged, skipped, "időzített dedupe pass");
+                }
+                Err(err) => {
+                    tracing::warn!(%date, error = %err, "időzített dedupe pass hiba");
+                }
+            }
+        }
+    }
+
     Ok(outcome)
 }
 
@@ -902,8 +939,14 @@ async fn auto_dedupe_day(
     date: chrono::NaiveDate,
 ) -> anyhow::Result<(usize, usize)> {
     let exact_groups = dedupe::duplicate_groups(pool, date).await?;
-    // A worker konzervatív: cross-competition merge csak kézi CLI-döntéssel.
-    let variant_groups = dedupe::variant_duplicate_groups_between(pool, date, date, false).await?;
+    // A források ugyanazt a fixture-t gyakran más versenynéven adják (pl.
+    // „Superliga" vs „Superligaen"), ezért a napi automatikus pass a
+    // cross-competition név-variánsokat is összevonja. A szigorú ág csak akkor
+    // enged, ha a két sor kickoffja legfeljebb 2 órával tér el, a nevek
+    // mindkét oldalon egyeznek, és a nem/korosztály/ország kontextus kompatibilis
+    // (lásd `is_strict_variant_same_match`), így a felnőtt és utánpótlás sorok
+    // nem olvadnak össze.
+    let variant_groups = dedupe::variant_duplicate_groups_between(pool, date, date, true).await?;
     let mut merged = 0usize;
     let mut skipped = 0usize;
 

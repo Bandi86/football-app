@@ -270,14 +270,16 @@ async fn exact_fixture_stays_verified() {
     assert_eq!(outcome.blocked, 0);
     assert_eq!(outcome.failed, 0);
 
-    // Mindkét meccs verified: a fixture_seed ref egzakt feloldást ad.
+    // A fixture két tükrözött meccse ugyanarra a napra, 1 óra eltéréssel:
+    // az időzített dedupe sweep (S79) egybevonja őket. A túlélő verified marad
+    // — a fixture_seed ref egzakt feloldást adott, review nem nyílt.
     assert_eq!(
         count(
             &pool,
             "SELECT count(*) FROM ops.publish_gate WHERE state='verified_publish'"
         )
         .await,
-        2
+        1
     );
     // Nincs bizonytalan identitás: review-sor nem nyílt.
     assert_eq!(

@@ -199,5 +199,10 @@ fn strict_name_equality_rejects_prefix_lookalikes_but_accepts_real_variants() {
     assert!(!names_strictly_same("Dominica", "Dominican Republic"));
     assert!(!names_strictly_same("Niger", "Nigeria"));
     assert!(!names_strictly_same("Manchester United", "Manchester City"));
+    // Kurált átírás-variánsok (S79): csak a felsorolt tokenek.
+    assert!(names_strictly_same("Enköping", "Enkoeping"));
+    assert!(names_strictly_same("Göteborg", "Goeteborg"));
+    assert!(names_strictly_same("Köln", "Koeln"));
+    assert!(!names_strictly_same("Koeman", "Koman"));
     assert!(!names_strictly_same("Újpest", "Győr"));
 }

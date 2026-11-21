@@ -221,10 +221,12 @@ async fn demo_two_medium_sources_verified_with_verified_odds() {
     assert_eq!(outcome.processed, 1);
     assert_eq!(outcome.failed, 0);
 
-    // 2/2 verified_publish, a frissített rule_set_versionnel.
+    // A két tükrözött fixture-sor ugyanaz a meccs (S79 időzített dedupe),
+    // ezért egy kanonikus sor marad — de az továbbra is verified, friss
+    // rule_set_versionnel, mindkét forrás oddsával.
     assert_eq!(
         count(&pool, "SELECT count(*) FROM ops.publish_gate").await,
-        2
+        1
     );
     assert_eq!(
         count(
@@ -232,7 +234,7 @@ async fn demo_two_medium_sources_verified_with_verified_odds() {
             "SELECT count(*) FROM ops.publish_gate WHERE state='verified_publish'"
         )
         .await,
-        2
+        1
     );
     assert_eq!(
         count(
@@ -240,13 +242,13 @@ async fn demo_two_medium_sources_verified_with_verified_odds() {
             "SELECT count(*) FROM ops.publish_gate WHERE rule_set_version='verification-1.3'"
         )
         .await,
-        2
+        1
     );
 
-    // Mindkét meccs mindkét forrású odds sora verified (2 meccs × 2 forrás).
+    // A túlélő meccs mindkét forrású odds sora verified (1 meccs × 2 forrás).
     assert_eq!(
         count(&pool, "SELECT count(*) FROM fact.odds_snapshot").await,
-        4
+        2
     );
     assert_eq!(
         count(
@@ -254,7 +256,7 @@ async fn demo_two_medium_sources_verified_with_verified_odds() {
             "SELECT count(*) FROM fact.odds_snapshot WHERE trust_state='verified'"
         )
         .await,
-        4
+        2
     );
 }
 

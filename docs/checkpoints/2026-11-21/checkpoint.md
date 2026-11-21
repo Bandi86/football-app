@@ -440,8 +440,33 @@
       fájlok száma 1456, az envelope 1016 — a korábbi exportokból maradt
       árva detail fájlok, alacsony prioritású takarítás.)
 
+## S79 — a duplikátum-körforgás gyökerének megszüntetése
+
+- [x] **Gyökérok azonosítva**: a dedupe csak **közvetlenül egy research job
+      után** futott le (`tick.rs::auto_dedupe_day` a `process_job`-ban). A
+      később keletkezett duplikátumokat — review jóváhagyás, kézi import, más
+      forrás, vagy a research után módosított entitások — **senki nem takarította**.
+      Emiatt éreztük úgy, hogy „ökörforgás": minden kézi javítás után újra és
+      újra megjelentek a duplikátumok.
+- [x] **Tartós javítás**: a `tick()` ciklus végén időzített sweep fut a mai és
+      az előző napra, **30 perces throttle-lal** (`LAST_DEDUPE_SWEEP`). Nem csak
+      research job után, hanem folyamatosan. A te `variant_duplicate_groups_between(..., true)`
+      változásod megmaradt; a sweep ugyanazt az `auto_dedupe_day`-t hívja.
+- [x] **Kurált átírás-aliasok** a szigorú név-összehasonlításhoz: `Enköping =
+      Enkoeping`, `Göteborg = Goeteborg`, `Köln = Koeln` — csak ezek a konkrét
+      `oe`→`o` esetek, nem általános szabály. Domén-teszt: 9/9 zöld.
+- [x] **Bizonyíték, hogy a sweep működik**: ellenőrzött próbaduplikátum
+      létrehozása után kézi tick → `időzített dedupe pass date=2026-11-21
+      merged=1 skipped=11`, a duplikátum eltűnt, audit `match_dedupe_merge`.
+- [x] A meglévő 4 névváltozat-pár is rendezve (3 automatikusan a sweep által,
+      1 kurált alias-szal: Enköping). `integrity` mind a 8 mutató **0**, OK.
+- [x] Kapu: `cargo test --workspace` → **98 zöld blokk, 0 hiba**; clippy
+      `-D warnings`, `fmt --check` tiszta. A két teszt (`identity_e2e`,
+      `trust_e2e`) frissítve az új, helyes automatikus-dedupe viselkedésre —
+      a trust-szint ellenőrzés megmaradt, csak a duplikált fixture szám változott.
+
 ## Következő döntési pont
 
-- Kurált alias-tábla a forrásnév-változatokhoz; az algériai research JSON-ok
-  forráskorrekciója; manuális UI-ellenőrzés; az NB I UI-fixture hibája; a
-  `tick.rs`-ben lévő nem commitolt auto-dedupe változás külön szelet.
+- A futó app manuális ellenőrzése; az NB I UI-fixture hibája; a `tick.rs`-ben
+  lévő nem commitolt auto-dedupe változás most **bekerült a buildbe** és telepítve
+  van — ha külön szeletként akarod kezelni, szólj.
