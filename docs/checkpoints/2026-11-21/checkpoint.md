@@ -307,6 +307,29 @@
 - [x] `integrity` mind a 8 mutató **0**, verdict OK. Az app frissítve ( Cmd+R ),
       futó pid 27549.
 
+## S74 — további felhasználói anomáliák
+
+- [x] **Dél-amerikai verseny-duplikátumok**: azonos ország + azonos bajnokság
+      több verseny-entitás alatt (CL: La Liga / Liga de Primera / Primera
+      División → „Liga de Primera"; AR: Clausura playoff három néven → egy;
+      BO: La Liga / Primera División; CO: Categoría Primera A / Primera A /
+      Primera A: Clausura; EC: Championship/Relegation Round vs Group).
+      A meccsek a túlélő versenybe és szezonjába kerültek, audittal.
+- [x] **Pontos fixture-duplikátumok** (4 pár: Velez–Belgrano, Palestino–U.
+      Calera, Bucaramanga–América ×2) `dedupe pair`-vel archiválva.
+- [x] **Persebaya Surabaya 2×** ugyanakkor: a két ellenfél (Java United F.C.,
+      Java United) ugyanaz az átnevezett klub (Malut United) — webes
+      forrás-ellenőrzéssel (Kompas/detik: Persebaya 1–1 Java United) a csapatok
+      `--via-alias`-szel összevonva, a két meccs pedig egybe merge-elve.
+      A napi dedupe ezen felül **40 további** duplikátumot zárt le.
+- [x] **Algériai Ligue 1**: a 8 `date_only` meccs pontos kezdése a research
+      FotMob adatból (**2026-11-21T16:00:00Z**, 17:00 helyi) bekerült; a
+      tükrözött Constantine–Rouisset / MB Rouissat–CS Constantine pár
+      összevonva. (A research ezeket `cancelled`-nak jelzi, a v2 `postponed`
+      állapota mindkét esetben eredmény nélküli meccs.)
+- [x] `reverify 11-21` → 1018 meccs, 0 hiba; `integrity` mind a 8 mutató **0**,
+      verdict OK. Az app Cmd+R-rel frissítve.
+
 ## Következő döntési pont
 
 - Manuális UI-ellenőrzés a futó appban (különösen az S70 kézi eredménybevitel
