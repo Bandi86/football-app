@@ -143,9 +143,17 @@ pub async fn audit_range(
     .fetch_all(pool)
     .await?;
     let played: std::collections::HashSet<Uuid> = played.into_iter().collect();
+    // A szerkesztői holddal kizárt meccsek szintén nem részei a napi listának.
+    let held: std::collections::HashSet<Uuid> =
+        sqlx::query_scalar("SELECT match_id FROM ops.editorial_hold WHERE match_id = ANY($1)")
+            .bind(&ids)
+            .fetch_all(pool)
+            .await?
+            .into_iter()
+            .collect();
     let active: Vec<DuplicateMatchRow> = publishable
         .into_iter()
-        .filter(|row| played.contains(&row.match_id))
+        .filter(|row| played.contains(&row.match_id) && !held.contains(&row.match_id))
         .collect();
     let clusters = cluster_rows(&active);
     let double_bookings = find_double_bookings(&active);

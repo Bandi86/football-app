@@ -1426,3 +1426,26 @@ Nyitott:
 ### Nyitott
 - Verseny-logók továbbra is hiányosak (648 a látható napon); a FotMob league-logo végpont 403-at ad, más forrás kell.
 - A 2026-os történelmi v1-duplikátumok (346 klaszter) külön adósság; a 2027-es két azonos idejű, ütköző sor forrás nélkül nem dönthető el.
+
+## S50 — 2026-os történelmi duplikátumok és tartós editorial hold
+
+### Változások
+- Adat: a 2026-os audit 346 név-variáns klaszteréből 65 pontos duplikátum-pár és 152 azonos csapatpárú sor `footballctl dedupe pair`-ral merge-elve; 141 globális csapat-duplikátum (`pg_temp.merge_team`) összevonva (match/standing/stats/club_elo/ref/alias/asset/entity+team), demo-seed kizárva.
+- Új migráció `db/migrations/0017_editorial_hold.sql`: `ops.editorial_hold(match_id PK, reason, note, created_at)` — ember által ellenőrzött, ellentmondó forrás-fixture-ök tartós kizárása, mert a `reverify` a publish gate-et újragenerálja.
+- `rust/crates/storage/src/repositories/day.rs`: a napi lista és a hiány-mutatók is kiszűrik a holdolt meccseket (`NOT EXISTS ops.editorial_hold`).
+- `rust/crates/storage/src/repositories/audit.rs`: a klaszter- és dupla-szereplés-vizsgálat kizárja a holdolt sorokat.
+- Tesztek: `rust/crates/storage/tests/audit_hold.rs` (holdolt sor kimarad az auditból), `day_query.rs::editorial_hold_hides_match_from_day`, `connection.rs` táblaszám 47→48.
+
+### Adatművelet (visszaállítás: dumpból)
+- Backup: `/tmp/football_v2_dev_20261121_pre_s50.dump` (551 MB).
+- 12 novembrei ellentmondó sor editorial holddal kizárva (Ards, Bourges 18, Canet Roussillon, Cavese, FC Limonest, Harland & Wolff Welders, Hauts Lyonnais, Envigado stb.); a research JSON maga is ellentmondó ezeken a napokon, ezért a forrás nem dönthető el.
+- November (11-01…11-30) és 11-13…12-01 audit: **TISZTA**; 2026 egész éve: 301 klaszter marad, klubonkénti kézi döntést igényel (Jove Español → Espanyol, Res./Under 19/CC utótagok, LaLiga 2 tartalék-nevek) — dokumentált adósság.
+
+### Ellenőrzések
+- `cargo fmt --all --check` OK; `cargo clippy --workspace --all-targets -- -D warnings` tiszta; `cargo test --workspace -- --test-threads=1` minden `test result: ok`.
+- `footballctl reverify --from 2026-11-01 --to 2026-12-01`: provisional 2161, verified 1185, withheld 24.
+- Új daemon (port 50084), `/v1/day/2026-11-21` → 827 meccs (a holdolt sorok nélkül), gaps: 21 kezdésidő nélkül, 229 csapatlogó, 647 ligalogó, 565 odds, 7 visszatartva; `/v1/day/2026-11-20` → 244 meccs.
+- Futó app a DerivedData binárisból, kép `/tmp/s50_final.png` (827 meccs, hiány-panel, La Liga/LaLiga 2, Real Sociedad B helyes kickofftal).
+
+### Nyitott
+- 2026-os 301 klaszter kézi osztályozása (klubonkénti tudás); 2027-es 2 ütköző sor; verseny-logó lefedettség (FotMob 403); 116 forrás nélküli eredmény; részletes meccsoldal és további UI-fejlesztések.

@@ -172,6 +172,9 @@ pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatch
            AND ($6::uuid IS NULL OR m.home_team_id = $6 OR m.away_team_id = $6)
            AND ($3::boolean
                OR g.state IN ('verified_publish', 'provisional_publish'))
+           AND NOT EXISTS (
+               SELECT 1 FROM ops.editorial_hold h WHERE h.match_id = m.id
+           )
          ORDER BY m.kickoff_at, home.name, away.name",
     )
     .bind(filter.date)
@@ -251,6 +254,9 @@ pub async fn fetch_day_gaps(pool: &PgPool, filter: &DayFilter) -> Result<DayGaps
                     BETWEEN $1 - ($4::int) AND $1 + ($4::int)
               AND ($3::uuid IS NULL OR m.competition_id = $3)
               AND g.state IN ('verified_publish', 'provisional_publish')
+              AND NOT EXISTS (
+                  SELECT 1 FROM ops.editorial_hold h WHERE h.match_id = m.id
+              )
         )
         SELECT
             count(*) FILTER (WHERE kickoff_precision = 'date_only') AS missing_kickoff,

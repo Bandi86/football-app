@@ -408,3 +408,50 @@ async fn day_json_uses_bookmaker_chain() {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].odds.as_ref().unwrap()["home"], 1.75);
 }
+
+#[tokio::test]
+async fn editorial_hold_hides_match_from_day() {
+    let pool = test_pool().await;
+    let base = seed_match_base(&pool).await;
+    let held_id = seed_match(
+        &pool,
+        &base,
+        "verified_publish",
+        Utc.with_ymd_and_hms(2026, 11, 9, 18, 0, 0).unwrap(),
+    )
+    .await;
+    let visible_id = seed_match(
+        &pool,
+        &base,
+        "verified_publish",
+        Utc.with_ymd_and_hms(2026, 11, 9, 20, 0, 0).unwrap(),
+    )
+    .await;
+
+    sqlx::query(
+        "INSERT INTO ops.editorial_hold (match_id, reason, note)
+         VALUES ($1, 'SOURCE_CONTRADICTION', 'S50 teszt')",
+    )
+    .bind(held_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let rows = fetch_day(
+        &pool,
+        &DayFilter {
+            date: NaiveDate::from_ymd_opt(2026, 11, 9).unwrap(),
+            timezone: "Europe/Budapest".into(),
+            include_all: true,
+            competition_id: None,
+            window_days: 0,
+            team_id: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let ids: Vec<_> = rows.iter().map(|row| row.match_id).collect();
+    assert_eq!(ids, vec![visible_id]);
+    assert!(!ids.contains(&held_id));
+}
