@@ -383,8 +383,37 @@
 - [x] `reverify 11-13…11-28` → **4499 meccs, 0 hiba**; `integrity` mind a 8
       mutató **0**, verdict OK. `acceptance-check` **ELFOGADHATÓ**. Az app fut.
 
+## S77 — a duplikátumok gyökerének azonosítása
+
+- [x] A felhasználói észrevétel (Casa Pia 3×, Sporting Covilhã 2×) alapján
+      **megvan a gyökérok**: a források ugyanazt a csapatot több névváltozaton
+      küldik (`Atlético CP` / `Atlético` / `Atletico Clube de Portugal`,
+      `Covilha` / `Sporting Covilha`, `Lusitano de Évora` / `Lusitano GC` /
+      `Lusitano Ginasio Clube`, `Taça de Portugal` / `Portugal Cup`), és a
+      linker ezeket külön entitásként hozza létre. Az auto-dedupe ezért nem
+      tudja összevonni a meccseket (más csapat-ID).
+- [x] **Bizonyíték-alapú detektor** (`/tmp/same_fixture_variants.py`): azonos
+      nap + azonos ellenfél + azonos ország + részhalmaz-név alapján 22 párt
+      talált; 18-at összevont (`--via-alias`, minden írás auditált), 4 jogosan
+      kimaradt (férfi/női, tartalékcsapat — a merge guard fogta).
+- [x] Célzott javítások: Atlético-variánsok, Covilhã, Portugal Cup → Taça de
+      Portugal, Liga 3 csoportnevek → Liga 3, portugál Lusitano-változatok.
+- [x] **Téves merge visszaállítása**: a „Lusitano" keresés három külön francia
+      klubot (Créteil / St Maur / Thionville Lusitanos) összevont — az
+      `ops.entity_merge_archive` payloadjából visszaállítva, a meccsek a
+      research bizonyítéka alapján a helyes csapathoz rendelve.
+- [x] Az API-ban most: Casa Pia **1** sor, Sporting Covilhã **1** sor,
+      St Maur / Créteil / LGC külön entitások.
+- [x] `reverify 11-20…11-21` → 1237 meccs, 0 hiba; `integrity` mind a 8
+      mutató **0**, verdict OK.
+- [ ] További ~750 részhalmaz-névjelölt van a DB-ben, de többségük **jogos**
+      külön csapat (pl. Betis / Betis Deportivo, Elche / Elche Ilicitano,
+      Eger / Zalaegerszeg). Az automatikus fuzzy összevonás a projekt
+      szabályaiba ütközik — kurált alias-tábla vagy eseti, forrással
+      alátámasztott döntés kell hozzá.
+
 ## Következő döntési pont
 
-- Manuális UI-ellenőrzés a futó appban (különösen az S70 kézi eredménybevitel
-  és a hiány-panel); az NB I UI-fixture hibája; a `tick.rs`-ben lévő nem
-  commitolt auto-dedupe változás külön szelet (builder ≠ verifier).
+- Kurált alias-tábla készítése a leggyakoribb forrásnév-változatokhoz (nem fuzzy,
+  hanem dokumentált egyeztetés); manuális UI-ellenőrzés; az NB I UI-fixture
+  hibája; a `tick.rs`-ben lévő nem commitolt auto-dedupe változás külön szelet.
