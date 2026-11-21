@@ -1322,3 +1322,36 @@ Nyitott:
 - [ ] 19 withheld (forrás-instabil CD/CG országkód, hiányzó eredmény).
 - [ ] Logó-lefedettség (422/840 csapat, 659 liga a látható napon).
 - [ ] A heti duplikátum-audit automatizálása (a mostani szkriptek /tmp-ben).
+
+### S46b folytatás — második audit-kör (névvariánsok, verseny-entitások)
+
+- [x] Aggresszívabb duplikátum-szkennelés (azonos kickoff + egyik oldal normalizált
+      egyezése + másik oldal hasonlóság ≥0.28, W-jelölő egyezéssel): 8 valódi
+      névvariáns pár a hétre, mind merge-elve:
+      NEC Nijmegen–PSV / PSV Eindhoven; Naft Masjed Soleyman–Shenavarsazi Qeshm /
+      Qeshm Island; East Bengal–Hyderabad / East Bengal–SC Delhi (a FotMob a
+      rossz ellenfelet adja, a livescore a helyes); Floridsdorfer AC–Young Violets /
+      Austria Wien II; Benfica–Roma, Rostov–Krylia, USL New Mexico–Sacramento,
+      LPF Independiente–Tauro, Suchitepequez–Antigua, Cusco–AD Tarma (3 sor → 1).
+- [x] A maradék 0.28-as jelöltek hamis pozitívok (különböző meccsek: Coton Sport /
+      Loto FC, Cavese / Monopoli / Sorrento, Mauritania / China stb.) — nem merge-elve.
+- [x] Verseny-entitás merge-ek: azonos ország + azonos foldolt név (NIFL
+      Championship, Eerste Divisie, Eredivisie, Liga Nacional Apertura, USL
+      Championship Playoff, Division Profesional PY, Premiership → Scottish
+      Premiership, LPF Apertura), nemzetközi NULL/XX párok (Africa Cup of Nations
+      Qualification, Club Friendly), 4 WE League entitás, 3 női BL entitás
+      (`Women's Champions League`, `UEFA Women's Champions League` →
+      `UEFA Champions League Women - League phase`).
+- [x] Csapat-duplikátumok: Cong An Ha Noi, Johor DT (0 meccses v1-import sorok) a
+      tele/ékezetes párjukba olvasztva, aliasszal.
+- [x] Végső ellenőrzés: exact klaszter 0, laza pár 0, kanonikus egyoldalas pár 0,
+      API-napi duplikátum 10 napra 0 (11-13: 107, 11-14: 600, 11-15: 420,
+      11-16: 105, 11-17: 205, 11-18: 97, 11-19: 103, 11-20: 245, 11-21: 841,
+      11-22: 62).
+- [x] `reverify --from 2026-11-13 --to 2026-11-29`: 3031 meccs, 0 hiba;
+      gate-ek: verified 1072, provisional 1954, withheld 19.
+- [x] Női BL 11-19: 5 meccs, egy verseny alatt, duplikátum nélkül; Toulouse
+      11-20: csak a női Première Ligue sor.
+- [x] Audit-események: 1640 match_dedupe_merge, 19 competition_merge, 34
+      status/kickoff revision, 765 kickoff revision, 135 result fill (utolsó 2 óra).
+- [x] App-ellenőrzés: `/tmp/s46b_final2.png` (11-21, 841 meccs, hiány-panel).
