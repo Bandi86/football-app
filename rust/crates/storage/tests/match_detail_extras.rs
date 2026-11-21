@@ -2,7 +2,9 @@
 //! kezdete előtti lejátszott meccsekből számolnak, jövőbeli adat nélkül.
 
 use chrono::{TimeZone, Utc};
-use football_storage::repositories::match_detail::{fetch_head_to_head, fetch_team_form};
+use football_storage::repositories::match_detail::{
+    fetch_head_to_head, fetch_team_form, fetch_team_next,
+};
 use football_storage::test_support::test_pool;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -86,13 +88,14 @@ async fn add_match(
     away: Uuid,
     kickoff: chrono::DateTime<Utc>,
     score: (i16, i16),
+    status: &str,
 ) {
     let id = Uuid::now_v7();
     sqlx::query(
         "INSERT INTO core.match
          (id, competition_id, season_id, home_team_id, away_team_id, kickoff_at,
           competition_timezone, status)
-         VALUES ($1,$2,$3,$4,$5,$6,'UTC','finished')",
+         VALUES ($1,$2,$3,$4,$5,$6,'UTC',$7)",
     )
     .bind(id)
     .bind(base.competition_id)
@@ -100,9 +103,13 @@ async fn add_match(
     .bind(home)
     .bind(away)
     .bind(kickoff)
+    .bind(status)
     .execute(pool)
     .await
     .unwrap();
+    if status != "finished" {
+        return;
+    }
     sqlx::query(
         "INSERT INTO core.match_result
          (match_id, home_ft, away_ft, winner_method, validity, decided_by)
@@ -129,6 +136,7 @@ async fn form_and_head_to_head_use_only_past_matches() {
         base.b,
         now - chrono::Duration::days(10),
         (2, 1),
+        "finished",
     )
     .await;
     add_match(
@@ -138,6 +146,7 @@ async fn form_and_head_to_head_use_only_past_matches() {
         base.a,
         now - chrono::Duration::days(7),
         (0, 0),
+        "finished",
     )
     .await;
     add_match(
@@ -147,6 +156,7 @@ async fn form_and_head_to_head_use_only_past_matches() {
         base.b,
         now - chrono::Duration::days(3),
         (1, 3),
+        "finished",
     )
     .await;
     // Jövőbeli meccs: nem szivároghat vissza.
@@ -156,7 +166,8 @@ async fn form_and_head_to_head_use_only_past_matches() {
         base.a,
         base.b,
         now + chrono::Duration::days(2),
-        (5, 0),
+        (0, 0),
+        "scheduled",
     )
     .await;
 
@@ -175,4 +186,22 @@ async fn form_and_head_to_head_use_only_past_matches() {
     assert_eq!(h2h.len(), 2, "a jövőbeli meccs nem szerepelhet");
     assert_eq!(h2h[0].home_name, "Alfa");
     assert_eq!(h2h[0].away_goals, Some(3));
+
+    // Következő meccsek: csak a kezdés utáni, még le nem játszott sorok.
+    add_match(
+        &pool,
+        &base,
+        base.c,
+        base.a,
+        now + chrono::Duration::days(4),
+        (0, 0),
+        "scheduled",
+    )
+    .await;
+    let next = fetch_team_next(&pool, base.a, now, 3).await.unwrap();
+    assert_eq!(next.len(), 2);
+    assert_eq!(next[0].opponent_name, "Beta");
+    assert!(next[0].is_home);
+    assert_eq!(next[1].opponent_name, "Gamma");
+    assert!(!next[1].is_home);
 }

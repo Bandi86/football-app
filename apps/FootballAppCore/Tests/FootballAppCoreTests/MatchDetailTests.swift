@@ -77,4 +77,36 @@ struct MatchDetailTests {
         #expect(detail.awayForm?.isEmpty == true)
         #expect(detail.headToHead?.first?.awayGoals == 1)
     }
+
+    @Test func decodesNextMatches() throws {
+        let data = """
+        {"id":"00000000-0000-0000-0000-0000000000aa","kickoff_at":"2026-11-21T18:00:00Z",
+         "kickoff_precision":"exact","status":"scheduled","round_label":null,
+         "competition_id":"00000000-0000-0000-0000-0000000000b1","competition_name":"La Liga",
+         "country_code":"ES","country_name":"Spanyolország","tier":1,"priority":4,
+         "season_label":"2026/27","home_name":"Alfa","away_name":"Beta",
+         "home_logo":null,"away_logo":null,"home_elo":null,"away_elo":null,
+         "home_ft":null,"away_ft":null,"home_ht":null,"away_ht":null,
+         "home_et":null,"away_et":null,"home_pens":null,"away_pens":null,
+         "decided_by":null,"referee":null,"stats_source":null,"stats_captured_at":null,
+         "home_shots":null,"away_shots":null,"home_shots_on_target":null,
+         "away_shots_on_target":null,"home_corners":null,"away_corners":null,
+         "home_yellow":null,"away_yellow":null,"home_red":null,"away_red":null,
+         "home_fouls":null,"away_fouls":null,"home_xg":null,"away_xg":null,
+         "odds":null,"market_count":null,"odds_source":null,"odds_captured_at":null,
+         "odds_trust_state":null,"gate_state":null,"gate_blockers":[],
+         "gate_evaluated_at":null,"gate_rule_set_version":null,"publish_date":null,
+         "home_form":[],"away_form":[],"head_to_head":[],
+         "home_next":[
+           {"match_id":"20000000-0000-0000-0000-000000000001","kickoff_at":"2026-11-28T18:00:00Z",
+            "competition_name":"La Liga","opponent_name":"Gamma","is_home":false}
+         ],
+         "away_next":[]}
+        """.data(using: .utf8)!
+        let detail = try APIDecoding.makeDecoder().decode(MatchDetail.self, from: data)
+        #expect(detail.homeNext?.count == 1)
+        #expect(detail.homeNext?.first?.opponentName == "Gamma")
+        #expect(detail.homeNext?.first?.isHome == false)
+        #expect(detail.awayNext?.isEmpty == true)
+    }
 }

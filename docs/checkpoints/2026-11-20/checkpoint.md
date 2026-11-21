@@ -1543,3 +1543,37 @@ Nyitott:
   116 forrás nélküli eredmény továbbra is hiányzik.
 - A részletes nézet további bővítése (sérülések, kezdőcsapatok, események)
   csak akkor lehetséges, ha a források ilyen adatot adnak.
+
+## S54 — következő meccsek a részletes nézetben
+
+### Változások
+- `rust/crates/storage/src/repositories/match_detail.rs`: új `NextMatchEntry`
+  (`match_id`, `kickoff_at`, `competition_name`, `opponent_name`, `is_home`) és
+  `fetch_team_next(pool, team_id, after, limit)` — a csapat következő, még le nem
+  játszott meccsei a kezdés után; `MatchExtras` most `home_next`/`away_next`
+  mezőkkel is rendelkezik, `fetch_match_extras` legfeljebb 3-3 következő meccset ad.
+- `MatchDetailRow` + `home_next`/`away_next` (`#[serde(default)]`), a `From` impl
+  üres vektorral tölt; `rust/crates/api/src/routes/match_detail.rs` a válaszban
+  kitölti őket.
+- Swift: `NextMatchEntry` modell, `MatchDetail.homeNext/awayNext`, a
+  `MatchDetailSheet`-ben „KÖVETKEZŐ MECCS" szekció csapatonként (dátum, ellenfél,
+  H/V jelzés).
+- `rust/crates/storage/tests/match_detail_extras.rs` kibővítve: a jövőbeli
+  meccsek nem szivárognak a formába/H2H-ba, a következő meccsek listája a kezdés
+  utáni, nem lejátszott sorokat adja, csapatonként legfeljebb 3-at.
+
+### Ellenőrzések
+- `cargo test -p football-storage --test match_detail_extras -- --test-threads=1`
+  → 1 passed; `cargo fmt --all --check` OK; `cargo clippy --workspace
+  --all-targets -- -D warnings` tiszta.
+- Swift Core tesztek: 61/61 (új `decodesNextMatches`); `xcodebuild build`
+  BUILD SUCCEEDED.
+- Élő API (daemon, port 54966): `/v1/match/01a1e9e8-d362-75bd-91b3-93993a9942dc`
+  → home_next 3 (Alaves H, Ath Bilbao V, Osasuna H), away_next 3 (Villarreal H,
+  Barcelona V, Espanol V).
+- Élő UI: a Sevilla–Real Betis részletező „KÖVETKEZŐ MECCS" szekciója látszik
+  (`/tmp/s54_detail.png`).
+
+### Nyitott
+- A 140 eredmény nélküli meccs FotMob-alapú pótlása alias-tábla nélkül nem
+  biztonságos (0 strict találat; a laza találatok hamisak) — dokumentálva.

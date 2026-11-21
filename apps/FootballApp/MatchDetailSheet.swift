@@ -132,6 +132,16 @@ struct MatchDetailContent: View {
                         .accessibilityIdentifier("match.detail.h2h")
                 }
 
+                if !(detail.homeNext ?? []).isEmpty || !(detail.awayNext ?? []).isEmpty {
+                    NextMatchesStrip(
+                        homeName: detail.homeName,
+                        awayName: detail.awayName,
+                        homeNext: detail.homeNext ?? [],
+                        awayNext: detail.awayNext ?? []
+                    )
+                    .accessibilityIdentifier("match.detail.next")
+                }
+
                 if hasStats {
                     StatsDuel(
                         homeName: detail.homeName,
@@ -361,5 +371,70 @@ struct HeadToHeadList: View {
     private func scoreText(_ entry: HeadToHeadEntry) -> String {
         guard let home = entry.homeGoals, let away = entry.awayGoals else { return "–" }
         return "\(home)–\(away)"
+    }
+}
+
+
+/// A két csapat következő meccsei: ki ellen, hol és mikor.
+struct NextMatchesStrip: View {
+    let homeName: String
+    let awayName: String
+    let homeNext: [NextMatchEntry]
+    let awayNext: [NextMatchEntry]
+
+    private static let formatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "hu_HU")
+        formatter.dateFormat = "MM. dd. HH:mm"
+        return formatter
+    }()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.s) {
+            Text("KÖVETKEZŐ MECCS")
+                .font(.appLabel(9))
+                .tracking(1.4)
+                .foregroundStyle(AppTheme.secondaryText)
+            row(name: homeName, entries: homeNext)
+            row(name: awayName, entries: awayNext)
+        }
+        .padding(AppTheme.Spacing.m)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: AppTheme.Radius.panel, style: .continuous))
+    }
+
+    private func row(name: String, entries: [NextMatchEntry]) -> some View {
+        HStack(spacing: AppTheme.Spacing.s) {
+            Text(name)
+                .font(.appText(12, weight: .semibold))
+                .foregroundStyle(AppTheme.primaryText)
+                .lineLimit(1)
+                .frame(width: 190, alignment: .leading)
+            if entries.isEmpty {
+                Text("nincs betárazott következő meccs")
+                    .font(.appText(11))
+                    .foregroundStyle(AppTheme.tertiaryText)
+            } else {
+                ForEach(entries) { entry in
+                    HStack(spacing: 5) {
+                        Text(Self.formatter.string(from: entry.kickoffAt))
+                            .font(.appText(10))
+                            .foregroundStyle(AppTheme.tertiaryText)
+                        Text("\(entry.opponentName)")
+                            .font(.appText(11, weight: .medium))
+                            .foregroundStyle(AppTheme.primaryText)
+                            .lineLimit(1)
+                        Text(entry.isHome ? "H" : "V")
+                            .font(.appLabel(8))
+                            .foregroundStyle(AppTheme.secondaryText)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(AppTheme.surfaceElevated, in: RoundedRectangle(cornerRadius: AppTheme.Radius.chip, style: .continuous))
+                    .help(entry.competitionName)
+                }
+            }
+            Spacer()
+        }
     }
 }

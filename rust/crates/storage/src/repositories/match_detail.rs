@@ -75,6 +75,12 @@ pub struct MatchDetailRow {
     /// Az utolsó öt egymás elleni meccs (a meccs kezdete előtt).
     #[serde(default)]
     pub head_to_head: Vec<HeadToHeadEntry>,
+    /// A hazai csapat következő legfeljebb három meccse.
+    #[serde(default)]
+    pub home_next: Vec<NextMatchEntry>,
+    /// A vendég csapat következő legfeljebb három meccse.
+    #[serde(default)]
+    pub away_next: Vec<NextMatchEntry>,
 }
 
 pub async fn fetch_match_detail(pool: &PgPool, match_id: Uuid) -> Result<Option<MatchDetailRow>> {
@@ -338,6 +344,8 @@ impl From<MatchDetailDbRow> for MatchDetailRow {
             home_form: Vec::new(),
             away_form: Vec::new(),
             head_to_head: Vec::new(),
+            home_next: Vec::new(),
+            away_next: Vec::new(),
         }
     }
 }
@@ -376,6 +384,9 @@ pub struct MatchExtras {
     pub home_form: Vec<FormEntry>,
     pub away_form: Vec<FormEntry>,
     pub head_to_head: Vec<HeadToHeadEntry>,
+    /// A meccs után következő legfeljebb három meccs csapatonként.
+    pub home_next: Vec<NextMatchEntry>,
+    pub away_next: Vec<NextMatchEntry>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -387,6 +398,55 @@ struct FormDbRow {
     is_home: bool,
     team_goals: i16,
     opponent_goals: i16,
+}
+
+pub async fn fetch_team_next(
+    pool: &PgPool,
+    team_id: Uuid,
+    after: DateTime<Utc>,
+    limit: i64,
+) -> Result<Vec<NextMatchEntry>> {
+    #[derive(sqlx::FromRow)]
+    struct NextDbRow {
+        match_id: Uuid,
+        kickoff_at: DateTime<Utc>,
+        competition_name: String,
+        opponent_name: String,
+        is_home: bool,
+    }
+
+    let rows = sqlx::query_as::<_, NextDbRow>(
+        "SELECT m.id AS match_id,
+                m.kickoff_at,
+                c.name AS competition_name,
+                CASE WHEN m.home_team_id = $1 THEN away.name ELSE home.name END AS opponent_name,
+                (m.home_team_id = $1) AS is_home
+         FROM core.match m
+         JOIN core.team home ON home.id = m.home_team_id
+         JOIN core.team away ON away.id = m.away_team_id
+         JOIN core.competition c ON c.id = m.competition_id
+         WHERE (m.home_team_id = $1 OR m.away_team_id = $1)
+           AND m.kickoff_at > $2
+           AND m.status IN ('scheduled', 'confirmed')
+         ORDER BY m.kickoff_at ASC
+         LIMIT $3",
+    )
+    .bind(team_id)
+    .bind(after)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| NextMatchEntry {
+            match_id: row.match_id,
+            kickoff_at: row.kickoff_at,
+            competition_name: row.competition_name,
+            opponent_name: row.opponent_name,
+            is_home: row.is_home,
+        })
+        .collect())
 }
 
 pub async fn fetch_team_form(
@@ -520,9 +580,23 @@ pub async fn fetch_match_extras(
     let home_form = fetch_team_form(pool, home_team_id, before, 5).await?;
     let away_form = fetch_team_form(pool, away_team_id, before, 5).await?;
     let head_to_head = fetch_head_to_head(pool, home_team_id, away_team_id, before, 5).await?;
+    let home_next = fetch_team_next(pool, home_team_id, before, 3).await?;
+    let away_next = fetch_team_next(pool, away_team_id, before, 3).await?;
     Ok(Some(MatchExtras {
         home_form,
         away_form,
         head_to_head,
+        home_next,
+        away_next,
     }))
+}
+
+/// Egy soron következő (még le nem játszott) meccs a csapat szemszögéből.
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
+pub struct NextMatchEntry {
+    pub match_id: Uuid,
+    pub kickoff_at: DateTime<Utc>,
+    pub competition_name: String,
+    pub opponent_name: String,
+    pub is_home: bool,
 }

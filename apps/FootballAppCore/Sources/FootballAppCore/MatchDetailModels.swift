@@ -60,6 +60,9 @@ public struct MatchDetail: Decodable, Equatable, Sendable {
     public let homeForm: [FormEntry]?
     public let awayForm: [FormEntry]?
     public let headToHead: [HeadToHeadEntry]?
+    /// A két csapat következő meccsei (legfeljebb 3-3).
+    public let homeNext: [NextMatchEntry]?
+    public let awayNext: [NextMatchEntry]?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -117,6 +120,27 @@ public struct MatchDetail: Decodable, Equatable, Sendable {
         case homeForm = "home_form"
         case awayForm = "away_form"
         case headToHead = "head_to_head"
+        case homeNext = "home_next"
+        case awayNext = "away_next"
+    }
+}
+
+/// Egy soron következő meccs a csapat szemszögéből.
+public struct NextMatchEntry: Decodable, Equatable, Sendable, Identifiable {
+    public let matchId: UUID
+    public let kickoffAt: Date
+    public let competitionName: String
+    public let opponentName: String
+    public let isHome: Bool
+
+    public var id: UUID { matchId }
+
+    enum CodingKeys: String, CodingKey {
+        case matchId = "match_id"
+        case kickoffAt = "kickoff_at"
+        case competitionName = "competition_name"
+        case opponentName = "opponent_name"
+        case isHome = "is_home"
     }
 }
 
