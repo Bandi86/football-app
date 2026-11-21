@@ -1466,3 +1466,40 @@ Nyitott:
 - UI-tesztek futtatása ebben a környezetben nem sikerült: a runner „Timed out while enabling automation mode", majd „hung before establishing connection" hibát adott (a Swift kód az utolsó zöld futás óta nem változott; a Rust-oldali S50/S51 változásokat a Rust kapuk fedik).
 - Soccerway visszamenőleges eredménypótlás nem lehetséges: a route csak a mai és a tegnapi napot szolgálja ki (`route_for`), a korábbi napokra „üres fetch-terv"; a tegnapi rescan breakeren blokkolt.
 - Verseny-logók: a FotMob 403 miatt csak részleges (19/80); további forrás kell.
+
+## S52 — verseny-név egységesítés és román Liga II helyreállítás
+
+### Változások
+- `apps/FootballApp/HomeView.swift`: a `DayGapsCard` chipjei külön AX-gombokként
+  elérhetők (`.accessibilityElement(children: .contain)`), kattintásra a megfelelő
+  hiány-szűrőt aktiválják (`day.gaps.kickoff` → „Idő nélkül", `day.gaps.open` →
+  „Eredmény nélkül"), aktív állapotban akcent színnel.
+- Adat: a tévesen „Liga 1"-be olvasztott román „Liga II" helyreállítva (új
+  competition + 2026/27 szezon, 9 meccs visszahelyezve a provenance-observációk
+  alapján), a román „Superliga" 2 meccse a „Liga 1" alá merge-elve.
+- Verseny-név egységesítés (audit `competition_merge`/`competition_rename`):
+  DK „1. osztály" → „1. Division"; EG „Egyiptomi Kupa" → „Egyptian Cup";
+  ES „La Liga 2" (205 meccs) → „LaLiga 2"; ES „Liga F - női" → „Liga F";
+  ES Primera RFEF / Segunda Federacion csoport-variánsok → kanonikus
+  „Primera Division RFEF: Group 2", „Segunda Division RFEF: Group 1/5";
+  PT „Portugál Kupa" + „Taca de Portugal" → „Taça de Portugal";
+  UZ „Szuperliga"/„Superliga" → „Super League"; ZM „Szuperliga" →
+  „Super League"; JO „Jordán Kupa" → „Jordan Cup"; BR „Brazil Kupa U20" →
+  „Copa do Brasil U20".
+
+### Ellenőrzések
+- `footballctl audit --from 2026-11-13 --to 2026-11-30`: 3032 meccs,
+  0 dupla szereplés, 0 verseny-duplikátum, 0 konzisztencia-hiba → **TISZTA**.
+- `footballctl reverify --from 2026-11-13 --to 2026-11-30`: 3032 meccs,
+  0 hiba; gate: provisional 1950, verified 1076, withheld 24.
+- `/v1/day/2026-11-21`: 827 meccs, 207 szekció; a kanonikus nevek élnek
+  (1. Division [DK], LaLiga 2 [ES], Liga II [RO], Super League [UZ],
+  Primera Division RFEF: Group 1/2 [ES]).
+- `xcodebuild build` a HomeView-változás után BUILD SUCCEEDED; AX-press
+  igazolva: a „21, kezdésidő nélkül" chip aktiválja az „Idő nélkül 21" szűrőt.
+
+### Blokkolt / nem ellenőrzött
+- UI-tesztek ebben a környezetben továbbra sem indultak el (automation mode
+  timeout / runner nem csatlakozott); a Swift-kód változása csak a
+  `DayGapsCard` AX-felépítése, a zöld build és az AX-press igazolja.
+- FotMob verseny-logók: 19/80 letöltve, a többi FotMob-azonosító 403.

@@ -182,7 +182,7 @@ struct HomeView: View {
                       compact: width < 1_000)
 
             if case .loaded(let feed) = model.state, let gaps = feed.gaps, !gaps.isEmpty {
-                DayGapsCard(gaps: gaps)
+                DayGapsCard(gaps: gaps, active: filter) { filter = $0 }
             }
 
             content
@@ -972,6 +972,14 @@ private struct MonthCalendar: View {
 /// A nap hiány-mutatói: mi hiányzik ahhoz, hogy a nap teljes legyen.
 private struct DayGapsCard: View {
     let gaps: DayGaps
+    let active: MatchFilter
+    let onSelect: (MatchFilter) -> Void
+
+    /// A hiány-chipek közül csak azok kattinthatók, amelyekhez van szűrő.
+    private static let filterFor: [String: MatchFilter] = [
+        "kickoff": .missingKickoff,
+        "open": .missingResult,
+    ]
 
     private struct Item: Identifiable {
         let id: String
@@ -1005,17 +1013,28 @@ private struct DayGapsCard: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     ForEach(items) { item in
-                        HStack(spacing: 4) {
-                            Text("\(item.count)")
-                                .font(.system(size: 11, weight: .bold, design: .rounded))
-                                .foregroundStyle(AppTheme.primaryText)
-                            Text(item.label)
-                                .font(.system(size: 11))
-                                .foregroundStyle(AppTheme.secondaryText)
+                        let filter = Self.filterFor[item.id]
+                        let isActive = filter.map { $0 == active } ?? false
+                        Button {
+                            if let filter {
+                                onSelect(active == filter ? .all : filter)
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text("\(item.count)")
+                                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                                    .foregroundStyle(isActive ? Color.black : AppTheme.primaryText)
+                                Text(item.label)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(isActive ? Color.black.opacity(0.85) : AppTheme.secondaryText)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(isActive ? AppTheme.accent : AppTheme.surface, in: Capsule())
                         }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(AppTheme.surface, in: Capsule())
+                        .buttonStyle(.plain)
+                        .disabled(filter == nil)
+                        .accessibilityIdentifier("day.gaps.\(item.id)")
                     }
                 }
             }
@@ -1023,7 +1042,7 @@ private struct DayGapsCard: View {
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 8)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("day.gaps")
         .accessibilityLabel("Hiányzó adatok: " + items.map { "\($0.count) \($0.label)" }.joined(separator: ", "))
     }
