@@ -1894,3 +1894,45 @@ entitásra állítva, auditálva.
 Csapatlogó-lefedettség: a 2026-11-13…11-30 ablakra a FotMob-import
 1734 további csapatlogót töltött le (összesen 5026 csapatnak van logója a
 6429-ből); a napi hiány 227 → 222 csapat a 11-21-i napon.
+
+## S64 — összecsukható verseny-szekciók + forrás-blokkolók dokumentálása
+
+### Változások
+- **Összecsukható szekciók:** `apps/FootballAppCore/Sources/FootballAppCore/LeagueCollapse.swift`
+  (`day.collapsedLeagues`, `LeagueGroup.id` kulcs, `load/contains/toggle/save`),
+  teszt: `LeagueCollapseTests` (2 teszt, izolált UserDefaults).
+- `apps/FootballApp/MatchListView.swift`: `MatchListView` + `collapsed`/`onToggleCollapse`;
+  `LeagueSectionView` + `isCollapsed`/`onToggleCollapse`, a fejlécben chevron gomb
+  (`league.collapse.<id>`, „Összecsukás"/„Kinyitás" AX-címke), összecsukva a
+  meccssorok nem renderelődnek, a fejléc (logó, név, ország, forduló, darabszám,
+  csillag) marad.
+- `apps/FootballApp/HomeView.swift`: `@State collapsed` a `LeagueCollapse`-ból,
+  `toggleCollapse(_:)` azonnal ment; a MatchListView megkapja.
+
+### Ellenőrzések
+- Swift Core: **65/65** teszt zöld (a két új collapse-teszttel).
+- `xcodebuild build` → BUILD SUCCEEDED.
+- Élő: a chilei „La Liga" szekció chevronnal összecsukva, a spanyol La Liga nyitva
+  maradt; a fejléc megmaradt, a sorok eltűntek — kép `/tmp/s64_collapsed.png`;
+  AXPress result 0.
+- UI-tesztek: két újabb futás is környezeti hibával állt le
+  („The test runner hung before establishing connection." /
+  „Timed out while enabling automation mode."), a kódot nem futtatta le.
+  A collapse-funkció AX-szinten kézzel ellenőrizve (AXPress result 0,
+  `defaults read … day.collapsedLeagues` = `CL|la liga`), a Core-tesztek és a
+  build zöld. A UI-tesztek újrafuttatása nyitott.
+
+### Forrás-blokkolók (a goal 2. pontjához)
+- A **soccerway múltbeli napjainak újra-ingestje nem támogatott**: az adapter
+  (`rust/crates/ingest/src/soccerway.rs`) csak a mai/tegnapi napot route-olja
+  (`route_for(Local::now().date_naive(), requested)`), és csak 7 ligát ismer
+  (top-5 + NB I/II). A 129 db >24 órás, eredmény nélküli meccshez ezért
+  soccerway-ből nem szerezhető eredmény.
+- A többi ingyenes forrás sem fedi ezeket: a FotMob az adott napokon csak a
+  nagy ligákat adja (11-19: 54 esemény), a LiveScore napi cache-e szintén
+  hiányos, az OpenFoot API a kérdéses napokon 14–88 eseményt ad, a kis ligák
+  (zambiai Super League, ugandai Premier League, iráni Pro League, jordán kupa,
+  IWL női, ukrán Persha Liga) egyikben sincsenek.
+- Emiatt a maradék 129 meccs (Friendly International 21, Persha Liga 11,
+  AFC U17 10, AFCON U23 9, Ligue 1 8, …) forrás nélkül marad; a hiány-panelben
+  látszanak, és a napi research catch-up újrapróbálja. Dokumentált blokkoló.

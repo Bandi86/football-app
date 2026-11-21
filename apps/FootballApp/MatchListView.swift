@@ -97,6 +97,10 @@ struct MatchListView: View {
     var favorites: Set<String> = []
     /// A kedvenc be-/kikapcsolása; `nil` esetén nincs csillag a fejlécben.
     var onToggleFavorite: ((String) -> Void)? = nil
+    /// Az összecsukott verseny-szekciók kulcsai.
+    var collapsed: Set<String> = []
+    /// A szekció összecsukása/kinyitása; `nil` esetén nincs nyíl a fejlécben.
+    var onToggleCollapse: ((String) -> Void)? = nil
 
     /// A kártyasor elrendezésének váltópontja a rendelkezésre álló szélességben
     /// (a kártya a 48 pt oldalpaddel ennél keskenyebb). Ez nem a kártya szélessége:
@@ -138,6 +142,10 @@ struct MatchListView: View {
                                     isFavorite: favorites.contains(league.id),
                                     onToggleFavorite: onToggleFavorite.map { toggle in
                                         { toggle(league.id) }
+                                    },
+                                    isCollapsed: collapsed.contains(league.id),
+                                    onToggleCollapse: onToggleCollapse.map { toggle in
+                                        { toggle(league.id) }
                                     }
                                 )
                             }
@@ -165,6 +173,8 @@ private struct LeagueSectionView: View {
     let onSelect: (String) -> Void
     let isFavorite: Bool
     let onToggleFavorite: (() -> Void)?
+    let isCollapsed: Bool
+    let onToggleCollapse: (() -> Void)?
 
     private var sortedMatches: [MatchCardModel] {
         // Azonos kezdésnél az id dönt, hogy a fókuszsorrend és a kirajzolt
@@ -205,6 +215,18 @@ private struct LeagueSectionView: View {
                 Text("\(league.matches.count) meccs")
                     .font(.appLabel(10))
                     .foregroundStyle(AppTheme.secondaryText)
+                if let onToggleCollapse {
+                    Button(action: onToggleCollapse) {
+                        Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(AppTheme.secondaryText)
+                            .frame(width: 18, height: 20)
+                    }
+                    .buttonStyle(.plain)
+                    .help(isCollapsed ? "Kinyitás" : "Összecsukás")
+                    .accessibilityLabel(isCollapsed ? "\(league.name) kinyitása" : "\(league.name) összecsukása")
+                    .accessibilityIdentifier("league.collapse.\(league.id)")
+                }
                 if let onToggleFavorite {
                     Button(action: onToggleFavorite) {
                         Image(systemName: isFavorite ? "star.fill" : "star")
@@ -228,13 +250,15 @@ private struct LeagueSectionView: View {
 
             Rectangle().fill(AppTheme.hairline).frame(height: 1)
 
-            VStack(spacing: 0) {
-                ForEach(Array(sortedMatches.enumerated()), id: \.element.id) { index, match in
+            if !isCollapsed {
+                VStack(spacing: 0) {
+                    ForEach(Array(sortedMatches.enumerated()), id: \.element.id) { index, match in
                     MatchItemRow(match: match, logos: logos, isWide: isWide,
                                  focusedMatch: focusedMatch, onSelect: onSelect)
                         .id(match.id)
-                    if index < sortedMatches.count - 1 {
-                        Rectangle().fill(AppTheme.hairline).frame(height: 1).padding(.leading, 18)
+                        if index < sortedMatches.count - 1 {
+                            Rectangle().fill(AppTheme.hairline).frame(height: 1).padding(.leading, 18)
+                        }
                     }
                 }
             }

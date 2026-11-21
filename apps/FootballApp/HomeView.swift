@@ -23,6 +23,8 @@ struct HomeView: View {
     @State private var searchText = ""
     @State private var womensOnly = false
     @State private var favoritesOnly = false
+    /// Összecsukott verseny-szekciók (UserDefaults-ból, hogy megmaradjon).
+    @State private var collapsed: Set<String> = LeagueCollapse().load()
     @State private var favorites: Set<String> = LeagueFavorites().load()
     @State private var tab: AppTab = .day
     @State private var featuredOnly = false
@@ -224,7 +226,9 @@ struct HomeView: View {
                         }
                     },
                     favorites: favorites,
-                    onToggleFavorite: toggleFavorite
+                    onToggleFavorite: toggleFavorite,
+                    collapsed: collapsed,
+                    onToggleCollapse: toggleCollapse
                 )
             }
         case .empty:
@@ -328,6 +332,10 @@ struct HomeView: View {
     }
 
     /// A szekciófejléc csillagának művelete: kedvenc be/ki, azonnal mentve.
+    private func toggleCollapse(_ key: String) {
+        collapsed = LeagueCollapse().toggle(key)
+    }
+
     private func toggleFavorite(_ key: String) {
         favorites = LeagueFavorites().toggle(key)
         if favoritesOnly && favorites.isEmpty {
