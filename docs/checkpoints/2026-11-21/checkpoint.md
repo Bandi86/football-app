@@ -279,6 +279,34 @@
 - [x] Az app elindítva (pid 27549, port 65120) a manuális ellenőrzéshez.
       Képernyőkép TCC miatt nem készült (`could not create image from display`).
 
+## S73 — felhasználói UI-észrevételek nyomán
+
+- [x] **„Anglia 1. osztály" szűrő**: az AX-vezérléssel reprodukált helyzetben
+      a szűrő most **7 PL meccset** ad; korábban egy duplikált „AFC Bournemouth–
+      Nott'm Forest" sor (tier 0) volt a csoportban, ami a `min(tier)` miatt 0-ra
+      vitte a csoport szintjét → a daemon auto-dedupe-je eltávolította.
+      Mind a 7 meccs tier=1, odds-szal és logóval; egy logó URL-ről HTTP 200,
+      33 840 bájt.
+- [x] **Vallecano–Valencia odds**: az API-ban megvan (1,91 / 3,50 / 4,10) — a
+      korábbi „nincs odds" észrevétel a frissítés előtti cache-ből volt.
+- [x] **Canet Roussillon–Hauts Lyonnais**: a research egy **2026-11-11-i**
+      1–0 eredményt ragasztott a 11-21 18:00-as fixture-hez (SofaScore
+      `16608675`). v2: `scheduled`, eredmény nélkül; research napi JSON és
+      detail JSON korrigálva (`docs/fix_source_data_20261121.py`).
+- [x] **A-League Women Newcastle–Adelaide**: az ESPN sora férfi csapatnevekkel,
+      XX országgal és hamis 0–0-val jött (a FotMob párja `cancelled`). A két
+      hamis sort archiváltam, a canceled AU-sort hagytam; research JSON
+      korrigálva. Két további női meccs (Brisbane 1–0 Melbourne, Sydney 1–3
+      Canberra) MATCH_RESULT_REQUIRED gate-e a research observation alapján
+      pótolva; Liga II Bacau 7–1 szintén.
+- [x] Egy gyanús 1X2 odds (Tasmania Berlin–Hertha II, implicit összeg 0,850,
+      browser-fuzzy forrás) **eltávolítva** — nem lett kitalálva helyette érték.
+- [x] A napi envelope újra **1464/1464** (a friss export 1028-re zsugorodott,
+      az adatlapokból visszaépítve). `deep-verify` **0 hiba**,
+      `acceptance-check` **ELFOGADHATÓ (0 hiba)**.
+- [x] `integrity` mind a 8 mutató **0**, verdict OK. Az app frissítve ( Cmd+R ),
+      futó pid 27549.
+
 ## Következő döntési pont
 
 - Manuális UI-ellenőrzés a futó appban (különösen az S70 kézi eredménybevitel
