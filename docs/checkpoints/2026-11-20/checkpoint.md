@@ -1410,3 +1410,19 @@ Nyitott:
 - [ ] Nyitott: decemberi ablak auditja, verseny-név aliasok beépítése az ingestbe
       (hogy az újraingest ne hozza vissza a duplikátumokat), 30 visszatartott sor
       felülvizsgálata, 116 forrás nélküli eredmény, logó/odds-lefedettség, UI.
+
+## S49 — logó-lefedettség és részletes meccsnézet odds-javítás
+
+### Változások
+- `scripts/import-fotmob-logos.py`: a FotMob nyilvános napi meccs-JSON-jaiból név alapján párosítja a hiányzó logójú csapatokat (pontos fold, majd egyértelmű token-részhalmaz; női jelölő egyezés kötelező), letölti a `teamlogo` képet, tartalom-címzett útvonalra menti a `DATA_DIR/raw/assets` alá, és `ops.asset` sort ír. Dry-run alapértelmezett, `--apply` ír.
+- Alkalmazva 2026-11-21…11-30 között játszó csapatokra: 273 új csapatlogó (215 + 58); a 11-21-i feed `missing_team_logo` 412 → 230.
+- `rust/crates/storage/src/repositories/match_detail.rs`: a részletes meccsnézet odds-laterálja eddig kizárólag `phase='closing'` idézetet fogadott el, ezért a nap-listán látszó odds a részletes nézetben `null` volt. Most a napi nézettel azonos módon `DISTINCT ON (bookmaker, market, outcome, line)` + `(phase='closing') DESC` preferencia, és a könyvmester-lánc végén catch-all fallback (pl. `tipplap` könyvmesterű idézetekre is).
+
+### Ellenőrzések
+- `cargo fmt --all --check` OK; `cargo clippy -p football-storage -p football-api -p footballctl --all-targets -- -D warnings` tiszta.
+- `cargo test -p football-storage --lib` 25 passed; `cargo test -p football-api --test routes` 9 passed.
+- Élő API: `/v1/match/01a1fa06-82c3-7208-93c9-8cd3065fcab7` → odds {home 3.60, draw 3.40, away 1.73, btts 1.65/1.99, over/under 2.5 1.66/1.97}; a daemon új porton fut (runtime.json), `/v1/day/2026-11-21` 828 meccs, 230 hiányzó csapatlogó, 0 duplikált csapatpár.
+
+### Nyitott
+- Verseny-logók továbbra is hiányosak (648 a látható napon); a FotMob league-logo végpont 403-at ad, más forrás kell.
+- A 2026-os történelmi v1-duplikátumok (346 klaszter) külön adósság; a 2027-es két azonos idejű, ütköző sor forrás nélkül nem dönthető el.
