@@ -1503,3 +1503,43 @@ Nyitott:
   timeout / runner nem csatlakozott); a Swift-kód változása csak a
   `DayGapsCard` AX-felépítése, a zöld build és az AX-press igazolja.
 - FotMob verseny-logók: 19/80 letöltve, a többi FotMob-azonosító 403.
+
+## S53 — részletes meccsnézet: forma és egymás elleni mérleg
+
+### Változások
+- `rust/crates/storage/src/repositories/match_detail.rs`: új `FormEntry`,
+  `HeadToHeadEntry`, `MatchExtras` típusok és `fetch_team_form`,
+  `fetch_head_to_head`, `fetch_match_extras` lekérdezések. A forma az utolsó
+  5 lejátszott meccset adja a csapat szemszögéből (W/D/L + ellenfél + eredmény),
+  az egymás elleni lista a két csapat utolsó 5 találkozóját. Minden lekérdezés
+  a meccs kezdete előtti állapotra szűr (`kickoff_at < before`), így jövőbeli
+  információ nem szivárog vissza.
+- `MatchDetailRow` három új mezővel bővült: `home_form`, `away_form`,
+  `head_to_head` (üres listával, ha nincs korábbi adat).
+- `rust/crates/api/src/routes/match_detail.rs`: a `/v1/match/{id}` válasz
+  kitölti a három új mezőt; hiba esetén a meccs részletei akkor is megjelennek,
+  csak a kiegészítések maradnak üresek.
+- Swift: `MatchDetailModels.swift` új `FormEntry`/`HeadToHeadEntry` modellek és
+  opcionális mezők (a régi fixture-ök is dekódolhatók); `MatchDetailSheet.swift`
+  új „FORMA · UTOLSÓ 5 MECCS" szekció színezett W/D/L chipekkel (akadálymentes
+  felolvasással) és „EGYMÁS ELLEN" lista.
+
+### Ellenőrzések
+- `cargo test -p football-storage --test match_detail_extras -- --test-threads=1`
+  → 1 passed (a jövőbeli meccs nem szerepel sem a formában, sem a H2H-ban).
+- `cargo fmt --all --check` OK; `cargo clippy -p football-storage -p football-api
+  --all-targets -- -D warnings` tiszta.
+- Swift Core tesztek: 60/60 (új `decodesFormAndHeadToHead`); `xcodebuild build`
+  BUILD SUCCEEDED.
+- Élő API (daemon, port 53686): `/v1/match/01a1e9e8-d362-75bd-91b3-93993a9942dc`
+  (Real Madrid–Celta) → home_form 5 meccs (Valencia 3–0 W, Santander 3–0 W,
+  Barcelona 2–1 W, Sevilla 4–1 W, Villarreal 1–0 W), away_form 5, head_to_head 5
+  (Celta–Real Madrid 1–2 stb.).
+- Élő UI: a Sevilla–Real Betis részletező a formát és az egymás elleni
+  mérleget is mutatja (`/tmp/s53_detail2.png`).
+
+### Nyitott
+- A forma/H2H csak lejátszott, eredménnyel rendelkező meccsekből számol; a
+  116 forrás nélküli eredmény továbbra is hiányzik.
+- A részletes nézet további bővítése (sérülések, kezdőcsapatok, események)
+  csak akkor lehetséges, ha a források ilyen adatot adnak.

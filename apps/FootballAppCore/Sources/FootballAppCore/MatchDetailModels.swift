@@ -55,6 +55,11 @@ public struct MatchDetail: Decodable, Equatable, Sendable {
     public let gateEvaluatedAt: Date?
     public let gateRuleSetVersion: String?
     public let publishDate: String?
+    /// Az utolsó öt lejátszott meccs (a meccs kezdete előtt) — opcionális, hogy
+    /// a régi fixture-ök és a minta is dekódolható maradjon.
+    public let homeForm: [FormEntry]?
+    public let awayForm: [FormEntry]?
+    public let headToHead: [HeadToHeadEntry]?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -109,5 +114,57 @@ public struct MatchDetail: Decodable, Equatable, Sendable {
         case gateEvaluatedAt = "gate_evaluated_at"
         case gateRuleSetVersion = "gate_rule_set_version"
         case publishDate = "publish_date"
+        case homeForm = "home_form"
+        case awayForm = "away_form"
+        case headToHead = "head_to_head"
+    }
+}
+
+/// Egy korábbi meccs a forma-mutatóhoz (a csapat szemszögéből).
+public struct FormEntry: Decodable, Equatable, Sendable, Identifiable {
+    public let matchId: UUID
+    public let kickoffAt: Date
+    public let competitionName: String
+    public let opponentName: String
+    public let isHome: Bool
+    public let teamGoals: Int
+    public let opponentGoals: Int
+    /// "W" | "D" | "L"
+    public let outcome: String
+
+    public var id: UUID { matchId }
+
+    enum CodingKeys: String, CodingKey {
+        case matchId = "match_id"
+        case kickoffAt = "kickoff_at"
+        case competitionName = "competition_name"
+        case opponentName = "opponent_name"
+        case isHome = "is_home"
+        case teamGoals = "team_goals"
+        case opponentGoals = "opponent_goals"
+        case outcome
+    }
+}
+
+/// Egy korábbi egymás elleni meccs.
+public struct HeadToHeadEntry: Decodable, Equatable, Sendable, Identifiable {
+    public let matchId: UUID
+    public let kickoffAt: Date
+    public let competitionName: String
+    public let homeName: String
+    public let awayName: String
+    public let homeGoals: Int?
+    public let awayGoals: Int?
+
+    public var id: UUID { matchId }
+
+    enum CodingKeys: String, CodingKey {
+        case matchId = "match_id"
+        case kickoffAt = "kickoff_at"
+        case competitionName = "competition_name"
+        case homeName = "home_name"
+        case awayName = "away_name"
+        case homeGoals = "home_goals"
+        case awayGoals = "away_goals"
     }
 }

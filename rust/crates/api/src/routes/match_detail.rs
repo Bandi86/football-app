@@ -3,7 +3,9 @@
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
-use football_storage::repositories::match_detail::{MatchDetailRow, fetch_match_detail};
+use football_storage::repositories::match_detail::{
+    MatchDetailRow, fetch_match_detail, fetch_match_extras,
+};
 use uuid::Uuid;
 
 use crate::AppState;
@@ -40,5 +42,20 @@ pub async fn match_detail(
             AppError::internal("A meccs részleteinek lekérdezése sikertelen.")
         })?
         .ok_or_else(|| AppError::not_found("A meccs nem található."))?;
+    // A forma és az egymás elleni lista a meccs kezdete előtti állapotra szűr,
+    // hogy jövőbeli információ ne szivárogjon vissza. Kiegészítés hiányában a
+    // mezők üres listák maradnak, a részletező így is működik.
+    let mut detail = detail;
+    if let Some(extras) = fetch_match_extras(&state.pool, match_id, detail.kickoff_at)
+        .await
+        .map_err(|e| {
+            tracing::error!(error=%e, %match_id, "meccs-kiegészítések lekérdezése");
+            AppError::internal("A meccs kiegészítéseinek lekérdezése sikertelen.")
+        })?
+    {
+        detail.home_form = extras.home_form;
+        detail.away_form = extras.away_form;
+        detail.head_to_head = extras.head_to_head;
+    }
     Ok(Json(detail))
 }

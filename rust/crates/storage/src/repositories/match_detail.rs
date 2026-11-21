@@ -66,6 +66,15 @@ pub struct MatchDetailRow {
     pub gate_evaluated_at: Option<DateTime<Utc>>,
     pub gate_rule_set_version: Option<String>,
     pub publish_date: Option<NaiveDate>,
+    /// Az utolsó öt lejátszott meccs a hazai csapattól (a meccs kezdete előtt).
+    #[serde(default)]
+    pub home_form: Vec<FormEntry>,
+    /// Az utolsó öt lejátszott meccs a vendég csapattól (a meccs kezdete előtt).
+    #[serde(default)]
+    pub away_form: Vec<FormEntry>,
+    /// Az utolsó öt egymás elleni meccs (a meccs kezdete előtt).
+    #[serde(default)]
+    pub head_to_head: Vec<HeadToHeadEntry>,
 }
 
 pub async fn fetch_match_detail(pool: &PgPool, match_id: Uuid) -> Result<Option<MatchDetailRow>> {
@@ -326,6 +335,194 @@ impl From<MatchDetailDbRow> for MatchDetailRow {
             gate_evaluated_at: row.gate_evaluated_at,
             gate_rule_set_version: row.gate_rule_set_version,
             publish_date: row.publish_date,
+            home_form: Vec::new(),
+            away_form: Vec::new(),
+            head_to_head: Vec::new(),
         }
     }
+}
+
+/// Forma-mutató egy korábbi meccsről (a csapat szemszögéből).
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
+pub struct FormEntry {
+    pub match_id: Uuid,
+    pub kickoff_at: DateTime<Utc>,
+    pub competition_name: String,
+    pub opponent_name: String,
+    pub is_home: bool,
+    pub team_goals: i16,
+    pub opponent_goals: i16,
+    /// "W" | "D" | "L"
+    pub outcome: String,
+}
+
+/// Egy korábbi egymás elleni meccs.
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
+pub struct HeadToHeadEntry {
+    pub match_id: Uuid,
+    pub kickoff_at: DateTime<Utc>,
+    pub competition_name: String,
+    pub home_name: String,
+    pub away_name: String,
+    pub home_goals: Option<i16>,
+    pub away_goals: Option<i16>,
+}
+
+/// A részletező nézet kiegészítései: a két csapat utolsó meccsei és az
+/// egymás elleni találkozók. Minden lekérdezés a meccs kezdete előtti
+/// állapotra szűr, hogy jövőbeli információ ne szivárogjon vissza.
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
+pub struct MatchExtras {
+    pub home_form: Vec<FormEntry>,
+    pub away_form: Vec<FormEntry>,
+    pub head_to_head: Vec<HeadToHeadEntry>,
+}
+
+#[derive(sqlx::FromRow)]
+struct FormDbRow {
+    match_id: Uuid,
+    kickoff_at: DateTime<Utc>,
+    competition_name: String,
+    opponent_name: String,
+    is_home: bool,
+    team_goals: i16,
+    opponent_goals: i16,
+}
+
+pub async fn fetch_team_form(
+    pool: &PgPool,
+    team_id: Uuid,
+    before: DateTime<Utc>,
+    limit: i64,
+) -> Result<Vec<FormEntry>> {
+    let rows = sqlx::query_as::<_, FormDbRow>(
+        "SELECT m.id AS match_id,
+                m.kickoff_at,
+                c.name AS competition_name,
+                CASE WHEN m.home_team_id = $1 THEN away.name ELSE home.name END AS opponent_name,
+                (m.home_team_id = $1) AS is_home,
+                CASE WHEN m.home_team_id = $1 THEN r.home_ft ELSE r.away_ft END AS team_goals,
+                CASE WHEN m.home_team_id = $1 THEN r.away_ft ELSE r.home_ft END AS opponent_goals
+         FROM core.match m
+         JOIN core.match_result r ON r.match_id = m.id
+         JOIN core.team home ON home.id = m.home_team_id
+         JOIN core.team away ON away.id = m.away_team_id
+         JOIN core.competition c ON c.id = m.competition_id
+         WHERE (m.home_team_id = $1 OR m.away_team_id = $1)
+           AND m.kickoff_at < $2
+           AND m.status = 'finished'
+         ORDER BY m.kickoff_at DESC
+         LIMIT $3",
+    )
+    .bind(team_id)
+    .bind(before)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let outcome = if row.team_goals > row.opponent_goals {
+                "W"
+            } else if row.team_goals == row.opponent_goals {
+                "D"
+            } else {
+                "L"
+            };
+            FormEntry {
+                match_id: row.match_id,
+                kickoff_at: row.kickoff_at,
+                competition_name: row.competition_name,
+                opponent_name: row.opponent_name,
+                is_home: row.is_home,
+                team_goals: row.team_goals,
+                opponent_goals: row.opponent_goals,
+                outcome: outcome.to_string(),
+            }
+        })
+        .collect())
+}
+
+#[derive(sqlx::FromRow)]
+struct HeadToHeadDbRow {
+    match_id: Uuid,
+    kickoff_at: DateTime<Utc>,
+    competition_name: String,
+    home_name: String,
+    away_name: String,
+    home_goals: Option<i16>,
+    away_goals: Option<i16>,
+}
+
+pub async fn fetch_head_to_head(
+    pool: &PgPool,
+    home_team_id: Uuid,
+    away_team_id: Uuid,
+    before: DateTime<Utc>,
+    limit: i64,
+) -> Result<Vec<HeadToHeadEntry>> {
+    let rows = sqlx::query_as::<_, HeadToHeadDbRow>(
+        "SELECT m.id AS match_id,
+                m.kickoff_at,
+                c.name AS competition_name,
+                home.name AS home_name,
+                away.name AS away_name,
+                r.home_ft AS home_goals,
+                r.away_ft AS away_goals
+         FROM core.match m
+         JOIN core.team home ON home.id = m.home_team_id
+         JOIN core.team away ON away.id = m.away_team_id
+         JOIN core.competition c ON c.id = m.competition_id
+         LEFT JOIN core.match_result r ON r.match_id = m.id
+         WHERE ((m.home_team_id = $1 AND m.away_team_id = $2)
+             OR (m.home_team_id = $2 AND m.away_team_id = $1))
+           AND m.kickoff_at < $3
+           AND m.status = 'finished'
+         ORDER BY m.kickoff_at DESC
+         LIMIT $4",
+    )
+    .bind(home_team_id)
+    .bind(away_team_id)
+    .bind(before)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| HeadToHeadEntry {
+            match_id: row.match_id,
+            kickoff_at: row.kickoff_at,
+            competition_name: row.competition_name,
+            home_name: row.home_name,
+            away_name: row.away_name,
+            home_goals: row.home_goals,
+            away_goals: row.away_goals,
+        })
+        .collect())
+}
+
+pub async fn fetch_match_extras(
+    pool: &PgPool,
+    match_id: Uuid,
+    before: DateTime<Utc>,
+) -> Result<Option<MatchExtras>> {
+    let Some((home_team_id, away_team_id)) = sqlx::query_as::<_, (Uuid, Uuid)>(
+        "SELECT home_team_id, away_team_id FROM core.match WHERE id = $1",
+    )
+    .bind(match_id)
+    .fetch_optional(pool)
+    .await?
+    else {
+        return Ok(None);
+    };
+    let home_form = fetch_team_form(pool, home_team_id, before, 5).await?;
+    let away_form = fetch_team_form(pool, away_team_id, before, 5).await?;
+    let head_to_head = fetch_head_to_head(pool, home_team_id, away_team_id, before, 5).await?;
+    Ok(Some(MatchExtras {
+        home_form,
+        away_form,
+        head_to_head,
+    }))
 }

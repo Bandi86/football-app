@@ -117,6 +117,21 @@ struct MatchDetailContent: View {
                     periodChips
                 }
 
+                if !(detail.homeForm ?? []).isEmpty || !(detail.awayForm ?? []).isEmpty {
+                    FormStrip(
+                        homeName: detail.homeName,
+                        awayName: detail.awayName,
+                        homeForm: detail.homeForm ?? [],
+                        awayForm: detail.awayForm ?? []
+                    )
+                    .accessibilityIdentifier("match.detail.form")
+                }
+
+                if let headToHead = detail.headToHead, !headToHead.isEmpty {
+                    HeadToHeadList(entries: headToHead)
+                        .accessibilityIdentifier("match.detail.h2h")
+                }
+
                 if hasStats {
                     StatsDuel(
                         homeName: detail.homeName,
@@ -230,5 +245,121 @@ struct MatchDetailContent: View {
             rows.append(("xG", detail.homeXg, detail.awayXg, "%.2f"))
         }
         return rows.filter { $0.1 != nil || $0.2 != nil }
+    }
+}
+
+
+/// Utolsó öt meccs W/D/L chipjei csapatonként; minden chip az ellenfelet és
+/// az eredményt is kimondja az akadálymentes felolvasásban.
+struct FormStrip: View {
+    let homeName: String
+    let awayName: String
+    let homeForm: [FormEntry]
+    let awayForm: [FormEntry]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.s) {
+            Text("FORMA · UTOLSÓ 5 MECCS")
+                .font(.appLabel(9))
+                .tracking(1.4)
+                .foregroundStyle(AppTheme.secondaryText)
+            row(name: homeName, entries: homeForm)
+            row(name: awayName, entries: awayForm)
+        }
+        .padding(AppTheme.Spacing.m)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: AppTheme.Radius.panel, style: .continuous))
+    }
+
+    private func row(name: String, entries: [FormEntry]) -> some View {
+        HStack(spacing: AppTheme.Spacing.s) {
+            Text(name)
+                .font(.appText(12, weight: .semibold))
+                .foregroundStyle(AppTheme.primaryText)
+                .lineLimit(1)
+                .frame(width: 190, alignment: .leading)
+            if entries.isEmpty {
+                Text("nincs korábbi lejátszott meccs")
+                    .font(.appText(11))
+                    .foregroundStyle(AppTheme.tertiaryText)
+            } else {
+                ForEach(entries) { entry in
+                    Text(entry.outcome)
+                        .font(.appText(11, weight: .bold))
+                        .foregroundStyle(.black)
+                        .frame(width: 20, height: 20)
+                        .background(chipColor(entry.outcome), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                        .help("\(entry.isHome ? "hazai" : "vendég") \(entry.opponentName) ellen \(entry.teamGoals)–\(entry.opponentGoals)")
+                        .accessibilityLabel(outcomeLabel(entry))
+                }
+            }
+            Spacer()
+        }
+    }
+
+    private func chipColor(_ outcome: String) -> Color {
+        switch outcome {
+        case "W": return AppTheme.predictionHome
+        case "L": return AppTheme.warning
+        default: return AppTheme.predictionDraw
+        }
+    }
+
+    private func outcomeLabel(_ entry: FormEntry) -> String {
+        let result = entry.outcome == "W" ? "győzelem" : (entry.outcome == "L" ? "vereség" : "döntetlen")
+        return "\(entry.isHome ? "Hazai" : "Vendég") \(entry.opponentName) ellen \(entry.teamGoals)–\(entry.opponentGoals), \(result)"
+    }
+}
+
+/// Korábbi egymás elleni meccsek tömör listája.
+struct HeadToHeadList: View {
+    let entries: [HeadToHeadEntry]
+
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "hu_HU")
+        formatter.dateFormat = "yyyy. MM. dd."
+        return formatter
+    }()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.s) {
+            Text("EGYMÁS ELLEN")
+                .font(.appLabel(9))
+                .tracking(1.4)
+                .foregroundStyle(AppTheme.secondaryText)
+            ForEach(entries) { entry in
+                HStack(spacing: AppTheme.Spacing.m) {
+                    Text(Self.dayFormatter.string(from: entry.kickoffAt))
+                        .font(.appText(11))
+                        .foregroundStyle(AppTheme.tertiaryText)
+                        .frame(width: 96, alignment: .leading)
+                    Text("\(entry.homeName) – \(entry.awayName)")
+                        .font(.appText(12))
+                        .foregroundStyle(AppTheme.primaryText)
+                        .lineLimit(1)
+                    Spacer()
+                    Text(scoreText(entry))
+                        .font(.scoreboard(13, weight: .semibold))
+                        .foregroundStyle(AppTheme.primaryText)
+                    Text(entry.competitionName)
+                        .font(.appLabel(9))
+                        .foregroundStyle(AppTheme.tertiaryText)
+                        .lineLimit(1)
+                        .frame(width: 150, alignment: .trailing)
+                }
+                .padding(.horizontal, AppTheme.Spacing.m)
+                .padding(.vertical, 6)
+                .background(AppTheme.surfaceElevated, in: RoundedRectangle(cornerRadius: AppTheme.Radius.chip, style: .continuous))
+            }
+        }
+        .padding(AppTheme.Spacing.m)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: AppTheme.Radius.panel, style: .continuous))
+    }
+
+    private func scoreText(_ entry: HeadToHeadEntry) -> String {
+        guard let home = entry.homeGoals, let away = entry.awayGoals else { return "–" }
+        return "\(home)–\(away)"
     }
 }
