@@ -946,3 +946,28 @@ napközbeni frissítésnek nem volt belépőpontja.
 **Következő döntési pont:** a) research szinkron ütemezése (launchd vagy kézi
 indítás); b) a 10 női meccs kézi csapat-mappingje; c) 6 hiányzó eredmény;
 d) LaLiga 2 – AR.
+
+### S90 folytatás — friss research szinkron, maradék átsorolás
+
+- [x] **Kézi szinkron (18:42–18:52):** `scripts/research-sync.sh` teljes
+      futás → collect 18:49-re kész, discovery job `research-sync-2026-11-21-1849`
+      `done`; 11-21 incidents **5 725 → 5 893 / 487 meccs**.
+- [x] **LaLiga 2 – AR maradék átsorolva:** a Huracán Ingeniero White–Colón
+      (2026-07-11) meccs a Primera Nacionalba került
+      (`match_competition_reassign` audit) → ország-eltérésű meccs **0**.
+- [x] **Reverify 11-21:** verified 515 / provisional 430 / withheld **4**
+      (Allsvenskan Östersunds–Varberg, Regionalliga West Rödinghausen–Schalke
+      II, Serie A Como–Cagliari, Serie B Ascoli–Vicenza — forrás-oldalon
+      nincs eredmény). `footballctl integrity` → **OK** (0 duplikált
+      kickoff/fixture, 0 árva provenance, 0 aktív ref merge-elt entitáson,
+      0 failed job, 0 breaker).
+- [x] **DB:** `core.match` 283 611; aktív verseny 749; női csapat 564;
+      ország-eltérés 0; cross-competition pár ±3 napra 0.
+- [ ] **Ismert korlát:** 10 női versenyű meccsnél a csapat továbbra is a
+      férfi entitás (női nemzeti válogatottak és svéd női klubok esetében
+      nincs külön női csapat-entitás a forrásban) — külön identitás-szeletet
+      igényel, fuzzy merge nélkül; a név megjelenítése helyes, csak a gender
+      metaadat marad férfi.
+- [ ] **Nyitott:** 4 hiányzó eredmény forrás-oldali pótlása; a női
+      nemzeti/klub csapat-entitások gender-szétválasztása; a research
+      szinkron launchd-ütemezése (a script kész, telepítés nem történt).
