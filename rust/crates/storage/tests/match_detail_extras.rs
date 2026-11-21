@@ -3,7 +3,7 @@
 
 use chrono::{TimeZone, Utc};
 use football_storage::repositories::match_detail::{
-    fetch_head_to_head, fetch_team_form, fetch_team_next,
+    fetch_head_to_head, fetch_match_extras, fetch_team_form, fetch_team_next,
 };
 use football_storage::test_support::test_pool;
 use sqlx::PgPool;
@@ -204,4 +204,93 @@ async fn form_and_head_to_head_use_only_past_matches() {
     assert!(next[0].is_home);
     assert_eq!(next[1].opponent_name, "Gamma");
     assert!(!next[1].is_home);
+}
+
+async fn add_match_returning_id(
+    pool: &PgPool,
+    base: &Base,
+    home: Uuid,
+    away: Uuid,
+    kickoff: chrono::DateTime<Utc>,
+    status: &str,
+) -> Uuid {
+    let id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO core.match
+         (id, competition_id, season_id, home_team_id, away_team_id, kickoff_at,
+          competition_timezone, status)
+         VALUES ($1,$2,$3,$4,$5,$6,'UTC',$7)",
+    )
+    .bind(id)
+    .bind(base.competition_id)
+    .bind(base.season_id)
+    .bind(home)
+    .bind(away)
+    .bind(kickoff)
+    .bind(status)
+    .execute(pool)
+    .await
+    .unwrap();
+    id
+}
+
+#[tokio::test]
+async fn table_slice_contains_the_two_teams_and_their_neighbourhood() {
+    let pool = test_pool().await;
+    let base = seed(&pool).await;
+    let now = Utc.with_ymd_and_hms(2026, 11, 21, 12, 0, 0).unwrap();
+
+    add_match(
+        &pool,
+        &base,
+        base.a,
+        base.b,
+        now - chrono::Duration::days(10),
+        (2, 1),
+        "finished",
+    )
+    .await;
+    add_match(
+        &pool,
+        &base,
+        base.b,
+        base.c,
+        now - chrono::Duration::days(8),
+        (1, 1),
+        "finished",
+    )
+    .await;
+    add_match(
+        &pool,
+        &base,
+        base.c,
+        base.a,
+        now - chrono::Duration::days(6),
+        (0, 2),
+        "finished",
+    )
+    .await;
+    let target = add_match_returning_id(
+        &pool,
+        &base,
+        base.a,
+        base.b,
+        now + chrono::Duration::days(1),
+        "scheduled",
+    )
+    .await;
+
+    let extras = fetch_match_extras(&pool, target, now)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(extras.home_position.is_some());
+    assert!(extras.away_position.is_some());
+    assert_eq!(
+        extras.table_slice.len(),
+        3,
+        "három csapatos tabella teljes egészében"
+    );
+    let positions: Vec<i64> = extras.table_slice.iter().map(|row| row.position).collect();
+    assert_eq!(positions, vec![1, 2, 3]);
 }

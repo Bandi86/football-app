@@ -60,6 +60,7 @@ pub async fn match_detail(
         detail.away_next = extras.away_next;
         detail.home_position = extras.home_position;
         detail.away_position = extras.away_position;
+        detail.table_slice = extras.table_slice;
     }
     Ok(Json(detail))
 }

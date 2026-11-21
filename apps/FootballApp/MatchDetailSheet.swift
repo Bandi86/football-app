@@ -134,6 +134,16 @@ struct MatchDetailContent: View {
                         .accessibilityIdentifier("match.detail.h2h")
                 }
 
+                if let tableSlice = detail.tableSlice, !tableSlice.isEmpty {
+                    StandingsSlice(
+                        homeName: detail.homeName,
+                        awayName: detail.awayName,
+                        rows: tableSlice,
+                        store: logos
+                    )
+                    .accessibilityIdentifier("match.detail.table")
+                }
+
                 if !(detail.homeNext ?? []).isEmpty || !(detail.awayNext ?? []).isEmpty {
                     NextMatchesStrip(
                         homeName: detail.homeName,
@@ -263,6 +273,91 @@ struct MatchDetailContent: View {
 
 /// Utolsó öt meccs W/D/L chipjei csapatonként; minden chip az ellenfelet és
 /// az eredményt is kimondja az akadálymentes felolvasásban.
+
+struct StandingsSlice: View {
+    let homeName: String
+    let awayName: String
+    let rows: [CompetitionStanding]
+    let store: LogoStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.s) {
+            Text("TABELLA · KÖRNYEZET")
+                .font(.appLabel(9))
+                .tracking(1.4)
+                .foregroundStyle(AppTheme.secondaryText)
+            header
+            ForEach(rows) { row in
+                rowView(row: row)
+            }
+        }
+        .padding(AppTheme.Spacing.m)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: AppTheme.Radius.panel, style: .continuous))
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            Text("#").frame(width: 22, alignment: .leading)
+            Text("CSAPAT").frame(maxWidth: .infinity, alignment: .leading)
+            Text("M").frame(width: 22, alignment: .trailing)
+            Text("GY").frame(width: 22, alignment: .trailing)
+            Text("D").frame(width: 22, alignment: .trailing)
+            Text("V").frame(width: 22, alignment: .trailing)
+            Text("GK").frame(width: 30, alignment: .trailing)
+            Text("P").frame(width: 26, alignment: .trailing)
+        }
+        .font(.appLabel(8))
+        .tracking(1.1)
+        .foregroundStyle(AppTheme.tertiaryText)
+    }
+
+    private func rowView(row: CompetitionStanding) -> some View {
+        let isHome = row.name == homeName
+        let isAway = row.name == awayName
+        return HStack(spacing: 8) {
+            Text("\(row.position).")
+                .font(.appText(11, weight: .semibold))
+                .foregroundStyle(isHome || isAway ? AppTheme.accent : AppTheme.secondaryText)
+                .frame(width: 22, alignment: .leading)
+            HStack(spacing: 6) {
+                CrestLogo(name: row.name, path: row.logo, store: store, size: 14)
+                Text(row.name)
+                    .font(.appText(11, weight: isHome || isAway ? .semibold : .regular))
+                    .foregroundStyle(AppTheme.primaryText)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            stat("M", row.played)
+            stat("GY", row.wins)
+            stat("D", row.draws)
+            stat("V", row.losses)
+            Text(row.goalDiff > 0 ? "+\(row.goalDiff)" : "\(row.goalDiff)")
+                .font(.appText(11))
+                .foregroundStyle(AppTheme.secondaryText)
+                .frame(width: 30, alignment: .trailing)
+            Text("\(row.points)")
+                .font(.appText(12, weight: .semibold))
+                .foregroundStyle(AppTheme.primaryText)
+                .frame(width: 26, alignment: .trailing)
+        }
+        .padding(.vertical, 3)
+        .padding(.horizontal, 6)
+        .background(
+            (isHome || isAway) ? AppTheme.surfaceElevated : Color.clear,
+            in: RoundedRectangle(cornerRadius: AppTheme.Radius.chip, style: .continuous)
+        )
+    }
+
+    private func stat(_ label: String, _ value: Int) -> some View {
+        Text("\(value)")
+            .font(.appText(11))
+            .foregroundStyle(AppTheme.secondaryText)
+            .frame(width: 22, alignment: .trailing)
+            .accessibilityLabel("\(label) \(value)")
+    }
+}
+
 struct FormStrip: View {
     let homeName: String
     let awayName: String

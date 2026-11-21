@@ -112,4 +112,42 @@ struct MatchDetailTests {
         #expect(detail.homeNext?.first?.isHome == false)
         #expect(detail.awayNext?.isEmpty == true)
     }
+
+    @Test func decodesTableSlice() throws {
+        let data = """
+        {"id":"00000000-0000-0000-0000-0000000000aa","kickoff_at":"2026-11-21T18:00:00Z",
+         "kickoff_precision":"exact","status":"scheduled","round_label":null,
+         "competition_id":"00000000-0000-0000-0000-0000000000b1","competition_name":"La Liga",
+         "country_code":"ES","country_name":"Spanyolország","tier":1,"priority":4,
+         "season_label":"2026/27","home_name":"Alfa","away_name":"Beta",
+         "home_logo":null,"away_logo":null,"home_elo":null,"away_elo":null,
+         "home_ft":null,"away_ft":null,"home_ht":null,"away_ht":null,
+         "home_et":null,"away_et":null,"home_pens":null,"away_pens":null,
+         "decided_by":null,"referee":null,"stats_source":null,"stats_captured_at":null,
+         "home_shots":null,"away_shots":null,"home_shots_on_target":null,
+         "away_shots_on_target":null,"home_corners":null,"away_corners":null,
+         "home_yellow":null,"away_yellow":null,"home_red":null,"away_red":null,
+         "home_fouls":null,"away_fouls":null,"home_xg":null,"away_xg":null,
+         "odds":null,"market_count":null,"odds_source":null,"odds_captured_at":null,
+         "odds_trust_state":null,"gate_state":null,"gate_blockers":[],
+         "gate_evaluated_at":null,"gate_rule_set_version":null,"publish_date":null,
+         "home_position":1,"away_position":3,
+         "table_slice":[
+           {"position":1,"team_id":"10000000-0000-0000-0000-000000000001","name":"Alfa","logo":null,
+            "played":10,"wins":7,"draws":2,"losses":1,"goals_for":20,"goals_against":8,
+            "goal_diff":12,"points":23},
+           {"position":2,"team_id":"10000000-0000-0000-0000-000000000002","name":"Gamma","logo":null,
+            "played":10,"wins":5,"draws":3,"losses":2,"goals_for":15,"goals_against":10,
+            "goal_diff":5,"points":18},
+           {"position":3,"team_id":"10000000-0000-0000-0000-000000000003","name":"Beta","logo":null,
+            "played":10,"wins":4,"draws":3,"losses":3,"goals_for":13,"goals_against":12,
+            "goal_diff":1,"points":15}
+         ]}
+        """.data(using: .utf8)!
+        let detail = try APIDecoding.makeDecoder().decode(MatchDetail.self, from: data)
+        #expect(detail.tableSlice?.count == 3)
+        #expect(detail.tableSlice?.first?.position == 1)
+        #expect(detail.tableSlice?.last?.name == "Beta")
+        #expect(detail.tableSlice?.last?.points == 15)
+    }
 }

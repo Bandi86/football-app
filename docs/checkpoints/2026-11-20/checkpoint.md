@@ -1951,3 +1951,31 @@ Csapatlogó-lefedettség: a 2026-11-13…11-30 ablakra a FotMob-import
   164 odds / 177 mindkét logó / 10 idő nélkül / 0 withheld / 98 verified;
   11-21: 847 / 6 / 5 / 276 / 637 / 22 / 3 / 244; 11-22: 408 / 0 / 0 / 43 /
   358 / 0 / 7 / 175.
+
+## S65 — tabella-környezet a részletes meccsnézetben
+
+### Változások
+- `rust/crates/storage/src/repositories/match_detail.rs`: `MatchExtras` + `table_slice:
+  Vec<CompetitionStandingRow>`; a `fetch_match_extras` a verseny tabellájából a két
+  csapat helyezése körüli ±2 pozíciót vágja ki (`standings_slice`, max 9 sor,
+  ismétlődés nélkül). `MatchDetailRow` + `table_slice` (`#[serde(default)]`).
+- `rust/crates/api/src/routes/match_detail.rs`: a válasz kitölti a `table_slice` mezőt.
+- Swift: `MatchDetail.tableSlice: [CompetitionStanding]?` (+ CodingKeys); a
+  `MatchDetailSheet` új „TABELLA · KÖRNYEZET" szekciója (`StandingsSlice`): #, csapat
+  címerrel és névvel, M/GY/D/V/GK/P, a két érintett csapat kiemelve; `match.detail.table`
+  azonosító.
+
+### Ellenőrzések
+- Storage lib: **31 passed** (2 új `standings_slice` unit teszt); integrációs teszt
+  `match_detail_extras::table_slice_contains_the_two_teams_and_their_neighbourhood`
+  → 2 passed; `cargo test -p football-api --test routes` 9 passed;
+  `cargo fmt --all --check` OK; clippy `-D warnings` tiszta.
+- Swift Core: **66/66** (új `decodesTableSlice`).
+- `xcodebuild build` → BUILD SUCCEEDED.
+- Élő API: Real Madrid–Celta → positions 2 és 12, `table_slice` 9 sor
+  (Barcelona 33, Real Madrid 30, Atlético 28, Betis 26, Espanol 15, Santander 14,
+  Celta 13, Alaves 13, Vallecano 12).
+- Élő UI: Sevilla–Real Betis részletező „TABELLA · KÖRNYEZET" szekció, kiemelt
+  Real Madrid / Atlético / Real Betis sorok — kép `/tmp/s65_table.png`.
+- UI-tesztek: a korábbi futások környezeti hibával álltak le (test runner nem indult);
+  a szelet UI-tesztjei nem futottak, nyitott.

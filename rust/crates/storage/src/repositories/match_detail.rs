@@ -87,6 +87,9 @@ pub struct MatchDetailRow {
     /// A vendég csapat helyezése a verseny aktuális tabelláján (opcionális).
     #[serde(default)]
     pub away_position: Option<i64>,
+    /// A tabella kivágása a két csapat helyezése körül (opcionális).
+    #[serde(default)]
+    pub table_slice: Vec<crate::repositories::competition::CompetitionStandingRow>,
 }
 
 pub async fn fetch_match_detail(pool: &PgPool, match_id: Uuid) -> Result<Option<MatchDetailRow>> {
@@ -354,6 +357,7 @@ impl From<MatchDetailDbRow> for MatchDetailRow {
             away_next: Vec::new(),
             home_position: None,
             away_position: None,
+            table_slice: Vec::new(),
         }
     }
 }
@@ -398,6 +402,8 @@ pub struct MatchExtras {
     /// A meccs után következő legfeljebb három meccs csapatonként.
     pub home_next: Vec<NextMatchEntry>,
     pub away_next: Vec<NextMatchEntry>,
+    /// A tabella kivágása a két csapat helyezése körül (legfeljebb 9 sor).
+    pub table_slice: Vec<crate::repositories::competition::CompetitionStandingRow>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -596,20 +602,19 @@ pub async fn fetch_match_extras(
     let away_next = fetch_team_next(pool, away_team_id, before, 3).await?;
     // A tabella-pozíció nem kritikus: ha a verseny tabellája nem számolható,
     // a részletező egyszerűen jelzés nélkül jelenik meg.
-    let (home_position, away_position) =
-        match crate::repositories::competition::fetch_competition_standings(pool, competition_id)
+    let standings =
+        crate::repositories::competition::fetch_competition_standings(pool, competition_id)
             .await
-        {
-            Ok(rows) => (
-                rows.iter()
-                    .find(|row| row.team_id == home_team_id)
-                    .map(|row| row.position),
-                rows.iter()
-                    .find(|row| row.team_id == away_team_id)
-                    .map(|row| row.position),
-            ),
-            Err(_) => (None, None),
-        };
+            .unwrap_or_default();
+    let home_position = standings
+        .iter()
+        .find(|row| row.team_id == home_team_id)
+        .map(|row| row.position);
+    let away_position = standings
+        .iter()
+        .find(|row| row.team_id == away_team_id)
+        .map(|row| row.position);
+    let table_slice = standings_slice(&standings, &[home_position, away_position], 2);
     Ok(Some(MatchExtras {
         home_form,
         away_form,
@@ -618,6 +623,7 @@ pub async fn fetch_match_extras(
         away_position,
         home_next,
         away_next,
+        table_slice,
     }))
 }
 
@@ -629,4 +635,65 @@ pub struct NextMatchEntry {
     pub competition_name: String,
     pub opponent_name: String,
     pub is_home: bool,
+}
+
+/// A tabella azon sorai, amelyek a megadott helyezések körüli `radius` sávban
+/// vannak (a két csapat környezete). Ismeretlen helyezés kimarad.
+pub(crate) fn standings_slice(
+    rows: &[crate::repositories::competition::CompetitionStandingRow],
+    positions: &[Option<i64>],
+    radius: i64,
+) -> Vec<crate::repositories::competition::CompetitionStandingRow> {
+    let mut selected: Vec<i64> = Vec::new();
+    for position in positions.iter().flatten() {
+        let low = (position - radius).max(1);
+        let high = position + radius;
+        for row_position in low..=high {
+            if !selected.contains(&row_position) {
+                selected.push(row_position);
+            }
+        }
+    }
+    rows.iter()
+        .filter(|row| selected.contains(&row.position))
+        .cloned()
+        .collect()
+}
+
+#[cfg(test)]
+mod table_slice_tests {
+    use super::standings_slice;
+    use crate::repositories::competition::CompetitionStandingRow;
+    use uuid::Uuid;
+
+    fn row(position: i64) -> CompetitionStandingRow {
+        CompetitionStandingRow {
+            position,
+            team_id: Uuid::now_v7(),
+            name: format!("Team {position}"),
+            logo: None,
+            played: 10,
+            wins: 5,
+            draws: 3,
+            losses: 2,
+            goals_for: 15,
+            goals_against: 9,
+            goal_diff: 6,
+            points: 18,
+        }
+    }
+
+    #[test]
+    fn slice_covers_both_teams_neighbourhoods() {
+        let rows: Vec<_> = (1..=10).map(row).collect();
+        let slice = standings_slice(&rows, &[Some(2), Some(8)], 1);
+        let positions: Vec<i64> = slice.iter().map(|r| r.position).collect();
+        assert_eq!(positions, vec![1, 2, 3, 7, 8, 9]);
+    }
+
+    #[test]
+    fn slice_without_positions_is_empty() {
+        let rows: Vec<_> = (1..=10).map(row).collect();
+        assert!(standings_slice(&rows, &[None, None], 2).is_empty());
+    }
 }
