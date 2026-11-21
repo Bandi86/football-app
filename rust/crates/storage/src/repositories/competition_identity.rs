@@ -85,11 +85,21 @@ pub async fn find_or_create_competition(
     }
 
     let alias_country = resolve_alias_country(conn, input.country_id, input.country_code).await?;
+    // S89: ha a forrás csak ország-kódot ad (pl. research: "AUT"), a lookup
+    // ország-kontextusa eddig elveszett, és a kanonikus-név egyeztetés
+    // ország nélküli wildcarddal a legnagyobb meccsszámú névrokonra esett
+    // (Bundesliga DE vs AT). A kódból feloldjuk a country_id-t.
+    let resolved_country_id =
+        resolve_country_id(conn, input.country_id, input.country_code).await?;
+    let effective = CompetitionIdentity {
+        country_id: resolved_country_id,
+        ..input.clone()
+    };
 
     if let Some(hint) = input.id_hint
         && let Some(competition_id) = live_competition_by_id(conn, hint).await?
     {
-        update_metadata(conn, competition_id, input).await?;
+        update_metadata(conn, competition_id, &effective).await?;
         let ref_written = ensure_source_ref(conn, competition_id, input).await?;
         return Ok(CompetitionResolution {
             competition_id,
@@ -101,7 +111,7 @@ pub async fn find_or_create_competition(
     }
 
     if let Some(competition_id) = competition_by_source_ref(conn, input).await? {
-        update_metadata(conn, competition_id, input).await?;
+        update_metadata(conn, competition_id, &effective).await?;
         return Ok(CompetitionResolution {
             competition_id,
             matched_by: CompetitionMatch::SourceRef,
@@ -111,10 +121,15 @@ pub async fn find_or_create_competition(
         });
     }
 
-    if let Some(competition_id) =
-        competition_by_alias(conn, &folded, alias_country.as_deref(), input.country_id).await?
+    if let Some(competition_id) = competition_by_alias(
+        conn,
+        &folded,
+        alias_country.as_deref(),
+        effective.country_id,
+    )
+    .await?
     {
-        update_metadata(conn, competition_id, input).await?;
+        update_metadata(conn, competition_id, &effective).await?;
         let ref_written = ensure_source_ref(conn, competition_id, input).await?;
         return Ok(CompetitionResolution {
             competition_id,
@@ -129,9 +144,9 @@ pub async fn find_or_create_competition(
     // (a create-on-miss csak mostantól ír aliast); ezért az entitás kanonikus
     // nevét is fold-olva egyeztetjük, mielőtt új versenyt hoznánk létre.
     if let Some(competition_id) =
-        competition_by_canonical_name(conn, &folded, input.country_id).await?
+        competition_by_canonical_name(conn, &folded, effective.country_id).await?
     {
-        update_metadata(conn, competition_id, input).await?;
+        update_metadata(conn, competition_id, &effective).await?;
         let ref_written = ensure_source_ref(conn, competition_id, input).await?;
         // A régi soroknál a competition.id és az entity.id eltérhet, ezért az
         // aliast az entitásra írjuk, nem a verseny sorára.
@@ -152,9 +167,9 @@ pub async fn find_or_create_competition(
     }
 
     if let Some(competition_id) =
-        competition_by_natural_key(conn, name, &folded, input.country_id).await?
+        competition_by_natural_key(conn, name, &folded, effective.country_id).await?
     {
-        update_metadata(conn, competition_id, input).await?;
+        update_metadata(conn, competition_id, &effective).await?;
         let ref_written = ensure_source_ref(conn, competition_id, input).await?;
         return Ok(CompetitionResolution {
             competition_id,
@@ -166,7 +181,7 @@ pub async fn find_or_create_competition(
     }
 
     let competition_id = input.id_hint.unwrap_or_else(Uuid::now_v7);
-    insert_competition(conn, competition_id, name, input).await?;
+    insert_competition(conn, competition_id, name, &effective).await?;
     let alias_written = insert_alias(conn, competition_id, name, alias_country.as_deref()).await?;
     let ref_written = ensure_source_ref(conn, competition_id, input).await?;
 
@@ -196,6 +211,28 @@ async fn resolve_alias_country(
         .await
         .context("verseny ország-kódjának olvasása")?;
     Ok(alias_country_code(code.as_deref()))
+}
+
+/// A forrás ország-kódjából feloldott `core.country.id`, ha a hívó nem adott
+/// közvetlenül ország-azonosítót. Ismeretlen/semleges kód → `None`.
+async fn resolve_country_id(
+    conn: &mut PgConnection,
+    country_id: Option<Uuid>,
+    country_code: Option<&str>,
+) -> Result<Option<Uuid>> {
+    if country_id.is_some() {
+        return Ok(country_id);
+    }
+    let Some(code) = alias_country_code(country_code) else {
+        return Ok(None);
+    };
+    let id: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM core.country WHERE code = $1 LIMIT 1")
+            .bind(code)
+            .fetch_optional(&mut *conn)
+            .await
+            .context("verseny ország-azonosítójának feloldása")?;
+    Ok(id)
 }
 
 /// Id-hint feloldása a merge-láncon át a mai (nem merged) versenyre.
@@ -254,11 +291,13 @@ async fn competition_by_source_ref(
            AND r.source_entity_id = $2
            AND r.status = 'active'
            AND e.merged_into_id IS NULL
+           AND ($3::uuid IS NULL OR c.country_id IS NULL OR c.country_id = $3)
          ORDER BY r.created_at DESC
          LIMIT 1",
     )
     .bind(source_id)
     .bind(source_entity_id)
+    .bind(input.country_id)
     .fetch_optional(&mut *conn)
     .await
     .context("verseny source_entity_ref lookup")

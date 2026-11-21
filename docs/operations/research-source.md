@@ -139,3 +139,62 @@ a részletes adattal rendelkező napok minden meccse detail jobot kap.
 - Ellenőrzés: `cargo test -p football-ingest --test research --test
   research_materialize` és `cargo test -p football-api --test routes
   match_detail`.
+
+## Napközbeni frissítés (S89)
+
+A v2 oldal csak azt látja, ami a research envelope-ban és a detail JSON-okban
+szerepel. A napi envelope akkor frissül, amikor a research gyűjtő lefut; a
+`com.footballresearch.daily` launchd ágens jelenleg **le van tiltva**
+(`~/Library/LaunchAgents/com.footballresearch.daily.plist.disabled`), ezért a
+napközben lezárult meccsek eseményei csak kézi gyűjtés után kerülnek be.
+
+Kézi frissítés egy napra (a repón kívül, a research gyökérből):
+
+```bash
+bash ~/Desktop/football-research/scripts/collect-only.sh 2026-11-21
+```
+
+Ez fetch → enrich → odds → gaps → `docs/api-export.py` sorrendben fut, majd a
+v2-ben egy research discovery job kell a napra:
+
+```sql
+insert into ops.job (id, source_slug, domain, entity_key, event_type,
+                     time_window, due_at, priority, status)
+values (gen_random_uuid(), 'research', 'day', 'manual-<dátum>', 'discovery',
+        '<dátum>', now(), 10, 'pending');
+```
+
+A worker a következő tickben felveszi; a `detail:<uid>` jobok materializálják a
+`match_events`/`match_stats` megfigyeléseket. Ellenőrzés:
+
+```sql
+select count(*), count(distinct match_id) from fact.match_incidents i
+join core.match m on m.id = i.match_id
+where (m.kickoff_at at time zone 'Europe/Budapest')::date = '<dátum>';
+```
+
+A launchd ágens engedélyezése (napi 08:00-as automatikus gyűjtés) külön
+üzemeltetési döntés, mert a telepítés a launchd állapotát módosítja.
+
+## Verseny-ref ország-szkóp (S89)
+
+A research adapter a verseny forrás-azonosítójaként eddig a puszta versenynevet
+adta (`Ligue 1`, `Premier League`, `Bundesliga`). Ezek a nevek több országban is
+élnek, ezért az `identity.source_entity_ref` elsőként látott országa ragadta
+magához a többi ország azonos nevű versenyét: francia Ligue 1-meccsek a Burkina
+Faso-i ligába, angol Premier League-meccsek a kenyai ligába, osztrák Bundesliga
+a németbe kerültek. A javítás:
+
+- a forrás-kulcs ország-szkópolt: `<verseny-név>|<ország-kód>` (pl.
+  `Ligue 1|FR`), így a ref csak az adott ország versenyére mutathat;
+- a `competition_by_source_ref` lookup ország-guardot kapott: idegen országú
+  ref nem fogadható el;
+- ha a forrás csak ország-kódot ad, a find-or-create a kódból oldja fel a
+  `country_id`-t, így a kanonikus-név egyeztetés sem esik a legnagyobb
+  névrokonra;
+- a régi, ország nélküli verseny-refek törölve; az új ingest ország-szkópolt
+  refeket ír.
+
+Ellenőrzés: `cargo test -p football-storage --test competition_identity
+-- --test-threads=1` (ország-guard és country_code-only lookup tesztek) és
+`cargo test -p football-ingest --test research` (a payload ref-kulcsa).

@@ -160,6 +160,10 @@ fn day_parse_emits_teams_matches_and_referee() {
         payload["competition"]["country_code"], "GB",
         "ENG → GB (a v2 brit versenyei GB alatt élnek)"
     );
+    assert_eq!(
+        payload["competition"]["source_entity_id"], "Premier League|GB",
+        "a verseny source-ref kulcsa ország-szkópolt (S89)"
+    );
     assert_eq!(payload["season"]["label"], "2026/27");
     assert_eq!(payload["round_label"], "Round 12");
 

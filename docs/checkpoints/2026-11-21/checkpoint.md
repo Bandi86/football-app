@@ -809,3 +809,72 @@ checkpoint mellett a commit üzenetben):**
   verseny-pár forrás-oldali review-ja;
 - a research detail frissítés napközben csak a 01/07/13-as slotokban fut;
 - validációs retenció (1,47 GB, ~130 MB/nap).
+
+## S89 — forrás-verseny-ref ország-szkóp, cross-country adatkorrupció javítása
+
+**Induló állapot:** a felhasználó jelezte, hogy Salvadorban kétszer szerepel az
+Isidro Metapán meccse, és a meccsrészletezőben nincs idővonal/gólszerző. A
+S88-cal a gate és az ország-javítás rendben volt; a timeline adat hiányzott,
+mert a research envelope csak kézi futásra frissült, és a 11-21-i detail
+események 15:45 után nem töltődtek be.
+
+- [x] **Kézi research frissítés + betöltés:** `bash
+      ~/Desktop/football-research/scripts/collect-only.sh 2026-11-21`
+      (EXIT=0, envelope 1 024 meccs, detail finished enriched=313,
+      events=283), majd research discovery job. Eredmény: 11-21-re
+      `fact.match_incidents` **4 864 sor / 451 meccs** (előtte 767 / 89);
+      `fact.match_stats` 194 meccs. Az API `GET /v1/match/{id}` 24–30
+      eseményt ad (pl. Vélez–Belgrano 2–2, 30 esemény), a Swift
+      idővonal-üres-állapot a friss buildben van (app pid 60564).
+- [x] **Salvador-duplikátum:** a S84–S87-es verseny- és csapat-merge-ek után
+      11-21-re egy Isidro Metapán-meccs maradt; a napi feed 938 sorból egyszer
+      hozza.
+- [x] **Új gyökérok (cross-country verseny-ref):** a research adapter a verseny
+      forrás-azonosítójaként a puszta nevet adta (`Ligue 1`, `Premier League`,
+      `Bundesliga`). Mivel ezek több országban élnek, az elsőként látott ország
+      refje ragadta magához a többit: francia Ligue 1 → BF, angol Premier
+      League → KE, osztrák Bundesliga → DE, indonéz Super League → UZ. A 11-21-i
+      frissítés 17 meccset tett rossz országú versenybe (pl. Monaco–Auxerre a
+      BF Ligue 1-ben, Bournemouth–Forest a kenyai Premier League-ben).
+- [x] **Javítás:**
+      - `rust/crates/ingest/src/research.rs`: a verseny-ref kulcsa ország-szkópolt
+        (`<név>|<ország-kód>`, pl. `Ligue 1|FR`);
+      - `competition_by_source_ref` ország-guard: idegen országú ref nem
+        fogadható el;
+      - ha a forrás csak ország-kódot ad, a find-or-create a kódból oldja fel a
+        `country_id`-t (a kanonikus-név egyeztetés ne essen a legnagyobb
+        névrokonra);
+      - a régi, ország nélküli research verseny-refek törölve (253 új,
+        ország-szkópolt ref íródott).
+- [x] **Adatrevízió:** a 17 friss meccs átsorolva a csapat-ország szerinti
+      versenybe (8 algériai Ligue 1 → DZ, 2 osztrák → AT, 2 indonéz → ID,
+      ukrán/örmény/tanzániai/angol Premier League → saját ország, Monaco-duplikátum
+      `dedupe pair`-ral a francia meccsbe olvasztva); további 50 történelmi
+      ország-eltérésű meccs átsorolva, 1 kihagyva (LaLiga 2 – AR). Minden
+      átsorolás `match_competition_reassign` audit.
+- [x] **Idempotencia:** a 11-21-i discovery újrafuttatása a javítás után **0 új
+      meccset** hozott létre, a meccsszám 283 618 maradt, a versenyszám 749.
+- [x] **DB állapot:** `core.match` **283 618**, aktív verseny **749**,
+      `fact.match_incidents` 11-21-re 4 864/451, research verseny-ref 253/253
+      ország-szkópolt, ország-eltérésű meccs 1 (LaLiga 2 – AR).
+- [x] **Kapu:** `./scripts/check.sh` → **EXIT=0**, 102 „test result: ok";
+      új tesztek: `source_ref_is_scoped_to_its_country`,
+      `country_code_only_input_keeps_country_context`,
+      `source_country_does_not_overwrite_existing_competition_country`
+      (storage), a research payload ref-kulcsának assertje (ingest).
+- [x] **Reverify/integrity:** 11-21 → verified 489 / provisional 463 /
+      withheld **3** (mind valódi hiányzó eredmény: MATCH_RESULT_REQUIRED,
+      Como–Cagliari, SV Rödinghausen–Schalke II, Ascoli–Vicenza);
+      `footballctl integrity` → **OK** (duplikált kickoff/fixture 0, árva
+      provenance 0, withheld 3, failed job 0, breaker 0).
+- [x] **Dokumentáció:** `docs/operations/research-source.md` új „Napközbeni
+      frissítés (S89)” és „Verseny-ref ország-szkóp (S89)” szekció.
+- [ ] **Nem ellenőrzött:** a napi research gyűjtő launchd-ágense továbbra is
+      le van tiltva (`com.footballresearch.daily.plist.disabled`), ezért a
+      napközbeni frissítés kézi — ennek engedélyezése külön üzemeltetési
+      döntés; a LaLiga 2 – AR meccs cél-versenye nyitott; a 3 withheld meccs
+      eredménye forrás-oldali pótlást igényel.
+
+**Következő döntési pont:** a) a research napi gyűjtő automatikusítása
+(launchd engedélyezés vagy gyakoribb slotok) — külön döntés; b) a 3 hiányzó
+eredmény pótlása; c) a LaLiga 2 – AR átsorolás; d) validációs retenció.

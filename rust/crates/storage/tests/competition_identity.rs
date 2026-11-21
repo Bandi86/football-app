@@ -571,3 +571,116 @@ async fn countryless_alias_does_not_capture_other_countrys_competition() {
     .unwrap();
     assert_eq!(same.competition_id, peru.competition_id);
 }
+
+/// S89: a forrás-ref kulcsa ország-szkópolt; ugyanaz a ref (verseny-név) más
+/// ország kontextusában nem ragadhatja magához az első ország versenyét.
+#[tokio::test]
+async fn source_ref_is_scoped_to_its_country() {
+    let pool = test_pool().await;
+    let fr = seed_country(&pool, "FR", "France").await;
+    let bf = seed_country(&pool, "BF", "Burkina Faso").await;
+    let source = seed_source(&pool, "test-comp-ident").await;
+    let shared_ref = "Ligue 1";
+
+    let mut conn = pool.acquire().await.unwrap();
+    let fr_comp = find_or_create_competition(
+        &mut conn,
+        &CompetitionIdentity {
+            id_hint: None,
+            name: "Ligue 1",
+            country_id: Some(fr),
+            country_code: Some("FR"),
+            tier: Some(1),
+            priority: Some(10),
+            source_id: Some(source),
+            source_entity_id: Some(shared_ref),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(fr_comp.created);
+
+    let bf_comp = find_or_create_competition(
+        &mut conn,
+        &CompetitionIdentity {
+            id_hint: None,
+            name: "Ligue 1",
+            country_id: Some(bf),
+            country_code: Some("BF"),
+            tier: Some(1),
+            priority: Some(10),
+            source_id: Some(source),
+            source_entity_id: Some(shared_ref),
+        },
+    )
+    .await
+    .unwrap();
+    assert_ne!(
+        bf_comp.competition_id, fr_comp.competition_id,
+        "a francia verseny nem fogadhatja be a Burkina Faso-i Ligue 1-et"
+    );
+    assert!(bf_comp.created);
+}
+
+/// S89: ha a forrás csak ország-kódot ad (nincs country_id), a lookup akkor is
+/// ország-kontextussal dolgozik; a Bundesliga AT nem eshet a DE névrokonra.
+#[tokio::test]
+async fn country_code_only_input_keeps_country_context() {
+    let pool = test_pool().await;
+    let at = seed_country(&pool, "AT", "Austria").await;
+    let de = seed_country(&pool, "DE", "Germany").await;
+    let source = seed_source(&pool, "test-comp-ident").await;
+
+    let mut conn = pool.acquire().await.unwrap();
+    let at_comp = find_or_create_competition(
+        &mut conn,
+        &CompetitionIdentity {
+            id_hint: None,
+            name: "Bundesliga",
+            country_id: Some(at),
+            country_code: Some("AT"),
+            tier: Some(1),
+            priority: Some(10),
+            source_id: Some(source),
+            source_entity_id: Some("Bundesliga|AT"),
+        },
+    )
+    .await
+    .unwrap();
+    let de_comp = find_or_create_competition(
+        &mut conn,
+        &CompetitionIdentity {
+            id_hint: None,
+            name: "Bundesliga",
+            country_id: Some(de),
+            country_code: Some("DE"),
+            tier: Some(1),
+            priority: Some(10),
+            source_id: Some(source),
+            source_entity_id: Some("Bundesliga|DE"),
+        },
+    )
+    .await
+    .unwrap();
+    assert_ne!(at_comp.competition_id, de_comp.competition_id);
+
+    let only_code = find_or_create_competition(
+        &mut conn,
+        &CompetitionIdentity {
+            id_hint: None,
+            name: "Bundesliga",
+            country_id: None,
+            country_code: Some("AUT"),
+            tier: Some(1),
+            priority: Some(10),
+            source_id: None,
+            source_entity_id: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        only_code.competition_id, at_comp.competition_id,
+        "az AUT kódú forrásnak az osztrák Bundesligát kell megtalálnia"
+    );
+}

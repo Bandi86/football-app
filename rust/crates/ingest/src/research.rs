@@ -384,6 +384,11 @@ impl ResearchAdapter {
                 .or_else(|| m.competition.country.clone())
                 .unwrap_or_default();
             let (comp_name, country_code) = competition_identity(&m.competition);
+            // A verseny source-ref kulcsa ország-szkópolt: a puszta név több
+            // országban is él (Ligue 1 FR/DZ/BF, Premier League GB/KE/TZ...),
+            // és a név-alapú ref az elsőként látott ország versenyére ragadtatta
+            // a többi ország azonos nevű versenyét (S89 adatkorrupció).
+            let competition_ref = format!("{comp_name}|{country_code}");
             let (gender, age_group, branch) = team_context(&comp_name);
 
             for (key, team) in [(&home_key, &m.teams.home), (&away_key, &m.teams.away)] {
@@ -442,7 +447,7 @@ impl ResearchAdapter {
                         .clone()
                         .unwrap_or_else(|| "Europe/Budapest".into()),
                     "competition": {
-                        "source_entity_id": comp_name.as_str(),
+                        "source_entity_id": competition_ref.as_str(),
                         "name": comp_name,
                         "country_code": country_code,
                         "country_name": country_name,
