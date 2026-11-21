@@ -1265,3 +1265,60 @@ napi „hiány" panelt a v1 mintájára.
       Ligue 1 7, Kings Cup Italy 6, …) — a research/livescore/fotmob nem
       fedi; a hiány-panelben látszik, a napi research catch-up újrapróbálja.
 - [ ] Részletes meccsoldal (következő nagy szelet).
+
+## S46b — heti duplikátum- és női-liga audit (a felhasználó visszajelzése után)
+
+Indok: a felhasználó szerint a női BL-fordulóban 3× szerepelt ugyanaz a meccs, a
+Toulouse–Marseille női meccs 3× (2 duplikátum + férfi Ligue 1 alá sorolva), és
+„amíg nincs minden ki-bugolva, nem mehetünk tovább"; legalább 1 hétre visszamenőleg
+minden napot újra kell ellenőrizni.
+
+Vizsgálat:
+- [x] Backup a merge-ek előtt: `/tmp/football_v2_dev_20261121_pre_week_dedupe.dump` (548 MB).
+- [x] Exact klaszter-audit (11-13…11-21, 2861 meccs; fold, (W)/W/Ladies/női
+      markerek levágása, utd/weds/ath feloldás, ±12 óra): 98 klaszter
+      (1 mixed = Toulouse, 97 azonos nemű).
+- [x] Toulouse-klasztter: a férfi Ligue 1 Toulouse–Marseille 11-20-án nem
+      létezik (research JSON + FotMob csak a női Première Ligue-et adja) → a
+      `01a1f7a8-e2bc` férfi ál-sor és a `01a1fb4d-a64c` duplikátum beolvasztva a
+      `01a1fb22-2cf3` (Première Ligue (női), Toulouse (W)–Marseille (W) 1-1) alá.
+- [x] 97 azonos-nemű klaszter merge-elve `footballctl dedupe pair`-ral
+      (ok 97, fail 0), survivor: több provenance → logó → verified.
+- [x] Fuzzy auditok kézi ellenőrzéssel: szigorú (mindkét oldal ≥0.86) 16 merge;
+      plan_fuzzy3 26+5; laza (≥0.72 + token-guard) 24 merge; egyoldalas-kanonikus
+      (azonos kickoff + egyik oldal pontos egyezés + másik ≥0.45) 23 merge.
+      Az első laza tervet elvetettük: union-find tranzitív láncolás hamis
+      párokat kevert (U17/U19 és különböző nemzetek).
+- [x] Egy hamis merge javítva: Denmark U23–UAE U23 ↔ UAE U23–Jordan U23; a
+      soccerway kódok instabilak (OxxDcngs: Jordánia→Denmark→UAE; 88mfeE0h:
+      EAE→Jordan→UAE), ezért a túlélő csapatai auditáltan UAE U23–Jordan U23-ra
+      állítva.
+- [x] ASEAN Club Championship: ugyanaz a fixture két verseny-entitás alatt
+      (`Cong An Ha Noi–Johor DT` gender-flag hibával vs `Công An Hà Nội–Johor
+      Darul Ta'zim`) → match merge; a 0 meccses csapat-duplikátumok
+      (Cong An Ha Noi, Johor DT) beolvasztva ékezetes/tele nevű párjukba.
+- [x] Verseny-duplikátumok: azonos ország + azonos foldolt név (NIFL
+      Championship, Eerste Divisie, Eredivisie, Liga Nacional Apertura, USL
+      Championship Playoff, Division Profesional PY), nemzetközi NULL/XX párok
+      (Africa Cup of Nations - Qualification, Club Friendly), valamint a négy
+      WE League entitás (`WE League`, `WE League - női`, `WE League (női)`,
+      `Women's WE League`) egy `WE League (női)` alá vonva.
+
+Ellenőrzés:
+- [x] Exact klaszter: 0; laza pár: 0; egyoldalas kanonikus pár: 0.
+- [x] API-napi duplikátum-audit 11-13…11-22 minden napra: 0 azonos sor.
+      (11-13: 107 meccs, 11-14: 600, 11-15: 420, 11-16: 109, 11-17: 206,
+      11-18: 97, 11-19: 105, 11-20: 247, 11-21: 843, 11-22: 62.)
+- [x] `reverify --from 2026-11-13 --to 2026-11-29`: 3042 meccs, 0 hiba;
+      gate-ek: verified 1075, provisional 1962, withheld 19.
+- [x] 11-20: a női Première Ligue egyszer (Toulouse (W)–Marseille (W) 1-1);
+      a férfi Ligue 1 Toulouse-meccs külön napon (11-21, Lens–Toulouse).
+- [x] App-ellenőrzés: `/tmp/s46b_final.png` (11-21, 843 meccs, hiány-panel:
+      27 kezdésidő nélkül, 422 csapatlogó, 659 ligalogó, 579 odds, 2 withheld).
+
+Nyitott:
+- [ ] 116 meccs >24 órával kezdés után eredmény nélkül (U17/kis ligák; a
+      research/livescore/fotmob nem fedi) — hiány-panelben látszik.
+- [ ] 19 withheld (forrás-instabil CD/CG országkód, hiányzó eredmény).
+- [ ] Logó-lefedettség (422/840 csapat, 659 liga a látható napon).
+- [ ] A heti duplikátum-audit automatizálása (a mostani szkriptek /tmp-ben).
