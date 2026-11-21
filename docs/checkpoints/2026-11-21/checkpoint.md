@@ -71,28 +71,80 @@
       `/v1/day/2026-11-20` **276 sor**; az új eredmények és a `canceled` státusz
       az API-ban is látszanak.
 
-## Nem pótolt tételek (forrás hiányában, nem találgatva)
+## S68b — a 4 hiányzó meccs pontosítása (felhasználói adat)
 
-- [ ] `Atletico Hidalgo – Cruz Azul Lagunas` (Liga Premier: Serie B) — a SofaScore
-      csak egy 11-22-i `notstarted` eseményt ismer erre a párosra.
-- [ ] `Furiani Agliani – US Le Pays du Valois` (National 1: Group A) — SofaScore
-      keresése 0 eseményt ad; a research envelope `scheduled`, eredmény nélkül.
-- [ ] `Ranchers Bees – Plateau United` (NPFL) — SofaScore 0 esemény; a research
-      11-21-i fájlja is `scheduled`, eredmény nélkül.
-- [ ] `Kickstart N – HOPS N` (IWL női) — SofaScore 11-20-i eseménye `notstarted`
-      (15:50 local), eredmény nélkül.
-- [x] 2 `postponed` (Oberliga: Bayern North) és 1 `canceled` (Yemen–Turkmenistan)
-      helyesen eredmény nélkül maradt.
+- [x] **Atletico Hidalgo–Cruz Azul Lagunas**: SofaScore esemény `16927015`
+      szerint nincs 11-20-i meccs; a meccs **11-22 01:00** (00:00Z). Átütemezve
+      fixture + `resolve-conflict` (győztes: sofascore observation), elavult
+      11-20-i gate sor audittal törölve.
+- [x] **Furiani Agliani–US Le Pays du Valois**: **11-22 14:00** (13:00Z),
+      `user-correction` forrással rögzítve, ugyanazzal a konfliktus-feloldással.
+- [x] **Ranchers Bees–Plateau United**: a helyes meccs már bent volt **11-21
+      16:00**-kor (research envelope is ezt adja); a téves 11-20-i sort
+      `dedupe pair` archiválta a túlélőbe.
+- [x] **Kickstart N–HOPS N**: `postponed` (auditált `match_status_revision`).
+- [x] Újraindítás után a 4 meccs gate-e `verified_publish`, `SAME_TEAM_BOTH_SIDES`
+      blocker 0. A 11-20-i nap: **273 meccs / 269 eredmény**, a 4 kivétel jogos
+      `canceled`/`postponed`.
+
+## S68c — anomáliakeresés (a felhasználó kérésére)
+
+- [x] **34 duplikált U17-csapat** (XX/u17, 00:31 és 03:52-i soccerway/research
+      importból). 32-t kontextus-korrekció + audited `identity merge-team` útján
+      olvasztottam össze a kanonikus országos youth entitással. A 33. (Spain U17) jogosan
+      **nem** merge-elt: külön női entitás (`female` vs `male`).
+- [x] **2 téves U17 VB-fixture** (Costa Rica–Costa Rica U17, Serbia U17–Serbia):
+      soccerway forrás-ID újrahasználat. A research által igazolt párok
+      (Tanzania U17–Costa Rica U17, Serbia U17–Honduras U17) már bent voltak;
+      a téves sorok `ops.dedupe_archive`-ba kerültek, a 10 árva provenance sor
+      audittal törölve.
+- [x] **2 `FOREIGN_TEAMS_DOMESTIC_COMPETITION` withheld**: XX-duplikátus csapatok
+      (Churchill Brothers, Paris FC, FC Fleury 91) összevonva, Mohun Bagan
+      országa IN-re javítva → gate feloldva.
+- [ ] **Rendszerszintű XX-duplikátum**: 248 csapat és 7 verseny (pl. Ligue 1,
+      Bundesliga, J1 League) kapott XX országot a mai importtól. Csak a fenti
+      6 konkrét párt javítottam — a többit nem merge-lem névazonosság alapján,
+      mert több név (pl. Al Shorta, Al-Faisaly) több érvényes jelöltre is
+      illeszkedik. Forrásmapping-javítás + review szükséges.
+- [ ] 5 fennmaradó withheld a 11-21..22 ablakban: 4 `DUPLICATE_TEAM_SLOT`
+      (ugyanaz a csapat egyszerre két meccsen — pl. Envigado 11-19 23:30-kor
+      két sorral) és 1 `MATERIAL_SOURCE_CONFLICT` (Bucaramanga–América de Cali).
+      Ezek forrás-ellentmondások, találgatás nélkül withheld maradnak.
+- [x] `reverify 11-20..11-22` → **1513 meccs, 0 hiba**; `integrity` → 0 duplikátum,
+      0 árva provenance, 0 összevont-ref, **verdict OK**; `coverage-day` 11-20:
+      273/269/269. `fmt`/`clippy` tiszta. Daemon újraindítva (port **49454**),
+      `/v1/day/2026-11-20` 273 sor.
+
+## S68d — football-research adatok kivizsgálása
+
+- [x] **Az adat nem tűnt el.** Mind a 16 nap (11-13…11-28) megvan, és minden
+      napi envelope-hez 1:1 tartozik részletes JSON (pl. 11-20: 289/289,
+      11-21: 1464/1464).
+- [x] A „hiányzó nap" oka: a **11-21 08:00-i futás elavult `.football.lock` miatt
+      állt le** (a lock 08:05-től üresen, futó folyamat nélkül maradt). Ezért
+      nem készült el a `2026/11/21/README.md`, és az `INDEX.md` sem frissült —
+      onnan nézve a nap valóban hiányzott.
+- [x] A lock törlése + `football.py render 2026-11-21` → **630/630 adatlap**,
+      README és INDEX frissült (11-21: 630 meccs / 60 lejátszott / 12 élő).
+      `football.py deep-verify 2026-11-21` → **0 hiba, 0 figyelmeztetés**
+      (előtte 630 „hiányzó adatlap").
+- [ ] A 11-21-i részletes JSON-ok közül 834 `fixture_only` (11-20-n 99/289).
+      A gazdag adatlapok aránya alacsonyabb, de ez nem adatvesztés: a napi
+      kutatási blokkokat az agent nem írta meg (08:00-i jelentés: 0 forrás).
+      Üzemeltetési kérdés, külön szelet.
 
 ## Visszaállítás
 
-- `/tmp/football_v2_dev_20261121_pre_sofascore.dump` → `pg_restore --clean
-  --if-exists -d "$DATABASE_URL" <dump>` (az egész dev DB-t visszaállítja).
-- Minden kanonikus írás (precision, repoint) `ops.audit_event` sorral rendelkezik;
-  a SofaScore-import nyers payloadja és observation-jei a capture-hez kötve.
+- `/tmp/football_v2_dev_20261121_pre_sofascore.dump` (560 MB) és
+  `/tmp/football_v2_dev_20261121_pre_u17merge.dump` (561 MB) —
+  `pg_restore --clean --if-exists -d "$DATABASE_URL" <dump>`.
+- Minden kanonikus írás (precision, repoint, context, merge, delete, conflict
+  resolve) `ops.audit_event` sorral rendelkezik; a törölt meccsek teljes
+  payloadja az `ops.dedupe_archive`-ban.
 
 ## Következő döntési pont
 
-- A 4 forrás nélküli meccshez a felhasználótól SofaScore-kiemelés vagy más
-  hiteles forrás kérése; a `tick.rs`-ben lévő nem commitolt auto-dedupe változás
-  külön szelet (builder ≠ verifier, független ellenőrzéssel).
+- A 248 XX-duplikátum és a 7 XX verseny forrásmapping-gyökerének javítása
+  (review-val, nem név alapján); az 5 forrás-ellentmondás withheld kézi
+  forrás-ellenőrzése; a `tick.rs`-ben lévő nem commitolt auto-dedupe változás
+  külön szelet (builder ≠ verifier).
