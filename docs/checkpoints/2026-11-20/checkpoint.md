@@ -1836,3 +1836,27 @@ Nyitott:
   forrás-alapú döntést igényelnek; a látható (2026-os) adatot nem érintik.
 - A történelmi „dupla szereplés" maradékok (más-más ellenfél ugyanazon a napon)
   forrás nélkül nem dönthetők el, dokumentálva.
+
+## S63b — végső történelmi audit-állapot
+
+Az S63 pipeline utolsó köre után (marker → azonos fixture → azonos név →
+azonos verseny+kickoff+egyező oldal → alias-token átfedés):
+
+| Év | Meccs | Klaszter | Dupla szereplés |
+|----|-------|----------|-----------------|
+| 2020 | 7727 | 0 | 0 |
+| 2021 | 9488 | 0 | 0 |
+| 2022 | 8653 | 0 | 15 |
+| 2023 | 9179 | 0 | 18 |
+| 2024 | 8695 | 0 | 17 |
+| 2025 | 8693 | 0 | 0 |
+| 2026 | 12480 | 0 | 3 |
+| 2027 | 3697 | 0 | 0 |
+
+A maradék „dupla szereplés" mind forrás-ellentmondás (ugyanaz a csapat két
+különböző ellenféllel ugyanazon a napon — pl. CR Bélouizdad Ligue 1 + CAF
+Confed Cup, KFUM Oslo két Eliteserien-fixture, Charlotte NCAA + MLS): a
+források maguk is így adják, ezért merge/withhold nélkül dokumentálva marad.
+
+A SW Bregenz 2026-11-21-i téves „Austria–SW Bregenz" sora editorial hold alá
+került (a FotMob csak a First Vienna–SW Bregenz meccset ismeri).
