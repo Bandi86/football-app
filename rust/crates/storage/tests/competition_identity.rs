@@ -413,3 +413,161 @@ async fn canonical_name_lookup_closes_alias_gap() {
         2
     );
 }
+
+/// S84: az ingest nem írhatja felül a javított verseny-országot.
+///
+/// Egy beolvadt alias (más ország-kontextussal) továbbra is feloldhatja a
+/// versenyt, de a forrás országa nem billentheti vissza a `repair-countries`
+/// által beállított kanonikus országot.
+#[tokio::test]
+async fn source_country_does_not_overwrite_existing_competition_country() {
+    let pool = test_pool().await;
+    let es = seed_country(&pool, "ES", "Spain").await;
+    let fr = seed_country(&pool, "FR", "France").await;
+    let source = seed_source(&pool, "unit_country").await;
+
+    let created = find_or_create_competition(
+        &mut pool.acquire().await.unwrap(),
+        &CompetitionIdentity {
+            id_hint: None,
+            name: "Liga Egy",
+            country_id: Some(es),
+            country_code: Some("ES"),
+            tier: Some(1),
+            priority: Some(10),
+            source_id: None,
+            source_entity_id: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(created.matched_by, CompetitionMatch::Created);
+
+    // A beolvadt alias más ország-kontextussal él (mint a merge utáni backfill).
+    let entity_id: Uuid =
+        sqlx::query_scalar("SELECT entity_id FROM core.competition WHERE id = $1")
+            .bind(created.competition_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    sqlx::query(
+        "INSERT INTO identity.alias (id, entity_id, alias, lang, country_code, status, method)
+         VALUES ($1, $2, 'Liga Uno', 'und', 'FR', 'reviewed', 'import')",
+    )
+    .bind(Uuid::now_v7())
+    .bind(entity_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let resolved = find_or_create_competition(
+        &mut pool.acquire().await.unwrap(),
+        &CompetitionIdentity {
+            id_hint: None,
+            name: "Liga Uno",
+            country_id: Some(fr),
+            country_code: Some("FR"),
+            tier: None,
+            priority: None,
+            source_id: Some(source),
+            source_entity_id: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(resolved.competition_id, created.competition_id);
+    assert_eq!(resolved.matched_by, CompetitionMatch::Alias);
+
+    let code: String = sqlx::query_scalar(
+        "SELECT co.code FROM core.competition c
+         JOIN core.country co ON co.id = c.country_id WHERE c.id = $1",
+    )
+    .bind(created.competition_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(code, "ES", "a javított országot a forrás nem írhatja felül");
+}
+
+/// S84: az ország nélküli alias nem tapadhat más ország versenyére.
+///
+/// A generikus nevek („Liga 1", „National League", „Super Liga") régi aliasa
+/// ország-kontextus nélkül jött létre; ismert forrás-ország mellett csak akkor
+/// fogadható el, ha a verseny ugyanabban az országban van (vagy ország nélküli).
+#[tokio::test]
+async fn countryless_alias_does_not_capture_other_countrys_competition() {
+    let pool = test_pool().await;
+    let pe = seed_country(&pool, "PE", "Peru").await;
+    let ro = seed_country(&pool, "RO", "Romania").await;
+
+    let peru = find_or_create_competition(
+        &mut pool.acquire().await.unwrap(),
+        &CompetitionIdentity {
+            id_hint: None,
+            name: "Liga 1",
+            country_id: Some(pe),
+            country_code: Some("PE"),
+            tier: Some(1),
+            priority: Some(10),
+            source_id: None,
+            source_entity_id: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(peru.matched_by, CompetitionMatch::Created);
+
+    // Régi, ország nélküli alias a perui versenyen.
+    let entity_id: Uuid =
+        sqlx::query_scalar("SELECT entity_id FROM core.competition WHERE id = $1")
+            .bind(peru.competition_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    sqlx::query(
+        "INSERT INTO identity.alias (id, entity_id, alias, lang, country_code, status, method)
+         VALUES ($1, $2, 'Liga 1', 'und', NULL, 'reviewed', 'import')",
+    )
+    .bind(Uuid::now_v7())
+    .bind(entity_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Román forrás ugyanazzal a generikus névvel: NEM a perui versenyre tapad.
+    let romanian = find_or_create_competition(
+        &mut pool.acquire().await.unwrap(),
+        &CompetitionIdentity {
+            id_hint: None,
+            name: "Liga 1",
+            country_id: Some(ro),
+            country_code: Some("RO"),
+            tier: Some(1),
+            priority: Some(10),
+            source_id: None,
+            source_entity_id: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(romanian.matched_by, CompetitionMatch::Created);
+    assert_ne!(romanian.competition_id, peru.competition_id);
+
+    // Peru forrás továbbra is megtalálja a saját versenyét az ország nélküli aliason át.
+    let same = find_or_create_competition(
+        &mut pool.acquire().await.unwrap(),
+        &CompetitionIdentity {
+            id_hint: None,
+            name: "Liga 1",
+            country_id: Some(pe),
+            country_code: Some("PE"),
+            tier: None,
+            priority: None,
+            source_id: None,
+            source_entity_id: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(same.competition_id, peru.competition_id);
+}

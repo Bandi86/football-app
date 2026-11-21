@@ -218,7 +218,11 @@ impl VerificationRule for ForeignTeamsDomesticCompetitionRule {
         }
         let home = domestic_country_key(home);
         let away = domestic_country_key(away);
-        if home.is_empty() || away.is_empty() {
+        // S84: az ismeretlen ország (`XX`, `UNK`, `ZZ`, `INT`, `EUR`, üres)
+        // nem külföldi ország — a szabály csak akkor tüzel, ha mindkét csapat
+        // országa ismert. Mért eset: "A-League Women [AU] XX/XX" (Newcastle
+        // Jets – Adelaide United) withheld lett, mert a XX-t külföldinek vette.
+        if is_unknown_country(&home) || is_unknown_country(&away) {
             return vec![];
         }
         if home == competition || away == competition {
@@ -242,6 +246,11 @@ fn domestic_country_key(code: &str) -> String {
         "ENG" | "SCO" | "WAL" | "NIR" | "GBR" => "GB".to_string(),
         _ => normalized,
     }
+}
+
+/// Ismeretlen/semleges ország-kód: nem valódi külföldi ország.
+fn is_unknown_country(code: &str) -> bool {
+    code.is_empty() || matches!(code, "INT" | "XX" | "UNK" | "ZZ" | "EUR")
 }
 
 pub struct SameTeamBothSidesRule;
@@ -482,6 +491,33 @@ mod tests {
             None,
             None,
             Some("GB")
+        )));
+    }
+
+    #[test]
+    fn foreign_teams_domestic_competition_ignores_unknown_team_countries() {
+        // S84: mért eset "A-League Women [AU] XX/XX" (Newcastle Jets –
+        // Adelaide United) — az ismeretlen csapat-ország nem külföldi.
+        assert!(!foreign_blocked(&evaluate_foreign_rule(
+            Some("XX"),
+            Some("XX"),
+            Some("AU")
+        )));
+        assert!(!foreign_blocked(&evaluate_foreign_rule(
+            Some("XX"),
+            Some("DE"),
+            Some("AU")
+        )));
+        assert!(!foreign_blocked(&evaluate_foreign_rule(
+            Some("UNK"),
+            Some("ZZ"),
+            Some("AU")
+        )));
+        // Ismert külföldi páros továbbra is blokkol.
+        assert!(foreign_blocked(&evaluate_foreign_rule(
+            Some("DE"),
+            Some("IT"),
+            Some("AU")
         )));
     }
 

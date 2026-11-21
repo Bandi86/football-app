@@ -112,7 +112,7 @@ pub async fn find_or_create_competition(
     }
 
     if let Some(competition_id) =
-        competition_by_alias(conn, &folded, alias_country.as_deref()).await?
+        competition_by_alias(conn, &folded, alias_country.as_deref(), input.country_id).await?
     {
         update_metadata(conn, competition_id, input).await?;
         let ref_written = ensure_source_ref(conn, competition_id, input).await?;
@@ -268,7 +268,13 @@ async fn competition_by_alias(
     conn: &mut PgConnection,
     folded_name: &str,
     alias_country: Option<&str>,
+    country_id: Option<Uuid>,
 ) -> Result<Option<Uuid>> {
+    // S84: az ország nélküli alias csak akkor fogadható el ismert forrás-ország
+    // mellett, ha maga a verseny is ország nélküli vagy ugyanabban az országban
+    // van. Enélkül a „Liga 1"/„National League"/„Super Liga" típusú generikus
+    // nevek bármely ország névrokon versenyére rátapadtak (pl. román meccsek a
+    // perui Liga 1-re), mert az alias ország-kontextusa NULL volt.
     sqlx::query_scalar(
         "SELECT c.id
          FROM identity.alias a
@@ -278,13 +284,20 @@ async fn competition_by_alias(
            AND e.merged_into_id IS NULL
            AND a.status = 'reviewed'
            AND identity.fold_name(a.alias) = $1
-           AND ($2::text IS NULL OR a.country_code IS NULL OR a.country_code = $2)
-         ORDER BY (SELECT count(*) FROM core.match m WHERE m.competition_id = c.id) DESC,
+           AND (
+                 $2::text IS NULL
+                 OR a.country_code = $2
+                 OR (a.country_code IS NULL
+                     AND ($3::uuid IS NULL OR c.country_id IS NULL OR c.country_id = $3))
+               )
+         ORDER BY (a.country_code = $2) DESC NULLS LAST,
+                  (SELECT count(*) FROM core.match m WHERE m.competition_id = c.id) DESC,
                   c.id
          LIMIT 1",
     )
     .bind(folded_name)
     .bind(alias_country)
+    .bind(country_id)
     .fetch_optional(&mut *conn)
     .await
     .context("verseny alias lookup")
@@ -349,9 +362,14 @@ async fn update_metadata(
     competition_id: Uuid,
     input: &CompetitionIdentity<'_>,
 ) -> Result<()> {
+    // S84: a verseny országát az ingest NEM írhatja felül, ha már van értéke.
+    // Az ország a forrás-szavazatokból dolgozó `competitions repair-countries`
+    // hatásköre; egyetlen forrás megfigyelése (pl. egy beolvadt alias országa)
+    // különben visszabillentené a javított országot. Csak a hiányzó (NULL)
+    // országot töltjük ki.
     sqlx::query(
         "UPDATE core.competition
-         SET country_id = COALESCE($2, country_id),
+         SET country_id = COALESCE(country_id, $2),
              tier = COALESCE($3, tier),
              priority = COALESCE($4, priority)
          WHERE id = $1",

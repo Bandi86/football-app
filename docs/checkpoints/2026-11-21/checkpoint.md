@@ -739,3 +739,73 @@ Esemény-betöltés csak 2026-11-20-ra futott (1886 esemény/134 meccs); 11-21-r
 b) a research detail frissítés ütemezése lezárt meccsek után (ne only
 01/07/13); c) a validációs retenció (1,47 GB, ~130 MB/nap); d) az app friss
 buildjének telepítése és a felhasználó végleges ellenőrzése.
+
+## S88 — Verseny-ország flapping és cross-source ország-misassignments (2026-11-21)
+
+**Induló állapot:** a felhasználó jelezte, hogy Salvadorban kétszer szerepel az
+Isidro Metapán meccse, és a meccsrészletezőben nincs idővonal. Az SV-duplikátum
+és a timeline adatbetöltés az S84–S87 szeletben javult, de a `reverify` után
+39 meccs `FOREIGN_TEAMS_DOMESTIC_COMPETITION` blockerrel `withheld` lett: a
+meccsek rossz országú versenybe sorolódtak (német Bundesliga meccsek az AT
+versenyben, angol National League meccsek a GI versenyben, román meccsek a PE
+Liga 1-ben, moldáv meccsek az RS Super Ligában).
+
+**Gyökérokok:**
+1. `competition_identity.rs` `update_metadata` a forrás országát `COALESCE`
+   móddal **felülírta**, ezért a futó worker a `repair-countries` javítása után
+   visszabillentette az országot (Bundesliga AT↔DE, National League GI↔GB-ENG).
+2. `competition_by_alias` az **ország nélküli aliast** is elfogadta bármely
+   forrás-ország mellett, így a generikus nevek („Liga 1", „National League",
+   „Super Liga", „Bundesliga") más ország névrokon versenyére tapadtak.
+3. A `ForeignTeamsDomesticCompetitionRule` ismeretlen (`XX`) csapat-országnál is
+   blokkolt, holott az ismeretlen nem ellentmondás.
+
+**Változások:**
+- `rust/crates/storage/src/repositories/competition_identity.rs` — az ingest
+  csak a **NULL** országot tölti ki (`COALESCE(country_id, $2)`); az ország a
+  vote-alapú `competitions repair-countries` hatásköre.
+- ugyanott `competition_by_alias`: ország nélküli alias csak akkor fogadható el
+  ismert forrás-ország mellett, ha a verseny ország nélküli vagy ugyanabban az
+  országban van; találati sorrend: ország-egyező alias előbb.
+- `rust/crates/verification/src/rules/mod.rs` — `is_unknown_country`
+  (üres/`INT`/`XX`/`UNK`/`ZZ`/`EUR`): ha bármelyik csapat országa ismeretlen, a
+  `FOREIGN_TEAMS_DOMESTIC_COMPETITION` szabály nem tüzel.
+- Új regressziós tesztek: `source_country_does_not_overwrite_existing_competition_country`,
+  `countryless_alias_does_not_capture_other_countrys_competition`,
+  `foreign_teams_domestic_competition_ignores_unknown_team_countries`.
+
+**Adatrevízió (auditált, visszajátszható SQL: `/tmp/reassign.sql` tartalma a
+checkpoint mellett a commit üzenetben):**
+- `competitions repair-countries --from 2026-11-14 --to 2026-11-21 --apply`
+  kétszer: összesen **141** `competition_country_repair` audit (Bundesliga
+  AT→DE, National League GI→GB-ENG, Liga F XX→ES, Taca de Portugal XX→PT,
+  1st Division DK→AD, …), **18** `match_dedupe_merge`.
+- 10 rossz versenyű meccs kézi átsorolása `match_competition_reassign` audittal:
+  3 osztrák meccs a német Bundesliga → „Austrian Bundesliga" (ország AT),
+  3 román meccs a perui Liga 1 → román „Superliga", 2 gibraltári meccs az angol
+  National League → „Gibraltar Football League", 2 moldáv meccs a szerb
+  Super Liga → új „Super Liga" (MD, 2026/27 szezon, alias).
+
+**Eredmény (mért):**
+- `footballctl reverify --from 2026-11-21 --to 2026-11-21` → 945 meccs,
+  0 hiba, `verified_publish` 496, `provisional_publish` 449, **withheld 0**.
+- `footballctl integrity` → **OK**: duplikált kickoff/fixture 0, árva provenance
+  0, withheld gate 0, failed job 0, nyitott breaker 0.
+- `GET /v1/day/2026-11-21` → HTTP 200, 931 sor; az Isidro Metapán meccs
+  **egyszer** szerepel (`Isidro Metapan – Inter Santa Tecla`, scheduled).
+- `GET /v1/match/01a1fd96-0eac-7276-9a47-a047218c3acf` → 24 incident
+  (29' Substitution, 36' Card, 42' Goal Tonio Teklić, …), `stats_source=research`.
+- DB: `core.match` **283 607**, aktív verseny **749**, aktív csapat **6 792**,
+  `fact.match_incidents` **2 523 sor / 215 meccs**, alias **7 420**.
+- Kapu: `./scripts/check.sh` → **EXIT=0**, 102 `test result: ok` blokk,
+  0 FAILED (`/tmp/gate_s84b.log`).
+- Daemon új binárissal: port **62223**, `/v1/health` ok; app a 17:21-es builddel
+  fut (pid 38335).
+
+**Nem ellenőrzött / következő döntési pont:**
+- a felhasználó valódi app-kattintgatása (a meccsrészletező idővonala most már
+  adatot kap, de a képernyőn még nem látta);
+- a női csapatok `gender=male` adathibája (70 csapat) és a 4 maradó
+  verseny-pár forrás-oldali review-ja;
+- a research detail frissítés napközben csak a 01/07/13-as slotokban fut;
+- validációs retenció (1,47 GB, ~130 MB/nap).
