@@ -136,4 +136,82 @@ struct HTTPDayServiceTests {
             Issue.record("Váratlan hibatípus: \(error)")
         }
     }
+
+    // MARK: - S70 kézi eredménybevitel (ugyanebben a sorozatban a globális stub miatt)
+
+    private func makeManualService(
+        handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)
+    ) -> HTTPManualEntryService {
+        StubURLProtocol.handler = handler
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [StubURLProtocol.self]
+        return HTTPManualEntryService(
+            baseURL: URL(string: "http://127.0.0.1:56782")!,
+            opsToken: "ops-token",
+            session: URLSession(configuration: config)
+        )
+    }
+
+    private static func bodyData(_ request: URLRequest) -> Data? {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 4096)
+        defer { buffer.deallocate() }
+        while stream.hasBytesAvailable {
+            let count = stream.read(buffer, maxLength: 4096)
+            if count <= 0 { break }
+            data.append(buffer, count: count)
+        }
+        return data
+    }
+
+    @Test func manualResultSendsPutWithOpsToken() async throws {
+        defer { StubURLProtocol.handler = nil }
+        let captured = CapturedRequest()
+        let matchId = UUID()
+        let service = makeManualService { request in
+            captured.store(request)
+            let body = """
+            {"match_id":"\(matchId.uuidString.lowercased())",
+             "observation_id":"00000000-0000-0000-0000-0000000000aa",
+             "audit_id":"00000000-0000-0000-0000-0000000000bb",
+             "state":"provisional_publish"}
+            """.data(using: .utf8)!
+            return (self.response(request.url, 200), body)
+        }
+        let result = try await service.submitResult(
+            matchId: matchId,
+            request: ManualResultRequest(homeFt: 2, awayFt: 1, note: "kézi javítás")
+        )
+        let request = try #require(captured.value)
+        #expect(request.httpMethod == "PUT")
+        #expect(request.url?.path == "/v1/match/\(matchId.uuidString.lowercased())/manual-result")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer ops-token")
+        let payload = try #require(Self.bodyData(request))
+        let json = try #require(try JSONSerialization.jsonObject(with: payload) as? [String: Any])
+        #expect(json["home_ft"] as? Int == 2)
+        #expect(json["away_ft"] as? Int == 1)
+        #expect(json["note"] as? String == "kézi javítás")
+        #expect(result.state == "provisional_publish")
+    }
+
+    @Test func manualResultMapsStatusCodes() async throws {
+        defer { StubURLProtocol.handler = nil }
+        let matchId = UUID()
+        for (code, expected) in [(401, APIError.unauthorized), (400, APIError.badRequest), (404, APIError.notFound), (500, APIError.server)] {
+            let service = makeManualService { request in (self.response(request.url, code), Data()) }
+            do {
+                _ = try await service.submitResult(
+                    matchId: matchId,
+                    request: ManualResultRequest(homeFt: 1, awayFt: 0, note: "x")
+                )
+                Issue.record("a \(code) státusznak hibát kellett volna adnia")
+            } catch let error as APIError {
+                #expect(error == expected)
+            }
+        }
+    }
 }

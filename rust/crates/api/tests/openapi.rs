@@ -36,6 +36,18 @@ fn contract_keys(value: &Value) -> Vec<String> {
     keys
 }
 
+/// A dokumentált művelet (GET vagy PUT) és a hozzá tartozó minta-body.
+fn sample_method(item: &Value) -> (&'static str, String) {
+    if item.get("put").is_some() {
+        (
+            "PUT",
+            r#"{"home_ft":1,"away_ft":0,"note":"openapi kontrakt-teszt"}"#.to_string(),
+        )
+    } else {
+        ("GET", String::new())
+    }
+}
+
 /// A dokumentumban leírt útvonalat kérésre alakítja: minta-paraméterek és a
 /// kötelező query paraméterek pótlása.
 fn sample_uri(path: &str, item: &Value) -> String {
@@ -96,13 +108,16 @@ async fn every_documented_path_is_routed() {
 
     for (path, item) in paths {
         let uri = sample_uri(path, item);
+        let (method, body_text_sample) = sample_method(item);
         let response = app
             .clone()
             .oneshot(
                 Request::builder()
+                    .method(method)
                     .uri(&uri)
                     .header(header::AUTHORIZATION, "Bearer ops-test")
-                    .body(Body::empty())
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body_text_sample))
                     .unwrap(),
             )
             .await
@@ -120,7 +135,7 @@ async fn every_documented_path_is_routed() {
         assert_ne!(
             status,
             StatusCode::METHOD_NOT_ALLOWED,
-            "a {path} csak GET-et hirdet, de a router nem engedi"
+            "a {path} dokumentált műveletét a router nem engedi"
         );
         // Az ismeretlen útvonalat az axum üres, JSON nélküli 404-gyel válaszolja meg.
         // A handler saját 404-je viszont ApiError JSON: az bizonyítja, hogy a route él.
@@ -213,7 +228,7 @@ async fn openapi_json_is_served_without_token() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let doc: Value = serde_json::from_slice(&body).expect("a válasz JSON");
-    assert_eq!(doc["paths"].as_object().unwrap().len(), 11);
+    assert_eq!(doc["paths"].as_object().unwrap().len(), 12);
     assert!(
         doc["info"]["title"]
             .as_str()

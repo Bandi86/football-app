@@ -12,6 +12,7 @@ use utoipa::{Modify, OpenApi};
 use crate::routes::competition::CompetitionDetailResponse;
 use crate::routes::day::{DayMatch, DayResponse};
 use crate::routes::health::HealthResponse;
+use crate::routes::manual::{ManualResultRequest, ManualResultResponse};
 use crate::routes::ops::{OpsIntegrity, OpsSource, OpsStatus};
 use crate::routes::team::TeamDetailResponse;
 use crate::routes::verification::GateRow;
@@ -24,14 +25,16 @@ use crate::error::ApiError;
     info(
         title = "football-app v2 API",
         version = env!("CARGO_PKG_VERSION"),
-        description = "Helyi, read-only API az ellenőrzött napi meccslistához. \
+        description = "Helyi API az ellenőrzött napi meccslistához. \
                        Minden adat forrás- és ellenőrzési állapottal érkezik; a hiányzó érték null, nem nulla. \
+                       Az egyetlen írási művelet a kézi eredménybevitel (PUT, ops token, auditált). \
                        A token `Authorization: Bearer <read|ops token>` fejlécben megy."
     ),
     paths(
         crate::routes::health::health,
         crate::routes::day::day,
         crate::routes::match_detail::match_detail,
+        crate::routes::manual::manual_result,
         crate::routes::asset::asset,
         crate::routes::competition::competitions,
         crate::routes::competition::competition_detail,
@@ -44,6 +47,8 @@ use crate::error::ApiError;
     components(schemas(
         ApiError,
         HealthResponse,
+        ManualResultRequest,
+        ManualResultResponse,
         DayResponse,
         DayMatch,
         CompetitionDetailResponse,
@@ -110,15 +115,18 @@ mod tests {
         let version = doc["openapi"].as_str().unwrap();
         assert!(version.starts_with("3.1"), "openapi verzió: {version}");
         let paths = doc["paths"].as_object().unwrap();
-        assert_eq!(paths.len(), 11, "dokumentált útvonalak: {paths:?}");
+        assert_eq!(paths.len(), 12, "dokumentált útvonalak: {paths:?}");
         for (path, item) in paths {
+            let method = if item.get("get").is_some() {
+                "get"
+            } else if item.get("put").is_some() {
+                "put"
+            } else {
+                panic!("a {path} útvonalon nincs GET vagy PUT művelet");
+            };
             assert!(
-                item.get("get").is_some(),
-                "a {path} útvonalon nincs GET művelet"
-            );
-            assert!(
-                item["get"].get("responses").is_some(),
-                "a {path} GET műveletének nincs válaszleírása"
+                item[method].get("responses").is_some(),
+                "a {path} {method} műveletének nincs válaszleírása"
             );
         }
     }
@@ -132,7 +140,12 @@ mod tests {
 
         let paths = doc["paths"].as_object().unwrap();
         for (path, item) in paths {
-            let security = &item["get"]["security"];
+            let method = if item.get("get").is_some() {
+                "get"
+            } else {
+                "put"
+            };
+            let security = &item[method]["security"];
             if path == "/v1/health" {
                 assert!(
                     security.is_null() || security.as_array().is_some_and(|a| a.is_empty()),

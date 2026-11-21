@@ -5,7 +5,10 @@ pub mod routes;
 
 use std::path::PathBuf;
 
-use axum::{Router, routing::get};
+use axum::{
+    Router,
+    routing::{get, put},
+};
 use sqlx::PgPool;
 
 #[derive(Clone)]
@@ -24,6 +27,10 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/day/{date}", get(routes::day::day))
         .route("/v1/asset/{*key}", get(routes::asset::asset))
         .route("/v1/match/{id}", get(routes::match_detail::match_detail))
+        .route(
+            "/v1/match/{id}/manual-result",
+            put(routes::manual::manual_result),
+        )
         .route("/v1/competitions", get(routes::competition::competitions))
         .route(
             "/v1/competition/{id}",

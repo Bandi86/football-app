@@ -23,6 +23,8 @@ Minden megjelenített tény visszavezethető forráshoz és rögzítési időhö
 - Mezőszintű provenance és konfliktuskezelés.
 - Többrétegű, L0–L8 ellenőrzési lánc a publikálás előtt.
 - Csak `verified_publish` elem kerül alapértelmezésben a napi listára.
+- Hiányzó eredményt a felhasználó a kliensben is felvehet — de csak ops tokennel,
+  indoklással, nyers bizonyítékkal és auditáltan: [kézi adatbevitel](docs/operations/manual-entry.md).
 - Minden számítás as-of; nincs jövőbeli információból származó look-ahead.
 - Valódi pénzes fogadás és fogadóiroda-integráció nem része a rendszernek.
 - Az ügynökök csak korlátozott, naplózott és visszafordítható műveleteket hajthatnak végre önállóan.
@@ -182,7 +184,7 @@ A dokumentum `utoipa` derive-okból **fordítás időben** épül: a handlerek `
 sor-típusok `utoipa::ToSchema` annotációt kapnak, ezért a leírás nem tud csendben elszakadni a szerializált
 mezőktől, és nincs generált artifact a repóban.
 
-A szerződést tesztek őrzik (`rust/crates/api/tests/openapi.rs`): mind a 11 dokumentált útvonal valóban routol
+A szerződést tesztek őrzik (`rust/crates/api/tests/openapi.rs`): mind a 12 dokumentált útvonal valóban routol
 (ellenőrzött negatív kontrollal), minden `$ref` feloldható, a `DayResponse`/`DayMatch` séma mezői pontosan a
 `tests/fixtures/contract/day-response.json` kulcsai, a bearer séma deklarálva van, és a `GET /openapi.json`
 token nélkül 200-at ad. A döntés és indoklása: [docs/decisions/2026-11-20-openapi.md](docs/decisions/2026-11-20-openapi.md).

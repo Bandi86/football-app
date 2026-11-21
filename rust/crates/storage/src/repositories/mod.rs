@@ -7,6 +7,7 @@ pub mod dedupe;
 pub mod identity;
 pub mod identity_merge;
 pub mod integrity;
+pub mod manual;
 pub mod match_detail;
 pub mod raw;
 pub mod team;

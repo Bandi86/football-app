@@ -168,11 +168,41 @@
       SHA-jét őrzi a capture, miközben az observation-ök a friss payloadból
       jönnek. Provenance-pontossági kérdés, külön szelet.
 
+## S70 — kézi eredménybevitel a kliensből
+
+- [x] **Storage** (`repositories/manual.rs`): tranzakcionális upsert — ellenőrzi
+      a meccset, nyers JSON artifactot és capture-t ír (`manual-ui` forrás),
+      `stage.observation` + `fact.provenance` (result/status, régi selected
+      kikapcsolva), `core.match_result` (`decided_by='ft'`), státusz `finished`,
+      `ops.audit_event` (actor `ui`, action `manual_result_entry`).
+- [x] **API**: `PUT /v1/match/{id}/manual-result`, **ops scope** (read token
+      401), body `{home_ft, away_ft, note}`, indoklás és nem negatív gólszám
+      kötelező. A handler a meglévő `reverify_match` úton újraellenőriz — a kézi
+      út nem kerüli meg a verification láncot. OpenAPI 11 → **12 útvonal**.
+- [x] **Kliens**: `ManualEntryService` (PUT, ops token), `MatchDetailModel`
+      submit + újratöltés, a részletezőben „Eredmény javítása" gomb és űrlap
+      (`manual.home`, `manual.away`, `manual.note`, `manual.save` azonosítókkal).
+- [x] **Tesztek**: API 2 integrációs teszt (jogosultság, írás, provenance,
+      audit, validáció, 404); Swift Core 2 teszt (PUT + ops token + body,
+      státuszleképezés). Teljes kapu: fmt, clippy `-D warnings`, **98 zöld
+      tesztblokk**, Core **68/68**, app unit **57/57**, build OK.
+- [x] **Élő ellenőrzés**: daemon új binárissal (port 58682):
+      GET → 405, PUT token nélkül/read tokennel → 401, ops tokennel nemlévő
+      meccsre → 404, `/openapi.json` → 12 útvonal.
+- [x] Dokumentáció: `docs/operations/manual-entry.md`, README OpenAPI-szám és
+      alapelv frissítve.
+- [ ] UI-teszt: 8-ból 7 zöld; az egyik **pre-existing** hiba a napi lista NB I
+      szekciófejléc-fixture-je (`testLoadedDaySpeaksTeamsStatusScoreAndPublishState`,
+      51. sor) — a kézi bevitel nem érinti a napi listát.
+- [ ] A kutatási hurok ismét működik: a elavult lock törlése után 1 meccses
+      próbakör **2 megállapítást írt be** (3 gyanús odds-forrás elutasítva).
+      Az elfogadási mérő még nem zöld (0 → most 2 blokk), de a `deep-verify`
+      0 hiba és a napi lefedettség javult (4023 → 3675 nyitott mező).
+
 ## Következő döntési pont
 
 - A 248 XX-duplikátum és a 7 XX verseny review-alapú rendezése; az 185
   research review egyenkénti (vagy kurált szabályos) feloldása; az 5 forrás-
-  ellentmondás withheld kézi ellenőrzése; a `tick.rs`-ben lévő nem commitolt
-  auto-dedupe változás külön szelet (builder ≠ verifier).
-- **UI kézi adatbevitel**: a felhasználó kérte, hogy a hiányzó eredményt/
-  adatot a kliensben tudja felvenni. APIs + SwiftUI szelet, terv szerint.
+  ellentmondás withheld kézi ellenőrzése; az NB I UI-fixture hibája; a
+  `tick.rs`-ben lévő nem commitolt auto-dedupe változás külön szelet
+  (builder ≠ verifier).

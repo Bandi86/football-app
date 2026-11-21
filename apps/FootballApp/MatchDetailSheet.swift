@@ -8,6 +8,7 @@ struct MatchDetailSheet: View {
     let matchId: UUID
     @Environment(\.dismiss) private var dismiss
     @State private var model = MatchDetailModel()
+    @State private var showingManualEntry = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,6 +18,14 @@ struct MatchDetailSheet: View {
                     .tracking(2.4)
                     .foregroundStyle(AppTheme.secondaryText)
                 Spacer()
+                Button {
+                    showingManualEntry = true
+                } label: {
+                    Label("Eredmény javítása", systemImage: "square.and.pencil")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(AppTheme.accent)
+                .accessibilityIdentifier("match.detail.manual")
                 Button("Bezárás") { dismiss() }
                     .keyboardShortcut(.cancelAction)
                     .buttonStyle(.plain)
@@ -33,6 +42,9 @@ struct MatchDetailSheet: View {
         .background(AppTheme.background)
         .accessibilityIdentifier("match.detail")
         .task(id: matchId) { await model.load(matchId: matchId) }
+        .sheet(isPresented: $showingManualEntry) {
+            ManualResultSheet(model: model, matchId: matchId)
+        }
     }
 
     @ViewBuilder
@@ -50,6 +62,65 @@ struct MatchDetailSheet: View {
         case .loaded(let detail):
             MatchDetailContent(detail: detail, logos: model.logos)
         }
+    }
+}
+
+/// Kézi eredménybevitel: csak egész, nem negatív gólszám és indoklás engedélyezett.
+/// A sikeres írás után a részletező újratölti a kanonikus adatot.
+struct ManualResultSheet: View {
+    let model: MatchDetailModel
+    let matchId: UUID
+    @Environment(\.dismiss) private var dismiss
+    @State private var home = ""
+    @State private var away = ""
+    @State private var note = ""
+
+    private var isValid: Bool {
+        guard let h = Int(home), let a = Int(away), h >= 0, a >= 0 else { return false }
+        return !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.l) {
+            Text("Eredmény felvétele")
+                .font(.appText(16, weight: .semibold))
+            TextField("Hazai gólok", text: $home)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("manual.home")
+            TextField("Vendég gólok", text: $away)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("manual.away")
+            TextField("Indoklás (kötelező)", text: $note)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("manual.note")
+            if let error = model.submitError {
+                Text(error.userMessage)
+                    .font(.appLabel(11))
+                    .foregroundStyle(AppTheme.warning)
+                    .accessibilityIdentifier("manual.error")
+            }
+            HStack {
+                Button("Mégse") { dismiss() }
+                Spacer()
+                Button("Mentés") {
+                    Task {
+                        await model.submitResult(
+                            matchId: matchId,
+                            homeFt: Int(home) ?? -1,
+                            awayFt: Int(away) ?? -1,
+                            note: note
+                        )
+                        if model.submitError == nil { dismiss() }
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!isValid || model.isSubmitting)
+                .accessibilityIdentifier("manual.save")
+            }
+        }
+        .padding(AppTheme.Spacing.xl)
+        .frame(width: 360)
+        .background(AppTheme.background)
     }
 }
 

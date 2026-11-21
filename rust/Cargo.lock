@@ -755,6 +755,7 @@ dependencies = [
  "chrono",
  "football-domain",
  "football-storage",
+ "football-worker",
  "http-body-util",
  "serde",
  "serde_json",
