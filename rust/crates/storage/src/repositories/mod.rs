@@ -1,3 +1,4 @@
+pub mod audit;
 pub mod competition;
 pub mod core;
 pub mod day;

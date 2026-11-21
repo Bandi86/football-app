@@ -18,6 +18,7 @@ use football_ingest::http::RustHttpFetcher;
 use football_ingest::openfoot::OpenFootAdapter;
 use football_ingest::soccerway::SoccerwayAdapter;
 use football_storage::object_store::ObjectStore;
+use football_storage::repositories::audit as audit_repo;
 use football_storage::repositories::day::{DayFilter, fetch_day};
 use football_storage::repositories::identity as identity_repo;
 use football_storage::repositories::identity_merge;
@@ -170,6 +171,16 @@ enum Command {
     Dedupe {
         #[command(subcommand)]
         action: DedupeAction,
+    },
+    /// S47: heti duplikátum- és konzisztencia-audit (read-only); találat esetén exit 1.
+    Audit {
+        #[arg(long)]
+        from: NaiveDate,
+        #[arg(long)]
+        to: NaiveDate,
+        /// Gép-olvasható JSON a magyar összefoglaló helyett.
+        #[arg(long, default_value_t = false)]
+        json: bool,
     },
     /// S42: verseny-ország javítás a kiválasztott kickoff-megfigyelésekből.
     Competitions {
@@ -559,6 +570,17 @@ async fn main() -> Result<()> {
                 report.capture_id,
                 report.observation_ids.len()
             );
+        }
+        Command::Audit { from, to, json } => {
+            let report = audit_repo::audit_range(&pool, from, to).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                audit_report_print(&report);
+            }
+            if !report.is_clean() {
+                std::process::exit(1);
+            }
         }
         Command::Day { date, include_all } => {
             let rows = fetch_day(
@@ -2754,4 +2776,97 @@ async fn run_ai(action: AiAction) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// S47: az `audit` parancs magyar nyelvű, emberi olvasásra szánt kimenete.
+fn audit_report_print(report: &audit_repo::DuplicateAuditReport) {
+    println!(
+        "Duplikátum-audit {} .. {} — {} meccs",
+        report.from, report.to, report.matches_scanned
+    );
+    let mut by_reason: std::collections::BTreeMap<&str, Vec<&audit_repo::AuditCluster>> =
+        std::collections::BTreeMap::new();
+    for cluster in &report.clusters {
+        by_reason
+            .entry(cluster.reason.as_str())
+            .or_default()
+            .push(cluster);
+    }
+    for (reason, clusters) in &by_reason {
+        println!("  {reason} klaszter: {}", clusters.len());
+        for cluster in clusters.iter().take(20) {
+            for row in &cluster.matches {
+                println!(
+                    "    {}  {:<28} {} – {}  [{}] gate={}",
+                    row.kickoff_at.format("%m-%d %H:%M"),
+                    truncate(&row.competition_name, 28),
+                    row.home_name,
+                    row.away_name,
+                    row.match_id,
+                    row.gate_state.as_deref().unwrap_or("-")
+                );
+            }
+        }
+        if clusters.len() > 20 {
+            println!("    … és további {} klaszter", clusters.len() - 20);
+        }
+    }
+    println!(
+        "  dupla szereplés (ugyanaz a csapat 6 órán belül): {}",
+        report.double_bookings.len()
+    );
+    for booking in &report.double_bookings {
+        println!("    {} [{}]", booking.team_name, booking.team_id);
+        for row in &booking.matches {
+            println!(
+                "      {}  {:<24} {} – {}  [{}]",
+                row.kickoff_at.format("%m-%d %H:%M"),
+                truncate(&row.competition_name, 24),
+                row.home_name,
+                row.away_name,
+                row.match_id
+            );
+        }
+    }
+    println!(
+        "  verseny-duplikátum: {}",
+        report.competition_duplicates.len()
+    );
+    for duplicate in &report.competition_duplicates {
+        let names: Vec<String> = duplicate
+            .competitions
+            .iter()
+            .map(|c| {
+                format!(
+                    "{} [{}] ({} meccs)",
+                    c.name,
+                    c.country_code.as_deref().unwrap_or("-"),
+                    c.match_count
+                )
+            })
+            .collect();
+        println!("    {}: {}", duplicate.name_key, names.join(" | "));
+    }
+    let consistency = &report.consistency;
+    println!(
+        "  konzisztencia: lezárt eredmény nélkül {}, eredmény nem terminális státusszal {}, visszatartva {}, ország nélküli csapattal {}",
+        consistency.finished_without_result,
+        consistency.result_without_terminal_status,
+        consistency.withheld,
+        consistency.matches_with_countryless_team
+    );
+    if report.is_clean() {
+        println!("EREDMÉNY: TISZTA");
+    } else {
+        println!("EREDMÉNY: {} javítandó találat", report.finding_count());
+    }
+}
+
+fn truncate(value: &str, max: usize) -> String {
+    if value.chars().count() <= max {
+        return value.to_string();
+    }
+    let mut out: String = value.chars().take(max.saturating_sub(1)).collect();
+    out.push('…');
+    out
 }

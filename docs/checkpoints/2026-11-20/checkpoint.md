@@ -1355,3 +1355,27 @@ Nyitott:
 - [x] Audit-események: 1640 match_dedupe_merge, 19 competition_merge, 34
       status/kickoff revision, 765 kickoff revision, 135 result fill (utolsó 2 óra).
 - [x] App-ellenőrzés: `/tmp/s46b_final2.png` (11-21, 841 meccs, hiány-panel).
+
+## S47 — duplikátum- és konzisztencia-audit a CLI-ben
+
+- [x] Új `football_storage::repositories::audit` modul: `audit_range(pool, from, to)`
+      — pontos/név-variáns klaszterek (union-find, ±12 óra, nem/korosztály-guard),
+      verseny-duplikátumok (azonos foldolt név + ország, semleges ország wildcard),
+      dupla szereplés (ugyanaz a csapat 6 órán belül két meccsen), valamint
+      konzisztencia (lezárt eredmény nélkül, eredmény nem terminális státusszal,
+      visszatartva, ország nélküli csapattal).
+- [x] `footballctl audit --from <D> --to <D> [--json]`: magyar riport, találat
+      esetén exit 1 (kapuként használható). Unit tesztek: 7 (pontos egyezés,
+      névvariáns mindkét orientációban, korosztály/nem kizárás, dupla szereplés,
+      klaszterezés, 12 órás ablak).
+- [x] Első futás 11-13…11-22: 2804 meccs, 5 név-variáns klaszter (Moquegua–Grau,
+      Rathfriland–Moyola, Armagh–Rathfriland, Dunfermline–Morton, Aachen–Mannheim),
+      25 dupla szereplés, 0 verseny-duplikátum a név-egyezés szerint.
+- [x] Javítások: 3 verseny-merge (DE „3. osztály" → „3. Liga", PE „Liga 1 -
+      Clausura" és „Peru Liga 1" → „Liga 1"), 5 meccs-merge (`dedupe pair`).
+- [x] Kapuk: `cargo fmt --all --check` OK, clippy `-D warnings` tiszta,
+      `cargo test -p football-storage --lib` 25 passed, footballctl integrációs
+      teszt 1 passed.
+- [ ] Nyitott (következő szelet): a 25 dupla szereplés valós adathibáinak javítása
+      (többnyire soccerway/v1 félre-mappelt csapatok: W-, B-, U23-csapatok a
+      felnőtt entitáson, illetve spurious sorok, amelyeket a research nem ismer).

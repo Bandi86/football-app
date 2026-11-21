@@ -129,7 +129,7 @@ const MATCH_ROW_SELECT: &str = "SELECT
 ///
 /// `only_exact` = true: csak az azonos csapat-pár + kickoff párok (a klasszikus
 /// duplikátumlista); false: a nap összes sora (a variáns-keresés ehhez szűr).
-async fn match_rows(
+pub(crate) async fn match_rows(
     pool: &PgPool,
     from: chrono::NaiveDate,
     to: chrono::NaiveDate,
