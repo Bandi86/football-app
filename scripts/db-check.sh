@@ -10,9 +10,10 @@ fi
 : "${DATABASE_URL:?DATABASE_URL hiányzik}"
 : "${TEST_DATABASE_URL:?TEST_DATABASE_URL hiányzik}"
 
-# Elvárt táblaszám: mindkét DB a 0001–0015 migrációk után 47 tábla
-# (44 terméktábla + _sqlx_migrations); a 0013 a fact.club_elo táblát adja.
-expected_tables=47
+# Elvárt táblaszám: mindkét DB a 0001–0020 migrációk után 48 tábla.
+# A 0013 adja a fact.club_elo-t, a 0017 az ops.editorial_hold-ot;
+# a 0018–0020 csak függvényt/indexet/modoslót, nem új táblát hoz létre.
+expected_tables=48
 
 for name in DATABASE_URL TEST_DATABASE_URL; do
   url="${!name}"
