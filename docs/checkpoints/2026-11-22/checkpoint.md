@@ -81,6 +81,41 @@
       → 0 duplikátum; `coverage-day 11-22` → 638/34/37. `core.match`
       **283 859** (a reggeli ingest +248).
 
+## S93 — női versenyű meccsek férfi csapat-hozzárendelése
+
+- [x] **Gyökérok**: 12 női versenyű meccsover férfi csapat: (a) 8
+      `Women's International Friendly` (11-27/28), ahol a research/ESPN a női
+      nemzeti csapatokat `(W)` jelölő nélkül küldte, így a linker a férfi
+      entitáshoz kötötte őket; (b) 4 klubmeccs, ahol ugyanaz a fixture két
+      forrásból jött — a FotMob-sor női csapatokkal, az ESPN-sor férfi
+      entitásokkal. A férfi entitásoknak valós férfi meccsei vannak, ezért
+      nem lehetett a nemüket átállítani.
+- [x] **17 új női entitás** auditalt SQL-lel (`team_create_female_counterpart`,
+      17 audit-esemény): 15 nemzeti (China (W), Thailand (W), San Marino (W),
+      Liechtenstein (W), Malawi (W), Albania (W), Australia (W), Colombia (W),
+      South Korea (W), Peru (W), Dominican Republic (W), Northern Ireland (W),
+      Greece (W), Bolivia (W), Uruguay (W)) + 2 svéd klub (Elfsborg W,
+      Enskede IK W). Mindegyik kapott `espn:<id>` research forrás-refet
+      (`manual_review`, active), női kontextusú aliast és országkódot — a
+      következő ingest így nem hozza létre újra a férfi párt.
+- [x] **10 meccs átrendelése** (`match_team_reassign`, 17 audit-esemény):
+      a 8 barátságos + 2 svéd klubmeccs most női csapatokra mutat.
+- [x] **5 duplikátum archiválása** (`dedupe pair`, teljes payload az
+      `ops.dedupe_archive`-ban): Everton–Brighton & Hove Albion → Everton W–
+      Brighton W; De Graafschap–Ajax W és De Graafschap–Ajax Amsterdam →
+      De Graafschap (W)–Ajax W; Feyenoord Rotterdam–FC Twente → Feyenoord W–
+      FC Twente (W); PSV–PEC Zwolle → PSV W–PEC Zwolle (W).
+- [x] Eredmény: a bővített szűrővel (**women/női/(W)/femenin/vrouwen/frauen/
+      damallsvenskan/elitettan/toppserien**) **0** női versenyű meccs maradt
+      férfi csapattal. Az API 11-22-re egy sor Everton W–Brighton W és egy
+      De Graafschap (W)–Ajax W (633 sor).
+- [x] Ellenőrzési lánc: `reverify 11-14…11-28` → **4 585 meccs, 0 hiba**
+      (1 998 verified / 2 583 provisional / 4 withheld — a 4 ismert hiányzó
+      eredmény 11-21-ről); `integrity 11-13…11-28` → **OK**, 0 duplikált
+      kickoff/fixture, 0 árva provenance, 0 review, 0 failed job (1 pre-existing
+      soccerway breaker); `dedupe matches` dry-run 11-14/22/27/28 → 0;
+      `coverage-day 11-22` → 633/34/37.
+
 ## Következő döntési pont
 
 - A futó daemon binárisa 2026-11-21 18:33-as, az utolsó Rust feat-commit
@@ -88,9 +123,10 @@
   `cargo build … && ./scripts/install-footballd-agent.sh` útján launchd
   újraindítással jár: külön üzemeltetési döntés, nem lett elvégezve.
 - [x] A 45 pending review triage-a megtörtént (S92, 45 → 0).
-- A S90 nyitott tételei: 10 női versenyű meccs férfi csapattal; 4 hiányzó
-  eredmény forrás-oldali pótlása (11-21); research szinkron launchd-ütemezése;
-  validációs retenció (1,47 GB, ~130 MB/nap).
+- [x] A női versenyű meccsek férfi hozzárendelése megtörtént (S93, 12 → 0).
+- A S90 nyitott tételei: 4 hiányzó eredmény forrás-oldali pótlása (11-21);
+  research szinkron launchd-ütemezése; validációs retenció (1,47 GB,
+  ~130 MB/nap).
 - A mai nap lejárt, eredmény nélküli meccsei (pl. mexikói Liga Premier
   `date_only` placeholderek, dél-koreai J/K-league élő meccsek) — a research
   13:00-s és 19:00-s refresh jobjai ütemezve vannak, nem kézi beavatkozás.
