@@ -116,6 +116,22 @@
       soccerway breaker); `dedupe matches` dry-run 11-14/22/27/28 → 0;
       `coverage-day 11-22` → 633/34/37.
 
+## S94 — a 4 hiányzó eredmény pótlása (11-21)
+
+- [x] A 11-21-i research envelope 06:42-re frissült (rev 76) és **mind a 4**
+      korábban withheld meccs eredményét tartalmazza, két független forrás
+      (FotMob + LiveScore) egybehangzóan: Östersunds FK **0–2** Varbergs BoIS
+      (HT 0–1); SV Rödinghausen **2–1** Schalke 04 II (HT 1–0); Como **2–0**
+      Cagliari (HT 1–0); Ascoli **2–2** Vicenza (HT 1–1).
+- [x] `scripts/research-sync.sh 2026-11-21 --enqueue-only` → discovery job
+      `research-sync-2026-11-21-1117` a workernek átadva, `done` (1 próba,
+      0 hiba); a 4 eredmény `fact.match_result`-be került HT-vel, kiválasztott
+      `fact.provenance` (`subject_kind=match`, `field_key=result`) sorral.
+- [x] `reverify 11-21` → **950 meccs, 0 hiba**, 507 verified / 443 provisional /
+      **withheld 0**; `integrity 11-13…11-28` → **OK**, mind a 8 mutató 0
+      (1 pre-existing soccerway breaker). Az API `/v1/day/2026-11-21` mind a
+      4 meccset lezártként, eredménnyel és publikációs állapottal adja.
+
 ## Következő döntési pont
 
 - A futó daemon binárisa 2026-11-21 18:33-as, az utolsó Rust feat-commit
@@ -124,9 +140,9 @@
   újraindítással jár: külön üzemeltetési döntés, nem lett elvégezve.
 - [x] A 45 pending review triage-a megtörtént (S92, 45 → 0).
 - [x] A női versenyű meccsek férfi hozzárendelése megtörtént (S93, 12 → 0).
-- A S90 nyitott tételei: 4 hiányzó eredmény forrás-oldali pótlása (11-21);
-  research szinkron launchd-ütemezése; validációs retenció (1,47 GB,
-  ~130 MB/nap).
+- [x] A 4 hiányzó eredmény pótlása megtörtént (S94, withheld 4 → 0).
+- A S90 nyitott tételei: research szinkron launchd-ütemezése; validációs
+  retenció (1,47 GB, ~130 MB/nap) — mindkettő külön üzemeltetési döntés.
 - A mai nap lejárt, eredmény nélküli meccsei (pl. mexikói Liga Premier
   `date_only` placeholderek, dél-koreai J/K-league élő meccsek) — a research
   13:00-s és 19:00-s refresh jobjai ütemezve vannak, nem kézi beavatkozás.
