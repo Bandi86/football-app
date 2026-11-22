@@ -38,6 +38,11 @@
 - [x] `cd apps && xcodegen generate && xcodebuild … build` → **BUILD SUCCEEDED**;
       az app újraindítva a friss binárissal (pid 69982, build 10:47:25),
       ami tartalmazza az S84–S87 idővonal-üres-állapotot is.
+- [x] **Valódi macOS viselkedésellenőrzés**: `swift scripts/ax-probe.swift
+      FootballApp match.card` → a mai nap kártyái magyar VoiceOver-címkékkel
+      (pl. „Club Santos Laguna – Leon, nov. 22. 00:00, Lezárt, 1 – 2,
+      Ideiglenes publikáció, 17. forduló, odds 1: 2,19, X: 3,40, 2: 2,50");
+      a `day` szűrő a hiány-panelt és a napi navigációt is visszaadta.
 - [x] `./scripts/check.sh` → **EXIT=0**, **102 „test result: ok" blokk**, 0 FAILED.
 - [x] `./scripts/check-foundation.sh` kezdetben **EXIT=1**: a `db-check.sh`
       47 elvárt táblát ellenőrzött, de a mindkét DB-n alkalmazott 0017-es
