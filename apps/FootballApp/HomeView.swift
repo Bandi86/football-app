@@ -198,6 +198,9 @@ struct HomeView: View {
             HomeHeader(
                 date: $model.selectedDate,
                 count: loadedCount,
+                liveCount: loadedLiveCount,
+                oddsCount: loadedOddsCount,
+                compact: width < 900,
                 refreshedAt: loadedRefreshedAt,
                 appeared: appeared,
                 focused: focus,
@@ -214,10 +217,6 @@ struct HomeView: View {
                       searchText: $searchText, focused: focus,
                       counts: filterCounts, countries: allCountries,
                       compact: width < 1_000)
-
-            if case .loaded(let feed) = model.state, let gaps = feed.gaps, !gaps.isEmpty {
-                DayGapsCard(gaps: gaps, active: filter) { filter = $0 }
-            }
 
             content
         }
@@ -267,6 +266,16 @@ struct HomeView: View {
     private var loadedCount: Int? {
         if case .loaded(let feed) = model.state { return feed.matches.count }
         return nil
+    }
+
+    private var loadedLiveCount: Int {
+        guard case .loaded(let feed) = model.state else { return 0 }
+        return feed.matches.filter { MatchFilter.live.matches($0) }.count
+    }
+
+    private var loadedOddsCount: Int {
+        guard case .loaded(let feed) = model.state else { return 0 }
+        return feed.matches.filter { $0.odds != nil }.count
     }
 
     private var featuredEmptyHint: some View {
@@ -393,7 +402,7 @@ private struct TopNavigationBar: View {
             Spacer()
 
             HStack(spacing: 8) {
-                pill("Ma", tab: .day, identifier: "day", active: selected == .day) { onSelect(.day) }
+                pill("Főoldal", tab: .day, identifier: "day", active: selected == .day) { onSelect(.day) }
                 pill("Versenyek", tab: .competitions, identifier: "competitions", active: selected == .competitions) { onSelect(.competitions) }
                 pill("Csapatok", tab: .teams, identifier: "teams", active: selected == .teams) { onSelect(.teams) }
                 pill("Üzemeltetés", tab: .ops, identifier: "ops", active: selected == .ops) { onSelect(.ops) }
@@ -452,6 +461,9 @@ private struct TopNavigationBar: View {
 private struct HomeHeader: View {
     @Binding var date: Date
     let count: Int?
+    let liveCount: Int
+    let oddsCount: Int
+    let compact: Bool
     let refreshedAt: Date?
     let appeared: Bool
     let focused: AppFocus?
@@ -488,6 +500,15 @@ private struct HomeHeader: View {
         case 10..<18: return "Jó napot."
         case 18..<22: return "Jó estét."
         default: return "Jó éjszakát."
+        }
+    }
+
+    private var greetingIcon: String {
+        switch Calendar.current.component(.hour, from: Date()) {
+        case 5..<10: return "sunrise.fill"
+        case 10..<18: return "sun.max.fill"
+        case 18..<22: return "sunset.fill"
+        default: return "moon.stars.fill"
         }
     }
 
@@ -531,101 +552,188 @@ private struct HomeHeader: View {
     }
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 20) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 10) {
-                    Text(greeting)
-                        .font(.appText(15))
-                        .foregroundStyle(AppTheme.secondaryText)
-                    if let relativeLabel {
-                        Text(relativeLabel)
-                            .font(.system(size: 10.5, weight: .bold))
-                            .tracking(1.5)
-                            .foregroundStyle(AppTheme.accent)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 2)
-                            .background(AppTheme.accent.opacity(0.15), in: Capsule())
-                    }
+        VStack(alignment: .leading, spacing: 18) {
+            if compact {
+                VStack(alignment: .leading, spacing: 14) {
+                    dateBlock
+                    dateControls
                 }
-                .opacity(appeared ? 1 : 0)
-                .offset(y: appeared ? 0 : 8)
-                .animation(step(0.04), value: appeared)
-
-                Text(Self.bigDate.string(from: date))
-                    .font(.scoreboard(56))
-                    .tracking(-1.5)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.55)
-                    .foregroundStyle(AppTheme.primaryText)
-                    .opacity(appeared ? 1 : 0)
-                    .offset(y: appeared ? 0 : 12)
-                    .animation(step(0.1), value: appeared)
-
-                Text(metaText)
-                    .font(.appText(12.5))
-                    .foregroundStyle(AppTheme.secondaryText)
-                    .opacity(appeared ? 1 : 0)
-                    .offset(y: appeared ? 0 : 12)
-                    .animation(step(0.16), value: appeared)
+            } else {
+                HStack(alignment: .center, spacing: 24) {
+                    dateBlock
+                    Spacer(minLength: 12)
+                    dateControls
+                }
             }
 
-            Spacer()
+            HStack(spacing: 10) {
+                summaryStat(
+                    value: count.map { "\($0)" } ?? "–", label: "mérkőzés",
+                    icon: "sportscourt", tint: AppTheme.primaryText, identifier: "home.stat.matches"
+                )
+                summaryStat(
+                    value: "\(liveCount)", label: "élő", icon: "dot.radiowaves.left.and.right",
+                    tint: liveCount > 0 ? AppTheme.liveGreen : AppTheme.secondaryText,
+                    identifier: "home.stat.live"
+                )
+                summaryStat(
+                    value: "\(oddsCount)", label: "oddsadattal", icon: "chart.bar.fill",
+                    tint: AppTheme.accent, identifier: "home.stat.odds"
+                )
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 20)
+        .background {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(LinearGradient(
+                    colors: [AppTheme.surfaceElevated, AppTheme.surfaceSunken],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ))
+                .overlay(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(AppTheme.accent)
+                        .frame(width: 42, height: 3)
+                        .padding(.leading, 24)
+                }
+        }
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(AppTheme.hairline))
+        .padding(.horizontal, 48)
+        .padding(.top, 20)
+        .padding(.bottom, 14)
+    }
 
+    private var dateBlock: some View {
+        VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 8) {
-                iconButton("chevron.left", help: "Előző nap",
-                           focus: .previousDay, action: onPrevious)
-                    .keyboardShortcut(.leftArrow, modifiers: .command)
-                Button(action: onToday) {
-                    Text("Ma")
-                        .font(.system(size: 12.5, weight: .medium))
-                        .foregroundStyle(AppTheme.primaryText)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(AppTheme.surface, in: Capsule())
-                        .overlay(Capsule().strokeBorder(AppTheme.hairline))
+                Image(systemName: greetingIcon)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(AppTheme.accent)
+                Text(greeting)
+                    .font(.appText(14, weight: .semibold))
+                    .foregroundStyle(AppTheme.primaryText)
+                if let relativeLabel {
+                    Text(relativeLabel)
+                        .font(.system(size: 9.5, weight: .bold))
+                        .tracking(1.3)
+                        .foregroundStyle(AppTheme.background)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(AppTheme.accent, in: Capsule())
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Ma")
-                .accessibilityIdentifier("nav.today")
-                .focusAccessibility(focused == .today)
-                .capsuleFocusRing(focused == .today)
-                .keyboardShortcut("t", modifiers: .command)
-                iconButton("chevron.right", help: "Következő nap",
-                           focus: .nextDay, action: onNext)
-                    .keyboardShortcut(.rightArrow, modifiers: .command)
-
-                Rectangle().fill(AppTheme.hairline).frame(width: 1, height: 18).padding(.horizontal, 2)
-
-                Button {
-                    showCalendar = true
-                } label: {
-                    Image(systemName: "calendar")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(AppTheme.secondaryText)
-                        .frame(width: 30, height: 30)
-                        .background(AppTheme.surface, in: Circle())
-                        .overlay(Circle().strokeBorder(AppTheme.hairline))
-                }
-                .buttonStyle(.plain)
-                .help("Naptár")
-                .accessibilityLabel("Naptár")
-                .accessibilityIdentifier("nav.calendar")
-                .focusAccessibility(focused == .calendar)
-                .circleFocusRing(focused == .calendar)
-                .popover(isPresented: $showCalendar, arrowEdge: .bottom) {
-                    MonthCalendar(date: $date, onSelect: { showCalendar = false })
-                }
-
-                iconButton("arrow.clockwise", help: "Frissítés",
-                           focus: .refresh, action: onRefresh)
-                    .keyboardShortcut("r", modifiers: .command)
             }
             .opacity(appeared ? 1 : 0)
-            .animation(step(0.16), value: appeared)
+            .offset(y: appeared ? 0 : 8)
+            .animation(step(0.04), value: appeared)
+
+            Text(Self.bigDate.string(from: date))
+                .font(.scoreboard(52))
+                .tracking(-1.4)
+                .lineLimit(1)
+                .minimumScaleFactor(0.55)
+                .foregroundStyle(AppTheme.primaryText)
+                .opacity(appeared ? 1 : 0)
+                .offset(y: appeared ? 0 : 10)
+                .animation(step(0.1), value: appeared)
+
+            Text(metaText)
+                .font(.appText(12))
+                .foregroundStyle(AppTheme.secondaryText)
+                .lineLimit(1)
+                .opacity(appeared ? 1 : 0)
+                .offset(y: appeared ? 0 : 10)
+                .animation(step(0.16), value: appeared)
         }
-        .padding(.horizontal, 48)
-        .padding(.top, 22)
-        .padding(.bottom, 16)
+    }
+
+    private var dateControls: some View {
+        HStack(spacing: 6) {
+            iconButton("chevron.left", help: "Előző nap",
+                       focus: .previousDay, action: onPrevious)
+                .keyboardShortcut(.leftArrow, modifiers: .command)
+            Button(action: onToday) {
+                Text("Ma")
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(AppTheme.primaryText)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(AppTheme.accentSoft, in: Capsule())
+                    .overlay(Capsule().strokeBorder(AppTheme.accent.opacity(0.25)))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Ma")
+            .accessibilityIdentifier("nav.today")
+            .focusAccessibility(focused == .today)
+            .capsuleFocusRing(focused == .today)
+            .keyboardShortcut("t", modifiers: .command)
+            iconButton("chevron.right", help: "Következő nap",
+                       focus: .nextDay, action: onNext)
+                .keyboardShortcut(.rightArrow, modifiers: .command)
+
+            Rectangle().fill(AppTheme.hairline).frame(width: 1, height: 20).padding(.horizontal, 4)
+
+            Button {
+                showCalendar = true
+            } label: {
+                Image(systemName: "calendar")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .frame(width: 34, height: 34)
+                    .background(AppTheme.surface, in: Circle())
+                    .overlay(Circle().strokeBorder(AppTheme.hairline))
+            }
+            .buttonStyle(.plain)
+            .help("Naptár")
+            .accessibilityLabel("Naptár")
+            .accessibilityIdentifier("nav.calendar")
+            .focusAccessibility(focused == .calendar)
+            .circleFocusRing(focused == .calendar)
+            .popover(isPresented: $showCalendar, arrowEdge: .bottom) {
+                MonthCalendar(date: $date, onSelect: { showCalendar = false })
+            }
+
+            iconButton("arrow.clockwise", help: "Frissítés",
+                       focus: .refresh, action: onRefresh)
+                .keyboardShortcut("r", modifiers: .command)
+        }
+        .padding(7)
+        .background(AppTheme.surface, in: Capsule())
+        .overlay(Capsule().strokeBorder(AppTheme.hairline))
+        .opacity(appeared ? 1 : 0)
+        .animation(step(0.16), value: appeared)
+    }
+
+    private func summaryStat(
+        value: String,
+        label: String,
+        icon: String,
+        tint: Color,
+        identifier: String
+    ) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 28, height: 28)
+                .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(value)
+                    .font(.scoreboard(16))
+                    .foregroundStyle(AppTheme.primaryText)
+                Text(label)
+                    .font(.appLabel(9))
+                    .foregroundStyle(AppTheme.secondaryText)
+            }
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 8)
+        .background(AppTheme.surface.opacity(0.8), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(AppTheme.hairline))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(value) \(label)")
+        .accessibilityIdentifier(identifier)
     }
 
     private func iconButton(
@@ -724,10 +832,11 @@ private struct FilterBar: View {
 
     private var chipRow: some View {
         HStack(spacing: 8) {
-            ForEach(MatchFilter.allCases) { candidate in
+            ForEach(MatchFilter.homeFilters) { candidate in
                 FilterChip(
                     filter: candidate,
                     count: counts[candidate] ?? 0,
+                    showsCount: candidate != .missingLogo && candidate != .missingCompetitionLogo,
                     isActive: filter == candidate,
                     isFocused: focused == .filter(candidate)
                 ) {
@@ -900,6 +1009,7 @@ private struct FilterBar: View {
 private struct FilterChip: View {
     let filter: MatchFilter
     let count: Int
+    let showsCount: Bool
     let isActive: Bool
     let isFocused: Bool
     let action: () -> Void
@@ -912,12 +1022,14 @@ private struct FilterChip: View {
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
                     .foregroundStyle(isActive ? AppTheme.primaryText : AppTheme.secondaryText)
-                Text("\(count)")
-                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(isActive ? AppTheme.background : AppTheme.secondaryText)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 1)
-                    .background(isActive ? AppTheme.accent : AppTheme.surface, in: Capsule())
+                if showsCount {
+                    Text("\(count)")
+                        .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(isActive ? AppTheme.background : AppTheme.secondaryText)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(isActive ? AppTheme.accent : AppTheme.surface, in: Capsule())
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
@@ -925,6 +1037,7 @@ private struct FilterChip: View {
             .overlay(Capsule().strokeBorder(isActive ? AppTheme.hairline : .clear))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(showsCount ? "\(filter.title): \(count)" : filter.title)
         .accessibilityIdentifier("filter.\(filter.rawValue)")
         .focusAccessibility(isFocused)
         .capsuleFocusRing(isFocused)
@@ -1067,95 +1180,5 @@ private struct MonthCalendar: View {
                 .overlay(Circle().strokeBorder(AppTheme.hairline))
         }
         .buttonStyle(.plain)
-    }
-}
-
-/// A nap hiány-mutatói: mi hiányzik ahhoz, hogy a nap teljes legyen.
-private struct DayGapsCard: View {
-    let gaps: DayGaps
-    let active: MatchFilter
-    let onSelect: (MatchFilter) -> Void
-
-    /// A hiány-chipek szűrője. Minden chip kattintható, és a saját hiányát
-    /// aktiválja: a „lejárt, nyitott" az `openPast`, a valódi „eredmény nélkül"
-    /// a `missingResult` szűrőre mutat.
-    private static let filterFor: [String: MatchFilter] = [
-        "kickoff": .missingKickoff,
-        "open": .openPast,
-        "result": .missingResult,
-        "teamlogo": .missingLogo,
-        "complogo": .missingCompetitionLogo,
-        "odds": .missingOdds,
-        "withheld": .withheld,
-    ]
-
-    private struct Item: Identifiable {
-        let id: String
-        let label: String
-        let count: Int
-    }
-
-    private var items: [Item] {
-        var list: [Item] = []
-        func add(_ key: String, _ label: String, _ count: Int) {
-            if count > 0 { list.append(Item(id: key, label: label, count: count)) }
-        }
-        add("kickoff", "kezdésidő nélkül", gaps.missingKickoff)
-        add("open", "lejárt, nyitott", gaps.openPast)
-        add("result", "eredmény nélkül", gaps.missingResult)
-        add("teamlogo", "csapatlogó nélkül", gaps.missingTeamLogo)
-        add("complogo", "ligalogó nélkül", gaps.missingCompetitionLogo)
-        add("odds", "odds nélkül", gaps.missingOdds)
-        add("withheld", "visszatartva", gaps.withheld)
-        return list
-    }
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(AppTheme.accent)
-            Text("Hiányzó adatok")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(AppTheme.secondaryText)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(items) { item in
-                        let filter = Self.filterFor[item.id]
-                        let isActive = filter.map { $0 == active } ?? false
-                        Button {
-                            if let filter {
-                                onSelect(active == filter ? .all : filter)
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text("\(item.count)")
-                                    .font(.system(size: 11, weight: .bold, design: .rounded))
-                                    .foregroundStyle(isActive ? Color.black : AppTheme.primaryText)
-                                Text(item.label)
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(isActive ? Color.black.opacity(0.85) : AppTheme.secondaryText)
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(isActive ? AppTheme.accent : AppTheme.surface, in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(filter == nil)
-                        .accessibilityLabel("\(item.label): \(item.count) meccs")
-                        .accessibilityHint(filter == nil
-                            ? "Ehhez a hiányhoz nincs szűrő."
-                            : "Szűrés erre: \(item.label)")
-                        .accessibilityIdentifier("day.gaps.\(item.id)")
-                    }
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 24)
-        .padding(.bottom, 8)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("day.gaps")
-        .accessibilityLabel("Hiányzó adatok: " + items.map { "\($0.count) \($0.label)" }.joined(separator: ", "))
     }
 }

@@ -27,7 +27,7 @@ extension AppFocus {
         var order: [AppFocus] = [.tab(.day), .tab(.competitions), .tab(.teams), .tab(.ops)]
         guard tab == .day else { return order }
         order += [.previousDay, .today, .nextDay, .calendar, .refresh]
-        order += MatchFilter.allCases.map { .filter($0) }
+        order += MatchFilter.homeFilters.map { .filter($0) }
         order.append(.featured)
         order += matchIDs.map { .match($0) }
         return order

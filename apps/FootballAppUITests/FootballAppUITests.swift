@@ -46,14 +46,28 @@ final class FootballAppUITests: XCTestCase {
         // NB I fejlécében viszont nem tippelünk.
         let premier = element("league.section.GB|premier league", in: app)
         XCTAssertTrue(premier.waitForExistence(timeout: 10), "a Premier League szekciófejléc hiányzik")
-        // A kombinált fejléc a szöveget a value attribútumban hordozza.
-        let premierText = premier.value as? String ?? ""
-        XCTAssertTrue(premierText.contains("12. forduló"), premierText)
+        // A SwiftUI Text saját AX-elem a szöveget a value attribútumban hordozza.
+        XCTAssertTrue(textElement(valueContains: "12. forduló", in: app).exists,
+                      "a Premier League 12. fordulós jelzése hiányzik")
 
         let nbOne = element("league.section.HU|nb i", in: app)
         XCTAssertTrue(nbOne.waitForExistence(timeout: 10), "az NB I szekciófejléc hiányzik")
         let nbOneText = nbOne.value as? String ?? ""
         XCTAssertFalse(nbOneText.contains("forduló"), nbOneText)
+
+        XCTAssertTrue(element("home.stat.matches", in: app).waitForExistence(timeout: 10),
+                      "a nap mérkőzésszáma hiányzik a fejlécből")
+        XCTAssertTrue(element("home.stat.live", in: app).exists,
+                      "az élő mérkőzések száma hiányzik a fejlécből")
+        XCTAssertTrue(element("home.stat.odds", in: app).exists,
+                      "az odds-lefedettség száma hiányzik a fejlécből")
+
+        let teamLogoFilter = element("filter.missingLogo", in: app)
+        let competitionLogoFilter = element("filter.missingCompetitionLogo", in: app)
+        XCTAssertEqual(teamLogoFilter.label, "Logó nélkül", "a csapatlogó-szűrőn ne jelenjen meg számláló")
+        XCTAssertEqual(competitionLogoFilter.label, "Ligalogó nélkül", "a ligalogó-szűrőn ne jelenjen meg számláló")
+        XCTAssertFalse(element("day.gaps", in: app).exists,
+                        "a hiány-szűrők ne ismétlődjenek meg második sorban")
     }
 
     // MARK: - Részleges / bizonytalan adat
@@ -66,7 +80,9 @@ final class FootballAppUITests: XCTestCase {
         let live = element("match.card.AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA", in: app)
         XCTAssertTrue(live.waitForExistence(timeout: 30), "a részleges nap nem töltődött be")
         XCTAssertTrue(live.label.contains("Győr – Fehérvár"), live.label)
-        XCTAssertTrue(live.label.contains("Élő"), live.label)
+        // A fixture dátuma 2026-11-20; a stale-live guard ezt két nappal
+        // később ütemezettnek mondja, az eredmény és a publikációs állapot marad.
+        XCTAssertTrue(live.label.contains("Ütemezett"), live.label)
         XCTAssertTrue(live.label.contains("1 – 0"), live.label)
         XCTAssertTrue(live.label.contains("Ideiglenes publikáció"), live.label)
 

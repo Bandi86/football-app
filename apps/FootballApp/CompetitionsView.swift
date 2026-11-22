@@ -128,6 +128,7 @@ struct CompetitionLogo: View {
     let path: String?
     let store: LogoStore
     let fallbackFlag: String?
+    var size: CGFloat = 32
     @State private var image: NSImage?
 
     var body: some View {
@@ -140,10 +141,10 @@ struct CompetitionLogo: View {
                     .padding(3)
             } else {
                 Text(CountryDisplay.display(code: fallbackFlag, name: nil).flag)
-                    .font(.system(size: 18))
+                    .font(.system(size: size * 0.56))
             }
         }
-        .frame(width: 32, height: 32)
+        .frame(width: size, height: size)
         .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .task(id: path) {
             guard let path else { return }

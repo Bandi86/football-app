@@ -695,3 +695,45 @@ szeletet zöld kapuval lezárni.
    (2026-06-01..11-30 vizsgálat: 0 név-variáns duplikátum).
 4. Korábbi tételek: competition-duplikátumok maradéka, Liga F forrás-konfliktus,
    tipplap múltbeli napok, detail-sheet vizuális ellenőrzés.
+
+## S99 — kezdőlap vizuális rendbetétele
+
+### Induló állapot és tervezett szelet
+
+- A felhasználó a megadott képernyő alapján a főoldali menüsor ismétlődésének
+  megszüntetését, a logóhiány-számlálók elhagyását, a dátumfejléc csinosítását
+  és a verseny-/meccskártyák nagyobb logóit kérte.
+- A főoldal két helyen mutatta az adatminőség-szűrőket: a szűrősorban és a
+  „Hiányzó adatok” sorban. A napi lista csapatcímerei 18 pt-osak, a versenycímerek
+  32 pt-osak.
+- Tervezett egyetlen szelet: a szűrők egyszeri, logó-számlálók nélküli
+  megjelenítése; gazdagabb napfejléc; nagyobb címer és levegősebb meccssor.
+- Kezdő branch: `feat/homepage-visual-refresh` (`main` érintetlen marad).
+- [x] A kezdőlap vizuális módosításai és a szükséges UI-ellenőrzés.
+
+### Záró eredmény
+
+- `apps/FootballApp/HomeView.swift`: a napi főoldal kapott egy grafit/borostyán
+  fejléckártyát napszakhoz illő ikonnal, nap-, élő- és odds-számlálóval,
+  kiemelt napváltókkal; keskeny ablakban a fejléc egymás alá rendeződik. A felső
+  „Ma” menüpont „Főoldal” lett, a hiány-szűrő ismétlődő második sora megszűnt.
+- A „Logó nélkül” és „Ligalogó nélkül” szűrő megmaradt, de számláló nélkül.
+  A versenycímerek 32→40 pt-ra, a csapatcímerek 18→26 pt-ra nőttek; a meccssor
+  térköze és a kártyák íve is nagyobb lett.
+- `apps/FootballAppUITests/FootballAppUITests.swift`: a fejléc-számlálókat és a
+  számláló nélküli logószűrőket ellenőrző állítások; a csoportforduló lekérdezése
+  a SwiftUI szöveg AX-elemét vizsgálja. A 11-20-i live fixture 11-22-én már
+  helyesen „Ütemezett” az elavult-live védelem miatt; a teszt ezt méri.
+- [x] `cd apps && xcodegen generate` → projekt sikeresen generálva.
+- [x] `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path apps/FootballAppCore`
+  → **109 teszt, 0 hiba**.
+- [x] `./scripts/run-ui-tests.sh -parallel-testing-enabled NO` → **69 app teszt
+  + 8 UI teszt, 0 hiba; TEST SUCCEEDED**.
+- [x] `git diff --check` → **0 whitespace hiba**.
+- [x] Valódi macOS-ablak ellenőrzése: a 2026-11-22-i nap betöltődött
+  (**619 meccs, 70 élő, 283 oddsadattal**); a magyar feliratok, az egyszeri
+  navigáció/szűrősor, a logó-szám nélküli szűrők és a nagyobb logók láthatók.
+- Nem ellenőrzött: a VoiceOver beszédhangja és a kompakt ablakméret vizuális
+  ellenőrzése (a valódi ablak teljes méretű maradt); a CUA-ablakkép nem került fájlba.
+- Visszaállás: a változások a `feat/homepage-visual-refresh` branch-en vannak;
+  a `main` változatlan.

@@ -16,6 +16,9 @@ enum MatchFilter: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// A főoldali szűrősor egy helyen mutatja az összes szűrőt.
+    static let homeFilters = allCases
+
     var title: String {
         switch self {
         case .all: return "Mind"
@@ -226,14 +229,14 @@ private struct LeagueSectionView: View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 if let logo = league.logo {
-                    CompetitionLogo(path: logo, store: logos, fallbackFlag: league.countryCode)
+                    CompetitionLogo(path: logo, store: logos, fallbackFlag: league.countryCode, size: 40)
                 } else {
                     Text(league.flag)
-                        .font(.system(size: 20))
+                        .font(.system(size: 25))
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(league.name)
-                        .font(.appText(15, weight: .semibold))
+                        .font(.appText(16, weight: .semibold))
                         .foregroundStyle(AppTheme.primaryText)
                     HStack(spacing: 6) {
                         Text(league.subtitle)
@@ -283,7 +286,7 @@ private struct LeagueSectionView: View {
                 }
             }
             .padding(.horizontal, 18)
-            .padding(.vertical, 12)
+            .padding(.vertical, 14)
             .background(AppTheme.surface)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("league.section.\(league.id)")
@@ -303,12 +306,12 @@ private struct LeagueSectionView: View {
                 }
             }
         }
-        .background(AppTheme.surfaceElevated, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(AppTheme.surfaceElevated, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 19, style: .continuous)
                 .strokeBorder(AppTheme.hairline)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
     }
 }
 
@@ -336,7 +339,7 @@ private struct MatchItemRow: View {
             }
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 14)
+        .padding(.vertical, 17)
         .background(hover ? AppTheme.surface : Color.clear)
         .contentShape(Rectangle())
         .onHover { hover = $0 }
@@ -460,9 +463,9 @@ private struct MatchItemRow: View {
 
     private func teamLine(_ name: String, logo: String?, weight: Font.Weight) -> some View {
         HStack(spacing: 8) {
-            CrestLogo(name: name, path: logo, store: logos, size: 18)
+            CrestLogo(name: name, path: logo, store: logos, size: 26)
             Text(name)
-                .font(.appText(15, weight: weight))
+                .font(.appText(16, weight: weight))
                 .foregroundStyle(AppTheme.primaryText.opacity(weight == .semibold ? 1 : 0.9))
         }
     }
