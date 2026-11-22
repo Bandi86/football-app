@@ -47,6 +47,48 @@ pub async fn resolve(
     proposed_name: &str,
     ctx: &IdentityContext,
 ) -> Result<Resolution, IdentityError> {
+    resolve_with_options(
+        pool,
+        source_id,
+        source_slug,
+        entity_kind,
+        source_entity_id,
+        proposed_name,
+        ctx,
+        ResolveOptions::default(),
+    )
+    .await
+}
+
+/// A `resolve` viselkedés-kapcsolói.
+#[derive(Debug, Clone, Copy)]
+pub struct ResolveOptions {
+    /// Nyisson-e pending review-sort, ha nincs egzakt találat. `false` arra a
+    /// forrásra való, amelynek a neve csak megjelenítésre kell (a forrás által
+    /// kimondott alakot a hívó máshol, pl. `fact.match_official`-ban tárolja),
+    /// és nincs hozzá katalógus/policy — így nem termel napi százas nagyságrendű
+    /// feldolgozatlan review-t.
+    pub open_review: bool,
+}
+
+impl Default for ResolveOptions {
+    fn default() -> Self {
+        Self { open_review: true }
+    }
+}
+
+/// `resolve` kiterjesztett változata: a review-nyitás kapcsolható.
+#[allow(clippy::too_many_arguments)]
+pub async fn resolve_with_options(
+    pool: &PgPool,
+    source_id: Uuid,
+    source_slug: &str,
+    entity_kind: &str,
+    source_entity_id: &str,
+    proposed_name: &str,
+    ctx: &IdentityContext,
+    options: ResolveOptions,
+) -> Result<Resolution, IdentityError> {
     // A `{:#}` alternate form megőrzi a sqlx gyökérokot is a hibaláncban
     // (a review.rs db_err-jével azonos formátum).
     let db = |e: anyhow::Error| IdentityError::Db(format!("{e:#}"));
@@ -211,7 +253,20 @@ pub async fn resolve(
         }
     }
 
-    // 6. Candidates / NotFound — mindkettő pending review-sort nyit.
+    // 6. Candidates / NotFound — mindkettő pending review-sort nyit, kivéve ha
+    // a hívó kifejezetten megjelenítés-only módot kért.
+    if !options.open_review {
+        return Ok(if candidates.is_empty() {
+            Resolution::NotFound {
+                queue_id: Uuid::nil(),
+            }
+        } else {
+            Resolution::Candidates {
+                candidates,
+                queue_id: Uuid::nil(),
+            }
+        });
+    }
     let reason = if !candidates.is_empty() {
         if name_hits.len() > 1 {
             "multiple_candidates"

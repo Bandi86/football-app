@@ -13,6 +13,11 @@ pub struct IntegrityReport {
     pub duplicate_kickoff_groups: i64,
     /// Ugyanaz a verseny+szezon+csapat-pár+UTC-nap több sorban.
     pub duplicate_fixture_groups: i64,
+    /// Ugyanaz a csapatpár pontosan ugyanabban a kickoff-pillanatban több
+    /// sorban — verseny-entitástól függetlenül. Egy klub nem játszhat két
+    /// meccset ugyanabban a percben, ezért ez review-jelzés (cross-competition
+    /// duplikátum, amit a versenyre szűkítő kulcsok nem látnak).
+    pub same_pair_same_instant_groups: i64,
     /// Ugyanaz a csapatpár ugyanazon az UTC-napon több sorban — akkor is, ha a
     /// két forrás eltérő csapat-entitást használt (cross-source névváltozat),
     /// ezért a `duplicate_fixture_groups` id-alapú kulcsa nem látja. Egy klub
@@ -154,9 +159,35 @@ pub async fn report(
     .await
     .context("azonos csapatpár azonos napon duplikátumok számlálása")?;
 
+    // S97: cross-competition duplikátum — ugyanaz a csapatpár ugyanabban a
+    // kickoff-pillanatban, de más verseny-entitáson (pl. U17-es csoport két
+    // versenyre szakadva). A versenyre szűkítő kulcsok ezt nem látják.
+    let same_pair_same_instant: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM (
+            SELECT 1
+              FROM core.match m
+              JOIN core.team ht ON ht.id = m.home_team_id
+              JOIN core.entity he ON he.id = ht.entity_id
+              JOIN core.team at ON at.id = m.away_team_id
+              JOIN core.entity ae ON ae.id = at.entity_id
+             WHERE ($1::date IS NULL OR m.kickoff_at::date >= $1)
+               AND ($2::date IS NULL OR m.kickoff_at::date <= $2)
+             GROUP BY identity.fold_name(he.canonical_name),
+                      identity.fold_name(ae.canonical_name),
+                      m.kickoff_at
+            HAVING count(*) > 1
+         ) x",
+    )
+    .bind(from)
+    .bind(to)
+    .fetch_one(pool)
+    .await
+    .context("azonos csapatpár azonos pillanatban duplikátumok számlálása")?;
+
     Ok(IntegrityReport {
         duplicate_kickoff_groups: dup_kickoff,
         duplicate_fixture_groups: dup_fixture,
+        same_pair_same_instant_groups: same_pair_same_instant,
         same_pair_same_day_groups: same_pair_same_day,
         orphan_provenance: orphan_prov,
         active_refs_to_merged: merged_refs,

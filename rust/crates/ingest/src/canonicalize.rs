@@ -1822,7 +1822,14 @@ async fn link_referee(
         country_code: football_domain::identity::alias_country_code(competition_country.as_deref()),
         ..Default::default()
     };
-    match football_identity::resolve(
+    // S97: a research bíró-neve megjelenítés-only (a forrás alakját a
+    // `fact.match_official` tárolja), ezért nem nyitunk rá feldolgozatlan
+    // review-sort — a referee-identitás policy (ország-tárolás, auto-create)
+    // külön döntés, addig napi ~150-200 felesleges review gyűlne.
+    let options = football_identity::linker::ResolveOptions {
+        open_review: source_code != "research",
+    };
+    match football_identity::resolve_with_options(
         pool,
         source_id,
         source_code,
@@ -1830,6 +1837,7 @@ async fn link_referee(
         &source_entity_id,
         name,
         &ctx,
+        options,
     )
     .await
     {

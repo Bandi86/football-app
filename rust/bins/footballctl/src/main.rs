@@ -1249,6 +1249,10 @@ async fn main() -> Result<()> {
                 println!("duplikált kickoff-csoport: {}", r.duplicate_kickoff_groups);
                 println!("duplikált fixture-csoport: {}", r.duplicate_fixture_groups);
                 println!(
+                    "azonos csapatpár azonos pillanatban: {}",
+                    r.same_pair_same_instant_groups
+                );
+                println!(
                     "azonos csapatpár azonos napon: {}",
                     r.same_pair_same_day_groups
                 );

@@ -574,3 +574,60 @@ szeletet zöld kapuval lezárni.
 - Adat: minden entitás/fixture merge az `ops.entity_merge_archive` és
   `ops.dedupe_archive` payloadjaival visszajátszható; a 101 törölt verseny-sor
   a merge-archívum payloadjából újraépíthető.
+
+## S97b — azonos pillanatú duplikátumok, bíró-review flood leállítása
+
+### Kód
+
+- `rust/crates/storage/src/repositories/integrity.rs`: új
+  `same_pair_same_instant_groups` metrika — ugyanaz a csapatpár pontosan
+  ugyanabban a kickoff-pillanatban, verseny-entitástól függetlenül. Egy klub
+  nem játszhat két meccset ugyanabban a percben; ez a cross-competition
+  duplikátum osztály, amit a versenyre szűkítő kulcsok nem látnak. Kiírva a
+  `footballctl integrity`-ben (`azonos csapatpár azonos pillanatban`).
+- `rust/crates/identity/src/linker.rs`: `ResolveOptions { open_review }` +
+  `resolve_with_options(...)`; a `resolve` változatlan viselkedéssel hívja
+  (default `open_review: true`). Re-export a `lib.rs`-ben.
+- `rust/crates/ingest/src/canonicalize.rs`: a referee-ág `open_review:
+  source_code != "research"` — a research bíró-neve megjelenítés-only (a
+  forrás alakját a `fact.match_official` tárolja), ezért nem nyit
+  feldolgozatlan review-sort. Ezzel a napi ~150-200 soros flood megszűnt.
+
+### Adat
+
+- U17-es világbajnokság csoport-duplikátumok mergelve (entity-id alapon):
+  Group I `01a1fb4a-1c14` → `8c0327ff` (1 meccs, a Tanzania U17–Costa Rica U17
+  duplikátum is összeolvadt), Group K `01a1fb4a-1c91` → `e6014534`,
+  Group L `01a1fb4a-1c9f` → `531e3373`.
+- `dedupe aliases --from 2026-11-01 --to 2026-11-30 --apply`: 4 csoport
+  (2 csapat+fixture: Maghreb As De Fès/MAS Fès, Antigua GFC/Antigua Guatemala;
+  2 fixture-twin: Bundesliga és Süper Lig), ismételt apply → 0 csoport.
+- Az 573 research referee pending review-sor elutasítva
+  (`decided_by='agent:S97'`, note: megjelenítés-only, policy döntés előtt);
+  állomány most: team pending 29, referee pending 0.
+
+### Mérés
+
+- `cargo test --workspace -- --test-threads=1` → 562 passed / 0 failed /
+  105 bináris; `cargo fmt --all --check` → OK; clippy 0 warning;
+  `check-foundation.sh` → 0; db-check 50 tábla.
+- `footballctl integrity --from 2026-11-01 --to 2026-11-30` → minden számláló
+  0 (duplikált kickoff, duplikált fixture, azonos pillanat, azonos nap, árva
+  provenance, összevont entitásra mutató ref, withheld gate, failed job),
+  verdict OK.
+- Újraingest (2026-11-22, job `fb45a029`) után: referee pending review **0**
+  (előtte 573), a detail API továbbra is adja a bírót
+  (`Allen Chapman`), a venue-t (`Nu Stadium`) és az időjárást.
+- `/v1/day/2026-11-22` → 620 sor {scheduled 454, finished 94, live 70,
+  canceled 2}, 0 névpár-duplikátum.
+
+### Nyitott
+
+1. Bíró-identitás policy: auto-create (~168 entitás/nap) vs review-only vs
+   csak megjelenítés — a mostani állapot a „csak megjelenítés" (a katalógus
+   bővítése külön döntés).
+2. Referee-ország tárolása (séma-migráció) a pontosabb linkeléshez.
+3. A 983 rövid alakú („M. Marchetti") bíró-entitás normalizálása.
+4. 29 team pending review sorsa.
+5. Korábbi tételek: competition-duplikátumok maradéka, Liga F
+   forrás-konfliktus, tipplap múltbeli napok, detail-sheet vizuális ellenőrzés.

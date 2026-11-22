@@ -123,6 +123,7 @@ fn clean_report_has_no_hard_failures() {
     let r = IntegrityReport {
         duplicate_kickoff_groups: 0,
         duplicate_fixture_groups: 0,
+        same_pair_same_instant_groups: 0,
         same_pair_same_day_groups: 0,
         orphan_provenance: 0,
         active_refs_to_merged: 0,

@@ -7,7 +7,7 @@
 //! dedup, DB-hiba fail-closed. A magyar nyelvű szövegeket visszaolvassuk.
 
 use football_domain::identity::{IdentityContext, Resolution, ResolveMethod};
-use football_identity::{IdentityError, resolve};
+use football_identity::{IdentityError, ResolveOptions, resolve, resolve_with_options};
 use football_storage::repositories::identity as repo;
 use football_storage::test_support::test_pool;
 use serde_json::json;
@@ -673,6 +673,51 @@ async fn not_found_queues_and_pending_dedup() {
     .unwrap();
     match res {
         Resolution::NotFound { queue_id: q2 } => assert_eq!(q2, queue_id),
+        other => panic!("NotFound helyett: {other:?}"),
+    }
+    assert_eq!(queue_count(&pool).await, 1);
+}
+
+#[tokio::test]
+async fn display_only_resolution_does_not_open_a_review_row() {
+    let pool = test_pool().await;
+    let source_id = seed_source(&pool, "research").await;
+    let _other = seed_team(&pool, "Távoli FC", None, "male", "senior", "senior").await;
+
+    // Megjelenítés-only mód: nincs review-sor, a queue_id semleges.
+    let res = resolve_with_options(
+        &pool,
+        source_id,
+        "research",
+        "referee",
+        "jv-1",
+        "Ismeretlen Bíró",
+        &IdentityContext::default(),
+        ResolveOptions { open_review: false },
+    )
+    .await
+    .unwrap();
+    match res {
+        Resolution::NotFound { queue_id } => assert_eq!(queue_id, Uuid::nil()),
+        other => panic!("NotFound helyett: {other:?}"),
+    }
+    assert_eq!(queue_count(&pool).await, 0);
+
+    // Ugyanaz a forrás review-nyitó módban: létrejön a sor.
+    let res = resolve_with_options(
+        &pool,
+        source_id,
+        "research",
+        "referee",
+        "jv-1",
+        "Ismeretlen Bíró",
+        &IdentityContext::default(),
+        ResolveOptions::default(),
+    )
+    .await
+    .unwrap();
+    match res {
+        Resolution::NotFound { queue_id } => assert_ne!(queue_id, Uuid::nil()),
         other => panic!("NotFound helyett: {other:?}"),
     }
     assert_eq!(queue_count(&pool).await, 1);

@@ -12,5 +12,5 @@ pub mod v1_seed;
 
 pub use crosswalk::{CrosswalkConflict, crosswalk_conflicts};
 pub use error::IdentityError;
-pub use linker::resolve;
+pub use linker::{ResolveOptions, resolve, resolve_with_options};
 pub use repair::{MatchRepairReport, RebuildReport, rebuild_source_refs, repair_soccerway_matches};
