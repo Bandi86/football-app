@@ -8,7 +8,7 @@ use chrono::NaiveDate;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow, utoipa::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct CompetitionListRow {
     pub competition_id: Uuid,
     pub name: String,
@@ -68,7 +68,7 @@ pub async fn fetch_competitions(
     Ok(rows)
 }
 
-#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow, utoipa::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct CompetitionDetailRow {
     pub competition_id: Uuid,
     pub name: String,
@@ -151,7 +151,7 @@ pub async fn fetch_competition_detail(
     Ok(row)
 }
 
-#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow, utoipa::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct CompetitionTeamRow {
     pub team_id: Uuid,
     pub name: String,
@@ -226,7 +226,7 @@ pub async fn fetch_competition_teams(
 }
 
 /// Egy verseny szezonjai meccs/eredmény/odds darabszámmal (kliens szezon-nézet).
-#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow, utoipa::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct CompetitionSeasonRow {
     pub label: String,
     pub matches: i64,
@@ -257,7 +257,7 @@ pub async fn fetch_competition_seasons(
 }
 
 /// Tabella-sor a verseny aktuális szezonjából, lejátszott meccsekből számolva.
-#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow, utoipa::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct CompetitionStandingRow {
     pub position: i64,
     pub team_id: Uuid,

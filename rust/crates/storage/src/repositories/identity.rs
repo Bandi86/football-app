@@ -7,7 +7,8 @@
 //! Executor-generikus, hogy a review-életciklus tranzakcióban is hívja őket
 //! (Task 5) — SQL-duplikáció nélkül.
 //!
-//! Dokumentált korlát: az `all_team_entities` teljes szkennelést ad a fuzzy
+//! Dokumentált korlát: az `entities_of_kind` (a `team` fajtára szűkített
+//! `all_team_entities` wrappere is ezt hívja) teljes szkennelést ad a fuzzy
 //! jelölt-képzéshez; S2b-1 szintetikus skálán elfogadható, S3-ban szűkítendő.
 
 use anyhow::{Context, Result};
@@ -268,8 +269,12 @@ pub async fn insert_alias_seeds(
 const ENTITY_COLUMNS: &str =
     "e.id AS entity_id, e.canonical_name, c.code AS country_code, t.gender, t.age_group, t.branch";
 
+// Fajtafüggetlen entitás-olvasás: a `core.team` sor csak a `team` fajtánál
+// létezik, ezért LEFT JOIN. Nem-csapat entitásnál (pl. `referee`) a kontextus
+// mezői NULL-ok: az `IdentityContext` ilyenkor wildcard, azaz nincs ország-
+// /nem-/korosztály-szűrés (a hiányzó adat NULL, nem kitalált érték).
 const ENTITY_JOIN: &str = "FROM core.entity e
-         JOIN core.team t ON t.entity_id = e.id
+         LEFT JOIN core.team t ON t.entity_id = e.id
          LEFT JOIN core.country c ON c.id = t.country_id";
 
 fn entity_from_row(row: &PgRow) -> Result<EntityRow> {
@@ -291,46 +296,71 @@ fn entity_from_row(row: &PgRow) -> Result<EntityRow> {
     })
 }
 
-/// Csapat-entitások foldolt név szerint (S1: `identity.fold_name` mindkét
-/// oldalon; core.entity canonical_name vagy core.team name). Az összevont
-/// (`merged_into_id` nem NULL) entitásokat kihagyja. A LEFT JOIN miatt az
-/// ország nélküli csapat is megjelenik (country_code = None), nem vesz el adat.
-pub async fn team_entities_by_normalized_name(
+/// Entitások foldolt név szerint, adott fajtára szűrve (S1: `identity.fold_name`
+/// mindkét oldalon; core.entity canonical_name vagy core.team name). Az
+/// összevont (`merged_into_id` nem NULL) entitásokat kihagyja. A LEFT JOIN
+/// miatt a `core.team` sor nélküli entitás (pl. `referee`) is megjelenik, NULL
+/// kontextussal — a hiányzó kontextus nem szűr, nem veszik el adat.
+///
+/// A `team` fajtánál ez a csapat-ág változatlan viselkedése: ugyanazok a
+/// jelöltek, ugyanaz a `ORDER BY e.canonical_name` sorrend.
+pub async fn entities_by_normalized_name(
     pool: &PgPool,
+    entity_kind: &str,
     folded_name: &str,
 ) -> Result<Vec<EntityRow>> {
     let sql = format!(
         "SELECT {ENTITY_COLUMNS} {ENTITY_JOIN}
-         WHERE e.kind = 'team' AND e.merged_into_id IS NULL
+         WHERE e.kind = $2 AND e.merged_into_id IS NULL
            AND (identity.fold_name(e.canonical_name) = identity.fold_name($1)
-                OR identity.fold_name(t.name) = identity.fold_name($1))
+                OR (t.name IS NOT NULL
+                    AND identity.fold_name(t.name) = identity.fold_name($1)))
          ORDER BY e.canonical_name"
     );
     let rows = sqlx::query(&sql)
         .bind(folded_name)
+        .bind(entity_kind)
         .fetch_all(pool)
         .await
-        .context("csapat entitás lekérés név szerint")?;
+        .context("entitás lekérés név szerint")?;
     rows.iter().map(entity_from_row).collect()
 }
 
-/// Összes csapat-entitás a fuzzy jelölt-képzéshez.
+/// Csapat-entitások foldolt név szerint (a fajtafüggetlen lekérdezés `team`
+/// fajtára szűkítve, a meglévő hívók és tesztek változatlanul használják).
+pub async fn team_entities_by_normalized_name(
+    pool: &PgPool,
+    folded_name: &str,
+) -> Result<Vec<EntityRow>> {
+    entities_by_normalized_name(pool, "team", folded_name).await
+}
+
+/// Adott fajtájú élő entitások a fuzzy jelölt-képzéshez.
 ///
 /// S2: az összevont entitás nem lehet jelölt sem, ezért `merged_into_id IS
 /// NULL` szűrő van. Dokumentált korlát: teljes szkennelés (nincs más szűrés);
 /// S2b-1 szintetikus skálán elfogadható, S3-ban szűkítendő (pl. verseny/ország
-/// szerinti halmaz).
-pub async fn all_team_entities(pool: &PgPool) -> Result<Vec<EntityRow>> {
+/// szerinti halmaz). Az `entity_kind` kötelező: a jelöltlista nem keverhet
+/// más fajtájú entitást (pl. csapatot játékvezető-jelöltként).
+pub async fn entities_of_kind(pool: &PgPool, entity_kind: &str) -> Result<Vec<EntityRow>> {
     let sql = format!(
         "SELECT {ENTITY_COLUMNS} {ENTITY_JOIN}
-         WHERE e.kind = 'team' AND e.merged_into_id IS NULL
+         WHERE e.kind = $1 AND e.merged_into_id IS NULL
          ORDER BY e.canonical_name"
     );
     let rows = sqlx::query(&sql)
+        .bind(entity_kind)
         .fetch_all(pool)
         .await
-        .context("összes csapat entitás lekérés")?;
+        .context("összes entitás lekérés fajta szerint")?;
     rows.iter().map(entity_from_row).collect()
+}
+
+/// Összes csapat-entitás a fuzzy jelölt-képzéshez (a fajtafüggetlen lekérdezés
+/// `team` fajtára szűkítve, a meglévő hívók és tesztek változatlanul
+/// használják).
+pub async fn all_team_entities(pool: &PgPool) -> Result<Vec<EntityRow>> {
+    entities_of_kind(pool, "team").await
 }
 
 /// Csapat-entitás a kanonikus névvel és a `core.team.name`-mel együtt (S41

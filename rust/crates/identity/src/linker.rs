@@ -4,10 +4,19 @@
 //! 1. egzakt külső ID (aktív ref) → Exact,
 //! 2. crosswalk-lánc (csak strong/medium; weak teljesen kihagyva) → Exact,
 //! 3. reviewed alias kontextus-szűrővel, pontosan 1 entitás → Exact,
-//! 4. egzakt foldolt név kontextus-szűrővel, pontosan 1 → Exact,
-//! 5. fuzzy jelöltek (token_overlap ≥ FUZZY_THRESHOLD, kontextus-szűrve,
-//!    soha nem Exact) → Candidates,
+//! 4. egzakt foldolt név kontextus-szűrővel, `entity_kind`-ra szűrve,
+//!    pontosan 1 → Exact. Női kontextusban a csapat-ág a jelölő nélküli névhez
+//!    marker-normalizált egzakt kulcsokat is kipróbál ("…" → "…w"/"…women"),
+//!    mert a katalógus a női csapatokat jelölővel tárolja,
+//! 5. fuzzy jelöltek (token_overlap ≥ FUZZY_THRESHOLD, kontextus- és
+//!    fajtaszűrve, soha nem Exact) → Candidates,
 //! 6. NotFound.
+//!
+//! A 4-5. lépés a kért entitás-fajta katalógusán dolgozik (nem fixen a
+//! csapatokon): a csapat-ág viselkedése változatlan, a játékvezető-ág saját
+//! katalógust lát. A játékvezető-ágon a 4. lépés csak TELJES név egyezésénél
+//! linkel automatikusan; a rövid alak (vezetéknév + kezdőbetű) az AGENTS.md §6
+//! szerint csak review-jelölt lehet (lásd `is_full_person_name`).
 //!
 //! A Candidates és a NotFound mindig pending review-sort nyit (upsert), és
 //! visszaadja annak queue_id-ját. DB-hiba `IdentityError::Db` — a hívó
@@ -17,7 +26,7 @@ use std::collections::HashSet;
 
 use football_domain::identity::{
     Candidate, FUZZY_THRESHOLD, IdentityContext, Resolution, ResolveMethod, context_matches,
-    fold_name, token_overlap,
+    fold_keep_separators, fold_name, token_overlap,
 };
 use football_storage::repositories::identity as repo;
 use sqlx::PgPool;
@@ -102,15 +111,50 @@ pub async fn resolve(
         });
     }
 
-    // 4. egzakt foldolt név + kontextus (pontosan 1)
-    let entities = repo::team_entities_by_normalized_name(pool, &folded)
+    // 4. egzakt foldolt név + kontextus, a kért fajta katalógusán
+    // (pontosan 1).
+    //
+    // Referee-ág: csak TELJES név egyezése linkelhet automatikusan. A rövid
+    // alak (pl. "M Oliver", "Fyfe, I. M.") egy másik játékvezetőre is
+    // illeszkedhet, ezért az AGENTS.md §6 tiltja az automatikus fuzzy
+    // entitás-összevonást — ilyenkor a találat csak review-jelölt lesz.
+    let mut entities = repo::entities_by_normalized_name(pool, entity_kind, &folded)
         .await
         .map_err(db)?;
+    // Női csapatnevek: a tipplap jelölő nélkül küldi a nevet ("Granada"), a
+    // kanonikus katalógus viszont jelölővel tárolja ("Granada W", "Granada (W)",
+    // "Granada Women"). A `fold_name` minden elválasztót és szóközt eldob, ezért
+    // `granada` ≠ `granadaw`, és a 4. lépés nem talál. 2026-11-22-én 26 ilyen
+    // pending team-sor volt (mind női csapat, gender=female/branch=women
+    // kontextussal), a katalógusban pedig 17 markerelt női csapatnév.
+    //
+    // Csak a marker HOZZÁADÁSÁNAK irányában bővítjük a kulcsot, és csak női
+    // kontextusban: ez nem fuzzy merge (AGENTS.md §6), hanem további EGZAKT
+    // string-kulcs — `fold(proposed)+"w"` és `fold(proposed)+"women"` —, amit a
+    // kontextus-egyezés és az egyértelműség (pontosan 1 különböző entitás) tesz
+    // linkelhetővé. A férfi ág viselkedése változatlan (egyetlen kulcs).
+    if entity_kind == "team" && is_women_context(ctx) {
+        for marker in ["w", "women"] {
+            let key = format!("{folded}{marker}");
+            for entity in repo::entities_by_normalized_name(pool, entity_kind, &key)
+                .await
+                .map_err(db)?
+            {
+                if !entities
+                    .iter()
+                    .any(|existing| existing.entity_id == entity.entity_id)
+                {
+                    entities.push(entity);
+                }
+            }
+        }
+    }
     let name_hits: Vec<_> = entities
         .iter()
         .filter(|e| context_matches(ctx, &e.context()))
         .collect();
-    if name_hits.len() == 1 {
+    let auto_link_exact = entity_kind != "referee" || is_full_person_name(proposed_name);
+    if name_hits.len() == 1 && auto_link_exact {
         return Ok(Resolution::Exact {
             entity_id: name_hits[0].entity_id,
             method: ResolveMethod::ExactName,
@@ -127,8 +171,19 @@ pub async fn resolve(
                 reason: "multiple_candidates",
             });
         }
+    } else if let Some(hit) = name_hits.first().filter(|_| !auto_link_exact) {
+        // Egzakt nevű, de nem linkelhető (rövid alakú) találat: a fajtaszűrt
+        // jelöltlistán review-jelöltként jelenik meg, nem linkel.
+        candidates.push(Candidate {
+            entity_id: hit.entity_id,
+            score: 1.0,
+            reason: "fuzzy_candidate",
+        });
     }
-    for e in repo::all_team_entities(pool).await.map_err(db)? {
+    for e in repo::entities_of_kind(pool, entity_kind)
+        .await
+        .map_err(db)?
+    {
         if !context_matches(ctx, &e.context()) {
             continue;
         }
@@ -182,5 +237,73 @@ pub async fn resolve(
             candidates,
             queue_id,
         })
+    }
+}
+
+/// Igaz, ha a név TELJES személynévnek tekinthető: legalább két token, és
+/// egyik token sem kezdőbetű (1 karakteres). A rövid alak — vezetéknév +
+/// kezdőbetű, pl. "M Oliver", "Fyfe, I. M.", "P. A. Durkin" — tehát hamis,
+/// csakúgy, mint az egytokenes (monogramm) név: ezeket konzervatívan nem
+/// linkeljük automatikusan (AGENTS.md §6).
+fn is_full_person_name(name: &str) -> bool {
+    let folded = fold_keep_separators(name);
+    let tokens: Vec<&str> = folded
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .collect();
+    tokens.len() >= 2 && tokens.iter().all(|token| token.chars().count() >= 2)
+}
+
+/// Igaz, ha a kontextus női meccset/versenyt jelez: `gender = "female"` vagy
+/// `branch = "women"` (a séma a `core.team.gender`-t 'male'/'female'/'unknown',
+/// a `core.team.branch`-t 'senior'/'reserve'/'youth'/'women' értékkel ismeri).
+/// Csak ebben az irányban bővítjük a név-kulcsot jelölővel (lásd a 4. lépés).
+fn is_women_context(ctx: &IdentityContext) -> bool {
+    ctx.gender.as_deref() == Some("female") || ctx.branch.as_deref() == Some("women")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_full_person_name, is_women_context};
+    use football_domain::identity::IdentityContext;
+
+    #[test]
+    fn full_names_are_accepted() {
+        assert!(is_full_person_name("Felix Zwayer"));
+        assert!(is_full_person_name("Félix Zwayer"));
+        assert!(is_full_person_name("Dr. Felix Zwayer"));
+        assert!(is_full_person_name("van der Berg"));
+    }
+
+    #[test]
+    fn short_forms_are_rejected() {
+        assert!(!is_full_person_name("M. Oliver"));
+        assert!(!is_full_person_name("M Oliver"));
+        assert!(!is_full_person_name("A Beaton"));
+        assert!(!is_full_person_name("Fyfe, I. M."));
+        assert!(!is_full_person_name("Rowbotham, J"));
+        assert!(!is_full_person_name("Zwayer"));
+        assert!(!is_full_person_name(""));
+    }
+
+    #[test]
+    fn women_context_is_detected_by_gender_or_branch() {
+        let by_gender = IdentityContext {
+            gender: Some("female".into()),
+            ..Default::default()
+        };
+        let by_branch = IdentityContext {
+            branch: Some("women".into()),
+            ..Default::default()
+        };
+        let men = IdentityContext {
+            gender: Some("male".into()),
+            branch: Some("senior".into()),
+            ..Default::default()
+        };
+        assert!(is_women_context(&by_gender));
+        assert!(is_women_context(&by_branch));
+        assert!(!is_women_context(&men));
+        assert!(!is_women_context(&IdentityContext::default()));
     }
 }

@@ -10,6 +10,11 @@ public struct MatchDetail: Decodable, Equatable, Sendable {
     public let competitionTimezone: String?
     public let status: String
     public let roundLabel: String?
+    /// A verseny kanonikus azonosítója (a részletező verseny-hivatkozásához).
+    /// A backend mindig küldi; a régi fixture-ökből és a korábbi válaszokból
+    /// hiányozhat, ezért opcionális (a szerződés-drift elleni kulcshalmaz-teszt
+    /// ettől még a mezőt elvárja a válaszban).
+    public let competitionId: UUID?
     public let competitionName: String
     public let countryCode: String?
     public let countryName: String?
@@ -81,13 +86,14 @@ public struct MatchDetail: Decodable, Equatable, Sendable {
     /// hiányozhat, ezért opcionális; a nézet a hiányt üres listaként kezeli.
     public let incidents: [MatchIncident]?
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case id
         case kickoffAt = "kickoff_at"
         case kickoffPrecision = "kickoff_precision"
         case competitionTimezone = "competition_timezone"
         case status
         case roundLabel = "round_label"
+        case competitionId = "competition_id"
         case competitionName = "competition_name"
         case countryCode = "country_code"
         case countryName = "country_name"

@@ -722,8 +722,16 @@ impl Canonicalizer {
                     .await?;
                 }
                 if let Some(name) = &fixture_match.referee {
-                    link_referee(pool, &mut tx, source_id, &day.source_code, match_id, name)
-                        .await?;
+                    link_referee(
+                        pool,
+                        &mut tx,
+                        source_id,
+                        &day.source_code,
+                        match_id,
+                        competition_id,
+                        name,
+                    )
+                    .await?;
                 }
             }
         }
@@ -1752,12 +1760,18 @@ async fn write_environment(
 
 /// Játékvezető kapcsolása a fail-closed linkeren át; nem egzakt → NULL
 /// (a linker review-sort nyit; a meccs nem blokkol emiatt).
+///
+/// A kontextus a meccs versenyének országa (`competition_id` a híd utáni
+/// kanonikus verseny). Üres / INT / XX verseny-országnál szándékosan nincs
+/// ország-szűrés: a semleges kód nem szűkíthetne egyetlen országra sem, ezért
+/// a kontextus ilyenkor ország nélküli (lásd `alias_country_code`).
 async fn link_referee(
     pool: &PgPool,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     source_id: Uuid,
     source_code: &str,
     match_id: Uuid,
+    competition_id: Uuid,
     name: &str,
 ) -> Result<()> {
     // Slug: ismétlődő elválasztók összevonva ("M. Oliver" → "m-oliver").
@@ -1770,7 +1784,26 @@ async fn link_referee(
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join("-");
-    let ctx = football_domain::identity::IdentityContext::default();
+    // A referee katalógusnak ma nincs ország-tárolása a sémában (nincs
+    // core.referee és nincs core.entity.country_id), ezért az entitás oldalán
+    // a kontextus wildcard. A verseny országa ettől még valódi kontextus: a
+    // review-sorba bekerül, és a szűrés azonnal él, ha az entitás oldalán
+    // lesz ország.
+    let competition_country: Option<String> = sqlx::query_scalar(
+        "SELECT c.code
+           FROM core.competition comp
+           LEFT JOIN core.country c ON c.id = comp.country_id
+          WHERE comp.id = $1",
+    )
+    .bind(competition_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .flatten();
+    let ctx = football_domain::identity::IdentityContext {
+        // Üres / INT / XX → None (semleges kontextus, nincs ország-szűrés).
+        country_code: football_domain::identity::alias_country_code(competition_country.as_deref()),
+        ..Default::default()
+    };
     match football_identity::resolve(
         pool,
         source_id,

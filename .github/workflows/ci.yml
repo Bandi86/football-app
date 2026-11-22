@@ -1,9 +1,25 @@
+# Football App v2 — CI kapu-lánc
+#
+# A workflow a projekt kapu-láncát futtatja (forrás: .dsh/skills/football-app-v2/SKILL.md):
+#   Rust:  PostgreSQL service -> két adatbázis -> migrációk -> check-foundation ->
+#          teljes teszt -> clippy -D warnings -> fmt --check -> teljes build
+#   Swift: FootballAppCore teszt -> XcodeGen -> aláírás nélküli app build -> app unit tesztek
+#
+# Elvek:
+# - Nincs titok a repóban: a PostgreSQL service konténer eldobható, a PostgreSQL
+#   alapértelmezett postgres/postgres hitelesítő adatait használja. Valódi titok csak
+#   GitHub Secretből jöhetne; a repóban tárolt jelszó tilos.
+# - Fail-fast: a lépések sorban futnak, az első hibánál a job azonnal leáll; a concurrency
+#   a korábbi, ugyanarra az ágra indult futásokat megszakítja.
+# - A két job párhuzamos (a README is így írja le). A Rust hibája nem nyeli el a Swift
+#   diagnózisát; a kötelező státusz-check a merge-hez mindkettőt megköveteli.
 name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -14,6 +30,8 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # CI-ban nincs értelme inkrementális buildnek; kisebb target cache, gyorsabb tiszta build.
+  CARGO_INCREMENTAL: "0"
   APP_TIMEZONE: Europe/Budapest
   DATA_DIR: ./data
   BIND_ADDR: 127.0.0.1:0
@@ -22,69 +40,111 @@ jobs:
   rust:
     name: Rust (domain, storage, API, worker)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     services:
       postgres:
         image: postgres:18-alpine
         env:
-          POSTGRES_USER: football_v2
-          POSTGRES_PASSWORD: ci_password
-          POSTGRES_DB: football_v2_dev
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U football_v2"
+          --health-cmd "pg_isready -U postgres -d postgres"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
     env:
-      DATABASE_URL: postgres://football_v2:ci_password@127.0.0.1:5432/football_v2_dev
-      TEST_DATABASE_URL: postgres://football_v2:ci_password@127.0.0.1:5432/football_v2_test
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/football_v2_dev
+      TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/football_v2_test
     steps:
-      - uses: actions/checkout@v4
+      - name: Forrás kivétele
+        uses: actions/checkout@v4
 
-      - name: Rust eszközlánc (stable, rustfmt, clippy)
+      - name: "Rust eszközlánc (rust-toolchain.toml: stable + rustfmt + clippy)"
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
-      - name: Cargo cache
-        uses: Swatinem/rust-cache@v2
+      - name: Rust toolchain ellenőrzése
+        run: |
+          cat rust-toolchain.toml
+          rustup show active-toolchain
+          rustc --version
+          cargo --version
+          rustfmt --version
+          cargo clippy --version
+
+      - name: Cargo registry és target cache
+        uses: actions/cache@v4
         with:
-          workspaces: rust -> target
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       - name: sqlx-cli cache
         id: sqlx-cache
         uses: actions/cache@v4
         with:
-          path: ~/.cargo/bin
+          # Csak a két sqlx binárist cache-eljük, a teljes ~/.cargo/bin-t nem: így a
+          # rustup shimeket (cargo, rustc, rustfmt) a cache nem írhatja felül.
+          path: |
+            ~/.cargo/bin/sqlx
+            ~/.cargo/bin/cargo-sqlx
           key: sqlx-cli-0.8-${{ runner.os }}
 
       - name: sqlx-cli telepítése
+        # A repóban van beágyazott migrációs út is (footballctl migrate, footballd indulás),
+        # de a kapu-lánc scripts/db-reset.sh-ja a sqlx CLI-t hívja. A CI ezért ugyanazt a CLI-t
+        # telepíti (nem saját migráló SQL-t ír), hogy a helyi láncot 1:1 futtassa.
         if: steps.sqlx-cache.outputs.cache-hit != 'true'
         run: cargo install sqlx-cli --version ^0.8 --no-default-features --features rustls,postgres --locked
 
       - name: PostgreSQL kliens
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
-
-      - name: Teszt adatbázis létrehozása
-        run: psql "$DATABASE_URL" -c 'CREATE DATABASE football_v2_test'
-
-      - name: Migrációk (dev és test)
         run: |
-          sqlx migrate run --source db/migrations
-          TEST_DATABASE_URL="$TEST_DATABASE_URL" ./scripts/db-reset.sh
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
 
-      - name: Alap-ellenőrzés (formázás, domain/storage teszt, clippy)
+      - name: A két adatbázis létrehozása (.env.example mintája)
+        run: |
+          psql "postgres://$PGUSER:$PGPASSWORD@$PGHOST:$PGPORT/postgres" -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE DATABASE football_v2_dev;
+          CREATE DATABASE football_v2_test;
+          SQL
+          psql "$DATABASE_URL" -tAc 'SELECT current_database(), current_user;'
+          psql "$TEST_DATABASE_URL" -tAc 'SELECT current_database(), current_user;'
+
+      - name: Migrációk a dev adatbázisra
+        run: sqlx migrate run --source db/migrations
+
+      - name: Migrációk és ürítés a teszt adatbázisra (repo-script)
+        run: ./scripts/db-reset.sh
+
+      - name: Alapkapu (db-check, fmt, domain/storage teszt, clippy)
         run: ./scripts/check-foundation.sh
 
-      - name: Teljes teszt
+      - name: Teljes teszt (közös teszt-DB miatt egy szálon)
         run: cd rust && cargo test --workspace -- --test-threads=1
 
       - name: Clippy (minden cél, figyelmeztetés = hiba)
         run: cd rust && cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Bináris build (obscura feature)
+      - name: Formázás ellenőrzése
+        run: cd rust && cargo fmt --all --check
+
+      - name: Teljes workspace build
+        run: cd rust && cargo build --workspace
+
+      - name: Bináris build (obscura feature, a projekt kapu-lánca szerint)
         run: cd rust && cargo build -p footballd -p footballctl --features obscura
 
   swift:
@@ -92,13 +152,15 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - name: Forrás kivétele
+        uses: actions/checkout@v4
 
       - name: Xcode kiválasztása
         run: |
           developer_dir="$(xcode-select -p)"
           if [[ "$developer_dir" != *".app/Contents/Developer" ]]; then
-            developer_dir="$(find /Applications -maxdepth 1 -name 'Xcode*.app' -type d | sort -V | tail -1)/Contents/Developer"
+            # macOS BSD sort nem ismeri a -V-t: lexikografikus rendezés + utolsó elem.
+            developer_dir="$(find /Applications -maxdepth 1 -name 'Xcode*.app' -type d | sort | tail -1)/Contents/Developer"
             sudo xcode-select -s "$developer_dir"
           fi
           xcodebuild -version
@@ -112,11 +174,16 @@ jobs:
       - name: Xcode projekt generálása
         run: cd apps && xcodegen generate
 
-      - name: App unit tesztek
+      - name: App build (aláírás nélkül)
+        run: |
+          xcodebuild build -project apps/FootballApp.xcodeproj -scheme FootballApp \
+            -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO
+
+      - name: App unit tesztek (aláírás nélkül)
         run: |
           xcodebuild test -project apps/FootballApp.xcodeproj -scheme FootballApp \
             -destination 'platform=macOS' -only-testing:FootballAppTests CODE_SIGNING_ALLOWED=NO
 
   # Az XCUITest harness (FootballAppUITests) szándékosan NEM fut CI-ben: macOS-en
-  # Accessibility/TCC engedély és futó ablak kell hozzá. Helyette helyben:
-  # ./scripts/run-ui-tests.sh
+  # Accessibility/TCC engedély és futó ablak kell hozzá. Helyben: ./scripts/run-ui-tests.sh
+  # Részletek: docs/operations/ci.md

@@ -8,7 +8,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct MatchDetailRow {
     pub id: Uuid,
     pub kickoff_at: DateTime<Utc>,
@@ -106,7 +106,7 @@ pub struct MatchDetailRow {
 /// A stadion a részletező válaszban (S90). A venue nem kanonikus entitás,
 /// ezért itt csak a forrás által adott, ember által olvasható adatok vannak.
 /// Minden mező opcionális: a hiányzó adat `null`, soha nem 0.
-#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct VenueRow {
     pub name: Option<String>,
     pub city: Option<String>,
@@ -116,7 +116,7 @@ pub struct VenueRow {
 }
 
 /// Az időjárás a részletező válaszban (S90); hiányzó adat `null`.
-#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct WeatherRow {
     /// Celsius-fok; a forrás szerződése szerint (a `unit` mezőt nem adjuk ki).
     pub temperature_c: Option<f64>,
@@ -130,7 +130,7 @@ pub struct WeatherRow {
 }
 
 /// Egy meccs-esemény a részletező válaszban (S82).
-#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct MatchIncidentRow {
     /// A perc; hiányzó adat → `null` (a félidő/hosszabbítás jelzőknél lehet).
     pub minute: Option<i32>,
@@ -561,7 +561,7 @@ impl From<MatchDetailDbRow> for MatchDetailRow {
 }
 
 /// Forma-mutató egy korábbi meccsről (a csapat szemszögéből).
-#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct FormEntry {
     pub match_id: Uuid,
     pub kickoff_at: DateTime<Utc>,
@@ -575,7 +575,7 @@ pub struct FormEntry {
 }
 
 /// Egy korábbi egymás elleni meccs.
-#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct HeadToHeadEntry {
     pub match_id: Uuid,
     pub kickoff_at: DateTime<Utc>,
@@ -589,7 +589,7 @@ pub struct HeadToHeadEntry {
 /// A részletező nézet kiegészítései: a két csapat utolsó meccsei és az
 /// egymás elleni találkozók. Minden lekérdezés a meccs kezdete előtti
 /// állapotra szűr, hogy jövőbeli információ ne szivárogjon vissza.
-#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct MatchExtras {
     pub home_form: Vec<FormEntry>,
     pub away_form: Vec<FormEntry>,
@@ -826,7 +826,7 @@ pub async fn fetch_match_extras(
 }
 
 /// Egy soron következő (még le nem játszott) meccs a csapat szemszögéből.
-#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct NextMatchEntry {
     pub match_id: Uuid,
     pub kickoff_at: DateTime<Utc>,
@@ -893,5 +893,33 @@ mod table_slice_tests {
     fn slice_without_positions_is_empty() {
         let rows: Vec<_> = (1..=10).map(row).collect();
         assert!(standings_slice(&rows, &[None, None], 2).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod contract_tests {
+    use super::*;
+
+    /// S96 — a `GET /v1/match/{id}` válasz kontraktja. A `match-detail-response.json`
+    /// a szerződés egyetlen forrása: ezt a teszt a `MatchDetailRow` teljes
+    /// szerializációs körével méri, a Swift oldal (`DetailContractTests`) ugyanezt
+    /// a fájlt dekódolja. Egy mezőátnevezés vagy típusváltás így valamelyik oldalon
+    /// mindenképp elbukik — nem tud csendben elcsúszni.
+    #[test]
+    fn match_detail_response_round_trips_the_contract_fixture() {
+        let raw = include_str!("../../../../../tests/fixtures/contract/match-detail-response.json");
+        let contract: serde_json::Value = serde_json::from_str(raw).expect("érvényes JSON");
+        let row: MatchDetailRow = serde_json::from_value(contract.clone())
+            .expect("a fixture megfelel a MatchDetailRow szerkezetének");
+        let produced = serde_json::to_value(&row).expect("a MatchDetailRow szerializálható");
+
+        assert_eq!(
+            produced, contract,
+            "a /v1/match válasz alakja eltért a kontrakt-fixture-től"
+        );
+        let venue = row.venue.expect("a fixture stadiont tartalmaz");
+        assert_eq!(venue.name.as_deref(), Some("Estadio Ricardo Gregor"));
+        let weather = row.weather.expect("a fixture időjárást tartalmaz");
+        assert_eq!(weather.temperature_c, Some(27.0));
     }
 }

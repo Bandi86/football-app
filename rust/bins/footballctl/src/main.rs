@@ -65,6 +65,23 @@ enum DedupeAction {
         #[arg(long)]
         deny: Option<String>,
     },
+    /// S96: cross-source csapatnév-változatból keletkezett duplikátumok
+    /// (azonos kickoff + foldolt versenynév + státusz + eredmény, az egyik
+    /// oldalon azonos csapat-entitás, a másikon hasonló nevű, azonos
+    /// kontextusú csapat). `--apply` esetén a csapat-entitások és a
+    /// fixture-ök is merge-elődnek. Dry-run alapból.
+    Aliases {
+        #[arg(long)]
+        from: NaiveDate,
+        #[arg(long)]
+        to: NaiveDate,
+        /// Tényleges végrehajtás (alapból csak terv).
+        #[arg(long)]
+        apply: bool,
+        /// Az eltérő csapatnevek foldolt hasonlóságának alsó korlátja.
+        #[arg(long, default_value_t = 0.55)]
+        min_similarity: f64,
+    },
     /// S37c: név-variáns duplikátumok egy napon (legfeljebb 12 órás
     /// kickoff-különbség, de forrásonként eltérő csapatnév). Alapból csak azonos
     /// versenyen belül; `--cross-competition` kapcsolóval a különböző
@@ -734,6 +751,100 @@ async fn main() -> Result<()> {
                         "duplikált csoportok: {}, merge-ek: {}, kihagyva: {}{}",
                         groups.len(),
                         merges,
+                        skipped,
+                        if apply {
+                            ""
+                        } else {
+                            " (dry-run — --apply a végrehajtáshoz)"
+                        }
+                    );
+                }
+            }
+            DedupeAction::Aliases {
+                from,
+                to,
+                apply,
+                min_similarity,
+            } => {
+                let groups =
+                    football_storage::repositories::dedupe::find_cross_source_alias_duplicates(
+                        &pool,
+                        from,
+                        to,
+                        min_similarity,
+                    )
+                    .await?;
+                if groups.is_empty() {
+                    println!(
+                        "nincs cross-source névváltozat-duplikátum a {from}..{to} tartományban"
+                    );
+                    println!(
+                        "csoportok: 0, csapat-merge-ek: 0, fixture-merge-ek: 0, kihagyva: 0{}",
+                        if apply {
+                            ""
+                        } else {
+                            " (dry-run — --apply a végrehajtáshoz)"
+                        }
+                    );
+                } else {
+                    let mut team_merges = 0usize;
+                    let mut fixture_merges = 0usize;
+                    let mut skipped = 0usize;
+                    for group in &groups {
+                        println!(
+                            "csoport — {} ({} {}) | eltérő oldal: {}, hasonlóság {:.3}",
+                            group.competition_name,
+                            group.kickoff_at.date_naive(),
+                            group.kickoff_at.time(),
+                            group.side.as_str(),
+                            group.similarity
+                        );
+                        println!(
+                            "  túlélő: {} [{} - {}]",
+                            group.survivor.match_id,
+                            group.survivor.home_name,
+                            group.survivor.away_name
+                        );
+                        println!(
+                            "  áldozat: {} [{} - {}]",
+                            group.duplicate.match_id,
+                            group.duplicate.home_name,
+                            group.duplicate.away_name
+                        );
+                        println!(
+                            "  csapat-névváltozat: {} / {}",
+                            group.survivor_team_name(),
+                            group.duplicate_team_name()
+                        );
+                        if apply {
+                            let outcome =
+                                football_storage::repositories::dedupe::apply_cross_source_alias_group(
+                                    &pool, group,
+                                )
+                                .await;
+                            match outcome {
+                                Ok(report) => {
+                                    fixture_merges += 1;
+                                    if report.merged_entity_id.is_some() {
+                                        team_merges += 1;
+                                    }
+                                    println!(
+                                        "  merge kész: audit={} | csapat-merge={:?}",
+                                        report.match_audit_id, report.merged_entity_id
+                                    );
+                                }
+                                Err(err) => {
+                                    skipped += 1;
+                                    println!("  kihagyva: {err:#}");
+                                }
+                            }
+                        }
+                    }
+                    println!(
+                        "csoportok: {}, csapat-merge-ek: {}, fixture-merge-ek: {}, kihagyva: {}{}",
+                        groups.len(),
+                        team_merges,
+                        fixture_merges,
                         skipped,
                         if apply {
                             ""

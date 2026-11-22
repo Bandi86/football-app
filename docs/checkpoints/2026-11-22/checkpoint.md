@@ -344,3 +344,112 @@ meg a gyökereket, ne a felhasználó nézze át a 936 meccset.
    verseny-hozzárendeléseket nem írja felül automatikusan. A mért klasztert
    (indonéz sorok az UZ „Super League" alatt) kézzel javítottuk; szélesebb,
    visszajátszható újrafeloldás külön szelet.
+
+## S96 — nyitott kérdések és projekt-előrelépés (kontrakt, identitás, dedupe-parancs, CI)
+
+Induló állapot: a felhasználó kérése („vizsgáld tovább a bugokat, de közben
+haladj a projekttel és a nyitott kérdésekkel is"). A szelet a nyitott tételek
+közül a kódoldalon megoldhatókat zárta le, és a maradékot döntési pontokra
+bontotta.
+
+### Megvalósított szeletek
+
+- [x] **Match-detail kontrakt-teszt** (P1 roadmap): új fixture
+  `tests/fixtures/contract/match-detail-response.json` a futó daemon valós
+  válaszából (66 felső kulcs, venue/weather/incidents/tabella), Rust
+  round-trip teszt a storage-structokon (`match_detail.rs` contract_tests), és
+  Swift dekódoló teszt ugyanarra a fixture-re
+  (`DetailContractTests.swift`, 4 teszt). A kulcshalmaz-teszt azonnal talált
+  egy valódi driftet: a backend `competition_id`-t küld, a kliens nem
+  dekódolta — javítva (`MatchDetail.competitionId`, opcionális a régi
+  fixture-ök miatt).
+- [x] **Bíró-entitás feloldás (gyökér)**: a linker 4–5. lépése fixen
+  `kind='team'`-re szűrt, ezért referee-re az egzakt-név és a fuzzy lépcső
+  strukturálisan nem működött (minden research bíró `NotFound` → review).
+  Most a név/fuzzy lépcső `entity_kind`-ra szűr, a fuzzy jelöltlista
+  fajtaszűrt (team már nem lehet referee-jelölt), a referee hívó a meccs
+  versenyének országát adja kontextusként, és referee-re csak TELJES név
+  egzakt egyezése linkel automatikusan (rövid alak → review, AGENTS.md §6).
+- [x] **Női csapatnév-feloldás**: női kontextusban a linker a jelölő nélküli
+  névre a `fold+név+"w"` / `+"women"` egzakt kulcsokat is kipróbálja (nem
+  fuzzy merge), így a tipplap „Granada" a kanonikus „Granada W"-ra linkel.
+  Mért hatás a jelenlegi queue-n: 26 pending team-sorból 13 egyértelműen
+  linkelhető, 3 ambiguous marad review, 10 hosszabb katalógusnév miatt
+  továbbra is nyitott.
+- [x] **`footballctl dedupe aliases --from … --to … [--apply]`**: a cross-source
+  névváltozat-duplikátumok (FC Cologne / FC Koln, Kuching FA / Kuching City)
+  bizonyíték-alapú felismerése és merge-elése: pontos kickoff + foldolt
+  versenynév + azonos státusz/eredmény + közös csapat-entitás horgony + a
+  névváltozat-oldalon kontextus-egyezés és ≥0,55 név-hasonlóság (2·LCS/alapú).
+  A parancs a meglévő `merge_duplicate` + `merge_team_via_alias` utakat
+  használja; dry-run a 11-19..11-23 tartományra 0 csoportot ad (a kézi
+  takarítás után ez a várt érték).
+- [x] **CI**: a workflow megmaradt (nem hiányzott), a valódi hiány a magyar
+  üzemeltetési leírás volt → `docs/operations/ci.md` (209 sor). A Rust job
+  PostgreSQL image-e a helyi PG18-hoz igazítva (`postgres:18-alpine`),
+  a két job neve változatlan (branch protection), a lánc a helyi kapukat
+  futtatja 1:1.
+
+### Adattisztítás ebben a szeletben
+
+- 11 „ghost" (0 meccses) verseny-entitás beolvasztva a több meccses párjába
+  (`identity merge-competition`, mind „merge utáni duplikált meccscsoportok: 0");
+  2 kivétel (`Group K`, `Group L`): az entitásnak nincs verseny-sora.
+- Cross-source duplikátumok: 28 csapat-entitás merge (`identity merge-team
+  --via-alias`, bizonyíték-szöveggel) + 27 fixture-merge (`dedupe pair`).
+  A mai archívum-számlálók: `ops.dedupe_archive` 184 sor,
+  `ops.entity_merge_archive` 48 sor (2026-11-22).
+- Ellenőrzés: `dedupe matches --date 2026-11-19 --to 2026-11-23` →
+  „nincs duplikált meccs"; `dedupe variants --date 2026-11-21` →
+  „nincs név-variáns duplikátum"; a nap-listákban 0 névpár-duplikátum,
+  0 nem-lezárt-eredményes sor.
+
+### Mért napi állapot (a szelet végén, `/v1/day`)
+
+| nap | sor | finished | scheduled | live | postponed | dup | nonterminal+eredmény |
+|---|---|---|---|---|---|---|---|
+| 11-19 | 102 | 69 | 31 | 0 | 2 | 0 | 0 |
+| 11-20 | 257 | 250 | 3 | 0 | 4 | 0 | 0 |
+| 11-21 | 909 | 850 | 28 | 1 | 30 | 0 | 0 |
+| 11-22 | 629 | 50 | 520 | 57 | 0 | 0 | 0 |
+| 11-23 | 98 | 0 | 98 | 0 | 0 | 0 | 0 |
+
+(A 11-21-i sorszám a korábbi 923-hoz képest a 27 duplikátum-merge miatt csökkent;
+a `live` 1 sor az Independiente Medellin–Santa Fe, amelyre nincs frissítő
+forrás — a kliens 6 órás `isLiveNow` kapuja kezeli.)
+
+### Futott ellenőrzések (mért)
+
+- `cargo fmt --all --check` → OK; `cargo clippy --workspace --all-targets -- -D warnings` → 0 warning.
+- `cargo test --workspace -- --test-threads=1` (db-reset után) → **539 passed / 0 failed** (105 test-binary).
+- `./scripts/db-reset.sh` → exit 0 (21 migráció); `./scripts/check-foundation.sh` → **exit 0**; `./scripts/db-check.sh` → dev 49 tábla / test 0 sor.
+- Swift: `swift test --package-path apps/FootballAppCore` → **109 teszt / 16 suite passed**;
+  `xcodebuild test -only-testing:FootballAppTests` → **69 teszt / 0 failure**.
+- `dedupe aliases` dry-run (11-19..11-23) → 0 csoport; a dev DB írás nélkül.
+
+### Nyitott tételek (döntést igényelnek)
+
+1. **Bíró auto-create vs review**: a research napi ~168 új bírónévhez nincs
+   katalógus (477 nem-GB név); a mai szabály szerint mind review marad. Döntés
+   kell: auto-create (napi ~168 entitás) vagy szűkebb, országos katalógus.
+2. **Bíró-katalógus névformátuma**: 983/1195 entitás rövid alakú
+   (`M Oliver`), a research teljes nevet ad (`Michael Oliver`) — a rövid alak
+   csak review lehet; a katalógus normalizálása/alias-seedelése külön szelet.
+3. **Referee-ország tárolása**: nincs `core.referee` / `core.entity.country_id`,
+   ezért az „ország-egyezés" a referee-ágon ma látens (a review-kontextusba
+   viszont bekerül a verseny országa).
+4. **A 26 meglévő pending team-review sor takarítása** (13 linkelhető, 3
+   ambiguous, 10 hosszú név) — az Exact út nem zárja le a queue-sort.
+5. **`dedupe aliases --apply` éles futtatása** csak a következő valós
+   cross-source hullámnál lesz értelmes; a hamis-pozitív arány élesben még
+   nem mért.
+6. Korábbi tételek változatlanok: országonkénti competition-duplikátumok,
+   Liga F forrás-konfliktus, tipplap múltbeli napok, történelmi verseny-ország
+   újrafeloldás.
+
+### Visszaállás
+
+- Kód: a szelet commitja egyben visszafordítható (`git revert`); a
+  `dedupe aliases` és a linker-változások migrációt nem hoztak.
+- Adat: minden entitás/fixture merge az `ops.entity_merge_archive` és
+  `ops.dedupe_archive` táblában payload-dal együtt visszajátszható.

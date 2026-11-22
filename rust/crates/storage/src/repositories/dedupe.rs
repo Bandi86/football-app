@@ -9,7 +9,8 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use football_domain::identity::{
-    canonical_country_code, names_likely_same, names_strictly_same, normalize_name,
+    canonical_country_code, fold_keep_separators, fold_name, names_likely_same,
+    names_strictly_same, normalize_name,
 };
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -971,6 +972,515 @@ pub async fn same_fixture_identity_any_day(
     Ok(same)
 }
 
+// ---------------------------------------------------------------------------
+// S96 — cross-source csapatnév-változat duplikátumok (bizonyíték-alapú)
+// ---------------------------------------------------------------------------
+//
+// A kézi S96-takarítás automatizálása: ugyanaz a valós meccs két forrásból
+// eltérő csapatnévvel (pl. „FC Cologne” / „FC Koln”) két kanonikus sorként él.
+// Bizonyíték-szabály:
+//   1. pontos `kickoff_at`-egyezés, azonos `fold_name(competition.name)`, azonos
+//      `status` és azonos eredmény (mindkettő NULL, vagy ugyanaz a home/away FT),
+//      valamint legalább az egyik soron provenance > 0;
+//   2. az egyik oldalon (home vagy away) AZONOS csapat-entitás a horgony, a
+//      másik oldalon eltérő entitások, amelyek foldolt nevének hasonlósága
+//      legalább `min_similarity`, és a kontextusuk (country_id, gender,
+//      age_group, branch) azonos;
+//   3. a két oldal-hasonlóság maximuma >= 0.99 („az egyik név gyakorlatilag
+//      azonos”). A horgony-oldal azonos entitás, tehát a neve is azonos, így a
+//      horgony-oldali hasonlóság 1.0 — a szigorítás e mellett automatikusan
+//      teljesül, és akkor véd, ha a horgony-kikötést később valaki név-egyezésre
+//      lazítja. A névváltozat oldalára SZÁNDÉKOSAN nem tesszük: egy valódi pár
+//      (FC Cologne / FC Koln) foldolt hasonlósága csak ~0.67, a 0.99 ott minden
+//      valódi találatot kizárna.
+//
+// A hamis pozitívok (azonos kickoffú, de VALÓBAN különböző meccsek: U17-torna
+// különböző mérkőzései, Serie D más párosai) elleni fő védelem a kötelező
+// azonos csapat-entitás horgony: egy csapat ugyanabban a pillanatban nem
+// játszhat két különböző meccset, ezért a horgony + pontos kickoff + azonos
+// verseny/eredmény együtt már bizonyíték. A név-hasonlóság csak a névváltozat
+// azonosítására kell, nem a meccs-identitás bizonyítására.
+
+/// A csapatnév-fold a cross-source hasonlósághoz: ékezet- és írásjel-mentes,
+/// kisbetűs, a női jelölőktől („(W)”, „women”, „női”) megtisztított alak.
+///
+/// A fold a `fold_keep_separators`-ra épül (ugyanaz a karaktertábla, mint az
+/// exact kulcsnál), majd minden nem alfanumerikus karaktert szóközzé alakít, a
+/// női jelölő tokeneket eldobja, végül szóköz nélkül fűzi össze. Így
+/// „Deportivo de A Coruña (W)” és „Deportivo de A Coruna W” ugyanaz lesz.
+pub fn fold_team_name(name: &str) -> String {
+    let folded: String = fold_keep_separators(name)
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+        .collect();
+    let mut tokens: Vec<&str> = folded.split_whitespace().collect();
+    // A „(W)”/„ W” toldalék a név végén: csak a záró „w” tokent dobjuk el, hogy
+    // a „W Connection” típusú klubnevek elejét ne csonkítsuk.
+    if tokens.last() == Some(&"w") {
+        tokens.pop();
+    }
+    tokens
+        .into_iter()
+        .filter(|token| {
+            !matches!(
+                *token,
+                "women" | "womans" | "woman" | "womens" | "noi" | "noei"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+/// difflib-jellegű normalizált hasonlóság: `2 * LCS / (|a| + |b|)`.
+///
+/// Az LCS-alapú arány azért jobb itt, mint a Levenshtein `1 - dist/max(len)`,
+/// mert a valódi forrás-névváltozatok gyakran toldalékoltak („Sogdiana” /
+/// „Sogdiyona Jizzax”), és a beszúrásokat nem bünteti olyan szigorúan.
+pub fn team_name_similarity(a: &str, b: &str) -> f64 {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    if a.is_empty() && b.is_empty() {
+        return 1.0;
+    }
+    if a.is_empty() || b.is_empty() {
+        return 0.0;
+    }
+    let lcs = longest_common_subsequence(&a, &b);
+    (2.0 * lcs as f64) / ((a.len() + b.len()) as f64)
+}
+
+/// Két nyers csapatnév foldolt hasonlósága.
+pub fn fold_name_similarity(a: &str, b: &str) -> f64 {
+    team_name_similarity(&fold_team_name(a), &fold_team_name(b))
+}
+
+fn longest_common_subsequence(a: &[char], b: &[char]) -> usize {
+    // Gördülő sor: O(min(|a|,|b|)) memória.
+    let (short, long) = if a.len() <= b.len() { (a, b) } else { (b, a) };
+    let mut prev = vec![0usize; short.len() + 1];
+    let mut cur = vec![0usize; short.len() + 1];
+    for &ch in long {
+        for (j, &other) in short.iter().enumerate() {
+            cur[j + 1] = if ch == other {
+                prev[j] + 1
+            } else {
+                prev[j + 1].max(cur[j])
+            };
+        }
+        std::mem::swap(&mut prev, &mut cur);
+    }
+    prev[short.len()]
+}
+
+/// A csoport névváltozat-oldala: melyik oldalon tér el a két csapat.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum AliasTeamSide {
+    Home,
+    Away,
+}
+
+impl AliasTeamSide {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Home => "home",
+            Self::Away => "away",
+        }
+    }
+}
+
+/// Egy meccs bizonyíték-sora a cross-source alias-kereséshez (a csapatok
+/// entitás-azonosítójával és kontextusával együtt).
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+pub struct CrossSourceMatchRow {
+    pub match_id: Uuid,
+    pub competition_name: String,
+    pub home_team_id: Uuid,
+    pub away_team_id: Uuid,
+    pub home_entity_id: Uuid,
+    pub away_entity_id: Uuid,
+    pub home_name: String,
+    pub away_name: String,
+    pub home_country_id: Option<Uuid>,
+    pub away_country_id: Option<Uuid>,
+    pub home_gender: String,
+    pub away_gender: String,
+    pub home_age_group: String,
+    pub away_age_group: String,
+    pub home_branch: String,
+    pub away_branch: String,
+    pub kickoff_at: DateTime<Utc>,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+    pub provenance_count: i64,
+    pub home_ft: Option<i16>,
+    pub away_ft: Option<i16>,
+}
+
+impl CrossSourceMatchRow {
+    fn entity_id_on(&self, side: AliasTeamSide) -> Uuid {
+        match side {
+            AliasTeamSide::Home => self.home_entity_id,
+            AliasTeamSide::Away => self.away_entity_id,
+        }
+    }
+
+    fn name_on(&self, side: AliasTeamSide) -> &str {
+        match side {
+            AliasTeamSide::Home => &self.home_name,
+            AliasTeamSide::Away => &self.away_name,
+        }
+    }
+}
+
+/// Egy cross-source névváltozat-duplikátum csoport: a túlélő és az áldozat
+/// meccs, valamint a névváltozat oldala és hasonlósága.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CrossSourceAliasGroup {
+    pub kickoff_at: DateTime<Utc>,
+    pub competition_name: String,
+    pub status: String,
+    pub similarity: f64,
+    pub side: AliasTeamSide,
+    pub survivor: CrossSourceMatchRow,
+    pub duplicate: CrossSourceMatchRow,
+}
+
+impl CrossSourceAliasGroup {
+    /// A névváltozat-oldali csapat, amelyik marad (a túlélő meccs csapata).
+    pub fn survivor_team_entity_id(&self) -> Uuid {
+        self.survivor.entity_id_on(self.side)
+    }
+
+    /// A névváltozat-oldali csapat, amelyik beolvad (az áldozat meccs csapata).
+    pub fn duplicate_team_entity_id(&self) -> Uuid {
+        self.duplicate.entity_id_on(self.side)
+    }
+
+    pub fn survivor_team_name(&self) -> &str {
+        self.survivor.name_on(self.side)
+    }
+
+    pub fn duplicate_team_name(&self) -> &str {
+        self.duplicate.name_on(self.side)
+    }
+}
+
+/// A bizonyíték-szöveg, amivel a csapat-merge a meglévő identity merge úton
+/// (`via_alias`) történik — a kézi S96-jelöléssel azonos formában.
+pub fn cross_source_alias_evidence_text(name_a: &str, name_b: &str) -> String {
+    format!(
+        "S96: cross-source névváltozat duplikátum ({name_a} / {name_b}); azonos verseny+kickoff+eredmény"
+    )
+}
+
+/// A tiszta osztályozó: a két meccs bizonyíték-sora cross-source
+/// névváltozat-pár-e, és ha igen, melyik oldalon mekkora hasonlósággal.
+fn cross_source_alias_evidence(
+    a: &CrossSourceMatchRow,
+    b: &CrossSourceMatchRow,
+    min_similarity: f64,
+) -> Option<(AliasTeamSide, f64)> {
+    if a.match_id == b.match_id
+        || a.kickoff_at != b.kickoff_at
+        || fold_name(&a.competition_name) != fold_name(&b.competition_name)
+        || a.status != b.status
+        || (a.home_ft, a.away_ft) != (b.home_ft, b.away_ft)
+    {
+        return None;
+    }
+    // Legalább az egyik soron van forrás-bizonyíték (provenance).
+    if a.provenance_count <= 0 && b.provenance_count <= 0 {
+        return None;
+    }
+
+    // Horgony: az egyik oldalon azonos entitás, a másikon eltérő entitás.
+    let home_same = a.home_entity_id == b.home_entity_id;
+    let away_same = a.away_entity_id == b.away_entity_id;
+    let home_similarity = fold_name_similarity(&a.home_name, &b.home_name);
+    let away_similarity = fold_name_similarity(&a.away_name, &b.away_name);
+    let (side, differing_similarity) = match (home_same, away_same) {
+        (false, true) => (AliasTeamSide::Home, home_similarity),
+        (true, false) => (AliasTeamSide::Away, away_similarity),
+        // Mindkét oldal azonos: klasszikus duplikátum, nem névváltozat.
+        // Egyik oldal sem azonos: nincs csapat-horgony, nem bizonyítható pár.
+        _ => return None,
+    };
+    if differing_similarity < min_similarity {
+        return None;
+    }
+    // A „nagyobbik oldali hasonlóság >= 0.99” szigorítás (lásd a modul-fej
+    // indoklását): a horgony-oldal azonos entitás, így a neve is azonos, a
+    // maximum 1.0. A névváltozat oldalán a 0.99 nem követelmény.
+    if home_similarity.max(away_similarity) < 0.99 {
+        return None;
+    }
+
+    // A névváltozat-oldali két csapat kontextusa azonos kell legyen.
+    let (country_a, country_b, gender_a, gender_b, age_a, age_b, branch_a, branch_b) = match side {
+        AliasTeamSide::Home => (
+            a.home_country_id,
+            b.home_country_id,
+            &a.home_gender,
+            &b.home_gender,
+            &a.home_age_group,
+            &b.home_age_group,
+            &a.home_branch,
+            &b.home_branch,
+        ),
+        AliasTeamSide::Away => (
+            a.away_country_id,
+            b.away_country_id,
+            &a.away_gender,
+            &b.away_gender,
+            &a.away_age_group,
+            &b.away_age_group,
+            &a.away_branch,
+            &b.away_branch,
+        ),
+    };
+    if country_a != country_b || gender_a != gender_b || age_a != age_b || branch_a != branch_b {
+        return None;
+    }
+    // Üres fold (pl. „W” nevű sor) ne adjon 1.0 hasonlóságot.
+    let folded_a = fold_team_name(a.name_on(side));
+    let folded_b = fold_team_name(b.name_on(side));
+    if folded_a.is_empty() || folded_b.is_empty() {
+        return None;
+    }
+
+    Some((side, differing_similarity))
+}
+
+/// A jelöltekből determinisztikus csoportválasztás.
+///
+/// Egy meccsre több jelölt is lehet; a sorrend: nagyobb hasonlóság, majd
+/// nagyobb provenance-szám, végül a stabil sorindex (a sorok kickoff, majd id
+/// szerint rendezettek). Az elsőként kiválasztott pár „viszi” a meccseit, így
+/// egy meccs legfeljebb egy merge-ben szerepel. A túlélő a nagyobb provenance,
+/// egyenlőségnél a korábbi `created_at`, végül a kisebb id.
+fn select_cross_source_alias_groups(
+    rows: &[CrossSourceMatchRow],
+    min_similarity: f64,
+) -> Vec<CrossSourceAliasGroup> {
+    use std::collections::HashMap;
+
+    // Csoportkulcs: kickoff + státusz + foldolt versenynév + eredmény.
+    type BucketKey = (DateTime<Utc>, String, String, (Option<i16>, Option<i16>));
+    let mut buckets: HashMap<BucketKey, Vec<usize>> = HashMap::new();
+    for (index, row) in rows.iter().enumerate() {
+        buckets
+            .entry((
+                row.kickoff_at,
+                row.status.clone(),
+                fold_name(&row.competition_name),
+                (row.home_ft, row.away_ft),
+            ))
+            .or_default()
+            .push(index);
+    }
+
+    let mut candidates: Vec<(f64, i64, usize, usize, AliasTeamSide)> = Vec::new();
+    for indices in buckets.values() {
+        for (position, &i) in indices.iter().enumerate() {
+            for &j in &indices[position + 1..] {
+                if let Some((side, similarity)) =
+                    cross_source_alias_evidence(&rows[i], &rows[j], min_similarity)
+                {
+                    let provenance = rows[i].provenance_count.max(rows[j].provenance_count);
+                    candidates.push((similarity, provenance, i, j, side));
+                }
+            }
+        }
+    }
+    candidates.sort_by(|x, y| {
+        y.0.total_cmp(&x.0)
+            .then_with(|| y.1.cmp(&x.1))
+            .then_with(|| x.2.cmp(&y.2))
+            .then_with(|| x.3.cmp(&y.3))
+    });
+
+    let mut used = vec![false; rows.len()];
+    let mut groups = Vec::new();
+    for (similarity, _provenance, i, j, side) in candidates {
+        if used[i] || used[j] {
+            continue;
+        }
+        used[i] = true;
+        used[j] = true;
+        let (first, second) = (i, j);
+        let (survivor, duplicate) = if rows[first].provenance_count > rows[second].provenance_count
+        {
+            (first, second)
+        } else if rows[second].provenance_count > rows[first].provenance_count {
+            (second, first)
+        } else if rows[first].created_at < rows[second].created_at {
+            (first, second)
+        } else if rows[second].created_at < rows[first].created_at {
+            (second, first)
+        } else if rows[first].match_id < rows[second].match_id {
+            (first, second)
+        } else {
+            (second, first)
+        };
+        groups.push(CrossSourceAliasGroup {
+            kickoff_at: rows[first].kickoff_at,
+            competition_name: rows[first].competition_name.clone(),
+            status: rows[first].status.clone(),
+            similarity,
+            side,
+            survivor: rows[survivor].clone(),
+            duplicate: rows[duplicate].clone(),
+        });
+    }
+    groups.sort_by(|a, b| {
+        a.kickoff_at
+            .cmp(&b.kickoff_at)
+            .then_with(|| a.competition_name.cmp(&b.competition_name))
+            .then_with(|| a.survivor.match_id.cmp(&b.survivor.match_id))
+    });
+    groups
+}
+
+/// A cross-source névváltozat-keresés közös SELECT-je.
+const CROSS_SOURCE_ALIAS_ROW_SELECT: &str = "SELECT
+            m.id AS match_id,
+            c.name AS competition_name,
+            m.home_team_id,
+            m.away_team_id,
+            he.id AS home_entity_id,
+            ae.id AS away_entity_id,
+            h.name AS home_name,
+            a.name AS away_name,
+            h.country_id AS home_country_id,
+            a.country_id AS away_country_id,
+            h.gender AS home_gender,
+            a.gender AS away_gender,
+            h.age_group AS home_age_group,
+            a.age_group AS away_age_group,
+            h.branch AS home_branch,
+            a.branch AS away_branch,
+            m.kickoff_at,
+            m.status,
+            m.created_at,
+            (SELECT count(*) FROM fact.provenance p
+              WHERE p.subject_kind = 'match' AND p.subject_id = m.id)::bigint AS provenance_count,
+            r.home_ft,
+            r.away_ft
+         FROM core.match m
+         JOIN core.competition c ON c.id = m.competition_id
+         JOIN core.team h ON h.id = m.home_team_id
+         JOIN core.team a ON a.id = m.away_team_id
+         JOIN core.entity he ON he.id = h.entity_id
+         JOIN core.entity ae ON ae.id = a.entity_id
+         LEFT JOIN core.match_result r ON r.match_id = m.id
+         WHERE m.kickoff_at::date BETWEEN $1 AND $2
+           AND he.merged_into_id IS NULL
+           AND ae.merged_into_id IS NULL
+         ORDER BY m.kickoff_at, m.id";
+
+/// S96: cross-source (eltérő forrás-nevű) csapatduplikátumok által okozott
+/// meccs-duplikátumok keresése egy dátumtartományban, bizonyíték-alapon.
+///
+/// A párosítás a tiszta `cross_source_alias_evidence` szabályon megy, a
+/// csoportválasztás determinisztikus (`select_cross_source_alias_groups`).
+pub async fn find_cross_source_alias_duplicates(
+    pool: &PgPool,
+    from: chrono::NaiveDate,
+    to: chrono::NaiveDate,
+    min_similarity: f64,
+) -> Result<Vec<CrossSourceAliasGroup>> {
+    let rows = sqlx::query_as::<_, CrossSourceMatchRow>(CROSS_SOURCE_ALIAS_ROW_SELECT)
+        .bind(from)
+        .bind(to)
+        .fetch_all(pool)
+        .await?;
+    Ok(select_cross_source_alias_groups(&rows, min_similarity))
+}
+
+/// Az entitás-végpont feloldása a `merged_into_id` láncon (ha közben egy másik
+/// csoport már merge-ölte). `None`, ha az entitás nem létezik.
+async fn resolve_entity(pool: &PgPool, entity_id: Uuid) -> Result<Option<Uuid>> {
+    let mut current = entity_id;
+    for _ in 0..64 {
+        let row: Option<(Option<Uuid>,)> =
+            sqlx::query_as("SELECT merged_into_id FROM core.entity WHERE id = $1")
+                .bind(current)
+                .fetch_optional(pool)
+                .await?;
+        match row {
+            None => return Ok(None),
+            Some((None,)) => return Ok(Some(current)),
+            Some((Some(next),)) => current = next,
+        }
+    }
+    anyhow::bail!("ciklikus merged_into lánc: {entity_id}");
+}
+
+/// Egy csoport végrehajtása: (1) a két fixture összevonása a meglévő
+/// `merge_duplicate` úton, (2) a névváltozat-oldali két csapat-entitás
+/// összevonása a meglévő identity merge úton `via_alias` bizonyítékkal.
+///
+/// A sorrend kötelező, és szándékosan a fixture-merge jön előbb: a csapat-merge
+/// `UPDATE core.match SET home_team_id/away_team_id` lépése az `uq_match_natural_key`
+/// egyedi indexbe ütközne, ha a két meccs azonos verseny+szezon+kör+kickoff
+/// mellett csak a merge-ölendő csapatban tér el (a körcímke nem NULL). A
+/// fixture-merge viszont előbb törli az áldozat meccs-sorát, így a csapat-merge
+/// már nem tud kulcsütközést okozni. Ha a csapatot közben egy másik csoport már
+/// beolvasztotta a túlélőbe, a csapat-merge kimarad (a lánc feloldásával), és
+/// csak a fixture-ök merge-elődnek.
+pub struct CrossSourceAliasApplyReport {
+    pub survivor_entity_id: Uuid,
+    pub merged_entity_id: Option<Uuid>,
+    pub match_audit_id: Uuid,
+}
+
+pub async fn apply_cross_source_alias_group(
+    pool: &PgPool,
+    group: &CrossSourceAliasGroup,
+) -> Result<CrossSourceAliasApplyReport> {
+    // 1. Fixture-merge: az áldozat meccs-sora (és a hozzá tartozó eredmény,
+    //    provenance, gate) archiválva törlődik — ez oldja fel az egyedi
+    //    natural-key ütközést a következő lépés előtt.
+    let match_audit_id = merge_duplicate(
+        pool,
+        group.survivor.match_id,
+        group.duplicate.match_id,
+        "S96 dedupe (cross-source névváltozat duplikátum)",
+    )
+    .await?;
+
+    // 2. Csapat-merge a meglévő identity úton, a kézi S96 bizonyíték-szöveggel.
+    let survivor_entity = resolve_entity(pool, group.survivor_team_entity_id())
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("a túlélő csapat-entitás nem létezik"))?;
+    let duplicate_entity = resolve_entity(pool, group.duplicate_team_entity_id())
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("az áldozat csapat-entitás nem létezik"))?;
+
+    let merged_entity_id = if survivor_entity == duplicate_entity {
+        None
+    } else {
+        let evidence = cross_source_alias_evidence_text(
+            group.survivor_team_name(),
+            group.duplicate_team_name(),
+        );
+        crate::repositories::identity_merge::merge_team_via_alias(
+            pool,
+            survivor_entity,
+            duplicate_entity,
+            &evidence,
+        )
+        .await?;
+        Some(duplicate_entity)
+    };
+
+    Ok(CrossSourceAliasApplyReport {
+        survivor_entity_id: survivor_entity,
+        merged_entity_id,
+        match_audit_id,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1247,5 +1757,226 @@ mod tests {
         b.competition_id = Uuid::from_u128(200);
         b.competition_country_code = Some("PL".to_string());
         assert!(!strict_variant_pair_mergeable(&a, &b, true));
+    }
+
+    // --- S96: cross-source névváltozat-duplikátumok -------------------------
+
+    fn alias_row(match_id: u128) -> CrossSourceMatchRow {
+        CrossSourceMatchRow {
+            match_id: Uuid::from_u128(match_id),
+            competition_name: "Liga A".to_string(),
+            home_team_id: Uuid::from_u128(10_000 + match_id),
+            away_team_id: Uuid::from_u128(20_000 + match_id),
+            home_entity_id: Uuid::from_u128(10_000 + match_id),
+            away_entity_id: Uuid::from_u128(20_000 + match_id),
+            home_name: format!("Hazai {match_id}"),
+            away_name: format!("Vendég {match_id}"),
+            home_country_id: Some(Uuid::from_u128(1)),
+            away_country_id: Some(Uuid::from_u128(1)),
+            home_gender: "male".to_string(),
+            away_gender: "male".to_string(),
+            home_age_group: "senior".to_string(),
+            away_age_group: "senior".to_string(),
+            home_branch: "senior".to_string(),
+            away_branch: "senior".to_string(),
+            kickoff_at: at(20, 18),
+            status: "finished".to_string(),
+            created_at: at(20, 10) + chrono::Duration::minutes(match_id as i64),
+            provenance_count: 1,
+            home_ft: Some(2),
+            away_ft: Some(1),
+        }
+    }
+
+    /// Horgony (azonos vendég-entitás) + eltérő hazai csapatnevek.
+    fn alias_pair(name_a: &str, name_b: &str) -> (CrossSourceMatchRow, CrossSourceMatchRow) {
+        let mut a = alias_row(1);
+        let mut b = alias_row(2);
+        let anchor = Uuid::from_u128(9_999);
+        for row in [&mut a, &mut b] {
+            row.away_team_id = anchor;
+            row.away_entity_id = anchor;
+            row.away_name = "Fortuna Köln".to_string();
+        }
+        a.home_name = name_a.to_string();
+        b.home_name = name_b.to_string();
+        (a, b)
+    }
+
+    #[test]
+    fn alias_fold_normalizes_accents_punctuation_and_womens_markers() {
+        assert_eq!(fold_team_name("FC Köln"), "fckoln");
+        assert_eq!(fold_team_name("FC Cologne"), "fccologne");
+        assert_eq!(fold_team_name("Levante Badalona (W)"), "levantebadalona");
+        assert_eq!(fold_team_name("Levante Badalona Women"), "levantebadalona");
+        assert_eq!(
+            fold_team_name("Deportivo de A Coruña (W)"),
+            "deportivodeacoruna"
+        );
+        assert_eq!(fold_team_name("Deportivo La Coruna W"), "deportivolacoruna");
+        let sim = fold_name_similarity("FC Cologne", "FC Köln");
+        assert!((0.55..0.99).contains(&sim), "FC Cologne/FC Koln sim={sim}");
+        assert_eq!(fold_name_similarity("FC Köln", "FC Köln"), 1.0);
+        let reverse = fold_name_similarity("FC Köln", "FC Cologne");
+        assert!((sim - reverse).abs() < 1e-12, "a hasonlóság szimmetrikus");
+    }
+
+    #[test]
+    fn alias_evidence_accepts_real_fc_cologne_pair() {
+        let (mut a, b) = alias_pair("FC Cologne", "FC Koln");
+        // A versenynév nyers szövege eltérhet, a fold-egyezés a bizonyíték.
+        a.competition_name = "Liga-A".to_string();
+        let (side, similarity) = cross_source_alias_evidence(&a, &b, 0.55).expect("valódi pár");
+        assert_eq!(side, AliasTeamSide::Home);
+        assert!(
+            (0.55..0.99).contains(&similarity),
+            "a névváltozat hasonlósága: {similarity}"
+        );
+    }
+
+    #[test]
+    fn alias_evidence_accepts_womens_suffix_variant() {
+        let (mut a, mut b) = alias_pair("Levante Badalona (W)", "Levante Badalona W");
+        for row in [&mut a, &mut b] {
+            row.home_gender = "female".to_string();
+            row.home_branch = "women".to_string();
+        }
+        let (side, similarity) =
+            cross_source_alias_evidence(&a, &b, 0.55).expect("női névváltozat pár");
+        assert_eq!(side, AliasTeamSide::Home);
+        assert!(
+            (similarity - 1.0).abs() < 1e-12,
+            "a (W)/women toldalékot a fold eltávolítja: {similarity}"
+        );
+    }
+
+    #[test]
+    fn alias_evidence_rejects_same_kickoff_but_different_matches() {
+        // Ugyanaz a kickoff/verseny/eredmény, de nincs közös csapat-entitás:
+        // két VALÓBAN különböző meccs (pl. U17-torna két mérkőzése).
+        let (a, mut b) = alias_pair("Mohun Bagan SG", "Mohun Bagan Super Giant");
+        b.away_entity_id = Uuid::from_u128(9_998);
+        b.away_team_id = b.away_entity_id;
+        b.away_name = "Mohun Bagan SG".to_string();
+        assert!(cross_source_alias_evidence(&a, &b, 0.55).is_none());
+    }
+
+    #[test]
+    fn alias_evidence_rejects_different_competition() {
+        let (a, mut b) = alias_pair("FC Cologne", "FC Koln");
+        b.competition_name = "Frauen Bundesliga".to_string();
+        assert!(cross_source_alias_evidence(&a, &b, 0.55).is_none());
+    }
+
+    #[test]
+    fn alias_evidence_rejects_different_result() {
+        let (a, mut b) = alias_pair("FC Cologne", "FC Koln");
+        b.home_ft = Some(3);
+        assert!(cross_source_alias_evidence(&a, &b, 0.55).is_none());
+
+        let (a, mut b) = alias_pair("FC Cologne", "FC Koln");
+        b.home_ft = None;
+        b.away_ft = None;
+        assert!(
+            cross_source_alias_evidence(&a, &b, 0.55).is_none(),
+            "eredmény vs eredmény nélküli sor nem pár"
+        );
+    }
+
+    #[test]
+    fn alias_evidence_rejects_different_context_gender() {
+        let (a, mut b) = alias_pair("FC Cologne", "FC Koln");
+        b.home_gender = "female".to_string();
+        assert!(cross_source_alias_evidence(&a, &b, 0.55).is_none());
+    }
+
+    #[test]
+    fn alias_evidence_requires_provenance_on_one_side() {
+        let (mut a, mut b) = alias_pair("FC Cologne", "FC Koln");
+        a.provenance_count = 0;
+        b.provenance_count = 0;
+        assert!(cross_source_alias_evidence(&a, &b, 0.55).is_none());
+        b.provenance_count = 1;
+        assert!(cross_source_alias_evidence(&a, &b, 0.55).is_some());
+    }
+
+    #[test]
+    fn alias_evidence_text_matches_the_s96_manual_format() {
+        assert_eq!(
+            cross_source_alias_evidence_text("FC Cologne", "FC Koln"),
+            "S96: cross-source névváltozat duplikátum (FC Cologne / FC Koln); azonos verseny+kickoff+eredmény"
+        );
+    }
+
+    #[test]
+    fn alias_selection_prefers_the_most_similar_candidate() {
+        // Az 1. meccshez két jelölt tartozik; a nagyobb hasonlóságú nyer.
+        let anchor = Uuid::from_u128(9_999);
+        let mut one = alias_row(1);
+        one.away_entity_id = anchor;
+        one.away_team_id = anchor;
+        one.home_entity_id = Uuid::from_u128(11);
+        one.home_name = "FC Cologne".to_string();
+        one.away_name = "Fortuna Koln".to_string();
+        let mut two = alias_row(2);
+        two.away_entity_id = anchor;
+        two.away_team_id = anchor;
+        two.home_entity_id = Uuid::from_u128(12);
+        two.home_name = "FC Koln".to_string();
+        two.away_name = "Fortuna Koln".to_string();
+        let mut three = alias_row(3);
+        three.away_entity_id = anchor;
+        three.away_team_id = anchor;
+        three.home_entity_id = Uuid::from_u128(13);
+        three.home_name = "FC Cologne 1".to_string();
+        three.away_name = "Fortuna Koln".to_string();
+
+        let groups = select_cross_source_alias_groups(&[one.clone(), two, three.clone()], 0.55);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].survivor.match_id, one.match_id);
+        assert_eq!(groups[0].duplicate.match_id, three.match_id);
+    }
+
+    #[test]
+    fn alias_selection_breaks_similarity_tie_by_provenance() {
+        let anchor = Uuid::from_u128(9_999);
+        let mut one = alias_row(1);
+        one.away_entity_id = anchor;
+        one.away_team_id = anchor;
+        one.home_entity_id = Uuid::from_u128(11);
+        one.home_name = "FC Cologne".to_string();
+        one.away_name = "Fortuna Koln".to_string();
+        let mut two = alias_row(2);
+        two.away_entity_id = anchor;
+        two.away_team_id = anchor;
+        two.home_entity_id = Uuid::from_u128(12);
+        two.home_name = "FC Koln".to_string();
+        two.away_name = "Fortuna Koln".to_string();
+        let mut three = alias_row(3);
+        three.away_entity_id = anchor;
+        three.away_team_id = anchor;
+        // A 2. és 3. sor ugyanazt a csapat-entitást hordozza (két duplikált
+        // sor ugyanarról a meccsről), ezért egymással nem párosíthatók: a
+        // (2,3) pár mindkét oldalon azonos entitás. Az 1. sorral viszont mindkettő
+        // azonos hasonlóságú jelölt, így a provenance dönt.
+        three.home_entity_id = Uuid::from_u128(12);
+        three.home_name = "FC Koln".to_string();
+        three.away_name = "Fortuna Koln".to_string();
+        three.provenance_count = 4;
+
+        let groups = select_cross_source_alias_groups(&[one.clone(), two, three.clone()], 0.55);
+        assert_eq!(groups.len(), 1);
+        // Nagyobb provenance = túlélő (a 3. sor), az 1. sor az áldozat.
+        assert_eq!(groups[0].survivor.match_id, three.match_id);
+        assert_eq!(groups[0].duplicate.match_id, one.match_id);
+    }
+
+    #[test]
+    fn alias_selection_survivor_tie_uses_earlier_created_at() {
+        let (a, b) = alias_pair("FC Cologne", "FC Koln");
+        let groups = select_cross_source_alias_groups(&[a.clone(), b.clone()], 0.55);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].survivor.match_id, a.match_id);
+        assert_eq!(groups[0].duplicate.match_id, b.match_id);
     }
 }
