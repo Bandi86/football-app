@@ -91,6 +91,11 @@ enum DedupeAction {
     Variants {
         #[arg(long)]
         date: NaiveDate,
+        /// Opcionális záró nap: a `--date` és `--to` közötti teljes tartományt
+        /// vizsgálja (a naponkénti ±1 napos ablak helyett). Hasznos a heti
+        /// átvizsgáláshoz.
+        #[arg(long)]
+        to: Option<NaiveDate>,
         /// Tényleges végrehajtás (alapból csak terv).
         #[arg(long)]
         apply: bool,
@@ -886,6 +891,7 @@ async fn main() -> Result<()> {
             }
             DedupeAction::Variants {
                 date,
+                to,
                 apply,
                 allow_loose,
                 cross_competition,
@@ -894,8 +900,15 @@ async fn main() -> Result<()> {
                 // időzóna szerint csoportosulnak, a lekérdezés UTC-napra bont),
                 // ezért ±1 napos ablakban keresünk; a párosítás saját 12 órás
                 // kickoff-korlátja továbbra is kizárja a következő napi meccseket.
-                let from = date.pred_opt().unwrap_or(date);
-                let to = date.succ_opt().unwrap_or(date);
+                // Tartomány-módban (`--to`) a teljes intervallumot vizsgáljuk.
+                let end_date = to;
+                let (from, to) = match to {
+                    Some(end) => (date, end),
+                    None => (
+                        date.pred_opt().unwrap_or(date),
+                        date.succ_opt().unwrap_or(date),
+                    ),
+                };
                 let groups =
                     football_storage::repositories::dedupe::variant_duplicate_groups_between(
                         &pool,
@@ -905,7 +918,14 @@ async fn main() -> Result<()> {
                     )
                     .await?;
                 if groups.is_empty() {
-                    println!("nincs név-variáns duplikátum ezen a napon: {date}");
+                    match (date, end_date) {
+                        (start, Some(end)) => {
+                            println!("nincs név-variáns duplikátum a tartományban: {start} – {end}")
+                        }
+                        (start, None) => {
+                            println!("nincs név-variáns duplikátum ezen a napon: {start}")
+                        }
+                    }
                 } else {
                     let mut merges = 0usize;
                     let mut skipped = 0usize;

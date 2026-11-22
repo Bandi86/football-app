@@ -677,6 +677,7 @@ szeletet zöld kapuval lezárni.
 1. Bíró-identitás policy (auto-create vs megjelenítés-only) — jelenleg
    megjelenítés-only, a `fact.match_official` hordozza a nevet.
 2. Referee-ország séma + a 983 rövid alakú bíró-entitás normalizálása.
-3. `dedupe variants` csak egy napra fut (nincs `--to`), érdemes range-re bővíteni.
+3. ~~`dedupe variants` csak egy napra fut~~ — kész: `--to` tartomány-flag
+   (2026-06-01..11-30 vizsgálat: 0 név-variáns duplikátum).
 4. Korábbi tételek: competition-duplikátumok maradéka, Liga F forrás-konfliktus,
    tipplap múltbeli napok, detail-sheet vizuális ellenőrzés.
