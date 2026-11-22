@@ -737,3 +737,5 @@ szeletet zöld kapuval lezárni.
   ellenőrzése (a valódi ablak teljes méretű maradt); a CUA-ablakkép nem került fájlba.
 - Visszaállás: a változások a `feat/homepage-visual-refresh` branch-en vannak;
   a `main` változatlan.
+- Commit: `ef9e6b1` (`feat: refresh homepage visual design`), felpusholva az
+  `origin/feat/homepage-visual-refresh` ágra.
