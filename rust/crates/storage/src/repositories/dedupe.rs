@@ -819,9 +819,13 @@ pub async fn duplicate_fixture_groups(
               FROM core.match m
         ),
         grp AS (
-            SELECT competition_id, season_id, lo, hi, kd
+            -- S97b: a szezon NEM része a duplikátum-kulcsnak. Ugyanaz a
+            -- verseny + csapatpár + UTC-nap nem lehet két külön szezonban
+            -- valódi (a szezon-eltérés jellemzően forrás-hiba, pl. a másik
+            -- forrás más season_id-t oldott fel ugyanarra a fixture-re).
+            SELECT competition_id, lo, hi, kd
               FROM keyed
-             GROUP BY 1, 2, 3, 4, 5
+             GROUP BY 1, 2, 3, 4
             HAVING count(*) > 1
         )
         SELECT k.id AS match_id, k.competition_id, c.name AS competition_name,
@@ -840,7 +844,7 @@ pub async fn duplicate_fixture_groups(
                           WHERE p.subject_kind = 'match' AND p.subject_id = k.id), '') AS source_codes,
                r.home_ft, r.away_ft
           FROM keyed k
-          JOIN grp ON grp.competition_id = k.competition_id AND grp.season_id = k.season_id
+          JOIN grp ON grp.competition_id = k.competition_id
                   AND grp.lo = k.lo AND grp.hi = k.hi AND grp.kd = k.kd
           JOIN core.competition c ON c.id = k.competition_id
           JOIN core.season s ON s.id = k.season_id
@@ -872,9 +876,8 @@ pub async fn duplicate_fixture_groups(
             (row.away_team_id, row.home_team_id)
         };
         let key = format!(
-            "{}|{}|{}|{}|{}",
+            "{}|{}|{}|{}",
             row.competition_id,
-            row.season_id,
             lo,
             hi,
             row.kickoff_at.date_naive()
@@ -909,6 +912,41 @@ pub async fn is_same_fixture(pool: &PgPool, survivor: Uuid, duplicate: Uuid) -> 
                AND s.competition_id = d.competition_id
                AND s.season_id = d.season_id
                AND s.kickoff_at::date = d.kickoff_at::date
+               AND s.home_team_id = d.home_team_id
+               AND s.away_team_id = d.away_team_id
+               AND (rs.match_id IS NULL OR rd.match_id IS NULL
+                    OR (rs.home_ft IS NOT DISTINCT FROM rd.home_ft
+                        AND rs.away_ft IS NOT DISTINCT FROM rd.away_ft))
+        )",
+    )
+    .bind(survivor)
+    .bind(duplicate)
+    .fetch_one(pool)
+    .await?;
+    Ok(same)
+}
+
+/// S97b: azonos pillanatú fixture-azonosság — ugyanaz a verseny, ugyanaz a
+/// csapatpár ugyanabban az irányban, PONTOSAN ugyanabban a kickoff-pillanatban,
+/// és egyező (vagy az egyik oldalon hiányzó) eredmény. A szezont szándékosan
+/// nem nézi: két szezon nem játszhatja ugyanazt a meccset ugyanabban a
+/// pillanatban, ezért az eltérő `season_id` forrás-feloldási hiba, nem valódi
+/// különbség. Ellentétes orientáció (tükrözött pár) továbbra sem megy át.
+pub async fn is_same_instant_fixture(
+    pool: &PgPool,
+    survivor: Uuid,
+    duplicate: Uuid,
+) -> Result<bool> {
+    let same: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1
+              FROM core.match s
+              JOIN core.match d ON d.id = $2
+              LEFT JOIN core.match_result rs ON rs.match_id = s.id
+              LEFT JOIN core.match_result rd ON rd.match_id = d.id
+             WHERE s.id = $1
+               AND s.competition_id = d.competition_id
+               AND s.kickoff_at = d.kickoff_at
                AND s.home_team_id = d.home_team_id
                AND s.away_team_id = d.away_team_id
                AND (rs.match_id IS NULL OR rd.match_id IS NULL

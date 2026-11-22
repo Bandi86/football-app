@@ -5,7 +5,8 @@
 use chrono::{TimeZone, Utc};
 use football_storage::object_store::StoredArtifact;
 use football_storage::repositories::dedupe::{
-    duplicate_fixture_groups, is_same_fixture, merge_duplicate, same_fixture_identity,
+    duplicate_fixture_groups, is_same_fixture, is_same_instant_fixture, merge_duplicate,
+    same_fixture_identity,
 };
 use football_storage::repositories::worker::{RawCapture, persist_raw};
 use football_storage::test_support::test_pool;
@@ -339,4 +340,52 @@ async fn reviewed_identity_match_ignores_result_disagreement() {
     // ...a felülvizsgált azonosság-őr viszont elfogadja (a CLI --review-note
     // útja, ahol a túlélő eredményét külső bizonyíték igazolta).
     assert!(same_fixture_identity(&pool, id_a, id_b).await.unwrap());
+}
+
+#[tokio::test]
+async fn different_season_same_instant_is_one_group_and_mergeable() {
+    let pool = test_pool().await;
+    let instant = Utc.with_ymd_and_hms(2015, 10, 4, 12, 0, 0).unwrap();
+    // Ugyanaz a verseny/ csapatpár / PONTOS kickoff, de a két sor más
+    // season_id-re mutat (forrás-feloldási hiba) — nem valódi külön meccs.
+    let (comp, _season, _h, _a, id_a, id_b) =
+        seed_fixture_pair(&pool, instant, instant, None, None, false).await;
+
+    let other_season = Uuid::now_v7();
+    sqlx::query("INSERT INTO core.season (id, competition_id, label) VALUES ($1,$2,'2016')")
+        .bind(other_season)
+        .bind(comp)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE core.match SET season_id = $2 WHERE id = $1")
+        .bind(id_b)
+        .bind(other_season)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // A régi napi csoportosítás (szezonnal) nem látta őket...
+    assert!(!is_same_fixture(&pool, id_a, id_b).await.unwrap());
+    // ...a szezon nélküli csoportosítás igen.
+    let groups = duplicate_fixture_groups(
+        &pool,
+        Some(instant.date_naive()),
+        Some(instant.date_naive()),
+        Some("Eliteserien"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].matches.len(), 2);
+    // ...és az azonos pillanatú őr engedi a merge-et.
+    assert!(is_same_instant_fixture(&pool, id_a, id_b).await.unwrap());
+    merge_duplicate(&pool, id_a, id_b, "S97b teszt: azonos pillanat")
+        .await
+        .unwrap();
+    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM core.match")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(left, 1);
 }

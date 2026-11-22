@@ -1114,12 +1114,26 @@ async fn main() -> Result<()> {
                                     )
                                     .await?
                                 } else {
-                                    football_storage::repositories::dedupe::is_same_fixture(
-                                        &pool,
-                                        survivor.match_id,
-                                        m.match_id,
-                                    )
-                                    .await?
+                                    let same_fixture =
+                                        football_storage::repositories::dedupe::is_same_fixture(
+                                            &pool,
+                                            survivor.match_id,
+                                            m.match_id,
+                                        )
+                                        .await?;
+                                    if same_fixture {
+                                        true
+                                    } else {
+                                        // S97b: eltérő szezon, de PONTOSAN azonos
+                                        // kickoff-pillanat és csapatpár — forrás-
+                                        // feloldási hiba, nem valódi külön meccs.
+                                        football_storage::repositories::dedupe::is_same_instant_fixture(
+                                            &pool,
+                                            survivor.match_id,
+                                            m.match_id,
+                                        )
+                                        .await?
+                                    }
                                 };
                                 anyhow::ensure!(
                                     same,

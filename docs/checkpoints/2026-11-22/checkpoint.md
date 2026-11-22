@@ -631,3 +631,52 @@ szeletet zöld kapuval lezárni.
 4. 29 team pending review sorsa.
 5. Korábbi tételek: competition-duplikátumok maradéka, Liga F
    forrás-konfliktus, tipplap múltbeli napok, detail-sheet vizuális ellenőrzés.
+
+## S97c — szezonhatáron átnyúló fixture-duplikátum, review-queue tisztítás
+
+### Kód
+
+- `rust/crates/storage/src/repositories/dedupe.rs`:
+  - `duplicate_fixture_groups` csoportkulcsa már NEM tartalmazza a `season_id`-t
+    (verseny + csapatpár + UTC-nap). Ugyanaz a verseny + csapatpár + nap nem
+    lehet két külön szezonban valódi; a szezon-eltérés forrás-feloldási hiba.
+  - új `is_same_instant_fixture(...)`: azonos verseny + azonos orientációjú
+    csapatpár + PONTOSAN azonos `kickoff_at` + egyező (vagy hiányzó) eredmény.
+    A szezont nem nézi, a tükrözött párt továbbra is elutasítja.
+- `rust/bins/footballctl/src/main.rs`: a `dedupe matches --apply` őr-lánca
+  `is_same_fixture || is_same_instant_fixture` (a felülvizsgált `--review-note`
+  út változatlan).
+- Új teszt: `different_season_same_instant_is_one_group_and_mergeable`
+  (`rust/crates/storage/tests/dedupe_fixtures.rs`) — bizonyítja, hogy a régi
+  csoportosítás nem látta, az új igen, és a merge lefut.
+
+### Adat
+
+- `Lorient – Rennes` duplikátum (a `Stade Rennais` exonym entitás korábban
+  Rennes-be merge-ölve, de a fixture külön soron maradt eltérő `season_id`-vel):
+  `dedupe pair --survivor 01a1e9ef-9c3a-73c5-a828-869f323ecc63 --duplicate
+  01a1fc59-c190-7711-b320-5c4fc2e5258d`, audit `01a203a4-8c94-76dd-bdd6-1d9f0b8a0997`.
+- `identity.review_queue`: a 29 elavult tipplap team-sor elutasítva (a javított
+  női marker-feloldás óta a forrás linkel; ha mégsem, a következő ingest újra
+  nyit sort). Állomány: **0 pending** (team 0, referee 0).
+
+### Mérés / ellenőrzés
+
+- `cargo test --workspace -- --test-threads=1` → **564 passed / 0 failed**
+  (105 bináris); `dedupe_fixtures` 8/8.
+- `footballctl dedupe matches --date 2026-09-01 --to 2026-11-30` → nincs
+  duplikált meccs; `integrity` 2026-09-01..11-30 → minden számláló 0,
+  függő review 0, verdict OK.
+- Élő nap (2026-11-22): 70 `live`, ebből 6 órán túli elavult **0**; 25 múltbeli
+  `scheduled` — ellenőrizve a research envelope-ban (u.a. `scheduled`, score
+  null, csak livescore id): a forrás még nem adott eredményt, nem ingest-hiba.
+  A research envelope mai állapota `data_status=partial` (a nap még nyitva).
+
+### Nyitott
+
+1. Bíró-identitás policy (auto-create vs megjelenítés-only) — jelenleg
+   megjelenítés-only, a `fact.match_official` hordozza a nevet.
+2. Referee-ország séma + a 983 rövid alakú bíró-entitás normalizálása.
+3. `dedupe variants` csak egy napra fut (nincs `--to`), érdemes range-re bővíteni.
+4. Korábbi tételek: competition-duplikátumok maradéka, Liga F forrás-konfliktus,
+   tipplap múltbeli napok, detail-sheet vizuális ellenőrzés.
