@@ -19,6 +19,7 @@ targets:
         LSMinimumSystemVersion: "14.0"
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+        NSLocationWhenInUseUsageDescription: "A fejléc az időjárást a te tartózkodási helyedhez mutatja; a pontos helyzetet nem tároljuk és nem küldjük sehova."
     dependencies:
       - package: FootballAppCore
     settings:

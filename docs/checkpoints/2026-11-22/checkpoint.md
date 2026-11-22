@@ -739,3 +739,100 @@ szeletet zöld kapuval lezárni.
   a `main` változatlan.
 - Commit: `ef9e6b1` (`feat: refresh homepage visual design`), felpusholva az
   `origin/feat/homepage-visual-refresh` ágra.
+
+## S100 — élő, dinamikus fejléc (időjárás + napszak + visszaszámláló)
+
+### Induló állapot és döntés
+
+- A felhasználó kérése: „Most csak foglalkozzunk a megjelenitessel. A felső
+  headert legyen szép dinamikus, live weather, animációk, színek napszaktól /
+  időjárástól függően, ikonos statisztikák, visszaszámláló, fancy; a kártyán
+  csak a hover változzon."
+- Architektúrális egyeztetés (a kliens alapból csak `127.0.0.1` API-t használ):
+  a felhasználó az **Open-Meteo, kulcs nélküli, read-only** forrást választotta.
+  Ez az egyetlen külső hívás a kliensben; football-adat továbbra is csak a
+  helyi API-ról jön. Hálózati hiba esetén a fejléc napszak-alapú palettára
+  esik vissza, és ezt a felület szövegesen is jelzi („napszak alapján").
+- Branch: `feat/homepage-visual-refresh` (változatlan).
+
+### Változott
+
+- Új Core-réteg (Swift 6, tesztelt, SwiftUI-mentes):
+  `WeatherModels.swift` (CurrentWeather, OpenMeteoResponse, WMO → `WeatherKind`),
+  `WeatherService.swift` (`WeatherService` protokoll + `OpenMeteoWeatherService`,
+  5/8 mp időkorlát, Budapest alaphelyszín), `HeaderMood.swift`
+  (`DayPhase`, `HeaderPalette`, `HeaderParticle`, determinisztikus `resolve`).
+- Új app-réteg: `WeatherModel.swift` (@Observable, 15 perces háttér-ciklus,
+  hiba esetén megtartja az utolsó megfigyelést), `HomeHeader.swift`
+  (ikonos stat-téglák, időjárás-tégla, kattintható visszaszámláló, a régi
+  `MonthCalendar` ide költöztetve), `HeaderAtmosphere.swift`
+  (Canvas: csillagok, lebegő fények, sugarak, eső, hó, villám — teljesen
+  statikus `reduceMotion` módban).
+- `HomeView.swift`: a régi fejléc-blokk és a szűrők külön fájlokba kerültek
+  (`FilterBar.swift`); a `FilterBar` publikus lett a más fájlból való használathoz,
+  és kikerült belőle egy felesleges `?? 0`. Az app betölti az időjárást.
+- `MatchListView.swift`: a kártya hover-e most enyhe borostyán tónus + hajszál
+  szegély + 1,003-as skálázás (a billentyűfókusz vastag kerete változatlan).
+- **Saját helyzet (CoreLocation)**: `UserLocationProvider.swift` egyszeri,
+  „használat közbeni" engedéllyel kért pozíciót fordított geokódolással városnévre
+  alakít; 12 mp időtúl, illetve engedély-megtagadás esetén `nil`-t ad, és ilyenkor
+  a fejléc megmarad az alaphelyszínen. `WeatherModel.useLocation()` új szolgáltatást
+  épít az új koordinátákkal, és a tégla a VO-címkében külön kimondja a
+  „saját helyzet" / „alaphelyszín" eredetet. Az engedély szövege a generált
+  `Info.plist`-be került a `project.yml`-en át. A koordinátákat nem tároljuk,
+  nem naplózzuk és nem küldjük sehova — csak az Open-Meteo URL-ben használjuk.
+- Megőrzött azonosítók: `home.stat.matches|live|odds`, `nav.today`, `nav.calendar`,
+  `nav.*`, `filter.*`. Új: `home.stat.weather`, `home.stat.refresh`.
+
+### Futott ellenőrzések (mért)
+
+- `cd apps && xcodegen generate` → projekt generálva.
+- `swift test --package-path apps/FootballAppCore` → **120 teszt / 18 suite, 0 hiba**
+  (új: `HeaderMoodTests` 8, `WeatherServiceTests` 3).
+- `xcodebuild build … -scheme FootballApp` → **BUILD SUCCEEDED**, 0 fordítási hiba.
+- `xcodebuild test … -only-testing:FootballAppTests` → **73 teszt, 0 failure**
+  (új: `WeatherModelTests` 4, köztük a saját-helyzet váltás).
+- `./scripts/run-ui-tests.sh -parallel-testing-enabled NO` → **73 app + 8 UI teszt,
+  0 failure; TEST SUCCEEDED**.
+- `git diff --check` → **0 whitespace hiba**.
+- Valódi macOS-ablak: az app új binárissal indítva, a napi lista betöltött
+  (**619 meccs / 93 élő / 283 oddsadattal**). A képernyőképen
+  (`/tmp/header-preview2.png`) a meleg „aranyóra" paletta, az élő időjárás
+  („7 °C · Borult", Open-Meteo), a `00:03`-ról induló élő visszaszámláló és az
+  ikonos téglák láthatók; a régi szöveges meta-sor a fejléc alatt eltűnt.
+- Keskeny ablak (820×700) ellenőrzése: `/tmp/header-compact.png` — a dátumvezérlők
+  egymás alá rendeződnek, a stat-téglák vízszintesen görgethetők, a szűrők is
+  görgethetők. Az ablak visszaállítva 1480×1000-re.
+- **Saját helyzet élőben**: az újraindított app a gép pozícióját feloldotta, és
+  az AX-próba ezt adja: `Időjárás: 5,6 °C, Eső, Cserszegtomaj, saját helyzet,
+  élő adat` (`swift scripts/ax-probe.swift FootballApp home.stat.weather`).
+  A képernyőkép (`/tmp/location-preview.png`) az eső-időjárás kék palettáját és
+  a lefutó eső-animációt is mutatja — ez az időjárásfüggő animáció élő bizonyítéka.
+
+### Nem ellenőrzött
+
+- Eső animációja élőben ellenőrizve; hó és zivatar (villanás) csak
+  egység-teszttel (paletta/animáció-típus) lefedve. A VoiceOver beszédhangja és
+  a `reduceMotion` vizuális képe nem lett emberileg lejátszatva.
+- A macOS engedély-dialógus megjelenését a tesztelő gépén nem lehet
+  képernyőképpel rögzíteni (a meglévő engedély miatt nem jelent meg újra);
+  a `nil`-re eső, illetve időtúl-eső ágat unit teszt fedi le.
+- A countdown a kliens 60 mp-es élő körét, illetve a worker 6 órás sávját
+  becsüli; a backend nem közöl explicit „következő frissítés" időpontot.
+
+### Kockázat / visszaállás / következő döntési pont
+
+- Kockázat: egyetlen új külső, read-only HTTPS-hívás; ha a hálózat lassú,
+  a fejléc 5 mp-ig a napszaki háttért mutatja. Open-Meteo downtownolás esetén
+  nincs adat, de nincs hamis adat sem.
+- Visszaállás: minden változás a branch-en van, `git revert`-tel visszafordítható;
+  az új szolgáltatásnak nincs migrációja, kontraktja vagy adatírása.
+- Következő döntési pont: az időjárás-hívás átkerülhet a backendbe (a kliens
+  így teljes egészében a `127.0.0.1` API-ról kapna adatot); a countdown pedig
+  valódi backend-ütemezési mezőre köthető.
+- A mai munka áttekintése: az S91–S98 commitok (12 db) már a `main`-en vannak;
+  az egyetlen nem mergelt mai munka ez az ág (S99 + S100). A `main` közvetlen
+  őse ennek az ágnak, így a merge fast-forward, ütközés nélküli.
+- Commit + merge: a felhasználó döntése szerint az S100 commitolásra kerül az
+  `feat/homepage-visual-refresh` ágon, majd fast-forward merge a lokális
+  `main`-be; az `origin/main` push nem történik meg (külön döntés).

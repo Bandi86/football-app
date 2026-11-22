@@ -340,7 +340,19 @@ private struct MatchItemRow: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 17)
-        .background(hover ? AppTheme.surface : Color.clear)
+        // Az egér fölé vitelén a sor finoman kiemelkedik: enyhe borostyán
+        // tónus, hajszál szegély és mikro-skálázás. A billentyűfókusz saját,
+        // vastagabb borostyán kerete ettől függetlenül látszik.
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(hover ? AppTheme.accent.opacity(0.08) : Color.clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(hover ? AppTheme.accent.opacity(0.24) : Color.clear, lineWidth: 1)
+        )
+        .scaleEffect(hover ? 1.003 : 1)
+        .animation(.easeOut(duration: 0.16), value: hover)
         .contentShape(Rectangle())
         .onHover { hover = $0 }
         .onTapGesture { onSelect(match.id) }

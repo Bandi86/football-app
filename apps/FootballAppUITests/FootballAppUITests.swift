@@ -62,6 +62,18 @@ final class FootballAppUITests: XCTestCase {
         XCTAssertTrue(element("home.stat.odds", in: app).exists,
                       "az odds-lefedettség száma hiányzik a fejlécből")
 
+        // Az új, ikonos fejléc: időjárás + frissítési visszaszámláló.
+        let weather = element("home.stat.weather", in: app)
+        XCTAssertTrue(weather.waitForExistence(timeout: 10),
+                      "az időjárás-tégla hiányzik a fejlécből")
+        // A SwiftUI Text néha az értéket a `value`-ban hordozza, nem a `label`-ben.
+        let weatherText = weather.label + (weather.value as? String ?? "")
+        XCTAssertTrue(weatherText.contains("Időjárás"), weatherText)
+        let refresh = element("home.stat.refresh", in: app)
+        XCTAssertTrue(refresh.exists, "a frissítési visszaszámláló hiányzik a fejlécből")
+        let refreshText = refresh.label + (refresh.value as? String ?? "")
+        XCTAssertFalse(refreshText.isEmpty, "a visszaszámlálónak van magyar címkéje")
+
         let teamLogoFilter = element("filter.missingLogo", in: app)
         let competitionLogoFilter = element("filter.missingCompetitionLogo", in: app)
         XCTAssertEqual(teamLogoFilter.label, "Logó nélkül", "a csapatlogó-szűrőn ne jelenjen meg számláló")
