@@ -358,6 +358,150 @@ const ENTRIES: &[Entry] = &[
         tier: 0,
         priority: 13,
     },
+    // S96: női ligák egységes kanonikus neve (a források eltérő jelöléssel hozzák).
+    Entry {
+        observed: "bundesliga (noi)",
+        name: "Frauen-Bundesliga",
+        country: Some(("DE", "Germany")),
+        tier: 1,
+        priority: 60,
+    },
+    // S96: női ligák egységes kanonikus neve (a források eltérő jelöléssel hozzák).
+    Entry {
+        observed: "bundesliga - noi",
+        name: "Frauen-Bundesliga",
+        country: Some(("DE", "Germany")),
+        tier: 1,
+        priority: 60,
+    },
+    // S96: női ligák egységes kanonikus neve (a források eltérő jelöléssel hozzák).
+    Entry {
+        observed: "eredivisie vrouwen",
+        name: "Eredivisie Vrouwen",
+        country: Some(("NL", "Netherlands")),
+        tier: 1,
+        priority: 60,
+    },
+    // S96: női ligák egységes kanonikus neve (a források eltérő jelöléssel hozzák).
+    Entry {
+        observed: "eredivisie (noi)",
+        name: "Eredivisie Vrouwen",
+        country: Some(("NL", "Netherlands")),
+        tier: 1,
+        priority: 60,
+    },
+    // S96: női ligák egységes kanonikus neve (a források eltérő jelöléssel hozzák).
+    Entry {
+        observed: "women's eredivisie",
+        name: "Eredivisie Vrouwen",
+        country: Some(("NL", "Netherlands")),
+        tier: 1,
+        priority: 60,
+    },
+    // S96: női ligák egységes kanonikus neve (a források eltérő jelöléssel hozzák).
+    Entry {
+        observed: "dutch vrouwen eredivisie",
+        name: "Eredivisie Vrouwen",
+        country: Some(("NL", "Netherlands")),
+        tier: 1,
+        priority: 60,
+    },
+    // S96: női ligák egységes kanonikus neve (a források eltérő jelöléssel hozzák).
+    Entry {
+        observed: "we league",
+        name: "WE League (női)",
+        country: Some(("JP", "Japan")),
+        tier: 1,
+        priority: 60,
+    },
+    // S96: női ligák egységes kanonikus neve (a források eltérő jelöléssel hozzák).
+    Entry {
+        observed: "women's we league",
+        name: "WE League (női)",
+        country: Some(("JP", "Japan")),
+        tier: 1,
+        priority: 60,
+    },
+    // S96: női ligák egységes kanonikus neve (a források eltérő jelöléssel hozzák).
+    Entry {
+        observed: "a-league women",
+        name: "A-League Women",
+        country: Some(("AU", "Australia")),
+        tier: 1,
+        priority: 60,
+    },
+    // S96: női ligák egységes kanonikus neve (a források eltérő jelöléssel hozzák).
+    Entry {
+        observed: "a-league - noi",
+        name: "A-League Women",
+        country: Some(("AU", "Australia")),
+        tier: 1,
+        priority: 60,
+    },
+    // S96: női ligák egységes kanonikus neve (a források eltérő jelöléssel hozzák).
+    Entry {
+        observed: "a-liga women",
+        name: "A-Liga Women",
+        country: Some(("DK", "Denmark")),
+        tier: 1,
+        priority: 60,
+    },
+    // S96: női ligák egységes kanonikus neve (a források eltérő jelöléssel hozzák).
+    Entry {
+        observed: "a-liga - noi",
+        name: "A-Liga Women",
+        country: Some(("DK", "Denmark")),
+        tier: 1,
+        priority: 60,
+    },
+    // S96: női ligák egységes kanonikus neve (a források eltérő jelöléssel hozzák).
+    Entry {
+        observed: "b-liga women",
+        name: "B-Liga Women",
+        country: Some(("DK", "Denmark")),
+        tier: 1,
+        priority: 60,
+    },
+    // S96: női ligák egységes kanonikus neve (a források eltérő jelöléssel hozzák).
+    Entry {
+        observed: "b-liga - noi",
+        name: "B-Liga Women",
+        country: Some(("DK", "Denmark")),
+        tier: 1,
+        priority: 60,
+    },
+    // S96: női ligák egységes kanonikus neve (a források eltérő jelöléssel hozzák).
+    Entry {
+        observed: "premiere ligue femenine",
+        name: "Première Ligue (női)",
+        country: Some(("FR", "France")),
+        tier: 1,
+        priority: 60,
+    },
+    // S96: női ligák egységes kanonikus neve (a források eltérő jelöléssel hozzák).
+    Entry {
+        observed: "serie a - noi",
+        name: "Women's Serie A",
+        country: Some(("IT", "Italy")),
+        tier: 1,
+        priority: 60,
+    },
+    // S96: női ligák egységes kanonikus neve (a források eltérő jelöléssel hozzák).
+    Entry {
+        observed: "liga f",
+        name: "Liga F",
+        country: Some(("ES", "Spain")),
+        tier: 1,
+        priority: 60,
+    },
+    // S96: női ligák egységes kanonikus neve (a források eltérő jelöléssel hozzák).
+    Entry {
+        observed: "liga fpd",
+        name: "Liga FPD",
+        country: Some(("CR", "Costa Rica")),
+        tier: 1,
+        priority: 55,
+    },
     Entry {
         observed: "fa kupa",
         name: "FA Cup",
@@ -365,13 +509,72 @@ const ENTRIES: &[Entry] = &[
         tier: 0,
         priority: 13,
     },
+    // S97: szlovák élvonal — a források „Super Liga" / „1. Liga" / „Niké Liga"
+    // néven is hozzák ugyanazt a bajnokságot; a kanonikus név a „1. Liga".
+    Entry {
+        observed: "super liga",
+        name: "1. Liga",
+        country: Some(("SK", "Slovakia")),
+        tier: 1,
+        priority: 60,
+    },
+    Entry {
+        observed: "nike liga",
+        name: "1. Liga",
+        country: Some(("SK", "Slovakia")),
+        tier: 1,
+        priority: 60,
+    },
+    Entry {
+        observed: "1. liga",
+        name: "1. Liga",
+        country: Some(("SK", "Slovakia")),
+        tier: 1,
+        priority: 60,
+    },
+    // S97: görög élvonal — a források „Super League", „Greek Super League" és
+    // „Super League Greece" néven is hozzák; a kanonikus név a „Super League".
+    Entry {
+        observed: "super league",
+        name: "Super League",
+        country: Some(("GR", "Greece")),
+        tier: 1,
+        priority: 60,
+    },
+    Entry {
+        observed: "greek super league",
+        name: "Super League",
+        country: Some(("GR", "Greece")),
+        tier: 1,
+        priority: 60,
+    },
+    Entry {
+        observed: "super league greece",
+        name: "Super League",
+        country: Some(("GR", "Greece")),
+        tier: 1,
+        priority: 60,
+    },
 ];
 
+/// S95:
 /// S95: foldolt megfigyelt címek, amelyek több országban is ugyanígy
 /// szerepelnek. Ezeknél a szótári átnevezés csak akkor fut le, ha a megfigyelt
 /// ország hiányzik vagy egyezik a szótár országával — különben a megfigyelt
 /// nevet hagyjuk meg, mert az adott ország saját, azonos nevű versenye.
-const COUNTRY_SCOPED_OBSERVED_TITLES: &[&str] = &["laliga", "primeradivision"];
+const COUNTRY_SCOPED_OBSERVED_TITLES: &[&str] = &[
+    "laliga",
+    "primeradivision",
+    // S97: több országban is használt bajnokicímek — a szlovák/görög szótári
+    // átnevezés csak azonos országnál futhat le, különben egy másik ország
+    // (pl. szerb vagy moldáv) „Super Liga" versenyét nevezné át.
+    "superliga",
+    "nikeliga",
+    "1liga",
+    "superleague",
+    "greeksuperleague",
+    "superleaguegreece",
+];
 
 /// A megfigyelt verseny-meta kanonizált változata (ismeretlen cím → változatlan).
 pub fn canonicalize(competition: &NormalizedCompetition) -> NormalizedCompetition {
@@ -609,6 +812,33 @@ mod tests {
         let cr = canonicalize(&comp("La Liga", "CR", "Costa Rica"));
         assert_eq!(cr.name, "La Liga");
         assert_eq!(cr.country_code, "CR");
+    }
+
+    #[test]
+    fn slovak_and_greek_titles_are_unified_but_other_countries_are_left_alone() {
+        // S97: ugyanaz a bajnokság három néven jön a forrásokból.
+        for title in ["Super Liga", "Niké Liga", "1. Liga"] {
+            let out = canonicalize(&comp(title, "SK", "Slovakia"));
+            assert_eq!(out.name, "1. Liga", "{title} → kanonikus név");
+            assert_eq!(out.country_code, "SK");
+        }
+
+        // A szerb és moldáv „Super Liga" marad, mert más ország saját versenye.
+        for (code, name) in [("RS", "Serbia"), ("MD", "Moldova")] {
+            let out = canonicalize(&comp("Super Liga", code, name));
+            assert_eq!(out.name, "Super Liga", "{code} marad");
+            assert_eq!(out.country_code, code);
+        }
+
+        for title in ["Super League", "Greek Super League", "Super League Greece"] {
+            let out = canonicalize(&comp(title, "GR", "Greece"));
+            assert_eq!(out.name, "Super League", "{title} → kanonikus név");
+            assert_eq!(out.country_code, "GR");
+        }
+
+        // A görög másodosztály nem olvad az élvonalba.
+        let second = canonicalize(&comp("Super League 2", "GR", "Greece"));
+        assert_eq!(second.name, "Super League 2");
     }
 
     #[test]

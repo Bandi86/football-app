@@ -5,9 +5,11 @@
 //! 2. crosswalk-lánc (csak strong/medium; weak teljesen kihagyva) → Exact,
 //! 3. reviewed alias kontextus-szűrővel, pontosan 1 entitás → Exact,
 //! 4. egzakt foldolt név kontextus-szűrővel, `entity_kind`-ra szűrve,
-//!    pontosan 1 → Exact. Női kontextusban a csapat-ág a jelölő nélküli névhez
-//!    marker-normalizált egzakt kulcsokat is kipróbál ("…" → "…w"/"…women"),
-//!    mert a katalógus a női csapatokat jelölővel tárolja,
+//!    pontosan 1 → Exact. Női kontextusban a csapat-ág a név jelölésformájától
+//!    függetlenül próbálja az egzakt kulcsokat: a záró női jelölőt levágva az
+//!    alapnévre foldol, majd az alapnévből és marker-változataiból ("…",
+//!    "…w", "…women") képzett kulcsokat kérdezi, mert a katalógus a női
+//!    csapatokat jelölővel tárolja,
 //! 5. fuzzy jelöltek (token_overlap ≥ FUZZY_THRESHOLD, kontextus- és
 //!    fajtaszűrve, soha nem Exact) → Candidates,
 //! 6. NotFound.
@@ -118,34 +120,46 @@ pub async fn resolve(
     // alak (pl. "M Oliver", "Fyfe, I. M.") egy másik játékvezetőre is
     // illeszkedhet, ezért az AGENTS.md §6 tiltja az automatikus fuzzy
     // entitás-összevonást — ilyenkor a találat csak review-jelölt lesz.
-    let mut entities = repo::entities_by_normalized_name(pool, entity_kind, &folded)
-        .await
-        .map_err(db)?;
-    // Női csapatnevek: a tipplap jelölő nélkül küldi a nevet ("Granada"), a
-    // kanonikus katalógus viszont jelölővel tárolja ("Granada W", "Granada (W)",
-    // "Granada Women"). A `fold_name` minden elválasztót és szóközt eldob, ezért
+    // Női csapatnevek: a források ugyanazt a csapatot jelölő nélkül ("Granada"),
+    // "W"/"Women" alakban ("Juventus W", "Granada Women") vagy zárójelesen
+    // ("Juventus (W)") is küldhetik, a kanonikus katalógus pedig jelölővel
+    // tárolja. A `fold_name` minden elválasztót és szóközt eldob, ezért
     // `granada` ≠ `granadaw`, és a 4. lépés nem talál. 2026-11-22-én 26 ilyen
     // pending team-sor volt (mind női csapat, gender=female/branch=women
     // kontextussal), a katalógusban pedig 17 markerelt női csapatnév.
     //
-    // Csak a marker HOZZÁADÁSÁNAK irányában bővítjük a kulcsot, és csak női
-    // kontextusban: ez nem fuzzy merge (AGENTS.md §6), hanem további EGZAKT
-    // string-kulcs — `fold(proposed)+"w"` és `fold(proposed)+"women"` —, amit a
-    // kontextus-egyezés és az egyértelműség (pontosan 1 különböző entitás) tesz
-    // linkelhetővé. A férfi ág viselkedése változatlan (egyetlen kulcs).
+    // A jelölés FORMÁTUMÁTól függetlenül ugyanarra az egzakt kulcs-készletre
+    // jutunk: a záró jelölő tokent levágva az alapnévre foldolunk, majd az
+    // alapnévből képzett `fold(base)`, `fold(base)+"w"`,
+    // `fold(base)+"women"` kulcsokat kérdezzük ki — a mai
+    // `fold(proposed_name)` kulcs mellett. Ez nem fuzzy merge (AGENTS.md §6),
+    // hanem további EGZAKT string-kulcs, amit a kontextus-egyezés és az
+    // egyértelműség (pontosan 1 különböző entitás) tesz linkelhetővé. A férfi
+    // ág viselkedése változatlan (egyetlen kulcs).
+    let mut keys = vec![folded.clone()];
     if entity_kind == "team" && is_women_context(ctx) {
-        for marker in ["w", "women"] {
-            let key = format!("{folded}{marker}");
-            for entity in repo::entities_by_normalized_name(pool, entity_kind, &key)
-                .await
-                .map_err(db)?
-            {
-                if !entities
-                    .iter()
-                    .any(|existing| existing.entity_id == entity.entity_id)
-                {
-                    entities.push(entity);
+        let base = strip_women_marker(proposed_name).unwrap_or(proposed_name);
+        let base_folded = fold_name(base);
+        if !base_folded.is_empty() {
+            for marker in ["", "w", "women"] {
+                let key = format!("{base_folded}{marker}");
+                if !keys.contains(&key) {
+                    keys.push(key);
                 }
+            }
+        }
+    }
+    let mut entities: Vec<repo::EntityRow> = Vec::new();
+    for key in &keys {
+        for entity in repo::entities_by_normalized_name(pool, entity_kind, key)
+            .await
+            .map_err(db)?
+        {
+            if !entities
+                .iter()
+                .any(|existing| existing.entity_id == entity.entity_id)
+            {
+                entities.push(entity);
             }
         }
     }
@@ -262,9 +276,57 @@ fn is_women_context(ctx: &IdentityContext) -> bool {
     ctx.gender.as_deref() == Some("female") || ctx.branch.as_deref() == Some("women")
 }
 
+/// A női csapatnév záró jelölő-tokenjei FOLDOLT alakban: "W", "Women",
+/// "Frauen", "Femenino"/"Femenina", "Femminile", "Női". Csak a név VÉGÉN,
+/// önálló tokenként (szóközzel vagy zárójellel határolva) számítanak — így a
+/// "Wolverhampton" vagy a "Juventus U19" érintetlen marad.
+const WOMEN_NAME_MARKERS: [&str; 7] = [
+    "w",
+    "women",
+    "frauen",
+    "femenino",
+    "femenina",
+    "femminile",
+    "noi",
+];
+
+/// A záró női jelölő nélküli alapnév, ha a NYERS név ilyet hordoz; egyébként
+/// `None`. A visszaadott alak foldolatlan (a hívó foldolja), és csak akkor
+/// nem üres, ha a jelölő levágása után maradt érdemi név.
+///
+/// A jelölés formátuma nem számít: "Juventus (W)", "Juventus(W)",
+/// "Juventus W", "Juventus Women", "Ferencváros Női" → "Juventus",
+/// "Ferencváros".
+fn strip_women_marker(name: &str) -> Option<&str> {
+    let trimmed = name.trim();
+    // Zárójeles alak a név végén.
+    if let Some(before_close) = trimmed.strip_suffix(')')
+        && let Some(open) = before_close.rfind('(')
+        && is_women_marker_token(&before_close[open + 1..])
+    {
+        let base = before_close[..open].trim_end();
+        return (!base.is_empty()).then_some(base);
+    }
+    // Szóközzel határolt záró token.
+    if let Some((before, last)) = trimmed.rsplit_once(char::is_whitespace)
+        && is_women_marker_token(last)
+    {
+        let base = before.trim_end();
+        return (!base.is_empty()).then_some(base);
+    }
+    None
+}
+
+/// Igaz, ha a token a szélein lévő írásjelek nélkül női jelölő ("W",
+/// "(W)", "W)", "Women", "Női", …).
+fn is_women_marker_token(token: &str) -> bool {
+    let cleaned = token.trim_matches(|c: char| !c.is_alphanumeric());
+    !cleaned.is_empty() && WOMEN_NAME_MARKERS.contains(&fold_keep_separators(cleaned).as_str())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{is_full_person_name, is_women_context};
+    use super::{is_full_person_name, is_women_context, strip_women_marker};
     use football_domain::identity::IdentityContext;
 
     #[test]
@@ -305,5 +367,37 @@ mod tests {
         assert!(is_women_context(&by_branch));
         assert!(!is_women_context(&men));
         assert!(!is_women_context(&IdentityContext::default()));
+    }
+
+    #[test]
+    fn women_marker_is_stripped_only_as_a_trailing_token() {
+        for (name, base) in [
+            ("Juventus (W)", "Juventus"),
+            ("Juventus(W)", "Juventus"),
+            ("Juventus (w)", "Juventus"),
+            ("Juventus W", "Juventus"),
+            ("Juventus Women", "Juventus"),
+            ("Juventus Frauen", "Juventus"),
+            ("Juventus Femenino", "Juventus"),
+            ("Juventus Femenina", "Juventus"),
+            ("Juventus Femminile", "Juventus"),
+            ("Ferencváros Női", "Ferencváros"),
+            ("FC Twente (W)", "FC Twente"),
+            ("KIF Örebro (W)", "KIF Örebro"),
+        ] {
+            assert_eq!(strip_women_marker(name), Some(base), "név: {name}");
+        }
+        for name in [
+            "Juventus",
+            "Wolverhampton",
+            "Juventus U19",
+            "Juventus (U19)",
+            "Juventus W FC",
+            "Juventus Women's",
+            "W",
+            "",
+        ] {
+            assert_eq!(strip_women_marker(name), None, "név: {name}");
+        }
     }
 }

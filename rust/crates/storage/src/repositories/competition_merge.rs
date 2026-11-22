@@ -470,6 +470,23 @@ pub async fn merge_competition(
 
     let duplicate_match_groups = duplicate_match_groups(&mut tx, pair.survivor_competition).await?;
     finalize_archive(&mut tx, archive_id, &pair, duplicate_match_groups).await?;
+
+    // S97: a beolvadó verseny-sora nem maradhat a DB-ben. A merge a meccseket és
+    // a szezonokat átmozgatja, de a puszta `core.competition` sor tovább élt, és
+    // egy későbbi ingest (bridge- vagy id-hint út) újra rá köthette a meccseket —
+    // így ugyanaz a liga két csoportban jelent meg a kliensben. A törlés a merge
+    // tranzakció része, a meccsek és szezonok már a survivor alatt vannak.
+    let deleted = sqlx::query("DELETE FROM core.competition WHERE id = $1")
+        .bind(pair.duplicate_competition)
+        .execute(&mut *tx)
+        .await
+        .context("beolvadó verseny sorának törlése")?;
+    if deleted.rows_affected() != 1 {
+        bail!(
+            "a beolvadó verseny sora nem törölhető: {}",
+            pair.duplicate_competition
+        );
+    }
     insert_audit(
         &mut tx,
         &pair,

@@ -453,3 +453,124 @@ forrás — a kliens 6 órás `isLiveNow` kapuja kezeli.)
   `dedupe aliases` és a linker-változások migrációt nem hoztak.
 - Adat: minden entitás/fixture merge az `ops.entity_merge_archive` és
   `ops.dedupe_archive` táblában payload-dal együtt visszajátszható.
+
+## S97 — retry-policy, játékvezető megjelenítés, verseny-duplikátumok és női csapatmarkerek
+
+Induló állapot: a napi lista adatszinten tiszta volt (0 névpár-duplikátum a
+11-19..11-23 tartományban), de három nyitott osztály maradt: a worker hot
+loopja, a játékvezető hiánya a részletezőben, és a forrásokon átnyúló
+verseny-/csapatnév-duplikátumok. Cél: ezeket gyökerüknél javítani, mérni, és a
+szeletet zöld kapuval lezárni.
+
+### Kódváltozások
+
+- `rust/crates/worker/src/tick.rs`: a kvóta/delay-blokk nem a változatlan
+  `due_at`-tel állítja vissza a jobot `Pending`-be, hanem
+  `repo::requeue_with_delay`-jel — kvóta esetén a következő UTC-éjfélre, delay
+  esetén `now + max(min_delay_ms, 1000) + jitter`-re. Új
+  `MAX_TRANSIENT_ATTEMPTS = 8`: ennyi tranziens hiba után a job `Failed`
+  státuszt és magyar hibaüzenetet kap. 4 új unit teszt.
+- `db/migrations/0022_match_official.sql` + `canonicalize.rs`: új
+  `fact.match_official` tábla (match, source, role, name, captured_at). A
+  bíró neve akkor is megjeleníthető, ha nincs entitás-link; a link továbbra is
+  fail-closed (nincs automatikus fuzzy). A `link_referee` paraméterlistája
+  `RefereeLink` structba került (clippy).
+- `rust/crates/storage/src/repositories/match_detail.rs`: a részletező
+  `referee` mezője `COALESCE(referee_entity.canonical_name, official.name)`,
+  LATERAL joinnal a `fact.match_official`-ra (research elsőbbség).
+- `rust/crates/ingest/src/competitions.rs`: szlovák élvonal
+  (`Super Liga` / `Niké Liga` / `1. Liga` → **1. Liga**) és görög élvonal
+  (`Super League` / `Greek Super League` / `Super League Greece` →
+  **Super League**) szótári egységesítés, ország-kötött feloldással
+  (`COUNTRY_SCOPED_OBSERVED_TITLES`), hogy más ország azonos nevű versenyét ne
+  nevezze át. Új teszt: SK/GR egységesítés + RS/MD „Super Liga" marad +
+  görög másodosztály nem olvad.
+- `rust/crates/storage/src/repositories/competition_merge.rs`: a beolvadó
+  `core.competition` sor a merge tranzakcióban **törlődik** (a meccsek és
+  szezonok már a survivor alatt vannak). Enélkül a megmaradó sor tovább élt, és
+  egy későbbi ingest újra rá köthette a meccseket — a kliensben ugyanaz a liga
+  két csoportban jelent meg.
+- `rust/crates/storage/src/repositories/integrity.rs`: új
+  `same_pair_same_day_groups` metrika — ugyanaz a csapatpár ugyanazon az
+  UTC-napon több sorban, akkor is, ha a két forrás eltérő csapat-entitást
+  használt (cross-source névváltozat). A `footballctl integrity` kiírja; nem
+  kemény hiba, hanem review-jelzés.
+- `scripts/db-check.sh`, `rust/crates/storage/tests/connection.rs`: 49 → **50**
+  terméktábla (0001–0022 lánc).
+
+### Adatrevíziók (mind dokumentált, visszajátszható)
+
+- 4 „N" utótagú női csapat átnevezése „(W)" alakra (Beleza, C-Osaka, Saitama,
+  Kickstart), alias-bejegyzéssel.
+- 13 női liga-verseny egységesítése (Liga F, Frauen-Bundesliga, Eredivisie
+  Vrouwen, WE League, A-League Women, A-Liga/B-Liga Women, Première Ligue,
+  IWL Women, Liga MX Femenil, Liga FPD, Women's FA Cup, Women's Serie A);
+  4 esetben az ország-kódot előbb a survivor országára kellett írni.
+- ~101 női csapat-merge (marker-variánsok: „X W", „X (W)", „X N", marker
+  nélküli) + 17 azonos klubú iker merge (Monaco, St. Truiden, Göztepe,
+  Barcelona (W), Sporting CP, Vitesse stb.) — a `merge-team` guard a
+  kontextust (ország/nem/korosztály/ág) nézi, ezért ország-revízió kellett.
+- Duplikált verseny-entitások: SK „Super Liga" → „1. Liga", görög
+  „Greek Super League" + duplikált „Super League" → „Super League", LV „Cup"
+  duplikátum; a 101 merge-ölt entitású, meccs/szezon nélküli verseny-sor
+  törlése; két téves, országokon átnyúló korábbi merge (SK 1. Liga → CZ,
+  LV Cup → SI) visszaállítása `merged_into_id = NULL`-lal.
+- Fixture-duplikátumok: SWF Scottish Cup Rossvale–Gartcairn (date_only 00:00 vs
+  14:15 pontos kezdés) és Segunda División (VE) Deportivo Lara–Aragua FC
+  (a forrás 21:22Z-ről 22:00Z-re pontosította a kezdést) — `dedupe pair`,
+  a friss/points kezdésű sor maradt.
+- `dedupe aliases --from 2026-11-01 --to 2026-11-25 --apply`: 11 csoport
+  (1 csapat+fixture, 10 fixture-twin); utána dry-run 0.
+
+### Mérés (dev DB, `/v1/day`, daemon 61615)
+
+| nap | sor | státuszok | open_past | missing_result | dup | nonterm+eredmény |
+|---|---|---|---|---|---|---|
+| 11-20 | 255 | 248 finished, 4 postponed, 3 scheduled | 3 | 0 | 0 | 0 |
+| 11-21 | 900 | 844 finished, 29 postponed, 26 scheduled, 1 live | 27 | 0 | 0 | 0 |
+| 11-22 | 621 | 94 finished, 455 scheduled, 70 live, 2 canceled | 22 | 0 | 1 → 0 | 0 |
+| 11-23 | 98 | 98 scheduled | 0 | 0 | 0 | 0 |
+
+- `footballctl integrity --from 2026-11-01 --to 2026-11-30`: duplikált
+  kickoff 0, duplikált fixture 0, azonos csapatpár azonos napon 0, árva
+  provenance 0, aktív ref összevont entitásra 0, withheld gate 0, failed job 0
+  → **verdict: OK** (függő review 602).
+- `fact.match_official`: 347 sor / 347 meccs; a részletező API élőben:
+  „Tromsø vs Viking | referee: Tore Hansen | venue: Romssa Arena";
+  „Burton vs Luton | referee: Dean Whitestone | venue: Pirelli Stadium".
+  `referee_entity_id` 1/1535, `venue_entity_id` 0/1535 — szándékosan szigorú
+  identitás-policy, dokumentált korlát.
+- Worker: a beragadt soccerway job `due_at`-je a következő UTC-éjfélre állt,
+  az `attempts` 363-nál megállt (nincs több hot loop).
+
+### Futott ellenőrzések
+
+- `cargo fmt --all --check` → OK; `cargo clippy --workspace --all-targets -- -D
+  warnings` → 0 figyelmeztetés.
+- `./scripts/db-reset.sh` → 0; `cargo test --workspace -- --test-threads=1` →
+  **561 passed / 0 failed / 105 teszt-bináris**.
+- `./scripts/check-foundation.sh` → 0 (dev 50 tábla / 16,0 M üzleti sor, test 0).
+- `sqlx migrate run --source db/migrations` → 0022 applied; `pg_tables` 50.
+- Élő API-ellenőrzés a futó daemonon (port 61615) — lásd a mérésnél.
+
+### Nyitott tételek
+
+1. `Deportivo Lara`-féle „azonos csapatpár azonos napon" eset most 0, de a
+   detektor csak jelent, nem javít; a javítás kézi `dedupe pair`.
+2. A `same_pair_same_day_groups` hamis-pozitív aránya élesben még nem mért
+   (ifjúsági tornák, ahol egy csapat naponta kétszer játszhat — jelenleg 0).
+3. Bíró-identitás policy: auto-create (~168 új entitás/nap) vs review;
+   referee-ország séma (migráció) továbbra is döntés előtt.
+4. 602 függő identitás-review (főleg research bíró-nevek) takarítása.
+5. Kliens: a Swift kód a HEAD-en van, de a futó app-bináris a S95-ös build —
+   újrabuildelés és AX-ellenőrzés a következő szelet elején.
+6. Korábbi tételek: országonkénti competition-duplikátumok maradéka,
+   Liga F forrás-konfliktus, tipplap múltbeli napok, 565+ referee review.
+
+### Visszaállás
+
+- Kód: a szelet commitja `git revert`-tel visszafordítható; a 0022 migráció
+  visszaállítása `DROP TABLE fact.match_official;` + migrációs sor törlése.
+- Adat: minden entitás/fixture merge az `ops.entity_merge_archive` és
+  `ops.dedupe_archive` payloadjaival visszajátszható; a 101 törölt verseny-sor
+  a merge-archívum payloadjából újraépíthető.

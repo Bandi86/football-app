@@ -100,6 +100,12 @@ async fn seed_team(
 /// pedig forrás-refen jön (nem a név-lépcsőt méri). `women` dönti el, hogy a
 /// payload női kontextust jelez-e (gender=female, branch=women).
 fn team_day(women: bool) -> NormalizedDay {
+    named_team_day(women, "Granada", "Sevilla")
+}
+
+/// Ugyanaz a nap tetszőleges csapatnevekkel: a jelölésformátum-tesztek a
+/// payload hazai nevét variálják; a vendég továbbra is forrás-refen jön.
+fn named_team_day(women: bool, home_name: &str, away_name: &str) -> NormalizedDay {
     let kickoff = Utc.with_ymd_and_hms(2026, 11, 21, 15, 0, 0).unwrap();
     let (gender, branch) = if women {
         ("female", "women")
@@ -122,7 +128,7 @@ fn team_day(women: bool) -> NormalizedDay {
             id: None,
             label: "2026/27".into(),
         },
-        teams: [("g1", "Granada"), ("s2", "Sevilla")]
+        teams: [("g1", home_name), ("s2", away_name)]
             .iter()
             .map(|(ext, name)| NormalizedTeam {
                 id: None,
@@ -352,4 +358,178 @@ async fn men_team_exact_name_still_links() {
         count(&pool, "SELECT count(*) FROM identity.review_queue").await,
         0
     );
+}
+
+/// (e) A payload maga is jelölt, csak MÁS formában: "Juventus (W)" → a
+/// záró jelölő levágásával képzett "juventus" kulcs megtalálja a "Juventus W"
+/// entitást. Korábban itt a "juventusww" kulcs nem talált.
+#[tokio::test]
+async fn marked_payload_links_to_plain_marker_entity() {
+    let pool = test_pool().await;
+    let source_id = seed_source(&pool).await;
+    let country_id = seed_country(&pool).await;
+    let juventus_w = seed_team(
+        &pool,
+        source_id,
+        country_id,
+        None,
+        "Juventus W",
+        "female",
+        "women",
+    )
+    .await;
+    seed_team(
+        &pool,
+        source_id,
+        country_id,
+        Some("s2"),
+        "Sevilla (W)",
+        "female",
+        "women",
+    )
+    .await;
+
+    let day = named_team_day(true, "Juventus (W)", "Sevilla (W)");
+    let materialized = Canonicalizer::materialize(&pool, &day).await.unwrap();
+    assert_eq!(materialized.matches.len(), 1, "a meccs materializálódik");
+    let (home, _away) = match_teams(&pool, materialized.matches[0].match_id).await;
+    assert_eq!(home, juventus_w, "a Juventus W entitásra linkelt");
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM identity.review_queue").await,
+        0,
+        "nem nyílt review-sor"
+    );
+}
+
+/// (f) Fordított irány: a payload jelölése "W", a katalógusé "(W)" —
+/// "Juventus W" payload → "Juventus (W)" entitás.
+#[tokio::test]
+async fn plain_marked_payload_links_to_paren_entity() {
+    let pool = test_pool().await;
+    let source_id = seed_source(&pool).await;
+    let country_id = seed_country(&pool).await;
+    let juventus_paren = seed_team(
+        &pool,
+        source_id,
+        country_id,
+        None,
+        "Juventus (W)",
+        "female",
+        "women",
+    )
+    .await;
+    seed_team(
+        &pool,
+        source_id,
+        country_id,
+        Some("s2"),
+        "Sevilla W",
+        "female",
+        "women",
+    )
+    .await;
+
+    let day = named_team_day(true, "Juventus W", "Sevilla W");
+    let materialized = Canonicalizer::materialize(&pool, &day).await.unwrap();
+    assert_eq!(materialized.matches.len(), 1, "a meccs materializálódik");
+    let (home, _away) = match_teams(&pool, materialized.matches[0].match_id).await;
+    assert_eq!(home, juventus_paren, "a Juventus (W) entitásra linkelt");
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM identity.review_queue").await,
+        0,
+        "nem nyílt review-sor"
+    );
+}
+
+/// (g) A jelölő levágásával kapott alapnév ("juventus") NEM linkelhet a férfi
+/// "Juventus" entitásra: a kontextus-szűrés (női payload vs. férfi csapat)
+/// kizárja, így a mai viselkedés marad — nincs meccs, no_exact_match review.
+#[tokio::test]
+async fn marked_payload_in_women_context_does_not_link_men_team() {
+    let pool = test_pool().await;
+    let source_id = seed_source(&pool).await;
+    let country_id = seed_country(&pool).await;
+    let men_juventus = seed_team(
+        &pool, source_id, country_id, None, "Juventus", "male", "senior",
+    )
+    .await;
+    seed_team(
+        &pool,
+        source_id,
+        country_id,
+        Some("s2"),
+        "Sevilla W",
+        "female",
+        "women",
+    )
+    .await;
+
+    let day = named_team_day(true, "Juventus (W)", "Sevilla W");
+    let materialized = Canonicalizer::materialize(&pool, &day).await.unwrap();
+    assert!(
+        materialized.matches.is_empty(),
+        "nincs link a férfi csapatra"
+    );
+    let (reason, candidates, branch) = team_review(&pool, "g1").await.expect("review-sor");
+    assert_eq!(reason, "no_exact_match");
+    let ids: Vec<Uuid> = serde_json::from_value(candidates).unwrap();
+    assert!(
+        !ids.contains(&men_juventus),
+        "a férfi csapat nem lehet jelölt: {ids:?}"
+    );
+    assert!(ids.is_empty(), "nincs jelölt: {ids:?}");
+    assert_eq!(branch.as_deref(), Some("women"));
+}
+
+/// (h) Ha a katalógusban a két jelölésváltozat ("Juventus W" és
+/// "Juventus (W)") is él, a payload bármelyik formája 2 találat → review a
+/// két jelölttel, nincs link.
+#[tokio::test]
+async fn both_marker_variants_stay_multiple_candidates() {
+    let pool = test_pool().await;
+    let source_id = seed_source(&pool).await;
+    let country_id = seed_country(&pool).await;
+    let juventus_w = seed_team(
+        &pool,
+        source_id,
+        country_id,
+        None,
+        "Juventus W",
+        "female",
+        "women",
+    )
+    .await;
+    let juventus_paren = seed_team(
+        &pool,
+        source_id,
+        country_id,
+        None,
+        "Juventus (W)",
+        "female",
+        "women",
+    )
+    .await;
+    seed_team(
+        &pool,
+        source_id,
+        country_id,
+        Some("s2"),
+        "Sevilla W",
+        "female",
+        "women",
+    )
+    .await;
+
+    let day = named_team_day(true, "Juventus (W)", "Sevilla W");
+    let materialized = Canonicalizer::materialize(&pool, &day).await.unwrap();
+    assert!(materialized.matches.is_empty(), "két jelöltnél nincs link");
+    let (reason, candidates, branch) = team_review(&pool, "g1").await.expect("review-sor");
+    assert_eq!(reason, "multiple_candidates");
+    let ids: std::collections::HashSet<Uuid> = serde_json::from_value(candidates).unwrap();
+    assert_eq!(
+        ids,
+        [juventus_w, juventus_paren].into_iter().collect(),
+        "mindkét jelölésváltozat jelölt"
+    );
+    assert_eq!(branch.as_deref(), Some("women"));
 }

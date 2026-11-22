@@ -75,6 +75,27 @@ pub struct TickOutcome {
     pub failed: usize,
 }
 
+/// Tranziens fetch-hiba maximális újrapróbálkozás-száma. Efölött a job
+/// `failed`-re zárul, hogy egy tartósan hibás forrás ne maradjon örökre a
+/// sorban (a korábbi viselkedés akár több száz kísérletet is engedett).
+const MAX_TRANSIENT_ATTEMPTS: i64 = 8;
+
+/// A napi kvóta UTC-éjfélkor áll vissza; a kvóta miatt blokkolt jobot a
+/// következő UTC-éjfél utáni pár másodpercre soroljuk vissza. Enélkül a job
+/// `pending` állapotban, változatlan `due_at`-tel percenként újra claimelődne
+/// (hot loop), miközben a kísérletek számlálója folyamatosan nőne.
+fn next_quota_reset(now: DateTime<Utc>) -> DateTime<Utc> {
+    let next_day = now
+        .date_naive()
+        .succ_opt()
+        .unwrap_or_else(|| now.date_naive());
+    match next_day.and_hms_opt(0, 0, 5) {
+        Some(midnight) => midnight.and_utc(),
+        // Elméleti túlcsordulás: egy óra múlva próbáljuk újra.
+        None => now + Duration::hours(1),
+    }
+}
+
 /// Exponenciális backoff + jitter: min(60s·2^(n-1), 1h) + [0, jitter_ms).
 fn backoff_delay(attempts: u32, jitter_ms: i64, rng: &mut impl FnMut() -> u32) -> Duration {
     let exponent = attempts.saturating_sub(1).min(6);
@@ -270,12 +291,31 @@ async fn process_job(
             };
             if decision != quota::QuotaDecision::Allowed {
                 block_ledger(pool, job, req, Utc::now(), FetchOutcome::QuotaBlocked).await?;
-                let reason = if decision == quota::QuotaDecision::QuotaBlocked {
-                    "napi kvóta kimerült"
+                let (reason, due_at) = if decision == quota::QuotaDecision::QuotaBlocked {
+                    // A kvóta naponta (UTC-éjfélkor) áll vissza: a jobot oda
+                    // soroljuk vissza, nem percenként újra próbálkozunk vele.
+                    ("napi kvóta kimerült", next_quota_reset(now))
                 } else {
-                    "a min_delay még nem telt le"
+                    // A min_delay letelte után azonnal folytatható.
+                    let delay_ms = policy.min_delay_ms.max(1_000);
+                    let jitter = if policy.jitter_ms > 0 {
+                        rand::rng().random_range(0..policy.jitter_ms)
+                    } else {
+                        0
+                    };
+                    (
+                        "a min_delay még nem telt le",
+                        now + Duration::milliseconds(delay_ms + jitter),
+                    )
                 };
-                scheduler::complete(pool, job.id, JobStatus::Pending, Some(reason)).await?;
+                repo::requeue_with_delay(pool, job.id, due_at).await?;
+                tracing::debug!(
+                    job_id = %job.id,
+                    source = %job.source_slug,
+                    reason,
+                    %due_at,
+                    "job visszasorolva a kapu miatt (nem hot loop)"
+                );
                 return Ok(JobResult::Blocked);
             }
 
@@ -603,6 +643,20 @@ async fn fetch_failure(
     .await?;
     if transient {
         let attempts = repo::count_job_fetch_attempts(pool, job.id).await?;
+        // A végtelen újrapróbálkozás helyett a job a limit után failed-re
+        // zárul (a ledger és a coverage így is rögzíti a kísérleteket).
+        if attempts >= MAX_TRANSIENT_ATTEMPTS {
+            scheduler::complete(
+                pool,
+                job.id,
+                JobStatus::Failed,
+                Some(&format!(
+                    "transiens újrapróbálkozás-limit elérve ({attempts} kísérlet): {err}"
+                )),
+            )
+            .await?;
+            return Ok(JobResult::Failed);
+        }
         let delay = retry_after
             .and_then(|d| Duration::from_std(d).ok())
             .unwrap_or_else(|| {
@@ -1110,4 +1164,47 @@ async fn auto_merge_pair(
         return Ok(AutoMerge::Merged);
     }
     Ok(AutoMerge::Skipped)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BACKOFF_CAP_SECS, backoff_delay, next_quota_reset};
+    use chrono::{TimeZone, Utc};
+
+    #[test]
+    fn quota_blocked_job_waits_for_the_next_utc_midnight() {
+        let now = Utc.with_ymd_and_hms(2026, 11, 22, 14, 48, 10).unwrap();
+        assert_eq!(
+            next_quota_reset(now),
+            Utc.with_ymd_and_hms(2026, 11, 23, 0, 0, 5).unwrap()
+        );
+    }
+
+    #[test]
+    fn quota_reset_rolls_to_the_following_day_late_at_night() {
+        let now = Utc.with_ymd_and_hms(2026, 11, 22, 23, 59, 59).unwrap();
+        assert_eq!(
+            next_quota_reset(now),
+            Utc.with_ymd_and_hms(2026, 11, 23, 0, 0, 5).unwrap()
+        );
+    }
+
+    #[test]
+    fn backoff_grows_and_is_capped_without_jitter() {
+        assert_eq!(backoff_delay(1, 0, &mut || 0).num_seconds(), 60);
+        assert_eq!(backoff_delay(2, 0, &mut || 0).num_seconds(), 120);
+        assert_eq!(backoff_delay(4, 0, &mut || 0).num_seconds(), 480);
+        assert_eq!(
+            backoff_delay(20, 0, &mut || 0).num_seconds(),
+            BACKOFF_CAP_SECS
+        );
+    }
+
+    #[test]
+    fn backoff_jitter_stays_below_the_configured_window() {
+        let delay = backoff_delay(10, 500, &mut || 499);
+        assert_eq!(delay.num_milliseconds(), BACKOFF_CAP_SECS * 1000 + 499);
+        let no_jitter = backoff_delay(10, 0, &mut || 499);
+        assert_eq!(no_jitter.num_milliseconds(), BACKOFF_CAP_SECS * 1000);
+    }
 }

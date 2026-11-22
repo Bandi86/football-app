@@ -14,8 +14,8 @@ async fn migrated_test_database_is_reachable() {
         .await
         .expect("a táblaszám lekérdezhető");
     assert_eq!(
-        tables, 49,
-        "a 0001–0021 migráció után 48 terméktábla és a _sqlx_migrations várható"
+        tables, 50,
+        "a 0001–0022 migráció után 49 terméktábla és a _sqlx_migrations várható"
     );
 
     pool.close().await;

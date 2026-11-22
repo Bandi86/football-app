@@ -265,7 +265,10 @@ async fn merge_moves_relations_and_is_idempotent() {
         4
     );
 
-    // A beolvadó competition sor megmarad, az entitás merged_into_id-t kap.
+    // S97: a beolvadó competition sora törlődik (a meccsek és szezonok már a
+    // survivor alatt vannak). Enélkül a megmaradó sor tovább élt, és egy későbbi
+    // ingest újra rá köthette a meccseket — a kliensben ugyanaz a liga két
+    // csoportban jelent meg. Az entitás `merged_into_id`-t kap.
     assert_eq!(
         count(
             &pool,
@@ -275,8 +278,8 @@ async fn merge_moves_relations_and_is_idempotent() {
             )
         )
         .await,
-        1,
-        "a merged competition sora nem törlődik"
+        0,
+        "a beolvadó competition sora törlődik"
     );
     let merged_into: Option<Uuid> =
         sqlx::query_scalar("SELECT merged_into_id FROM core.entity WHERE id=$1")

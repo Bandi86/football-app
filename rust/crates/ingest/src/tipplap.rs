@@ -405,11 +405,21 @@ const GENERAL_LEAGUES: [League; 26] = [
 /// Ahol a Tipplap a férfi kulcsot is használhatja (pl. „Bundesliga 1., női"),
 /// azt is felvesszük, hogy a napi cím-forma ne törje el a lefedettséget.
 /// A `női` jelzőt a [`league_for`] a kulcs-egyezés előtt leválasztja.
-const WOMEN_LEAGUES: [League; 10] = [
+const WOMEN_LEAGUES: [League; 11] = [
     League {
         key: "Spanyol bajnokság",
         name: "Liga F",
         country: Some(("ES", "Spain")),
+        tier: 1,
+        priority: 55,
+        international: false,
+    },
+    League {
+        // S96: a holland női liga eddig fallbackkel „Eredivisie (női)" néven
+        // külön verseny-entitást hozott létre; a kanonikus név az Eredivisie Vrouwen.
+        key: "Holland bajnokság",
+        name: "Eredivisie Vrouwen",
+        country: Some(("NL", "Netherlands")),
         tier: 1,
         priority: 55,
         international: false,
@@ -1164,11 +1174,22 @@ mod league_map_tests {
 
     #[test]
     fn women_title_without_exact_pair_falls_back_to_male_name() {
-        // Nem kötelező lefedettség (pl. holland női): férfi név + „ (női)".
+        // Nem kötelező lefedettség (pl. portugál női): férfi név + „ (női)".
+        let assignment = league_for("Labdarúgás – Portugál bajnokság, női, 5. forduló").unwrap();
+        assert!(assignment.women);
+        assert_eq!(assignment.name.as_ref(), "Primeira Liga (női)");
+        assert_eq!(assignment.round_label.as_deref(), Some("5. forduló"));
+    }
+
+    #[test]
+    fn maps_women_eredivisie_to_the_canonical_name() {
+        // S96: a holland női liga nem fallbackkel megy, hanem a kanonikus
+        // „Eredivisie Vrouwen" versenyre képződik (a források eltérő nevei
+        // ugyanarra az entitásra futnak be).
         let assignment = league_for("Labdarúgás – Holland bajnokság, női, 5. forduló").unwrap();
         assert!(assignment.women);
-        assert_eq!(assignment.name.as_ref(), "Eredivisie (női)");
-        assert_eq!(assignment.league.name, "Eredivisie");
+        assert_eq!(assignment.name.as_ref(), "Eredivisie Vrouwen");
+        assert_eq!(assignment.league.country, Some(("NL", "Netherlands")));
         assert_eq!(assignment.round_label.as_deref(), Some("5. forduló"));
     }
 

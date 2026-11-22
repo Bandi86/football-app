@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use football_domain::{MatchResultSnapshot, MatchSnapshot, MatchStatus};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -725,11 +725,14 @@ impl Canonicalizer {
                     link_referee(
                         pool,
                         &mut tx,
-                        source_id,
-                        &day.source_code,
-                        match_id,
-                        competition_id,
-                        name,
+                        RefereeLink {
+                            source_id,
+                            source_code: &day.source_code,
+                            match_id,
+                            competition_id,
+                            name,
+                            captured_at: day.captured_at,
+                        },
                     )
                     .await?;
                 }
@@ -1765,15 +1768,30 @@ async fn write_environment(
 /// kanonikus verseny). Üres / INT / XX verseny-országnál szándékosan nincs
 /// ország-szűrés: a semleges kód nem szűkíthetne egyetlen országra sem, ezért
 /// a kontextus ilyenkor ország nélküli (lásd `alias_country_code`).
+/// Egy forrás-jelölés a játékvezető linkeléshez (a paraméterszám miatt
+/// csoportosítva; a hívási hely minden mezőt a kontextusból ad).
+struct RefereeLink<'a> {
+    source_id: Uuid,
+    source_code: &'a str,
+    match_id: Uuid,
+    competition_id: Uuid,
+    name: &'a str,
+    captured_at: DateTime<Utc>,
+}
+
 async fn link_referee(
     pool: &PgPool,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    source_id: Uuid,
-    source_code: &str,
-    match_id: Uuid,
-    competition_id: Uuid,
-    name: &str,
+    link: RefereeLink<'_>,
 ) -> Result<()> {
+    let RefereeLink {
+        source_id,
+        source_code,
+        match_id,
+        competition_id,
+        name,
+        captured_at,
+    } = link;
     // Slug: ismétlődő elválasztók összevonva ("M. Oliver" → "m-oliver").
     let source_entity_id = name
         .to_ascii_lowercase()
@@ -1829,6 +1847,22 @@ async fn link_referee(
             anyhow::bail!("játékvezető-feloldás hiba (fail-closed): {err} — {name}");
         }
     }
+    // S97: a forrás által kimondott nevet akkor is eltároljuk, ha az entitás-
+    // link nem jött létre (nem egzakt névforma). Így a részletező meg tudja
+    // jeleníteni a játékvezetőt forrás-megjelöléssel, identitás állítása nélkül.
+    sqlx::query(
+        "INSERT INTO fact.match_official (match_id, source_id, role, name, captured_at)
+         VALUES ($1,$2,'referee',$3,$4)
+         ON CONFLICT (match_id, source_id, role) DO UPDATE SET
+           name = EXCLUDED.name,
+           captured_at = EXCLUDED.captured_at",
+    )
+    .bind(match_id)
+    .bind(source_id)
+    .bind(name)
+    .bind(captured_at)
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 

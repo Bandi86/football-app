@@ -218,7 +218,7 @@ pub async fn fetch_match_detail(pool: &PgPool, match_id: Uuid) -> Result<Option<
             ae.elo AS away_elo,
             r.home_ft, r.away_ft, r.home_ht, r.away_ht,
             r.home_et, r.away_et, r.home_pens, r.away_pens, r.decided_by,
-            referee_entity.canonical_name AS referee,
+            COALESCE(referee_entity.canonical_name, official.name) AS referee,
             env.venue_name, env.venue_city, env.venue_country,
             env.venue_capacity, env.venue_surface,
             env.temperature_c, env.weather_description,
@@ -249,6 +249,17 @@ pub async fn fetch_match_detail(pool: &PgPool, match_id: Uuid) -> Result<Option<
          LEFT JOIN core.country co ON co.id = c.country_id
          LEFT JOIN core.match_result r ON r.match_id = m.id
          LEFT JOIN core.entity referee_entity ON referee_entity.id = m.referee_entity_id
+         -- S97: ha a játékvezető entitás-linkje nem jött létre (nem egzakt
+         -- névforma), a forrás által kimondott nevet jelenítjük meg. Forrás-
+         -- preferencia ugyanaz, mint a többi tény-táblánál.
+         LEFT JOIN LATERAL (
+             SELECT o.name
+             FROM fact.match_official o
+             JOIN ops.source src ON src.id = o.source_id
+             WHERE o.match_id = m.id AND o.role = 'referee'
+             ORDER BY (src.code = 'research') DESC, o.captured_at DESC
+             LIMIT 1
+         ) official ON true
          LEFT JOIN LATERAL (
              SELECT CASE WHEN a.storage_key IS NOT NULL
                          THEN '/v1/asset/' || a.storage_key

@@ -446,3 +446,104 @@ async fn environment_is_written_and_served_in_match_detail() {
     assert_eq!(weather.cloud_cover_pct, Some(54));
     assert_eq!(weather.observed_at, Some(weather_observed_at));
 }
+
+/// (official name, official captured_at)
+type OfficialRow = (String, chrono::DateTime<Utc>);
+
+/// S97: a research által kimondott játékvezető-nevet akkor is eltároljuk és
+/// megjelenítjük, ha a katalógusban nincs egzakt entitás (nincs automatikus
+/// fuzzy link). Az identitás-link ilyenkor szándékosan NULL marad.
+#[tokio::test]
+async fn referee_name_is_stored_and_served_without_identity_link() {
+    let pool = test_pool().await;
+    seed_research_source(&pool).await;
+    seed_country(&pool).await;
+
+    let mut day = research_day(None, Vec::new());
+    day.matches[0].referee = Some("Marco Di Bello".into());
+
+    let materialized = Canonicalizer::materialize(&pool, &day)
+        .await
+        .expect("materialize");
+    let match_id = materialized.matches[0].match_id;
+
+    let referee_entity: Option<Uuid> =
+        sqlx::query_scalar("SELECT referee_entity_id FROM core.match WHERE id = $1")
+            .bind(match_id)
+            .fetch_one(&pool)
+            .await
+            .expect("kanonikus meccs");
+    assert!(
+        referee_entity.is_none(),
+        "ismeretlen névformánál nincs automatikus entitás-link"
+    );
+
+    let (name, captured_at): OfficialRow = sqlx::query_as(
+        "SELECT o.name, o.captured_at
+           FROM fact.match_official o
+           JOIN ops.source s ON s.id = o.source_id
+          WHERE o.match_id = $1 AND o.role = 'referee' AND s.code = 'research'",
+    )
+    .bind(match_id)
+    .fetch_one(&pool)
+    .await
+    .expect("hivatalos személy sor");
+    assert_eq!(name, "Marco Di Bello");
+    assert_eq!(
+        captured_at, day.captured_at,
+        "captured_at a forrás rögzítési ideje, nem a feldolgozásé"
+    );
+
+    let detail = fetch_match_detail(&pool, match_id)
+        .await
+        .expect("detail lekérdezés")
+        .expect("van kanonikus sor");
+    assert_eq!(
+        detail.referee.as_deref(),
+        Some("Marco Di Bello"),
+        "entitás-link nélkül a forrás által kimondott név jelenik meg"
+    );
+}
+
+/// S97: ha az entitás-link létrejön, a részletező a kanonikus entitásnevet
+/// adja vissza (a forrás-nevet csak visszaesésként használja).
+#[tokio::test]
+async fn linked_referee_entity_name_wins_over_the_source_name() {
+    let pool = test_pool().await;
+    seed_research_source(&pool).await;
+    seed_country(&pool).await;
+
+    // A katalógusban pontosan ezen a néven létezik játékvezető.
+    sqlx::query(
+        "INSERT INTO core.entity (id, kind, canonical_name) VALUES ($1,'referee','Marco Di Bello')",
+    )
+    .bind(Uuid::now_v7())
+    .execute(&pool)
+    .await
+    .expect("referee entitás");
+
+    let mut day = research_day(None, Vec::new());
+    day.matches[0].referee = Some("Marco Di Bello".into());
+
+    let materialized = Canonicalizer::materialize(&pool, &day)
+        .await
+        .expect("materialize");
+    let match_id = materialized.matches[0].match_id;
+
+    let referee_entity: Option<Uuid> =
+        sqlx::query_scalar("SELECT referee_entity_id FROM core.match WHERE id = $1")
+            .bind(match_id)
+            .fetch_one(&pool)
+            .await
+            .expect("kanonikus meccs");
+    assert!(
+        referee_entity.is_some(),
+        "egzakt teljes névvel a linker entitásra old"
+    );
+
+    let detail = fetch_match_detail(&pool, match_id)
+        .await
+        .expect("detail lekérdezés")
+        .expect("van kanonikus sor");
+    assert_eq!(detail.referee.as_deref(), Some("Marco Di Bello"));
+}

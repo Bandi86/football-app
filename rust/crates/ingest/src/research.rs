@@ -994,10 +994,15 @@ fn team_context(competition_name: &str) -> (&'static str, &'static str, &'static
     let lower = competition_name.to_lowercase();
     let women = [
         "(w)",
-        " women",
+        "women",
         "női",
         "frauen",
+        "vrouwen",
+        "feminine",
+        "féminine",
+        "femenine",
         "femenina",
+        "femenino",
         "femminile",
         "dames",
         "kvinde",
@@ -1221,6 +1226,12 @@ mod tests {
         assert_eq!(team_context("SWPL 1").0, "female");
         assert_eq!(team_context("WE League").0, "female");
         assert_eq!(team_context("NWSL").0, "female");
+        // S96: a holland és a szó eleji „Women's" alakok is női kontextust adnak,
+        // különben a női liga csapatai férfi entitásra oldódnak.
+        assert_eq!(team_context("Eredivisie Vrouwen").0, "female");
+        assert_eq!(team_context("Women's FA Cup").0, "female");
+        assert_eq!(team_context("Première Ligue Féminine").0, "female");
+        assert_eq!(team_context("Eredivisie").0, "male");
         assert_eq!(team_context("Premier League").0, "male");
         // A forrás U18 tokenje a kanonikus `youth` age_group-ra képeződik.
         assert_eq!(team_context("Premier League U18").1, "youth");

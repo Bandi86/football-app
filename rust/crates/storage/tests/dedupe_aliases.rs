@@ -1,10 +1,12 @@
-//! S96 — cross-source csapatnév-változat duplikátumok: a finder bizonyíték-
-//! alapon 1 csoportot ad, az apply a csapat-entitást és a fixture-t is mergeli.
+//! S96/S97 — cross-source csapatnév-változat duplikátumok: a finder bizonyíték-
+//! alapon 1 csoportot ad, az apply a csapat-entitást és a fixture-t is mergeli
+//! (név-hasonlóság), illetve S97 same-instant twin esetén CSAK a fixture-t.
 
 use chrono::{TimeZone, Utc};
 use football_storage::object_store::StoredArtifact;
 use football_storage::repositories::dedupe::{
-    AliasTeamSide, apply_cross_source_alias_group, find_cross_source_alias_duplicates,
+    AliasTeamSide, CrossSourceAliasEvidence, apply_cross_source_alias_group,
+    find_cross_source_alias_duplicates,
 };
 use football_storage::repositories::worker::{RawCapture, persist_raw};
 use football_storage::test_support::test_pool;
@@ -182,12 +184,17 @@ async fn alias_finder_and_apply_merge_entity_and_fixture() {
         .unwrap()
         .date_naive();
 
-    // A szigorúbb küszöb (0.99) kizárja a valódi névváltozatot: a különbség
-    // a foldolt nevekben van, nem az azonos horgony-oldalon.
+    // A szigorúbb küszöb (0.99) kizárja a valódi NÉV-hasonlóságot, de az S97
+    // twin-bizonyíték küszöbtől független, ezért 1 csoportot ad — igaz, csak
+    // fixture-merge szinten (ezt a következő teszt ellenőrzi végrehajtás után).
     let strict = find_cross_source_alias_duplicates(&pool, from, from, 0.99)
         .await
         .unwrap();
-    assert!(strict.is_empty(), "0.99 küszöb mellett nem lehet pár");
+    assert_eq!(strict.len(), 1, "a twin-bizonyíték független a küszöbtől");
+    assert_eq!(
+        strict[0].evidence,
+        CrossSourceAliasEvidence::SameInstantTwin
+    );
 
     let groups = find_cross_source_alias_duplicates(&pool, from, from, 0.55)
         .await
@@ -195,6 +202,11 @@ async fn alias_finder_and_apply_merge_entity_and_fixture() {
     assert_eq!(groups.len(), 1, "pontosan egy csoport");
     let group = &groups[0];
     assert_eq!(group.side, AliasTeamSide::Home);
+    assert_eq!(
+        group.evidence,
+        CrossSourceAliasEvidence::NameSimilarity,
+        "a hasonlóság-osztály elsőbbséget élvez a twin-osztállyal szemben"
+    );
     assert_eq!(group.survivor.match_id, seed.survivor_match);
     assert_eq!(group.duplicate.match_id, seed.duplicate_match);
     assert!(
@@ -315,4 +327,212 @@ async fn alias_finder_rejects_different_result() {
         .await
         .unwrap();
     assert!(groups.is_empty(), "eltérő eredmény nem bizonyíték");
+}
+
+/// S97: a két forrás TELJESEN más nevet használ ugyanarra a klubra; a twin-
+/// bizonyíték (azonos verseny + pontos kezdés + közös ellenfél + azonos
+/// eredmény) miatt a fixture merge-elődik, de a két csapat-entitás KÜLÖN marad.
+#[tokio::test]
+async fn twin_pair_merges_fixture_and_keeps_both_team_entities() {
+    let pool = test_pool().await;
+    let seed = seed_alias_pair(
+        &pool,
+        "Vegalta Sendai W",
+        "Mynavi Sendai Ladies (W)",
+        (2, 1),
+    )
+    .await;
+    let from = Utc
+        .with_ymd_and_hms(2026, 11, 21, 0, 0, 0)
+        .unwrap()
+        .date_naive();
+
+    let groups = find_cross_source_alias_duplicates(&pool, from, from, 0.55)
+        .await
+        .unwrap();
+    assert_eq!(groups.len(), 1, "a twin-pár csoportot alkot");
+    let group = &groups[0];
+    assert_eq!(group.evidence, CrossSourceAliasEvidence::SameInstantTwin);
+    assert!(
+        group.similarity < 0.55,
+        "a nevek hasonlósága a küszöb alatt kell legyen: {}",
+        group.similarity
+    );
+    assert_eq!(group.survivor.match_id, seed.survivor_match);
+    assert_eq!(group.duplicate.match_id, seed.duplicate_match);
+
+    // Az evidence-szöveg leírja a bizonyítékot: verseny, kezdés, azonos
+    // ellenfél, eredmény.
+    let text = group.evidence_text();
+    assert!(text.contains("same-instant twin fixture"), "{text}");
+    assert!(text.contains("Liga A"), "verseny: {text}");
+    assert!(text.contains("2026-11-21 18:00 UTC"), "kezdés: {text}");
+    assert!(text.contains("Fortuna Köln"), "azonos ellenfél: {text}");
+    assert!(text.contains("2-1"), "eredmény: {text}");
+
+    let report = apply_cross_source_alias_group(&pool, group).await.unwrap();
+    assert_eq!(report.survivor_entity_id, seed.survivor_entity);
+    assert_eq!(report.merged_entity_id, None, "twin: nincs csapat-merge");
+
+    // A fixture merge megtörtént: egy meccs maradt, a túlélő csapattal.
+    let match_count: i64 = sqlx::query_scalar("SELECT count(*) FROM core.match")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(match_count, 1);
+    let (home, away): (Uuid, Uuid) =
+        sqlx::query_as("SELECT home_team_id, away_team_id FROM core.match")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!((home, away), (seed.survivor_entity, seed.anchor_team));
+
+    // Mindkét eltérő csapat-entitás ÉS team-sor érintetlenül megvan.
+    for entity in [seed.survivor_entity, seed.duplicate_entity] {
+        let merged_into: Option<Uuid> =
+            sqlx::query_scalar("SELECT merged_into_id FROM core.entity WHERE id=$1")
+                .bind(entity)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(merged_into, None, "a csapat-entitás nem merge-elődött");
+        let team_rows: i64 = sqlx::query_scalar("SELECT count(*) FROM core.team WHERE id=$1")
+            .bind(entity)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(team_rows, 1, "a team-sor megmaradt");
+    }
+    let aliases: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM identity.alias WHERE entity_id=$1 OR entity_id=$2",
+    )
+    .bind(seed.survivor_entity)
+    .bind(seed.duplicate_entity)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(aliases, 0, "twin nem ír reviewed aliast");
+
+    // A fixture-merge archívuma az S97 note-tal jött létre.
+    let note: String =
+        sqlx::query_scalar("SELECT note FROM ops.dedupe_archive WHERE duplicate_id=$1")
+            .bind(seed.duplicate_match)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(note, "S97 dedupe (same-instant twin fixture)");
+
+    // Apply után nincs újabb jelölt (a két meccsből egy maradt).
+    let again = find_cross_source_alias_duplicates(&pool, from, from, 0.55)
+        .await
+        .unwrap();
+    assert!(again.is_empty(), "apply után nincs újabb jelölt");
+}
+
+/// Ha csak az egyik oldalon van eredmény, a két sor NEM twin.
+#[tokio::test]
+async fn twin_requires_result_on_both_sides() {
+    let pool = test_pool().await;
+    let seed = seed_alias_pair(
+        &pool,
+        "Vegalta Sendai W",
+        "Mynavi Sendai Ladies (W)",
+        (2, 1),
+    )
+    .await;
+    sqlx::query("DELETE FROM core.match_result WHERE match_id=$1")
+        .bind(seed.duplicate_match)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let from = Utc
+        .with_ymd_and_hms(2026, 11, 21, 0, 0, 0)
+        .unwrap()
+        .date_naive();
+    let groups = find_cross_source_alias_duplicates(&pool, from, from, 0.55)
+        .await
+        .unwrap();
+    assert!(groups.is_empty(), "egyoldali eredmény nem twin-bizonyíték");
+}
+
+/// Eltérő kezdés (nem azonos pillanat) esetén nincs twin.
+#[tokio::test]
+async fn twin_requires_identical_kickoff() {
+    let pool = test_pool().await;
+    let seed = seed_alias_pair(
+        &pool,
+        "Vegalta Sendai W",
+        "Mynavi Sendai Ladies (W)",
+        (2, 1),
+    )
+    .await;
+    sqlx::query("UPDATE core.match SET kickoff_at = kickoff_at + interval '1 hour' WHERE id=$1")
+        .bind(seed.duplicate_match)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let from = Utc
+        .with_ymd_and_hms(2026, 11, 21, 0, 0, 0)
+        .unwrap()
+        .date_naive();
+    let groups = find_cross_source_alias_duplicates(&pool, from, from, 0.55)
+        .await
+        .unwrap();
+    assert!(groups.is_empty(), "eltérő kezdés nem twin");
+}
+
+/// `kickoff_precision='date_only'` esetén a kezdés nem pontos, nincs twin.
+#[tokio::test]
+async fn twin_requires_exact_kickoff_precision() {
+    let pool = test_pool().await;
+    let seed = seed_alias_pair(
+        &pool,
+        "Vegalta Sendai W",
+        "Mynavi Sendai Ladies (W)",
+        (2, 1),
+    )
+    .await;
+    sqlx::query("UPDATE core.match SET kickoff_precision='date_only' WHERE id=$1")
+        .bind(seed.duplicate_match)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let from = Utc
+        .with_ymd_and_hms(2026, 11, 21, 0, 0, 0)
+        .unwrap()
+        .date_naive();
+    let groups = find_cross_source_alias_duplicates(&pool, from, from, 0.55)
+        .await
+        .unwrap();
+    assert!(groups.is_empty(), "date_only kezdés nem twin");
+}
+
+/// Ha a két eltérő csapat-entitás már össze van vonva, nincs twin.
+#[tokio::test]
+async fn twin_rejects_already_merged_team_entities() {
+    let pool = test_pool().await;
+    let seed = seed_alias_pair(
+        &pool,
+        "Vegalta Sendai W",
+        "Mynavi Sendai Ladies (W)",
+        (2, 1),
+    )
+    .await;
+    sqlx::query("UPDATE core.entity SET merged_into_id=$1 WHERE id=$2")
+        .bind(seed.survivor_entity)
+        .bind(seed.duplicate_entity)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let from = Utc
+        .with_ymd_and_hms(2026, 11, 21, 0, 0, 0)
+        .unwrap()
+        .date_naive();
+    let groups = find_cross_source_alias_duplicates(&pool, from, from, 0.55)
+        .await
+        .unwrap();
+    assert!(
+        groups.is_empty(),
+        "már merge-ölt csapat-entitás nem ad twin-bizonyítékot"
+    );
 }

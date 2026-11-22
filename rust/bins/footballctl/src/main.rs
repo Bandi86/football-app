@@ -779,7 +779,7 @@ async fn main() -> Result<()> {
                         "nincs cross-source névváltozat-duplikátum a {from}..{to} tartományban"
                     );
                     println!(
-                        "csoportok: 0, csapat-merge-ek: 0, fixture-merge-ek: 0, kihagyva: 0{}",
+                        "csoportok: 0, csapat-merge-ek: 0, fixture-merge-ek: 0, fixture-twin merge-ek: 0, kihagyva: 0{}",
                         if apply {
                             ""
                         } else {
@@ -789,15 +789,17 @@ async fn main() -> Result<()> {
                 } else {
                     let mut team_merges = 0usize;
                     let mut fixture_merges = 0usize;
+                    let mut fixture_twin_merges = 0usize;
                     let mut skipped = 0usize;
                     for group in &groups {
                         println!(
-                            "csoport — {} ({} {}) | eltérő oldal: {}, hasonlóság {:.3}",
+                            "csoport — {} ({} {}) | eltérő oldal: {}, hasonlóság {:.3}, bizonyíték: {}",
                             group.competition_name,
                             group.kickoff_at.date_naive(),
                             group.kickoff_at.time(),
                             group.side.as_str(),
-                            group.similarity
+                            group.similarity,
+                            group.evidence.as_str()
                         );
                         println!(
                             "  túlélő: {} [{} - {}]",
@@ -816,6 +818,12 @@ async fn main() -> Result<()> {
                             group.survivor_team_name(),
                             group.duplicate_team_name()
                         );
+                        println!("  bizonyíték: {}", group.evidence_text());
+                        if !group.evidence.merges_team_entity() {
+                            println!(
+                                "  csapat-entitás NEM merge-elve (twin: csak a fixture olvad össze)"
+                            );
+                        }
                         if apply {
                             let outcome =
                                 football_storage::repositories::dedupe::apply_cross_source_alias_group(
@@ -824,9 +832,13 @@ async fn main() -> Result<()> {
                                 .await;
                             match outcome {
                                 Ok(report) => {
-                                    fixture_merges += 1;
-                                    if report.merged_entity_id.is_some() {
-                                        team_merges += 1;
+                                    if group.evidence.merges_team_entity() {
+                                        fixture_merges += 1;
+                                        if report.merged_entity_id.is_some() {
+                                            team_merges += 1;
+                                        }
+                                    } else {
+                                        fixture_twin_merges += 1;
                                     }
                                     println!(
                                         "  merge kész: audit={} | csapat-merge={:?}",
@@ -838,13 +850,20 @@ async fn main() -> Result<()> {
                                     println!("  kihagyva: {err:#}");
                                 }
                             }
+                        } else if group.evidence.merges_team_entity() {
+                            // Dry-run: a tervezett merge-ek osztály szerint.
+                            fixture_merges += 1;
+                            team_merges += 1;
+                        } else {
+                            fixture_twin_merges += 1;
                         }
                     }
                     println!(
-                        "csoportok: {}, csapat-merge-ek: {}, fixture-merge-ek: {}, kihagyva: {}{}",
+                        "csoportok: {}, csapat-merge-ek: {}, fixture-merge-ek: {}, fixture-twin merge-ek: {}, kihagyva: {}{}",
                         groups.len(),
                         team_merges,
                         fixture_merges,
+                        fixture_twin_merges,
                         skipped,
                         if apply {
                             ""
@@ -1229,6 +1248,10 @@ async fn main() -> Result<()> {
             } else {
                 println!("duplikált kickoff-csoport: {}", r.duplicate_kickoff_groups);
                 println!("duplikált fixture-csoport: {}", r.duplicate_fixture_groups);
+                println!(
+                    "azonos csapatpár azonos napon: {}",
+                    r.same_pair_same_day_groups
+                );
                 println!("árva provenance: {}", r.orphan_provenance);
                 println!("aktív ref összevont entitásra: {}", r.active_refs_to_merged);
                 println!("függő review: {}", r.pending_reviews);

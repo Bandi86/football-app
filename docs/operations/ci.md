@@ -22,7 +22,7 @@ futásokat megszakítja.
 | sqlx-cli | cache (`~/.cargo/bin/sqlx`, `~/.cargo/bin/cargo-sqlx`) + `cargo install sqlx-cli --version ^0.8 --no-default-features --features rustls,postgres --locked` | a migrációs CLI verziója a workspace sqlx 0.8-hoz illeszkedik |
 | DB kliensek | `postgresql-client` telepítése | `psql`, `createdb` elérhető |
 | Adatbázisok | `CREATE DATABASE football_v2_dev;` és `..._test;` a service `postgres` alap DB-jéből | a két fejlesztői DB a `.env.example` mintájára létrejön |
-| Migrációk (dev) | `sqlx migrate run --source db/migrations` | a `football_v2_dev` a 0001–0021 láncon van |
+| Migrációk (dev) | `sqlx migrate run --source db/migrations` | a `football_v2_dev` a 0001–0022 láncon van |
 | Migrációk (test) | `./scripts/db-reset.sh` (repo-script) | a `football_v2_test` üres, migrált állapotban |
 | Alapkapu | `./scripts/check-foundation.sh` | `db-check` (49 tábla, 6 szabály), fmt, domain/storage teszt, clippy |
 | Teljes teszt | `cd rust && cargo test --workspace -- --test-threads=1` | minden crate tesztje; a közös teszt-DB miatt egy szálon |
