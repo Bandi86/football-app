@@ -40,10 +40,36 @@ Előfeltétel: a repó `.env`-jében legyen `DATABASE_URL`, és a research proje
 `scripts/collect-only.sh` létezzen (alapból
 `~/Desktop/football-research`).
 
-## Ütemezés (opcionális, külön döntés)
+## Ütemezés (telepítve: `hu.bandi86.football.researchsync`)
 
-A script nem telepít launchd agentet. Ha napközben óránként szeretnéd
-frissíteni, egy launchd agent hívhatja (példa, **nem telepítve**):
+A script maga nem telepít agentet, de a gépre **2026-11-22-től** van egy
+külön launchd agent, ami napi 5 slotban (14:15, 16:15, 18:15, 20:15, 22:15,
+Europe/Budapest) hívja:
+
+- plist: `~/Library/LaunchAgents/hu.bandi86.football.researchsync.plist`;
+- futtatott script: `~/Library/Application Support/FootballAppV2/agent/research-sync.sh`
+  (a repó `scripts/research-sync.sh` másolata — a script a saját könyvtárának
+  szülőjében keresi a `.env`-t, ezért kell egy szinttel lejjebb lennie);
+- környezet: `~/Library/Application Support/FootballAppV2/.env` (600),
+  `FOOTBALL_RESEARCH_ROOT` a valódi Library-beli könyvtárra mutat
+  (a `~/Desktop/football-research` csak szimbolikus link rá);
+- log: `~/Library/Logs/FootballAppV2/research-sync.log` és
+  `research-sync-launchd.log`.
+
+Ellenőrzés:
+
+```bash
+launchctl print gui/$(id -u)/hu.bandi86.football.researchsync | grep -E 'state =|interval'
+launchctl kickstart -k gui/$(id -u)/hu.bandi86.football.researchsync   # próbafuttatás
+```
+
+Visszafordítás: `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/hu.bandi86.football.researchsync.plist`
+(az adatokat nem törli). Az eredeti `com.footballresearch.daily` agent továbbra
+is le van tiltva — az a Markdown renderelő pipeline, erre nincs szükség.
+
+## Ütemezési minta (dokumentáció, nem telepített rész)
+
+A fenti agent nélkül egy launchd agent hívhatta volna (példa):
 
 ```xml
 <key>StartCalendarInterval</key>

@@ -32,6 +32,12 @@ public struct MatchDetail: Decodable, Equatable, Sendable {
     public let awayPens: Int?
     public let decidedBy: String?
     public let referee: String?
+    /// A meccs helyszíne (stadion) — új backend-mező, régi válaszokból
+    /// hiányozhat, ezért opcionális.
+    public let venue: VenueInfo?
+    /// Az időjárás a kezdés helyszínén — új backend-mező, régi válaszokból
+    /// hiányozhat, ezért opcionális.
+    public let weather: WeatherInfo?
     public let statsSource: String?
     public let statsCapturedAt: Date?
     public let homeShots: Int?
@@ -103,6 +109,8 @@ public struct MatchDetail: Decodable, Equatable, Sendable {
         case awayPens = "away_pens"
         case decidedBy = "decided_by"
         case referee
+        case venue
+        case weather
         case statsSource = "stats_source"
         case statsCapturedAt = "stats_captured_at"
         case homeShots = "home_shots"

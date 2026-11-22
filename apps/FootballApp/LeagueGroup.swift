@@ -54,18 +54,36 @@ struct LeagueGroup: Identifiable {
         return country.uppercased()
     }
 
-    /// A szekciófejléc forduló-felirata. Csak akkor jelenik meg, ha a csoport
-    /// minden ismert fordulócímkéje ugyanaz (ékezet- és kis/nagybetű-független
-    /// összevetéssel); többféle fordulónál vagy hiányzó adatnál `nil`, mert
-    /// egy szekcióban több forduló van, és nem találgatunk. A felirat a
-    /// kártyáéval azonos mappingból jön (`MatchCardModel.roundText`).
+    /// A szekciófejléc forduló-felirata. A csoport numerikus (nem-nil) címkéi
+    /// közül a leggyakoribbat adja vissza (döntetlennél a legkisebbet), így a
+    /// kevert „13"/„női"/hiányzó címkék nem blokkolják a feliratot. A tisztán
+    /// női-marker címkék („női", „women", „(W)") nem fordulók, hiányzónak
+    /// számítanak. Ha nincs numerikus címke (pl. kupa), a régi szabály él: csak
+    /// akkor jelenik meg, ha a csoport minden ismert címkéje ugyanaz. A felirat
+    /// a kártyáéval azonos mappingból jön (`MatchCardModel.roundText`).
     var roundSummary: String? {
-        let foldedLabels = matches.compactMap { MatchCardModel.foldedRoundLabel($0.roundLabel) }
-        guard let first = foldedLabels.first,
-              foldedLabels.allSatisfy({ $0 == first }) else { return nil }
-        guard let representative = matches.first(where: {
-            MatchCardModel.foldedRoundLabel($0.roundLabel) == first
-        }) else { return nil }
+        let labels = matches
+            .compactMap { MatchCardModel.foldedRoundLabel($0.roundLabel) }
+            .filter { !$0.isEmpty && !MatchCardModel.isWomensOnlyLabel($0) }
+        let numeric = labels.filter { $0.allSatisfy({ $0.isNumber }) }
+        if !numeric.isEmpty {
+            var counts: [String: Int] = [:]
+            for label in numeric { counts[label, default: 0] += 1 }
+            let ordered = counts.sorted { lhs, rhs in
+                if lhs.value != rhs.value { return lhs.value > rhs.value }
+                if let left = Int(lhs.key), let right = Int(rhs.key), left != right {
+                    return left < right
+                }
+                return lhs.key < rhs.key
+            }
+            guard let winner = ordered.first else { return nil }
+            return MatchCardModel.roundText(for: winner.key)
+        }
+        guard let first = labels.first,
+              labels.allSatisfy({ $0 == first }),
+              let representative = matches.first(where: {
+                  MatchCardModel.foldedRoundLabel($0.roundLabel) == first
+              }) else { return nil }
         return MatchCardModel.roundText(for: representative.roundLabel)
     }
 
@@ -78,10 +96,11 @@ struct LeagueGroup: Identifiable {
         return markers.contains { folded.contains($0) }
     }
 
-    /// Női verseny: a kanonikus név „(női)" jelölője (a `CompetitionCatalog`
-    /// egységesíti a női ligák neveit).
+    /// Női verseny: a kanonikus név markerei. A `CompetitionCatalog` ismeri a
+    /// női jelölőket (women/femenina/femminile/…), és a teljes nevükben női
+    /// ligákat (Liga F, NWSL, WSL, …) is felismeri.
     var isWomens: Bool {
-        name.localizedCaseInsensitiveContains("(női)")
+        CompetitionCatalog.isWomensCompetition(name)
     }
 
     func filtering(_ filter: MatchFilter) -> LeagueGroup? {

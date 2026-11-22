@@ -5,9 +5,10 @@
 use chrono::{TimeZone, Utc};
 use football_ingest::canonicalize::Canonicalizer;
 use football_ingest::normalized::{
-    NormalizedCompetition, NormalizedDay, NormalizedIncident, NormalizedMatch, NormalizedSeason,
-    NormalizedStats, NormalizedTeam,
+    NormalizedCompetition, NormalizedDay, NormalizedEnvironment, NormalizedIncident,
+    NormalizedMatch, NormalizedSeason, NormalizedStats, NormalizedTeam,
 };
+use football_storage::repositories::match_detail::fetch_match_detail;
 use football_storage::test_support::test_pool;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -111,6 +112,7 @@ fn research_day(
             odds: None,
             stats,
             referee: None,
+            environment: None,
             incidents,
         }],
         standings: None,
@@ -358,4 +360,89 @@ async fn reingest_replaces_incidents_and_stats() {
             .await
             .expect("frissített statisztika");
     assert_eq!((home_shots, away_shots), (Some(12), Some(4)));
+}
+
+/// (captured_at, venue_name, capacity, wind_direction, precipitation)
+type EnvironmentRow = (
+    chrono::DateTime<Utc>,
+    Option<String>,
+    Option<i32>,
+    Option<String>,
+    Option<f64>,
+);
+
+#[tokio::test]
+async fn environment_is_written_and_served_in_match_detail() {
+    let pool = test_pool().await;
+    seed_research_source(&pool).await;
+    seed_country(&pool).await;
+
+    let observed_at = Utc.with_ymd_and_hms(2026, 11, 20, 16, 41, 32).unwrap();
+    let weather_observed_at = Utc.with_ymd_and_hms(2026, 11, 21, 0, 30, 0).unwrap();
+    let mut day = research_day(None, Vec::new());
+    day.matches[0].environment = Some(NormalizedEnvironment {
+        observed_at,
+        venue_name: Some("Estadio Ricardo Gregor".into()),
+        venue_city: Some("Luque".into()),
+        venue_country: Some("Paraguay".into()),
+        venue_capacity: Some(4000),
+        venue_surface: Some("grass".into()),
+        venue_lat: Some(-25.275_764_744),
+        venue_lon: Some(-57.551_740_408),
+        temperature_c: Some(27.0),
+        weather_description: Some("Thunder".into()),
+        wind_speed: Some(2.0),
+        wind_direction: None,
+        humidity_pct: Some(86),
+        precipitation: Some(0.0),
+        cloud_cover_pct: Some(54),
+        weather_observed_at: Some(weather_observed_at),
+    });
+
+    let materialized = Canonicalizer::materialize(&pool, &day)
+        .await
+        .expect("materialize");
+    let match_id = materialized.matches[0].match_id;
+
+    let (captured_at, venue_name, capacity, wind_direction, precipitation): EnvironmentRow =
+        sqlx::query_as(
+            "SELECT e.captured_at, e.venue_name, e.venue_capacity, e.wind_direction,
+                e.precipitation::float8
+         FROM fact.match_environment e
+         JOIN ops.source src ON src.id = e.source_id
+         WHERE e.match_id = $1 AND src.code = 'research'",
+        )
+        .bind(match_id)
+        .fetch_one(&pool)
+        .await
+        .expect("környezet sor");
+
+    assert_eq!(
+        captured_at, observed_at,
+        "captured_at = az observation observed_at-ja, nem a feldolgozás ideje"
+    );
+    assert_eq!(venue_name.as_deref(), Some("Estadio Ricardo Gregor"));
+    assert_eq!(capacity, Some(4000));
+    assert_eq!(wind_direction, None, "hiányzó szélirány NULL, nem 0/üres");
+    assert_eq!(precipitation, Some(0.0), "a 0 csapadék valós 0 marad");
+
+    // A részletező API ugyanazt adja vissza (VenueRow/WeatherRow a LATERAL-ból).
+    let detail = fetch_match_detail(&pool, match_id)
+        .await
+        .expect("detail lekérdezés")
+        .expect("van kanonikus sor");
+    let venue = detail.venue.expect("venue a részletezőben");
+    assert_eq!(venue.name.as_deref(), Some("Estadio Ricardo Gregor"));
+    assert_eq!(venue.city.as_deref(), Some("Luque"));
+    assert_eq!(venue.country.as_deref(), Some("Paraguay"));
+    assert_eq!(venue.capacity, Some(4000));
+    assert_eq!(venue.surface.as_deref(), Some("grass"));
+    let weather = detail.weather.expect("weather a részletezőben");
+    assert_eq!(weather.temperature_c, Some(27.0));
+    assert_eq!(weather.description.as_deref(), Some("Thunder"));
+    assert_eq!(weather.wind_speed, Some(2.0));
+    assert_eq!(weather.wind_direction, None);
+    assert_eq!(weather.humidity_pct, Some(86));
+    assert_eq!(weather.cloud_cover_pct, Some(54));
+    assert_eq!(weather.observed_at, Some(weather_observed_at));
 }

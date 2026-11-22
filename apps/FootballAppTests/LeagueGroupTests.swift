@@ -355,7 +355,7 @@ final class LeagueGroupTests: XCTestCase {
         XCTAssertEqual(groups[0].matches[2].roundText, nil)
     }
 
-    func testRoundSummaryIsNilForMixedRounds() throws {
+    func testRoundSummaryPrefersNumericRoundWhenMixedWithOtherLabels() throws {
         let leagueId = "00000000-0000-0000-0000-0000000000d2"
         let groups = try groups([
             roundMatchJSON(id: "00000000-0000-0000-0000-000000000d21",
@@ -364,11 +364,75 @@ final class LeagueGroupTests: XCTestCase {
             roundMatchJSON(id: "00000000-0000-0000-0000-000000000d22",
                            competitionId: leagueId, competitionName: "NB I",
                            countryCode: "HUN", roundLabel: "final"),
+            // La Liga esete: a női és a hiányzó címke nem blokkolja a fordulót.
+            roundMatchJSON(id: "00000000-0000-0000-0000-000000000d23",
+                           competitionId: leagueId, competitionName: "NB I",
+                           countryCode: "HUN", roundLabel: "női"),
+            roundMatchJSON(id: "00000000-0000-0000-0000-000000000d24",
+                           competitionId: leagueId, competitionName: "NB I",
+                           countryCode: "HUN", roundLabel: nil),
         ])
         XCTAssertEqual(groups.count, 1)
-        // Egy szekcióban két forduló van: nem találgatunk, nincs fejléc-címke.
+        // A leggyakoribb numerikus címke nyer; a női marker nem forduló.
+        XCTAssertEqual(groups[0].roundSummary, "13. forduló")
+        XCTAssertEqual(groups[0].matches.map(\.roundText), ["13. forduló", "Döntő", nil, nil])
+    }
+
+    /// A tisztán női-marker címke („női", „women", „(W)") nem forduló: a
+    /// fejléc akkor sem ír elő semmit, ha nincs numerikus címke.
+    func testRoundSummaryTreatsWomenOnlyMarkerAsMissing() throws {
+        let leagueId = "00000000-0000-0000-0000-0000000000d7"
+        let groups = try groups([
+            roundMatchJSON(id: "00000000-0000-0000-0000-000000000d71",
+                           competitionId: leagueId, competitionName: "La Liga",
+                           countryCode: "ES", roundLabel: "női"),
+            roundMatchJSON(id: "00000000-0000-0000-0000-000000000d72",
+                           competitionId: leagueId, competitionName: "La Liga",
+                           countryCode: "ES", roundLabel: "women"),
+            roundMatchJSON(id: "00000000-0000-0000-0000-000000000d73",
+                           competitionId: leagueId, competitionName: "La Liga",
+                           countryCode: "ES", roundLabel: "(W)"),
+            roundMatchJSON(id: "00000000-0000-0000-0000-000000000d74",
+                           competitionId: leagueId, competitionName: "La Liga",
+                           countryCode: "ES", roundLabel: nil),
+        ])
+        XCTAssertEqual(groups.count, 1)
         XCTAssertNil(groups[0].roundSummary)
-        XCTAssertEqual(groups[0].matches.map(\.roundText), ["13. forduló", "Döntő"])
+        XCTAssertEqual(groups[0].matches.map(\.roundText), [nil, nil, nil, nil])
+    }
+
+    /// A mai (2026-11-22) La Liga-csoport valós alakja: „13" és hiányzó címke.
+    func testRoundSummaryShowsRoundWhenOnlyNumericAndMissingLabels() throws {
+        let leagueId = "00000000-0000-0000-0000-0000000000d8"
+        let groups = try groups([
+            roundMatchJSON(id: "00000000-0000-0000-0000-000000000d81",
+                           competitionId: leagueId, competitionName: "La Liga",
+                           countryCode: "ES", roundLabel: "13"),
+            roundMatchJSON(id: "00000000-0000-0000-0000-000000000d82",
+                           competitionId: leagueId, competitionName: "La Liga",
+                           countryCode: "ES", roundLabel: nil),
+        ])
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups[0].roundSummary, "13. forduló")
+    }
+
+    func testRoundSummaryTieBreaksOnSmallestRoundNumber() throws {
+        let leagueId = "00000000-0000-0000-0000-0000000000d6"
+        let groups = try groups([
+            roundMatchJSON(id: "00000000-0000-0000-0000-000000000d61",
+                           competitionId: leagueId, competitionName: "NB I",
+                           countryCode: "HUN", roundLabel: "14"),
+            roundMatchJSON(id: "00000000-0000-0000-0000-000000000d62",
+                           competitionId: leagueId, competitionName: "NB I",
+                           countryCode: "HUN", roundLabel: "13"),
+            roundMatchJSON(id: "00000000-0000-0000-0000-000000000d63",
+                           competitionId: leagueId, competitionName: "NB I",
+                           countryCode: "HUN", roundLabel: "14"),
+            roundMatchJSON(id: "00000000-0000-0000-0000-000000000d64",
+                           competitionId: leagueId, competitionName: "NB I",
+                           countryCode: "HUN", roundLabel: "13"),
+        ])
+        XCTAssertEqual(groups[0].roundSummary, "13. forduló")
     }
 
     func testRoundSummaryIsNilWithoutRoundLabels() throws {

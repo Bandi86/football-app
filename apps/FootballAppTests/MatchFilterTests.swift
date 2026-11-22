@@ -11,13 +11,17 @@ final class MatchFilterTests: XCTestCase {
     }
 
     private func match(id: String, kickoff: String, status: String,
-                       precision: String? = "exact") -> DayMatch {
+                       precision: String? = "exact",
+                       homeScore: Int? = nil, awayScore: Int? = nil) -> DayMatch {
         // A JSON-dekódolást használjuk, hogy a DayMatch init belső maradhasson.
         let precisionField = precision.map { "\"kickoff_precision\":\"\($0)\"," } ?? ""
+        let homeScoreField = homeScore.map(String.init) ?? "null"
+        let awayScoreField = awayScore.map(String.init) ?? "null"
         let json = """
         {"date":"2026-11-11","timezone":"Europe/Budapest","matches":[
           {"id":"\(id)","kickoff_at":"\(kickoff)",\(precisionField)
-           "status":"\(status)","home":"A","away":"B","home_score":null,"away_score":null,
+           "status":"\(status)","home":"A","away":"B",
+           "home_score":\(homeScoreField),"away_score":\(awayScoreField),
            "publish_state":"verified_publish","blockers":[],
            "competition_name":"Teszt Liga","country_code":"HUN","country_name":"Hungary","tier":1}
         ]}
@@ -37,20 +41,64 @@ final class MatchFilterTests: XCTestCase {
         XCTAssertFalse(MatchFilter.missingKickoff.matches(status: "scheduled"))
     }
 
-    func testMissingResultSelectsPastUnfinishedMatchesOnly() {
+    /// „Eredmény nélkül" = lezárt (`finished`), de nincs végeredménye. Nem a
+    /// lejárt, nyitott meccseket jelenti — azoknak külön szűrőjük van.
+    func testMissingResultSelectsFinishedMatchesWithoutFinalScoreOnly() {
         let now = ISO8601DateFormatter().date(from: "2026-11-21T12:00:00Z")!
         let oldScheduled = match(id: "00000000-0000-0000-0000-000000000003",
                                  kickoff: "2026-11-20T18:00:00Z", status: "scheduled")
-        let oldFinished = match(id: "00000000-0000-0000-0000-000000000004",
-                                kickoff: "2026-11-20T18:00:00Z", status: "finished")
-        let recentScheduled = match(id: "00000000-0000-0000-0000-000000000005",
-                                    kickoff: "2026-11-21T11:00:00Z", status: "scheduled")
-        let oldPostponed = match(id: "00000000-0000-0000-0000-000000000006",
+        let finishedWithoutScore = match(id: "00000000-0000-0000-0000-000000000004",
+                                         kickoff: "2026-11-20T18:00:00Z", status: "finished")
+        let finishedWithScore = match(id: "00000000-0000-0000-0000-000000000005",
+                                      kickoff: "2026-11-20T18:00:00Z", status: "finished",
+                                      homeScore: 2, awayScore: 1)
+        let recentFinishedWithoutScore = match(id: "00000000-0000-0000-0000-000000000006",
+                                               kickoff: "2026-11-21T11:00:00Z", status: "finished")
+        let oldPostponed = match(id: "00000000-0000-0000-0000-000000000007",
                                  kickoff: "2026-11-20T18:00:00Z", status: "postponed")
-        XCTAssertTrue(MatchFilter.missingResult.matches(oldScheduled, now: now))
-        XCTAssertFalse(MatchFilter.missingResult.matches(oldFinished, now: now))
-        XCTAssertFalse(MatchFilter.missingResult.matches(recentScheduled, now: now))
+        XCTAssertTrue(MatchFilter.missingResult.matches(finishedWithoutScore, now: now))
+        XCTAssertTrue(MatchFilter.missingResult.matches(recentFinishedWithoutScore, now: now))
+        XCTAssertFalse(MatchFilter.missingResult.matches(finishedWithScore, now: now))
+        XCTAssertFalse(MatchFilter.missingResult.matches(oldScheduled, now: now))
         XCTAssertFalse(MatchFilter.missingResult.matches(oldPostponed, now: now))
+    }
+
+    /// „Lejárt, nyitott" = nyitott státusz, de a kezdés több mint 3 órája volt.
+    func testOpenPastSelectsExpiredOpenStatusesOnly() {
+        let now = ISO8601DateFormatter().date(from: "2026-11-21T12:00:00Z")!
+        let recentScheduled = match(id: "00000000-0000-0000-0000-000000000011",
+                                    kickoff: "2026-11-21T10:00:00Z", status: "scheduled")
+        let oldScheduled = match(id: "00000000-0000-0000-0000-000000000012",
+                                 kickoff: "2026-11-21T08:00:00Z", status: "scheduled")
+        let oldLive = match(id: "00000000-0000-0000-0000-000000000013",
+                            kickoff: "2026-11-21T07:00:00Z", status: "live")
+        let oldFinished = match(id: "00000000-0000-0000-0000-000000000014",
+                                kickoff: "2026-11-21T08:00:00Z", status: "finished")
+        let oldPostponed = match(id: "00000000-0000-0000-0000-000000000015",
+                                 kickoff: "2026-11-21T08:00:00Z", status: "postponed")
+        XCTAssertTrue(MatchFilter.openPast.matches(oldScheduled, now: now))
+        XCTAssertTrue(MatchFilter.openPast.matches(oldLive, now: now))
+        XCTAssertFalse(MatchFilter.openPast.matches(recentScheduled, now: now))
+        XCTAssertFalse(MatchFilter.openPast.matches(oldFinished, now: now))
+        XCTAssertFalse(MatchFilter.openPast.matches(oldPostponed, now: now))
+    }
+
+    /// Az „Élő" szűrő a státusz mellett legfeljebb 6 órás kezdés-ablakot enged
+    /// (a backend stale-live védelem kliensoldali párja).
+    func testLiveFilterRequiresLiveStatusWithinSixHours() {
+        let now = ISO8601DateFormatter().date(from: "2026-11-21T12:00:00Z")!
+        let liveRecent = match(id: "00000000-0000-0000-0000-000000000021",
+                               kickoff: "2026-11-21T11:00:00Z", status: "live")
+        let liveStale = match(id: "00000000-0000-0000-0000-000000000022",
+                              kickoff: "2026-11-21T04:00:00Z", status: "live")
+        let halftimeRecent = match(id: "00000000-0000-0000-0000-000000000023",
+                                   kickoff: "2026-11-21T07:30:00Z", status: "halftime")
+        let scheduledRecent = match(id: "00000000-0000-0000-0000-000000000024",
+                                    kickoff: "2026-11-21T11:00:00Z", status: "scheduled")
+        XCTAssertTrue(MatchFilter.live.matches(liveRecent, now: now))
+        XCTAssertTrue(MatchFilter.live.matches(halftimeRecent, now: now))
+        XCTAssertFalse(MatchFilter.live.matches(liveStale, now: now))
+        XCTAssertFalse(MatchFilter.live.matches(scheduledRecent, now: now))
     }
 
     func testLeagueGroupDetectsCupsAndWomensLeagues() throws {

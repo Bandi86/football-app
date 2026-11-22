@@ -298,9 +298,13 @@ struct HomeView: View {
     }
 
     /// Az élő meccsek száma a megjelenített napon; ez indítja a háttér-frissítést.
+    /// Csak a mai napon és csak a 6 órás élő-ablakon belül számol: egy múltbeli
+    /// nap elavult `live` státusza így nem polloz örökre.
     private var liveMatchCount: Int {
         guard case .loaded(let feed) = model.state else { return 0 }
-        return feed.matches.filter { MatchFilter.live.matches($0) }.count
+        guard Calendar.current.isDateInToday(model.selectedDate) else { return 0 }
+        let now = Date()
+        return feed.matches.filter { MatchFilter.live.matches($0, now: now) }.count
     }
 
     /// A frissítő kör azonosítója: napváltás vagy az élő meccsek számának
@@ -1072,12 +1076,17 @@ private struct DayGapsCard: View {
     let active: MatchFilter
     let onSelect: (MatchFilter) -> Void
 
-    /// A hiány-chipek közül csak azok kattinthatók, amelyekhez van szűrő.
+    /// A hiány-chipek szűrője. Minden chip kattintható, és a saját hiányát
+    /// aktiválja: a „lejárt, nyitott" az `openPast`, a valódi „eredmény nélkül"
+    /// a `missingResult` szűrőre mutat.
     private static let filterFor: [String: MatchFilter] = [
         "kickoff": .missingKickoff,
-        "open": .missingResult,
-        "odds": .missingOdds,
+        "open": .openPast,
+        "result": .missingResult,
         "teamlogo": .missingLogo,
+        "complogo": .missingCompetitionLogo,
+        "odds": .missingOdds,
+        "withheld": .withheld,
     ]
 
     private struct Item: Identifiable {
@@ -1092,7 +1101,7 @@ private struct DayGapsCard: View {
             if count > 0 { list.append(Item(id: key, label: label, count: count)) }
         }
         add("kickoff", "kezdésidő nélkül", gaps.missingKickoff)
-        add("open", "lejárt, nincs eredmény", gaps.openPast)
+        add("open", "lejárt, nyitott", gaps.openPast)
         add("result", "eredmény nélkül", gaps.missingResult)
         add("teamlogo", "csapatlogó nélkül", gaps.missingTeamLogo)
         add("complogo", "ligalogó nélkül", gaps.missingCompetitionLogo)
@@ -1133,6 +1142,10 @@ private struct DayGapsCard: View {
                         }
                         .buttonStyle(.plain)
                         .disabled(filter == nil)
+                        .accessibilityLabel("\(item.label): \(item.count) meccs")
+                        .accessibilityHint(filter == nil
+                            ? "Ehhez a hiányhoz nincs szűrő."
+                            : "Szűrés erre: \(item.label)")
                         .accessibilityIdentifier("day.gaps.\(item.id)")
                     }
                 }

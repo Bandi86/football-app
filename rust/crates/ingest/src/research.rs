@@ -97,6 +97,12 @@ struct DayMatch {
     score: Option<Score>,
     #[serde(default)]
     referee: Option<Referee>,
+    /// S90: a stadion-blokk; a hiányzó blokk `None` (a régi envelope-ban sincs).
+    #[serde(default)]
+    venue: Option<Venue>,
+    /// S90: az időjárás-blokk; a forrás nem minden meccsnél adja.
+    #[serde(default)]
+    weather: Option<Weather>,
     #[serde(default)]
     links: Option<Links>,
     #[serde(default)]
@@ -180,6 +186,57 @@ struct Halftime {
 #[derive(Debug, Deserialize)]
 struct Referee {
     name: String,
+}
+
+/// A napi envelope `venue` blokkja (S90). A stadion nem kanonikus entitás,
+/// ezért a meccs-környezet része; minden mező opcionális (hiányzó = NULL).
+#[derive(Debug, Deserialize)]
+struct Venue {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    city: Option<String>,
+    #[serde(default)]
+    country: Option<String>,
+    #[serde(default)]
+    capacity: Option<i32>,
+    #[serde(default)]
+    surface: Option<String>,
+    #[serde(default)]
+    coordinates: Option<Coordinates>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Coordinates {
+    #[serde(default)]
+    lat: Option<f64>,
+    /// A forrás `long` kulcsot használ (nem `lon`); a payload `venue_lon`.
+    #[serde(default)]
+    long: Option<f64>,
+}
+
+/// A napi envelope `weather` blokkja (S90). A hőmérséklet a forrás
+/// szerződése szerint Celsius-fok; más egységet nem konvertálunk, mert a
+/// DB-oszlop is Celsius. A forrás `unit`/`source` kulcsait szándékosan nem
+/// olvassuk be (nincs DB-oszlopuk); a serde az ismeretlen kulcsokat elveti.
+#[derive(Debug, Deserialize)]
+struct Weather {
+    #[serde(default)]
+    temperature_c: Option<f64>,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    wind_speed: Option<f64>,
+    #[serde(default)]
+    wind_direction: Option<String>,
+    #[serde(default)]
+    humidity_pct: Option<i32>,
+    #[serde(default)]
+    precipitation: Option<f64>,
+    #[serde(default)]
+    cloud_cover_pct: Option<i32>,
+    #[serde(default)]
+    observed_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -469,9 +526,29 @@ impl ResearchAdapter {
                     entity_kind: "match".into(),
                     aspect: "match_referee".into(),
                     natural_key: m.uid.clone(),
-                    source_record_key: format!("{}:referee", m.uid),
+                    // S90: a bare `m.uid` a szerződés — a `normalized` a
+                    // referee-t a meccs `source_match_id`-jével párosítja
+                    // (a footballdata adapter is bare id-t ad). A korábbi
+                    // `"{uid}:referee"` kulcs miatt a research játékvezető
+                    // soha nem linkelődött a meccshez.
+                    source_record_key: m.uid.clone(),
                     observed_at: captured_at,
                     payload: json!({ "name": referee.name.trim() }),
+                });
+            }
+
+            // S90: a stadion és az időjárás a meccs-forrás-sorhoz tartozik,
+            // ezért ugyanaz a natural_key/source_record_key, mint a
+            // match_core-nál (a normalized a source_match_id-vel párosít).
+            // Csak akkor emisszálunk, ha legalább az egyik blokk jelen van.
+            if m.venue.is_some() || m.weather.is_some() {
+                observations.push(Observation {
+                    entity_kind: "match".into(),
+                    aspect: "match_environment".into(),
+                    natural_key: m.uid.clone(),
+                    source_record_key: m.uid.clone(),
+                    observed_at: captured_at,
+                    payload: environment_payload(m.venue.as_ref(), m.weather.as_ref()),
                 });
             }
         }
@@ -950,6 +1027,44 @@ fn team_context(competition_name: &str) -> (&'static str, &'static str, &'static
         }
     }
     ("male", "senior", "senior")
+}
+
+/// A `match_environment` observation payloadja az API-kontraktus mezőneveivel
+/// (S90). A hiányzó adat `null`, soha nem 0; az üres/whitespace szöveg is
+/// `null`. A DB CHECK-jei miatt a tartományon kívüli kapacitás és százalék
+/// `null` (nem hackelünk érvényes értéket).
+fn environment_payload(venue: Option<&Venue>, weather: Option<&Weather>) -> serde_json::Value {
+    let coordinates = venue.and_then(|venue| venue.coordinates.as_ref());
+    json!({
+        "venue_name": venue.and_then(|venue| non_empty(venue.name.as_deref())),
+        "venue_city": venue.and_then(|venue| non_empty(venue.city.as_deref())),
+        "venue_country": venue.and_then(|venue| non_empty(venue.country.as_deref())),
+        "venue_capacity": venue
+            .and_then(|venue| venue.capacity)
+            .filter(|capacity| *capacity >= 0),
+        "venue_surface": venue.and_then(|venue| non_empty(venue.surface.as_deref())),
+        "venue_lat": coordinates.and_then(|coordinates| coordinates.lat),
+        "venue_lon": coordinates.and_then(|coordinates| coordinates.long),
+        // A forrás szerződése Celsius-fok; a `unit` mező csak jelzés, más
+        // egységet nem konvertálunk (a DB-oszlop is Celsius).
+        "temperature_c": weather.and_then(|weather| weather.temperature_c),
+        "weather_description": weather.and_then(|weather| non_empty(weather.description.as_deref())),
+        "wind_speed": weather.and_then(|weather| weather.wind_speed),
+        "wind_direction": weather.and_then(|weather| non_empty(weather.wind_direction.as_deref())),
+        "humidity_pct": weather
+            .and_then(|weather| weather.humidity_pct)
+            .filter(|pct| (0..=100).contains(pct)),
+        "precipitation": weather.and_then(|weather| weather.precipitation),
+        "cloud_cover_pct": weather
+            .and_then(|weather| weather.cloud_cover_pct)
+            .filter(|pct| (0..=100).contains(pct)),
+        "weather_observed_at": weather.and_then(|weather| weather.observed_at),
+    })
+}
+
+/// Üres vagy csak whitespace-ből álló szöveg → `None` (a payload `null`).
+fn non_empty(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
 }
 
 fn season_label(kickoff_at: DateTime<Utc>) -> String {

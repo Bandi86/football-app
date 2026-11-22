@@ -132,6 +132,26 @@
       (1 pre-existing soccerway breaker). Az API `/v1/day/2026-11-21` mind a
       4 meccset lezártként, eredménnyel és publikációs állapottal adja.
 
+## S95 — daemon-frissítés, research-ütemezés, validációs retenció
+
+- [x] **Daemon frissítése**: `cargo build -p footballd -p footballctl
+      --features obscura` → EXIT=0; `./scripts/install-footballd-agent.sh`
+      → EXIT=0. Az új daemon pid 81213, port **56995**, `/v1/health` 200;
+      a launchd `state=running`. Ez a bináris már tartalmazza az S90-es
+      forrás-ref ország-guardot. A kliens újraindítva (pid 81263), az AX-probe
+      újra a mai kártyákat mutatja.
+- [x] **Research-szinkron automatizálása**: új launchd agent
+      `hu.bandi86.football.researchsync` (5 slot: 14:15/16:15/18:15/20:15/
+      22:15, plist telepítve, `launchctl print` 5 calendar-intervallumot mutat).
+      A script és a `.env` a Library alá került (Documents/TCC elkerülése),
+      `FOOTBALL_RESEARCH_ROOT` a valódi könyvtárra mutat. Első próbafuttatás
+      `kickstart`tal: a gyűjtés elindult és halad (a teljes kör még fut).
+      Dokumentáció: `docs/operations/research-sync.md` frissítve.
+- [ ] A 3 napnál régebbi validációs sorok törlése (`scripts/validation-
+      retention.sh --apply`, új script + `docs/operations/validation-
+      retention.md`) — a művelet háttérben fut, a végeredmény még nincs
+      rögzítve. Indoklás: 1,47 GB / ~130 MB/nap, API/UI nem olvassa.
+
 ## Következő döntési pont
 
 - A futó daemon binárisa 2026-11-21 18:33-as, az utolsó Rust feat-commit
@@ -146,3 +166,181 @@
 - A mai nap lejárt, eredmény nélküli meccsei (pl. mexikói Liga Premier
   `date_only` placeholderek, dél-koreai J/K-league élő meccsek) — a research
   13:00-s és 19:00-s refresh jobjai ütemezve vannak, nem kézi beavatkozás.
+
+## S95 — felhasználói hibacsomag diagnózisa és javítása (nap-lista, szűrők, részletek)
+
+A felhasználó 2026-11-22-i panasza (szó szerinti tartalommal): a tegnapi
+(2026-11-21) 936 meccses napon duplikált meccsek és csapatok, hiányzó
+eredmények, a La Liga fejlécben nincs forduló, az Alavés kétszer szerepel egy
+„Logroño" csapattal, hamis „élő" állapot tegnapra, a Real Sociedad B és a
+Real Sociedad 2 ugyanaz, a teljes algériai első osztály elmaradt, az
+„eredmény nélkül" szűrő eredményes meccseket is mutat, és a részletes
+meccsadatok (időjárás, stadion, bíró) hiányosak. Kérés: az agent maga találja
+meg a gyökereket, ne a felhasználó nézze át a 936 meccset.
+
+### Diagnózis (mért gyökerek)
+
+- **Hamis „élő" és nyitott eredmények** — a research pipeline
+  (`docs/api-export.py:1454-1482`) a múltbeli scheduled/live sorokat „stale"
+  listára tette, majd `terminal=closed+len(stale)`-lel `data_status=complete`-et
+  írt, miközben 136 sor valójában nyitott volt. A 11-21-es envelope egy
+  fagyott `matches.json`-ból készült (a finalization fetch elhalt a
+  `.football.lock`-on, a pipeline továbbment). Emellett a friss LiveScore
+  eredményeket a dup-detektálás eldobta (`:1335-1337`), a scheduled soroknál
+  minden score-t nullázott (`:791`).
+- **Scheduled + mégis eredmény** — a v2 ingestion a Variant/Bridge linknél nem
+  írta a kanonikus státuszt, de az eredményt igen
+  (`rust/crates/ingest/src/canonicalize.rs`), ezért 26 lezáratlan sornak volt
+  score-ja; a Real Sociedad B–Cádiz sor a két forrás egyesítése után is
+  `scheduled` maradt 0-3-mal.
+- **Bíró nem linkelődött** — a research referee megfigyelés
+  `source_record_key`-e `"<uid>:referee"` volt, a linkelő viszont bare
+  `<uid>`-ot vár (`rust/crates/ingest/src/research.rs`,
+  `rust/crates/ingest/src/normalized.rs`), ezért a research játékvezetők
+  egyáltalán nem linkelődtek.
+- **Stadion/időjárás** — a research envelope 1024-ből 1024 venue és 398
+  weather mezőt hozott, de a v2 adapter csak a bírót dolgozta fel, és nem is
+  volt tábla a tárolásukra (`core.match.venue_entity_id` kitöltetlen).
+- **Női meccsek férfi versenyben** — a tipplap `league_for`
+  (`rust/crates/ingest/src/tipplap.rs`) a ligacím-prefix után a maradékot
+  („női") tette `round_label`-nek, a férfi ligára képezte a versenyt, a
+  csapatokat pedig fixen `gender=male`-ként küldte. 8 ilyen sor volt, ebből
+  a „Logroño" és a „Lens/Montpellier", „Le Havre", „Eibar", „Real Sociedad",
+  „Granada" párok.
+- **La Liga fejléc és a „La Liga" név** — két külön ok: (a) a kevert
+  `round_label` („13" + „női" + ∅) miatt a kliens fejléc-logikája nem adott
+  feliratot; (b) a `rust/crates/ingest/src/competitions.rs` szótára a
+  **nevet országtól függetlenül** írta át, ezért a venezuelai
+  „Primera División" (VE) „La Liga" nevet kapott, és a kliens a spanyol
+  bajnokság alá csoportosította.
+- **Algéria** — a nyers FotMob `cancelled:true` + `reason=postponed` párost
+  hozott; a research a booleanből `cancelled`-et, a labelből „Postponed"-ot
+  csinált, ezért 8/8 meccs `cancelled` + 0-0 lett.
+- **Szűrők** — a kliens „eredmény nélkül" szűrője a szerver `open_past`
+  definícióját másolta (nem a `missing_result`-ot), és nem nézte a score-t;
+  a gap panel „open" chipje is erre mutatott. Az „élő" szűrő/számláló
+  időkorlát nélkül számolt, ezért egy múltbeli nap örökre élőnek látszott.
+  A női verseny-felismerés csak a „(női)" markert ismerte.
+
+### Kódváltozások
+
+- `db/migrations/0021_match_environment.sql` — új `fact.match_environment`
+  tábla (PK `(match_id, source_id)`, venue- és weather-oszlopok, CHECK-ek).
+- `rust/crates/ingest/src/research.rs` — venue/weather megfigyelés a
+  research envelope-ból; a referee `source_record_key` javítása bare uid-ra.
+- `rust/crates/ingest/src/normalized.rs` — `NormalizedEnvironment`, referee
+  link-kulcs.
+- `rust/crates/ingest/src/canonicalize.rs` — environment perzisztálás és
+  monoton `merge_status` (`Unchanged`/`Write`/`Frozen`): a Variant/Bridge
+  linknél is frissül a státusz, de terminális→nyitott irány nem íródik felül.
+- `rust/crates/ingest/src/tipplap.rs` — `WOMEN_LEAGUES` tábla, `LeagueAssignment`,
+  női forduló-szűrés, `gender=female`/`branch=women` payload, parser 1.1.
+- `rust/crates/ingest/src/competitions.rs` — `COUNTRY_SCOPED_OBSERVED_TITLES`
+  (`laliga`, `primeradivision`): ország-ütközésnél nincs szótári átnevezés.
+- `rust/crates/storage/src/repositories/match_detail.rs` + `openapi.rs` —
+  a meccs-részletező válasz `venue` és `weather` mezője (LATERAL join, a
+  research forrást preferálva; adat híján `null`).
+- `scripts/db-check.sh` — várt táblaszám 48 → 49.
+- Kliens: `MatchListView`, `MatchCardModel`, `HomeView`, `LeagueGroup`,
+  `MatchDetailSheet`, `CompetitionCatalog`, `MatchDetailModels`,
+  `VenueWeatherModels` (új) — szűrők, 6 órás élő-kapu, forduló-fejléc,
+  gap panel, női markerek, venue/weather megjelenítés.
+
+### Adatrevíziók (nem migrációval; dokumentált, visszajátszható)
+
+- `round_label='női'` → `NULL` 4 soron (Ferencváros–Győri ETO 11-18,
+  Real Sociedad–Sevilla, Granada–Real Madrid), a Le Havre W–Nantes W soron
+  `'10'`; a „női" nem fordulószám.
+- 144 női csapat `branch` mezője `senior` → `women` (a merge-team
+  kontextus-guard miatt); Real Sociedad 2 / Real Sociedad B senior →
+  `reserve`; Logroño → női; Real Madrid (INT) → ES.
+- A 3 nem-spanyol „La Liga" verseny átnevezve: VE → „Primera Division:
+  Clausura", CR/CL → „Primera División"; a VE példány beolvasztva a valódi
+  VE versenybe (`identity merge-competition`).
+
+### Összeolvasztott duplikátumok (mind `ops.dedupe_archive` /
+`ops.entity_merge_archive` alatt, audit-azonosítóval)
+
+- Meccsek: Lens (W)–Montpellier FC (W) ← tipplap Ligue 1 + Lens Féminin;
+  Eibar W–Atlético W ← tipplap La Liga; Logroño W–Deportivo Alavés W ←
+  tipplap La Liga + elavult espn sor; Real Sociedad B–Cádiz ← Real Sociedad 2;
+  Al Jadida–Darnes ← tükrözött Group B sor; Recoleta–Guaraní ← scheduled sor;
+  Pineto–Pescara, Chernomorets–Rilski, Gimnasia Jujuy–Madryn, NWSL döntő,
+  Borussia M'gladbach II–Bonner SC, Eltersdorf–Bayern II,
+  Levante Badalona–Depor, Burnley–Blackburn, Real Sociedad W–Sevilla W,
+  Granada W–Real Madrid W, Le Havre W–Nantes W.
+- Csapatok: Real Sociedad 2 + Real Sociedad B senior → Real Sociedad B
+  (reserve); Logrono + Dux Logroño → Logroño W; Montpellier W →
+  Montpellier FC (W); Real Madrid (INT) → Real Madrid W.
+
+### Mérés a javítás után
+
+- Research envelope 11-21 újragyártva (rev 83): 1024 → **897** sor,
+  `stale_no_result` 136 → **7**, `data_status=complete` → **complete_with_gaps**,
+  `day_closed=true`, live sor 0, scheduled+score 0, a pipeline saját 0,82-es
+  duplikátum-kulcsával a duplikált párok **99 → 0**; az algériai 8 meccs
+  `postponed` + score `null`, a Logroño egyetlen soron, Dundee–Hearts /
+  Utrecht–Cambuur / Feyenoord eredménnyel; 897/897 detail-fájl konzisztens.
+- `/v1/day/2026-11-21` (három nap újraingestje után): 936 → **923** sor;
+  finished 739 → **863**, scheduled 133 → 29, live 41 → **1**, postponed 30;
+  `open_past` 169 → **30**; `missing_result` 0; eredménnyel rendelkező
+  nem-lezárt sor **0** (volt 29).
+- `/v1/day/2026-11-20`: 269 sor (finished 262, postponed 4, scheduled 3),
+  0 névpár-duplikátum, 0 eredményes nem-lezárt sor.
+- `/v1/day/2026-11-22`: 630 sor (finished 50, scheduled 521, live 57, canceled 2),
+  `open_past` 7, `missing_result` 0, 0 névpár-duplikátum, 0 eredményes
+  nem-lezárt sor.
+- `fact.match_environment`: 469 sor (468 venue, 390 weather a 11-21-re);
+  a `/v1/match/{id}` válaszban a `venue` és `weather` objektum él, pl.
+  „Estadio Ricardo Gregor", Luque, 4000 néző, `Thunder`, 27 °C, 86% pára.
+- 11-22 indonéz félrekötés javítva: 3 fixture (Isenmulang Kalteng–Borneo
+  Samarinda, Persib Bandung–Bali United, Borneo Samarinda–Persita) az UZ
+  „Super League" alól az ID „Super League" alá került; az UZ verseny így
+  15/15 üzbég, az ID 14 ID + 2 ismeretlen országú csapat. Az utolsó 40 napra
+  futó rendszeres ellenőrzés (azonos országú csapatpár idegen versenyben,
+  ≥3 találat) ezen kívül **nem talált** klasztert.
+
+### Futott ellenőrzések
+
+- `cargo fmt --all --check` → OK (FMT_OK_AFTER).
+- `cargo clippy --workspace --all-targets -- -D warnings` → Finished,
+  **0 figyelmeztetés**.
+- `cargo test --workspace -- --test-threads=1` (env betöltve,
+  `/tmp/s95-workspace-test.log`) → **512 passed, 0 failed**.
+- `./scripts/db-reset.sh` → EXIT=0; `./scripts/db-check.sh` → **dev 49 tábla /
+  15 985 744 üzleti sor**, test 0 sor, EXIT=0.
+- `./scripts/check-foundation.sh` (db-reset után) → **EXIT=0**, 39 teszt-bináris.
+- Swift: `swift test` (FootballAppCore) → **105 teszt / 15 suite passed**;
+  `xcodebuild test -only-testing:FootballAppTests` → **TEST SUCCEEDED, 69 teszt,
+  0 failure**; `xcodebuild build -scheme FootballApp` → **BUILD SUCCEEDED**.
+- Daemon újratelepítve a javított binárissal (`install-footballd-agent.sh`,
+  pid 36029, port 64426); a kliens újraépítve és újraindítva; a képernyőképen
+  (`/tmp/s95-app-window.png`) a fejlécben „BOLÍVIA · 26. forduló" látszik, az
+  AX-próba a La Liga kártyán „13. forduló"-t olvas.
+
+### Nyitott tételek (döntést igényelnek, nem lettek elfedve)
+
+1. **Bíró-entitás feloldás**: a research 11-21-re 294 meccshez ad bíró-nevet,
+   de a 293 pending review-ból csak 1 egyezik pontos névvel a meglévő 1195
+   bíró-entitással (a névformátum eltér a footballdata-étól). Auto-create
+   naponta ~293 entitást hozna létre, ezért ez külön identitás-politikai
+   döntés; addig a részletező a linked bírót mutatja, a research nevét nem.
+2. **Női tipplap csapat-feloldás**: a mai (11-22) női tipplap sorok
+   (Granada, Sevilla, Tenerife, …) csapatnevei nem oldhatók fel a kanonikus
+   „… W" entitásokra, ezért review-sor nyílik és a meccs kimarad.
+3. **Verseny-duplikátumok országonként**: több országban 2-3 azonos nevű
+   „Primera División" entitás él (CL 2, BO 2, CR 3); a szélesebb
+   competition-dedupe nem része ennek a szeletnek.
+4. **Forrás-konfliktus a női Liga F 12. fordulójában**: a soccerway
+   „Eibar N–Levante N" / „Cacereno N–Alavés N" sorokat ad, amelyek a valós
+   fordulóval ütköznek; automatikus feloldás nincs, a „Lejárt, nyitott"
+   szűrő mutatja őket.
+5. **Tipplap múltbeli napok**: a tipplap oldal csak a mai napot szolgálja ki
+   (dátum-guard), ezért a múltbeli tipplap sorok javítása csak merge/revízió
+   útján lehetséges — új funkció (replay) nélkül.
+6. **Történelmi verseny-ország újrafeloldás**: 6030 research megfigyelés
+   háromjegyű országkóddal (`IDN`, `VEN`, `BUL`, …) készült; a mostani kód
+   (`canonical_country_code`) ezeket ISO2-re oldja, de a korábban létrehozott
+   verseny-hozzárendeléseket nem írja felül automatikusan. A mért klasztert
+   (indonéz sorok az UZ „Super League" alatt) kézzel javítottuk; szélesebb,
+   visszajátszható újrafeloldás külön szelet.

@@ -367,6 +367,12 @@ const ENTRIES: &[Entry] = &[
     },
 ];
 
+/// S95: foldolt megfigyelt címek, amelyek több országban is ugyanígy
+/// szerepelnek. Ezeknél a szótári átnevezés csak akkor fut le, ha a megfigyelt
+/// ország hiányzik vagy egyezik a szótár országával — különben a megfigyelt
+/// nevet hagyjuk meg, mert az adott ország saját, azonos nevű versenye.
+const COUNTRY_SCOPED_OBSERVED_TITLES: &[&str] = &["laliga", "primeradivision"];
+
 /// A megfigyelt verseny-meta kanonizált változata (ismeretlen cím → változatlan).
 pub fn canonicalize(competition: &NormalizedCompetition) -> NormalizedCompetition {
     let key = fold_name(&competition.name);
@@ -376,17 +382,28 @@ pub fn canonicalize(competition: &NormalizedCompetition) -> NormalizedCompetitio
     let Some(entry) = ENTRIES.iter().find(|e| fold_name(e.observed) == key) else {
         return competition.clone();
     };
+    let country_compatible = match entry.country {
+        Some((code, name)) => observed_country_compatible(
+            &competition.country_code,
+            &competition.country_name,
+            code,
+            name,
+        ),
+        None => true,
+    };
+    // S95: az általános, több országban is előforduló címek (homonimák) esetén
+    // a szótári átnevezés ország-ütközésnél nem futhat le, különben egy másik
+    // ország versenyét nevezné át (pl. venezuelai „Primera División" → spanyol
+    // „La Liga"), és a kliens a spanyol bajnokság alá csoportosítaná.
+    if !country_compatible && COUNTRY_SCOPED_OBSERVED_TITLES.contains(&key.as_str()) {
+        return competition.clone();
+    }
     let (country_code, country_name) = match entry.country {
         Some((code, name)) => {
             // S41: a szótári ország csak akkor írja felül a megfigyeltet, ha a
             // megfigyelt ország hiányzik, vagy (kód/név szerint) egyezik.
             // Különben a megfigyelt ország marad (pl. kínai FA Kupa → CN).
-            if observed_country_compatible(
-                &competition.country_code,
-                &competition.country_name,
-                code,
-                name,
-            ) {
+            if country_compatible {
                 (code.to_string(), name.to_string())
             } else {
                 (
@@ -572,6 +589,26 @@ mod tests {
         let cl = canonicalize(&comp("La Liga", "CHI", "Chile"));
         assert_eq!(cl.country_code, "CHI");
         assert_eq!(cl.country_name, "Chile");
+    }
+
+    #[test]
+    fn country_scoped_titles_are_not_renamed_for_other_countries() {
+        // S95: a venezuelai Primera División nem a spanyol La Liga nevet kapja,
+        // különben a kliens a spanyol bajnokság alá csoportosítaná.
+        let ve = canonicalize(&comp("Primera División", "VEN", "Venezuela"));
+        assert_eq!(ve.name, "Primera División");
+        assert_eq!(ve.country_code, "VEN");
+        assert_eq!(ve.priority, 50);
+
+        // Ország nélküli megfigyelésnél marad a szótári kanonizálás.
+        let es = canonicalize(&comp("Primera Division", "ES", "Spain"));
+        assert_eq!(es.name, "La Liga");
+        assert_eq!(es.priority, 6);
+
+        // Costa Rica-i La Liga sem lesz ES.
+        let cr = canonicalize(&comp("La Liga", "CR", "Costa Rica"));
+        assert_eq!(cr.name, "La Liga");
+        assert_eq!(cr.country_code, "CR");
     }
 
     #[test]

@@ -14,6 +14,11 @@
 //! kanonikus (Soccerway/footballdata) név, hogy a meccsek összeérjenek.
 //! A nemzetközi/top-ligás `LEAGUES` mellett a `GENERAL_LEAGUES` tábla
 //! fedi a v1-ben már bejáratott többi ligát (S36a, adatvezérelt bővítés).
+//! A női szekciók külön `WOMEN_LEAGUES` táblát kapnak (S94): a Tipplap női
+//! címei országonként más szöveget használnak (pl. „Német bajnokság, női" a
+//! férfi „Bundesliga 1." helyett), ezért a férfi kulcs önmagában nem elég.
+
+use std::borrow::Cow;
 
 use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Utc};
 use chrono_tz::Europe::Budapest;
@@ -391,34 +396,293 @@ const GENERAL_LEAGUES: [League; 26] = [
     },
 ];
 
-fn league_for(title: &str) -> Option<(&'static League, Option<String>)> {
-    let trimmed = title
-        .trim()
-        .strip_prefix(TITLE_PREFIX)
-        .unwrap_or(title.trim());
-    // Leghosszabb egyező kulcs (pl. „Nemzetek Ligája, B div" előbb, mint „…").
-    let mut best: Option<(&'static League, &str)> = None;
-    for league in LEAGUES.iter() {
-        if trimmed.starts_with(league.key)
-            && best.is_none_or(|(_, key)| league.key.len() > key.len())
+/// Női liga-tábla (S94): a Tipplap női szekcióinak tényleges cím-prefixei →
+/// v2 kanonikus női versenyek.
+///
+/// A férfi `LEAGUES` kulcsa nem minden országban egyezik a női cím szövegével
+/// (a 2026-11-21-i renderben pl. „Német bajnokság, női", „Olasz bajnokság, női",
+/// „Angol bajnokság, női" szerepel), ezért itt a tényleges női cím a kulcs.
+/// Ahol a Tipplap a férfi kulcsot is használhatja (pl. „Bundesliga 1., női"),
+/// azt is felvesszük, hogy a napi cím-forma ne törje el a lefedettséget.
+/// A `női` jelzőt a [`league_for`] a kulcs-egyezés előtt leválasztja.
+const WOMEN_LEAGUES: [League; 10] = [
+    League {
+        key: "Spanyol bajnokság",
+        name: "Liga F",
+        country: Some(("ES", "Spain")),
+        tier: 1,
+        priority: 55,
+        international: false,
+    },
+    League {
+        key: "Francia bajnokság",
+        name: "Première Ligue (női)",
+        country: Some(("FR", "France")),
+        tier: 1,
+        priority: 55,
+        international: false,
+    },
+    League {
+        key: "Bundesliga 1.",
+        name: "Frauen-Bundesliga",
+        country: Some(("DE", "Germany")),
+        tier: 1,
+        priority: 55,
+        international: false,
+    },
+    League {
+        key: "Német bajnokság",
+        name: "Frauen-Bundesliga",
+        country: Some(("DE", "Germany")),
+        tier: 1,
+        priority: 55,
+        international: false,
+    },
+    League {
+        key: "Olasz A",
+        name: "Women's Serie A",
+        country: Some(("IT", "Italy")),
+        tier: 1,
+        priority: 55,
+        international: false,
+    },
+    League {
+        key: "Olasz bajnokság",
+        name: "Women's Serie A",
+        country: Some(("IT", "Italy")),
+        tier: 1,
+        priority: 55,
+        international: false,
+    },
+    League {
+        key: "NB I",
+        name: "NB I (női)",
+        country: Some(("HU", "Hungary")),
+        tier: 1,
+        priority: 55,
+        international: false,
+    },
+    League {
+        key: "Premier Liga",
+        name: "FA Women's Super League",
+        country: Some(("GB", "England")),
+        tier: 1,
+        priority: 55,
+        international: false,
+    },
+    League {
+        key: "Angol bajnokság",
+        name: "FA Women's Super League",
+        country: Some(("GB", "England")),
+        tier: 1,
+        priority: 55,
+        international: false,
+    },
+    League {
+        key: "Bajnokok Ligája",
+        name: "Women's Champions League",
+        country: None,
+        tier: 1,
+        priority: 50,
+        international: true,
+    },
+];
+
+/// Egy ligacím feldolgozott hozzárendelése.
+///
+/// A női ág a `WOMEN_LEAGUES` pontos táblájából vagy (ha nincs női pár) a férfi
+/// ligából „… (női)" utótaggal jön, ezért a név `Cow` (a fallback tulajdonolt
+/// `String`). A `round_label` soha nem tartalmazhat „női" tokent.
+#[derive(Clone)]
+struct LeagueAssignment {
+    league: &'static League,
+    /// A payloadba kerülő kanonikus verseny-név.
+    name: Cow<'static, str>,
+    /// Női meccs: a csapatok gender/branch konvenciója ebből dől el.
+    women: bool,
+    round_label: Option<String>,
+}
+
+/// Női jelző token („női" → fold „noi") a ligacímben, vesszős tagként vagy
+/// önálló szóként; a cím többi része változatlanul marad az egyezéshez.
+fn strip_women_marker(title: &str) -> (String, bool) {
+    let parts: Vec<&str> = title.split(',').map(str::trim).collect();
+    if parts.iter().any(|part| is_women_token(part)) {
+        let kept: Vec<&str> = parts
+            .into_iter()
+            .filter(|part| !part.is_empty() && !is_women_token(part))
+            .collect();
+        return (kept.join(", "), true);
+    }
+    // Vessző nélküli forma: önálló „női" szó bárhol a címben.
+    let tokens: Vec<&str> = title.split_whitespace().collect();
+    if tokens.iter().any(|token| is_women_token(token)) {
+        let kept: Vec<&str> = tokens
+            .into_iter()
+            .filter(|token| !is_women_token(token))
+            .collect();
+        return (kept.join(" "), true);
+    }
+    (title.to_string(), false)
+}
+
+fn is_women_token(text: &str) -> bool {
+    fold_name(text) == "noi"
+}
+
+/// Női cím maradékából csak a forduló-jelölés marad: szám („12", „12.") vagy
+/// „N. forduló"/„N. kör" alak (foldve is). A „női" tokent a hívó már levágta.
+fn women_round_label(rest: &str) -> Option<String> {
+    rest.split(',')
+        .map(str::trim)
+        .find(|token| is_round_token(token))
+        .map(str::to_string)
+}
+
+fn is_round_token(token: &str) -> bool {
+    let folded = fold_name(token);
+    if folded.is_empty() {
+        return false;
+    }
+    let digits = folded
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>();
+    if digits.is_empty() {
+        return false;
+    }
+    let tail = &folded[digits.len()..];
+    tail.is_empty() || tail == "fordulo" || tail == "kor"
+}
+
+/// Női tábla prefix-egyezése szóhatárral: a kulcs után csak cím vége, vessző
+/// vagy pont/space jöhet, így az „NB I" kulcs nem nyeli el az „NB II" címet.
+fn women_prefix<'a>(leagues: &'a [League], title: &str) -> Option<(&'a League, &'static str)> {
+    let mut best: Option<(&'a League, &'static str)> = None;
+    for league in leagues {
+        if !title.starts_with(league.key) {
+            continue;
+        }
+        let rest = &title[league.key.len()..];
+        let boundary = rest.is_empty() || rest.starts_with([',', '.', ' ']);
+        if boundary && best.is_none_or(|(_, key)| league.key.len() > key.len()) {
+            best = Some((league, league.key));
+        }
+    }
+    best
+}
+
+/// A tábla leghosszabb prefix-egyezése (pl. „Nemzetek Ligája, B div" előbb,
+/// mint a rövidebb „Nemzetek Ligája").
+fn longest_prefix<'a>(leagues: &'a [League], title: &str) -> Option<(&'a League, &'static str)> {
+    let mut best: Option<(&'a League, &'static str)> = None;
+    for league in leagues {
+        if title.starts_with(league.key) && best.is_none_or(|(_, key)| league.key.len() > key.len())
         {
             best = Some((league, league.key));
         }
     }
-    if let Some((league, key)) = best {
-        let rest = trimmed[key.len()..]
-            .trim_start_matches([',', '.', ' '])
-            .trim()
-            .to_string();
-        let round = (!rest.is_empty()).then_some(rest);
-        return Some((league, round));
+    best
+}
+
+/// Férfi liga-egyezés: prefix (van maradék) vagy a GENERAL_LEAGUES pontos,
+/// ékezet/kisbetű-független címe (nincs maradék).
+fn match_male(title: &str) -> Option<(&'static League, &str)> {
+    if let Some((league, key)) = longest_prefix(&LEAGUES, title) {
+        return Some((league, &title[key.len()..]));
     }
-    // Bővített tábla: teljes címre, ékezet/kisbetű-független egyezés (S36a).
-    let folded = fold_name(trimmed);
+    let folded = fold_name(title);
     let league = GENERAL_LEAGUES
         .iter()
         .find(|league| fold_name(league.key) == folded)?;
-    Some((league, None))
+    Some((league, ""))
+}
+
+/// A GENERAL_LEAGUES pontos cím-egyezése vesszős farokkal is: a cím elejéről
+/// levágja a forduló/csoport tokent (női fallbackhez; a férfi ág változatlan).
+fn match_general_with_rest(title: &str) -> Option<(&'static League, String)> {
+    let parts: Vec<&str> = title
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect();
+    for end in (1..=parts.len()).rev() {
+        let head = parts[..end].join(", ");
+        let folded = fold_name(&head);
+        if let Some(league) = GENERAL_LEAGUES
+            .iter()
+            .find(|league| fold_name(league.key) == folded)
+        {
+            return Some((league, parts[end..].join(", ")));
+        }
+    }
+    None
+}
+
+/// Női fallback: férfi liga (prefix vagy pontos GENERAL cím) + a maradékból
+/// nyert round_label. `None`, ha a férfi táblák egyike sem ismeri a címet.
+fn women_fallback(clean: &str) -> Option<(&'static League, Option<String>)> {
+    if let Some((league, rest)) = match_male(clean) {
+        let rest = rest.trim_start_matches([',', '.', ' ']).trim();
+        return Some((league, women_round_label(rest)));
+    }
+    let (league, rest) = match_general_with_rest(clean)?;
+    Some((league, women_round_label(&rest)))
+}
+
+fn league_for(title: &str) -> Option<LeagueAssignment> {
+    let trimmed = title
+        .trim()
+        .strip_prefix(TITLE_PREFIX)
+        .unwrap_or(title.trim());
+    let (clean, women) = strip_women_marker(trimmed);
+
+    if women {
+        if let Some((league, key)) = women_prefix(&WOMEN_LEAGUES, &clean) {
+            let rest = clean[key.len()..]
+                .trim_start_matches([',', '.', ' '])
+                .trim();
+            return Some(LeagueAssignment {
+                league,
+                name: Cow::Borrowed(league.name),
+                women: true,
+                round_label: women_round_label(rest),
+            });
+        }
+        // Nincs pontos női pár: a férfi verseny neve + „ (női)" utótag, hogy a
+        // meccs ne vesszen el; a parse naplózza, hogy ez fallback volt.
+        if let Some((league, round_label)) = women_fallback(&clean) {
+            tracing::warn!(
+                source = SOURCE_SLUG,
+                title = trimmed,
+                male_competition = league.name,
+                "ismeretlen női ligacím: férfi verseny + (női) utótag"
+            );
+            return Some(LeagueAssignment {
+                league,
+                name: Cow::Owned(format!("{} (női)", league.name)),
+                women: true,
+                round_label,
+            });
+        }
+        tracing::debug!(
+            source = SOURCE_SLUG,
+            title = trimmed,
+            "ismeretlen női ligacím (nincs férfi pár sem) — a sor kimarad"
+        );
+        return None;
+    }
+
+    // Férfi ág: a viselkedés változatlan (prefix-egyezésnél a maradék a
+    // round_label, a GENERAL táblánál pontos cím és nincs round).
+    let (league, rest) = match_male(&clean)?;
+    let rest = rest.trim_start_matches([',', '.', ' ']).trim();
+    Some(LeagueAssignment {
+        league,
+        name: Cow::Borrowed(league.name),
+        women: false,
+        round_label: (!rest.is_empty()).then(|| rest.to_string()),
+    })
 }
 
 fn slug(value: &str) -> String {
@@ -489,6 +753,30 @@ fn is_special_bet(home: &str, away: &str) -> bool {
     })
 }
 
+/// Csapat-identitás payload: a női ág a research adapter konvencióját követi
+/// (`"gender": "female"`, `"branch": "women"`), a férfi ág változatlan.
+fn team_identity_payload(
+    team_id: &str,
+    name: &str,
+    country_code: &str,
+    women: bool,
+) -> serde_json::Value {
+    let (gender, branch) = if women {
+        ("female", "women")
+    } else {
+        ("male", "senior")
+    };
+    serde_json::json!({
+        "id": null,
+        "source_entity_id": team_id,
+        "name": name,
+        "country_code": country_code,
+        "gender": gender,
+        "age_group": "senior",
+        "branch": branch,
+    })
+}
+
 pub struct TipplapAdapter;
 
 impl SourceAdapter for TipplapAdapter {
@@ -496,7 +784,7 @@ impl SourceAdapter for TipplapAdapter {
         AdapterMeta {
             source_slug: SOURCE_SLUG.into(),
             adapter_version: "1.0".into(),
-            parser_version: "1.0".into(),
+            parser_version: "1.1".into(),
             domains: vec!["day".into()],
             transport: Transport::RustHttp,
         }
@@ -555,7 +843,7 @@ impl SourceAdapter for TipplapAdapter {
         let captured_at = Utc::now();
         let mut observations: Vec<Observation> = Vec::new();
         let mut teams: std::collections::BTreeMap<String, serde_json::Value> = Default::default();
-        let mut league: Option<(&'static League, Option<String>)> = None;
+        let mut league: Option<LeagueAssignment> = None;
         let mut rows = 0usize;
         let mut skipped = 0usize;
 
@@ -568,7 +856,7 @@ impl SourceAdapter for TipplapAdapter {
                 continue;
             };
             rows += 1;
-            let Some((league_meta, round_label)) = league.as_ref() else {
+            let Some(league_meta) = league.as_ref() else {
                 skipped += 1;
                 continue;
             };
@@ -630,7 +918,7 @@ impl SourceAdapter for TipplapAdapter {
             // Csapatok: nemzetközi versenyben ország (HU→EN+ISO), hazai
             // ligában a megfigyelt név (a linker aliasai oldják fel).
             let team_pair: Option<((String, String), (String, String))> =
-                if league_meta.international {
+                if league_meta.league.international {
                     let home = resolve_national(home_raw);
                     let away = resolve_national(away_raw);
                     match (home, away) {
@@ -642,6 +930,7 @@ impl SourceAdapter for TipplapAdapter {
                     }
                 } else {
                     let country = league_meta
+                        .league
                         .country
                         .map(|(cc, _)| cc.to_string())
                         .unwrap_or_default();
@@ -657,24 +946,17 @@ impl SourceAdapter for TipplapAdapter {
 
             let home_id = slug(&home_name);
             let away_id = slug(&away_name);
-            let (country_code, country_name) = match league_meta.country {
+            let (country_code, country_name) = match league_meta.league.country {
                 Some((cc, cn)) => (cc.to_string(), cn.to_string()),
                 None => (String::new(), String::new()),
             };
+            let competition_name = league_meta.name.as_ref();
             for (team_id, team_name, team_country) in [
                 (&home_id, &home_name, &home_country),
                 (&away_id, &away_name, &away_country),
             ] {
                 teams.entry(team_id.clone()).or_insert_with(|| {
-                    serde_json::json!({
-                        "id": null,
-                        "source_entity_id": team_id,
-                        "name": team_name,
-                        "country_code": team_country,
-                        "gender": "male",
-                        "age_group": "senior",
-                        "branch": "senior",
-                    })
+                    team_identity_payload(team_id, team_name, team_country, league_meta.women)
                 });
             }
 
@@ -693,17 +975,17 @@ impl SourceAdapter for TipplapAdapter {
                     "kickoff_precision": "exact",
                     "status": "scheduled",
                     "result": null,
-                    "round_label": round_label,
+                    "round_label": league_meta.round_label.as_deref(),
                     "competition_timezone": "Europe/Budapest",
                     "competition": {
                         "id": null,
-                        "source_entity_id": (!league_meta.name.is_empty())
-                            .then_some(league_meta.name),
-                        "name": league_meta.name,
+                        "source_entity_id": (!competition_name.is_empty())
+                            .then_some(competition_name),
+                        "name": competition_name,
                         "country_code": country_code,
                         "country_name": country_name,
-                        "tier": league_meta.tier,
-                        "priority": league_meta.priority,
+                        "tier": league_meta.league.tier,
+                        "priority": league_meta.league.priority,
                     },
                     "season": { "id": null, "label": season_label(kickoff_at.date_naive()) },
                     "source_code": SOURCE_SLUG,
@@ -771,27 +1053,28 @@ impl SourceAdapter for TipplapAdapter {
 
 #[cfg(test)]
 mod league_map_tests {
-    use super::league_for;
+    use super::{league_for, team_identity_payload};
 
     #[test]
     fn maps_general_leagues_from_v1_alias_registry() {
         // S36a: a v1 tipplap_league_alias reviewed sorai + v2 egyezés.
-        let (league, round) = league_for("Labdarúgás – Angol Liga 1.").unwrap();
-        assert_eq!(league.name, "League One");
-        assert_eq!(league.country, Some(("GB", "Scotland")));
-        assert_eq!(league.tier, 3);
-        assert_eq!(round, None);
+        let assignment = league_for("Labdarúgás – Angol Liga 1.").unwrap();
+        assert!(!assignment.women);
+        assert_eq!(assignment.name.as_ref(), "League One");
+        assert_eq!(assignment.league.country, Some(("GB", "Scotland")));
+        assert_eq!(assignment.league.tier, 3);
+        assert_eq!(assignment.round_label, None);
 
-        let (league, _) = league_for("Labdarúgás – Spanyol 2.").unwrap();
-        assert_eq!(league.name, "LaLiga 2");
-        assert_eq!(league.tier, 2);
+        let assignment = league_for("Labdarúgás – Spanyol 2.").unwrap();
+        assert_eq!(assignment.name.as_ref(), "LaLiga 2");
+        assert_eq!(assignment.league.tier, 2);
 
-        let (league, _) = league_for("Labdarúgás – Török bajnokság").unwrap();
-        assert_eq!(league.name, "Süper Lig");
+        let assignment = league_for("Labdarúgás – Török bajnokság").unwrap();
+        assert_eq!(assignment.name.as_ref(), "Süper Lig");
 
         // Ékezet/kisbetű-független egyezés (a prefix levágása után).
-        let (league, _) = league_for("Labdarúgás – OSZTRÁK 2.").unwrap();
-        assert_eq!(league.name, "2. Liga");
+        let assignment = league_for("Labdarúgás – OSZTRÁK 2.").unwrap();
+        assert_eq!(assignment.name.as_ref(), "2. Liga");
 
         // Ismeretlen cím továbbra sem találgat.
         assert!(league_for("Labdarúgás – Szuper Liga, Mars").is_none());
@@ -799,15 +1082,129 @@ mod league_map_tests {
 
     #[test]
     fn maps_nb_two_and_concacaf_leagues() {
-        let (league, round) = league_for("Labdarúgás – NB II").unwrap();
-        assert_eq!(league.name, "NB II");
-        assert_eq!(round, None);
+        let assignment = league_for("Labdarúgás – NB II").unwrap();
+        assert_eq!(assignment.name.as_ref(), "NB II");
+        assert_eq!(assignment.round_label, None);
 
-        let (league, round) = league_for("Labdarúgás – CONCACAF Nemz.Ligája A div.Acs").unwrap();
-        assert_eq!(league.name, "CONCACAF Nations League - League A");
-        assert_eq!(round.as_deref(), Some("Acs"));
+        let assignment = league_for("Labdarúgás – CONCACAF Nemz.Ligája A div.Acs").unwrap();
+        assert_eq!(
+            assignment.name.as_ref(),
+            "CONCACAF Nations League - League A"
+        );
+        assert_eq!(assignment.round_label.as_deref(), Some("Acs"));
 
-        let (league, _) = league_for("Labdarúgás – CONCACAF Nemz.Ligája C div.Bcs").unwrap();
-        assert_eq!(league.name, "CONCACAF Nations League - League C");
+        let assignment = league_for("Labdarúgás – CONCACAF Nemz.Ligája C div.Bcs").unwrap();
+        assert_eq!(
+            assignment.name.as_ref(),
+            "CONCACAF Nations League - League C"
+        );
+    }
+
+    #[test]
+    fn maps_women_league_without_round_label() {
+        // S94: a „női" jelző nem kerülhet round_labelbe.
+        let assignment = league_for("Labdarúgás – Spanyol bajnokság, női").unwrap();
+        assert!(assignment.women);
+        assert_eq!(assignment.name.as_ref(), "Liga F");
+        assert_eq!(assignment.league.country, Some(("ES", "Spain")));
+        assert_eq!(assignment.league.tier, 1);
+        assert_eq!(assignment.league.priority, 55);
+        assert!(!assignment.league.international);
+        assert_eq!(assignment.round_label, None);
+    }
+
+    #[test]
+    fn maps_women_league_with_round_label() {
+        let assignment = league_for("Labdarúgás – Spanyol bajnokság, női, 12. forduló").unwrap();
+        assert!(assignment.women);
+        assert_eq!(assignment.name.as_ref(), "Liga F");
+        assert_eq!(assignment.round_label.as_deref(), Some("12. forduló"));
+
+        // A „női" mellett más vesszős tag (pl. csoport) nem round_label.
+        let assignment = league_for("Labdarúgás – Angol bajnokság, női, Dél").unwrap();
+        assert_eq!(assignment.name.as_ref(), "FA Women's Super League");
+        assert_eq!(assignment.round_label, None);
+    }
+
+    #[test]
+    fn keeps_male_league_behaviour() {
+        let assignment = league_for("Labdarúgás – Francia bajnokság").unwrap();
+        assert!(!assignment.women);
+        assert_eq!(assignment.name.as_ref(), "Ligue 1");
+        assert_eq!(assignment.league.country, Some(("FR", "France")));
+        assert_eq!(assignment.round_label, None);
+    }
+
+    #[test]
+    fn maps_women_nb_one() {
+        let assignment = league_for("Labdarúgás – NB I, női").unwrap();
+        assert!(assignment.women);
+        assert_eq!(assignment.name.as_ref(), "NB I (női)");
+        assert_eq!(assignment.league.country, Some(("HU", "Hungary")));
+        assert_eq!(assignment.league.priority, 55);
+        assert_eq!(assignment.round_label, None);
+
+        // Az „NB I" kulcs nem nyeli el az „NB II" címet (szóhatár).
+        let assignment = league_for("Labdarúgás – NB II, női").unwrap();
+        assert!(assignment.women);
+        assert_eq!(assignment.name.as_ref(), "NB II (női)");
+    }
+
+    #[test]
+    fn maps_women_champions_league() {
+        let assignment = league_for("Labdarúgás – Bajnokok Ligája, női").unwrap();
+        assert!(assignment.women);
+        assert_eq!(assignment.name.as_ref(), "Women's Champions League");
+        assert_eq!(assignment.league.country, None);
+        assert!(assignment.league.international);
+        assert_eq!(assignment.league.tier, 1);
+        assert_eq!(assignment.league.priority, 50);
+        assert_eq!(assignment.round_label, None);
+    }
+
+    #[test]
+    fn women_title_without_exact_pair_falls_back_to_male_name() {
+        // Nem kötelező lefedettség (pl. holland női): férfi név + „ (női)".
+        let assignment = league_for("Labdarúgás – Holland bajnokság, női, 5. forduló").unwrap();
+        assert!(assignment.women);
+        assert_eq!(assignment.name.as_ref(), "Eredivisie (női)");
+        assert_eq!(assignment.league.name, "Eredivisie");
+        assert_eq!(assignment.round_label.as_deref(), Some("5. forduló"));
+    }
+
+    #[test]
+    fn women_title_without_any_pair_is_skipped_not_panicking() {
+        assert!(league_for("Labdarúgás – Szuper Liga, Mars, női").is_none());
+    }
+
+    #[test]
+    fn male_tables_map_to_themselves_without_women_marker() {
+        // S94 regresszió: a férfi táblák minden kulcsa (a TITLE_PREFIXszel
+        // ellátva) önmagára képződjön, women=false és round_label nélkül.
+        let titles = super::LEAGUES
+            .iter()
+            .chain(super::GENERAL_LEAGUES.iter())
+            .map(|league| (format!("{}{}", super::TITLE_PREFIX, league.key), league));
+        for (title, expected) in titles {
+            let assignment = league_for(&title).unwrap_or_else(|| panic!("nem egyezett: {title}"));
+            assert!(!assignment.women, "női jelző férfi címen: {title}");
+            assert_eq!(assignment.name.as_ref(), expected.name, "név: {title}");
+            assert_eq!(assignment.league.key, expected.key, "kulcs: {title}");
+            assert_eq!(assignment.round_label, None, "round_label: {title}");
+        }
+    }
+
+    #[test]
+    fn team_identity_payload_follows_gender_convention() {
+        let women = team_identity_payload("deportivo-alaves-w", "Deportivo Alaves W", "ES", true);
+        assert_eq!(women["gender"], "female");
+        assert_eq!(women["age_group"], "senior");
+        assert_eq!(women["branch"], "women");
+        assert_eq!(women["country_code"], "ES");
+
+        let men = team_identity_payload("deportivo-alaves", "Deportivo Alaves", "ES", false);
+        assert_eq!(men["gender"], "male");
+        assert_eq!(men["age_group"], "senior");
+        assert_eq!(men["branch"], "senior");
     }
 }

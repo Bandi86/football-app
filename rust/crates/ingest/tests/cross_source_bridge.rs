@@ -111,6 +111,7 @@ fn day(
             odds: None,
             stats: None,
             referee: None,
+            environment: None,
             incidents: Vec::new(),
         }],
         standings: None,
@@ -275,6 +276,10 @@ async fn cross_source_fixture_links_instead_of_creating() {
         "a2",
         kickoff,
     );
+    // S90: eredmény csak konzisztens (lezárt/élő) státusz mellett íródik;
+    // a korábbi teszt scheduled státusszal kérte az eredményt, ami pont a
+    // javított scheduled+score hiba volt.
+    day2.matches[0].status = "finished".into();
     day2.matches[0].result = Some(NormalizedResult {
         home_ft: Some(2),
         away_ft: Some(1),

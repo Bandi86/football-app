@@ -408,6 +408,61 @@ impl Canonicalizer {
             let reversed = link.reversed();
             let status = parse_status(&fixture_match.status)?;
 
+            // S90: a kanonikus státusz korrekciós szabálya. A forrás státusza
+            // akkor írható a kanonikus sorra, ha a jelenlegi NEM eredményt
+            // hordozó terminális (`finished`/`awarded`): a védett irány tehát
+            // nem „minden terminális”, hanem a lejátszott, eredményes meccs.
+            // Így a forrás javíthatja pl. a `canceled` → `postponed` vagy a
+            // `postponed` → `finished` téves besorolást, de a már lejátszott
+            // meccset nem viszi vissza nyitott/le nem játszott állapotba.
+            let current_status: Option<String> =
+                sqlx::query_scalar("SELECT status FROM core.match WHERE id = $1")
+                    .bind(match_id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+            let incoming_status = status_db(status);
+            let merge = merge_status(current_status.as_deref(), incoming_status);
+            // Ha a szabály nem engedi a felülírást, a jelenlegi kanonikus
+            // státusz marad az effektív állapot (nem az érkező).
+            let effective_status = match merge {
+                StatusMerge::Write(status) => status,
+                StatusMerge::Unchanged | StatusMerge::Frozen => {
+                    current_status.as_deref().unwrap_or(incoming_status)
+                }
+            };
+            // A link bizalmi szintje a naplózáshoz: Exact = 1.0, variáns/híd = 0.9.
+            let link_confidence = if link.writes_canonical() { 1.0 } else { 0.9 };
+            match merge {
+                StatusMerge::Frozen => {
+                    if let Some(current) = current_status.as_deref() {
+                        tracing::warn!(
+                            source = %day.source_code,
+                            match_id = %match_id,
+                            old = current,
+                            new = incoming_status,
+                            ok = "eredményt hordozó terminálisból nincs visszalépés",
+                            link_confidence,
+                            "kanonikus státusz fagyasztva"
+                        );
+                    }
+                }
+                StatusMerge::Write(status) => {
+                    if let Some(current) = current_status.as_deref()
+                        && current != status
+                    {
+                        tracing::info!(
+                            source = %day.source_code,
+                            match_id = %match_id,
+                            old = current,
+                            new = status,
+                            link_confidence,
+                            "kanonikus státusz frissítve a forrás szerint"
+                        );
+                    }
+                }
+                StatusMerge::Unchanged => {}
+            }
+
             if reversed {
                 tracing::warn!(
                     source = %day.source_code,
@@ -462,9 +517,25 @@ impl Canonicalizer {
                 .bind(fixture_match.kickoff_at)
                 .bind(&fixture_match.kickoff_precision)
                 .bind(&fixture_match.competition_timezone)
-                .bind(status_db(status))
+                .bind(effective_status)
                 .execute(&mut *tx)
                 .await?;
+            }
+
+            // S86/S37b: híd- és név-variáns linknél a kanonikus sor már
+            // létezik (a link a kanonikus id-t hordozza), ezért a kickoff-,
+            // csapat- és versenymezeit nem írjuk felül — de a monoton
+            // státuszt igen, különben a lezárt meccs örökre `scheduled`
+            // marad, miközben a forrás eredményt ad (S90).
+            if !reversed
+                && !link.writes_canonical()
+                && let StatusMerge::Write(merged) = merge
+            {
+                sqlx::query("UPDATE core.match SET status = $2, updated_at = now() WHERE id = $1")
+                    .bind(match_id)
+                    .bind(merged)
+                    .execute(&mut *tx)
+                    .await?;
             }
 
             // S37b: meccs-szintű forrás-híd (eddig csak csapat-szintű volt).
@@ -499,23 +570,62 @@ impl Canonicalizer {
                 away_pens: r.away_pens,
             });
 
-            if !reversed {
-                persist_result(
-                    &mut tx,
-                    match_id,
-                    result.as_ref(),
-                    fixture_match
-                        .result
-                        .as_ref()
-                        .and_then(|r| r.decided_by.as_deref()),
-                )
-                .await?;
-            } else if result.is_some() {
-                tracing::warn!(
-                    source = %day.source_code,
-                    match_id = %match_id,
-                    "fordított oldalú eredmény: nem írjuk (kézi döntés kell)"
-                );
+            // S90: az eredmény csak konzisztens státusz mellett írható. A
+            // név-variáns és híd-linkelt forrás-sor eddig mindenképp kiírta
+            // az eredményt, miközben a kanonikus státusz `scheduled` maradt
+            // (26 meccs 2026-11-21-én, pl. Real Sociedad B–Cadiz). Most a
+            // státusz és az eredmény együtt mozog: élő/terminális státusz
+            // mellett írunk eredményt, nyitott státusz mellett pedig csak az
+            // Exact forrás törölheti a régi eredményt (a variáns forrás nem
+            // a kanonikus sor pillanatképe).
+            let result_consistent = status_admits_result(effective_status);
+            let frozen = matches!(merge, StatusMerge::Frozen);
+            if reversed {
+                if result.is_some() {
+                    tracing::warn!(
+                        source = %day.source_code,
+                        match_id = %match_id,
+                        "fordított oldalú eredmény: nem írjuk (kézi döntés kell)"
+                    );
+                }
+            } else {
+                match (result.as_ref(), result_consistent) {
+                    (Some(_), true) if frozen => {
+                        // Védett terminális: a forrás ellentmondó eredménye nem
+                        // írhatja felül a lejátszott meccs eredményét.
+                        tracing::warn!(
+                            source = %day.source_code,
+                            match_id = %match_id,
+                            status = effective_status,
+                            "eredményt hordozó terminális meccs eredményét nem írjuk felül"
+                        );
+                    }
+                    (Some(snapshot), true) => {
+                        persist_result(
+                            &mut tx,
+                            match_id,
+                            Some(snapshot),
+                            fixture_match
+                                .result
+                                .as_ref()
+                                .and_then(|r| r.decided_by.as_deref()),
+                        )
+                        .await?;
+                    }
+                    (Some(_), false) => {
+                        tracing::warn!(
+                            source = %day.source_code,
+                            match_id = %match_id,
+                            status = effective_status,
+                            "a forrás eredményt ad, de a kanonikus státusz nem engedi: nem írjuk"
+                        );
+                    }
+                    (None, false) if link.writes_canonical() => {
+                        // Exact forrás, nyitott státusz: nincs (még) eredmény.
+                        persist_result(&mut tx, match_id, None, None).await?;
+                    }
+                    (None, _) => {}
+                }
             }
 
             let observation_ids =
@@ -586,6 +696,14 @@ impl Canonicalizer {
                     reversed,
                 )
                 .await?;
+            }
+            // S90: a stadion és az időjárás nem oldal-függő (a `reversed`
+            // csak a hazai/vendég szerepet cseréli), ezért a fordított oldalú
+            // forrás-sor is adhatja — a stats-cal ellentétben.
+            if let Some(environment) = &fixture_match.environment
+                && !environment.is_empty()
+            {
+                write_environment(&mut tx, match_id, source_id, environment).await?;
             }
             if !reversed {
                 if let Some(stats) = &fixture_match.stats {
@@ -1566,6 +1684,72 @@ async fn write_stats(
     Ok(())
 }
 
+/// Meccs-környezet upsert (per match+source; S90).
+///
+/// A `captured_at` a forrás-observation `observed_at`-ja, nem a feldolgozás
+/// ideje. A hiányzó adat NULL; a tartományon kívüli kapacitás/százalék NULL
+/// (a DB CHECK-jét nem lehet kiváltani hibás forrás-adattal).
+async fn write_environment(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    match_id: Uuid,
+    source_id: Uuid,
+    environment: &crate::normalized::NormalizedEnvironment,
+) -> Result<()> {
+    let venue_capacity = environment.venue_capacity.filter(|capacity| *capacity >= 0);
+    let humidity_pct = environment
+        .humidity_pct
+        .filter(|pct| (0..=100).contains(pct));
+    let cloud_cover_pct = environment
+        .cloud_cover_pct
+        .filter(|pct| (0..=100).contains(pct));
+    sqlx::query(
+        "INSERT INTO fact.match_environment
+         (match_id, source_id, captured_at, venue_name, venue_city, venue_country,
+          venue_capacity, venue_surface, venue_lat, venue_lon, temperature_c,
+          weather_description, wind_speed, wind_direction, humidity_pct,
+          precipitation, cloud_cover_pct, weather_observed_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+         ON CONFLICT (match_id, source_id) DO UPDATE SET
+           captured_at = EXCLUDED.captured_at,
+           venue_name = EXCLUDED.venue_name,
+           venue_city = EXCLUDED.venue_city,
+           venue_country = EXCLUDED.venue_country,
+           venue_capacity = EXCLUDED.venue_capacity,
+           venue_surface = EXCLUDED.venue_surface,
+           venue_lat = EXCLUDED.venue_lat,
+           venue_lon = EXCLUDED.venue_lon,
+           temperature_c = EXCLUDED.temperature_c,
+           weather_description = EXCLUDED.weather_description,
+           wind_speed = EXCLUDED.wind_speed,
+           wind_direction = EXCLUDED.wind_direction,
+           humidity_pct = EXCLUDED.humidity_pct,
+           precipitation = EXCLUDED.precipitation,
+           cloud_cover_pct = EXCLUDED.cloud_cover_pct,
+           weather_observed_at = EXCLUDED.weather_observed_at",
+    )
+    .bind(match_id)
+    .bind(source_id)
+    .bind(environment.observed_at)
+    .bind(&environment.venue_name)
+    .bind(&environment.venue_city)
+    .bind(&environment.venue_country)
+    .bind(venue_capacity)
+    .bind(&environment.venue_surface)
+    .bind(environment.venue_lat)
+    .bind(environment.venue_lon)
+    .bind(environment.temperature_c)
+    .bind(&environment.weather_description)
+    .bind(environment.wind_speed)
+    .bind(&environment.wind_direction)
+    .bind(humidity_pct)
+    .bind(environment.precipitation)
+    .bind(cloud_cover_pct)
+    .bind(environment.weather_observed_at)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 /// Játékvezető kapcsolása a fail-closed linkeren át; nem egzakt → NULL
 /// (a linker review-sort nyit; a meccs nem blokkol emiatt).
 async fn link_referee(
@@ -1615,6 +1799,85 @@ async fn link_referee(
     Ok(())
 }
 
+/// S90: a kanonikus meccsstátusz korrekciós szabályának döntése.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StatusMerge<'a> {
+    /// A kanonikus és az érkező státusz azonos: nincs írás.
+    Unchanged,
+    /// Az érkező státusz írható a kanonikus sorra.
+    Write(&'a str),
+    /// A kanonikus státusz védett: nem írjuk felül.
+    Frozen,
+}
+
+/// S90: a forrás státusza akkor írható a kanonikus sorra, ha a jelenlegi
+/// állapot nem eredményt hordozó terminális. A védett irány nem „minden
+/// terminális”, hanem a lejátszott, eredményes meccs (`finished`/`awarded`),
+/// mert a forrás-utólagjavítások (pl. `canceled` → `postponed`) valós
+/// adatminőségi javítások. Terminálisból nyitottra viszont sosem lépünk
+/// vissza, és ugyanarra a státuszra sem írunk feleslegesen.
+fn merge_status<'a>(current: Option<&'a str>, incoming: &'a str) -> StatusMerge<'a> {
+    let Some(current) = current else {
+        // Nincs még kanonikus sor: az ismert érkező státusz írható.
+        return if is_known_status(incoming) {
+            StatusMerge::Write(incoming)
+        } else {
+            StatusMerge::Frozen
+        };
+    };
+    if !is_known_status(current) || !is_known_status(incoming) {
+        // Fail-safe: ismeretlen bemenetre nem írunk, nem találgatunk.
+        return StatusMerge::Frozen;
+    }
+    if current == incoming {
+        return StatusMerge::Unchanged;
+    }
+    if is_result_bearing_terminal(current) {
+        return StatusMerge::Frozen;
+    }
+    if is_open_status(current) {
+        // Nyitott → nyitott/terminális: a forrás a frissebb.
+        return StatusMerge::Write(incoming);
+    }
+    if is_terminal_status(incoming) {
+        // Nem eredményt hordozó terminális → másik terminális: adatjavítás.
+        return StatusMerge::Write(incoming);
+    }
+    // Terminális → nyitott: nincs visszalépés.
+    StatusMerge::Frozen
+}
+
+/// Az eredményt hordozó, védett terminális állapotok.
+fn is_result_bearing_terminal(status: &str) -> bool {
+    matches!(status, "finished" | "awarded")
+}
+
+/// A státuszok a meccs életciklusában: nyitott (nem lezárt) állapotok.
+fn is_open_status(status: &str) -> bool {
+    matches!(status, "scheduled" | "confirmed" | "live" | "halftime")
+}
+
+/// Terminális (lezárt) állapotok; ezekből a szabály szerint nincs visszalépés.
+fn is_terminal_status(status: &str) -> bool {
+    matches!(
+        status,
+        "finished" | "postponed" | "canceled" | "abandoned" | "awarded"
+    )
+}
+
+fn is_known_status(status: &str) -> bool {
+    is_open_status(status) || is_terminal_status(status)
+}
+
+/// Azok a státuszok, amelyek mellett az eredmény konzisztens a kanonikus
+/// sorral: nem keletkezik `scheduled`/`confirmed` + eredmény kombináció.
+fn status_admits_result(status: &str) -> bool {
+    matches!(
+        status,
+        "live" | "halftime" | "finished" | "awarded" | "abandoned"
+    )
+}
+
 fn parse_status(value: &str) -> Result<MatchStatus> {
     match value {
         "scheduled" => Ok(MatchStatus::Scheduled),
@@ -1641,5 +1904,183 @@ fn status_db(status: MatchStatus) -> &'static str {
         MatchStatus::Canceled => "canceled",
         MatchStatus::Abandoned => "abandoned",
         MatchStatus::Awarded => "awarded",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn result_bearing_terminal_is_frozen() {
+        // (a) Lejátszott meccset semmilyen forrás nem ír felül.
+        assert_eq!(
+            merge_status(Some("finished"), "postponed"),
+            StatusMerge::Frozen
+        );
+        assert_eq!(
+            merge_status(Some("finished"), "canceled"),
+            StatusMerge::Frozen
+        );
+        assert_eq!(
+            merge_status(Some("finished"), "scheduled"),
+            StatusMerge::Frozen
+        );
+        assert_eq!(
+            merge_status(Some("awarded"), "finished"),
+            StatusMerge::Frozen
+        );
+    }
+
+    #[test]
+    fn non_result_terminal_corrections_are_allowed() {
+        // (b) postponed → finished, (c) canceled → postponed, (d) canceled → finished.
+        assert_eq!(
+            merge_status(Some("postponed"), "finished"),
+            StatusMerge::Write("finished")
+        );
+        assert_eq!(
+            merge_status(Some("canceled"), "postponed"),
+            StatusMerge::Write("postponed")
+        );
+        assert_eq!(
+            merge_status(Some("canceled"), "finished"),
+            StatusMerge::Write("finished")
+        );
+        assert_eq!(
+            merge_status(Some("abandoned"), "finished"),
+            StatusMerge::Write("finished")
+        );
+    }
+
+    #[test]
+    fn same_status_is_a_noop() {
+        // (e) Ugyanaz a státusz: nincs státusz-írás; az eredmény ettől még
+        // frissülhet (a hívó az eredményt külön kezeli).
+        for status in [
+            "scheduled",
+            "confirmed",
+            "live",
+            "halftime",
+            "finished",
+            "postponed",
+            "canceled",
+            "abandoned",
+            "awarded",
+        ] {
+            assert_eq!(
+                merge_status(Some(status), status),
+                StatusMerge::Unchanged,
+                "{status}"
+            );
+        }
+    }
+
+    #[test]
+    fn missing_current_status_is_written() {
+        // (f) Nincs még kanonikus sor: bármelyik ismert státusz írható.
+        assert_eq!(
+            merge_status(None, "scheduled"),
+            StatusMerge::Write("scheduled")
+        );
+        assert_eq!(
+            merge_status(None, "finished"),
+            StatusMerge::Write("finished")
+        );
+        assert_eq!(
+            merge_status(None, "canceled"),
+            StatusMerge::Write("canceled")
+        );
+    }
+
+    #[test]
+    fn open_statuses_can_progress() {
+        // A forrás frissebb nyitott állapota felülírhatja a régit, különben
+        // a live meccs örökre scheduled maradna.
+        assert_eq!(
+            merge_status(Some("scheduled"), "confirmed"),
+            StatusMerge::Write("confirmed")
+        );
+        assert_eq!(
+            merge_status(Some("scheduled"), "live"),
+            StatusMerge::Write("live")
+        );
+        assert_eq!(
+            merge_status(Some("live"), "halftime"),
+            StatusMerge::Write("halftime")
+        );
+        assert_eq!(
+            merge_status(Some("halftime"), "live"),
+            StatusMerge::Write("live")
+        );
+    }
+
+    #[test]
+    fn terminal_does_not_reopen_to_open() {
+        // A régi monotónia marad: terminálisból nyitottra nincs visszalépés.
+        assert_eq!(
+            merge_status(Some("canceled"), "scheduled"),
+            StatusMerge::Frozen
+        );
+        assert_eq!(
+            merge_status(Some("postponed"), "confirmed"),
+            StatusMerge::Frozen
+        );
+        assert_eq!(
+            merge_status(Some("abandoned"), "halftime"),
+            StatusMerge::Frozen
+        );
+    }
+
+    #[test]
+    fn unknown_status_input_is_frozen() {
+        assert_eq!(
+            merge_status(Some("nincs-ilyen"), "finished"),
+            StatusMerge::Frozen
+        );
+        assert_eq!(
+            merge_status(Some("scheduled"), "nincs-ilyen"),
+            StatusMerge::Frozen
+        );
+        assert_eq!(merge_status(None, "nincs-ilyen"), StatusMerge::Frozen);
+    }
+
+    #[test]
+    fn result_is_only_consistent_with_played_statuses() {
+        for status in ["live", "halftime", "finished", "awarded", "abandoned"] {
+            assert!(status_admits_result(status), "{status}");
+        }
+        for status in [
+            "scheduled",
+            "confirmed",
+            "postponed",
+            "canceled",
+            "nincs-ilyen",
+        ] {
+            assert!(!status_admits_result(status), "{status}");
+        }
+    }
+
+    #[test]
+    fn known_status_set_matches_the_database_contract() {
+        // A `status_db`/`parse_status` összes értéke ismert kell legyen,
+        // különben a merge-szabály csendben eldobná a saját státuszunkat.
+        for status in [
+            "scheduled",
+            "confirmed",
+            "live",
+            "halftime",
+            "finished",
+            "postponed",
+            "canceled",
+            "abandoned",
+            "awarded",
+        ] {
+            assert!(is_known_status(status), "{status}");
+            assert!(
+                is_open_status(status) ^ is_terminal_status(status),
+                "{status} pontosan egy kategóriába tartozik"
+            );
+        }
     }
 }

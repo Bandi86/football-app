@@ -85,30 +85,67 @@ public enum CompetitionCatalog {
         ("liga profesional clausura playoff", "AR", "Liga Profesional: Clausura Playoff"),
     ]
 
+    /// A teljes nevükben női versenyek (a név maga hordozza a jelentést):
+    /// ezeket nem bontjuk fel, hanem a nevüket változatlanul hagyva jelöljük.
+    private static let womensWholeNameMarkers: [String] = [
+        "liga f", "liga fpd", "nwsl", "wsl", "we league", "ncaaw",
+        "toppserien", "damallsvenskan", "premiere ligue",
+    ]
+
+    /// Női jelölő szavak, amelyek a név bármely részén levágandók.
+    private static let womensModifierMarkers: [String] = [
+        "women's", "womens", "women", "női", "noi", "femenina", "femenil",
+        "femminile", "femenine", "feminine", "frauen", "dames", "vrouwen",
+    ]
+
+    /// Női verseny-e a név? Kisbetűs, ékezet nélküli, szóhatárral értelmezett
+    /// összehasonlítás: a férfi versenyek (pl. „Liga" önmagában) nem eshetnek
+    /// bele, a teljes nevükben női ligák (Liga F, NWSL, WSL, …) igen.
+    public static func isWomensCompetition(_ name: String) -> Bool {
+        let normalized = fold(name)
+        guard !normalized.isEmpty else { return false }
+        let markers = (womensWholeNameMarkers + womensModifierMarkers).map(fold)
+        return markers.contains { marker in
+            guard !marker.isEmpty else { return false }
+            if normalized == marker { return true }
+            if normalized.hasPrefix(marker + " ") { return true }
+            if normalized.hasSuffix(" " + marker) { return true }
+            return normalized.contains(" " + marker + " ")
+        }
+    }
+
     /// Női liga jelölése: a források `Women's ...`, `... Women`, `... - női`,
-    /// `... Femenine` alakban küldik ugyanazt a bajnokságot. A listán a női
-    /// liga egyszer, egyértelmű „ (női)" utótaggal jelenjen meg.
+    /// `... Femenina` alakban küldik ugyanazt a bajnokságot. A teljes nevükben
+    /// női ligákat (Liga F, NWSL, WSL, …) a nevük megtartásával jelöljük, a
+    /// jelölő szavakat levágva pedig „ (női)" utótagot adunk. A listán a női
+    /// liga egyszer, egyértelmű utótaggal jelenjen meg.
     static func womensCanonical(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        let normalized = fold(trimmed)
-        if normalized.contains("noi)") { return trimmed }
-        let markers = ["women's", "womens", "women", "noi", "női", "femenine", "feminine", "féminine"]
+        // Már jelölt név („Bundesliga (női)"): nem jelöljük újra.
+        if trimmed.range(of: "(női)", options: [.caseInsensitive, .diacriticInsensitive]) != nil {
+            return trimmed
+        }
         var base = trimmed
         var found = false
-        for marker in markers {
+        for marker in womensModifierMarkers {
             if let range = base.range(of: marker, options: [.caseInsensitive, .diacriticInsensitive]) {
                 base.removeSubrange(range)
                 found = true
             }
         }
-        guard found else { return nil }
-        base = base.replacingOccurrences(of: "  ", with: " ")
-        base = base.replacingOccurrences(of: "()", with: " ")
-        base = base.replacingOccurrences(of: "  ", with: " ")
-        base = base.trimmingCharacters(in: CharacterSet(charactersIn: " -–—:·()"))
-        guard !base.isEmpty else { return nil }
-        return "\(base) (női)"
+        if found {
+            base = base.replacingOccurrences(of: "  ", with: " ")
+            base = base.replacingOccurrences(of: "()", with: " ")
+            base = base.replacingOccurrences(of: "  ", with: " ")
+            base = base.trimmingCharacters(in: CharacterSet(charactersIn: " -–—:·()"))
+            guard !base.isEmpty else { return nil }
+            return "\(base) (női)"
+        }
+        // Nincs jelölő szó a névben: csak a teljes nevükben női versenyek
+        // jönnek szóba (Liga F, Liga FPD, NWSL, WSL, …).
+        guard isWomensCompetition(trimmed) else { return nil }
+        return "\(trimmed) (női)"
     }
 
     private static func alias(for normalized: String, countryKeys: [String]) -> String? {

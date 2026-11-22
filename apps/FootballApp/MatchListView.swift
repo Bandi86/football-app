@@ -4,12 +4,15 @@ import FootballAppCore
 
 /// Napi lista szűrője, darabszámmal.
 ///
-/// A négy státusz-szűrő mellett két hiány-szűrő van: a kezdésidő nélküli
-/// (`date_only`) és a lejárt, de eredmény nélkül maradt meccsek. Utóbbi a
-/// hiány-panel `open_past` definícióját tükrözi (kezdés több mint 3 órával
-/// ezelőtt, és a meccs még nincs lezárva).
+/// A státusz-szűrők mellett külön eset van a lejárt, de még nyitott meccsekre
+/// (`openPast`, a szerver `open_past` fogalma), és hiány-szűrők a hiány-panel
+/// minden kattintható eleméhez. A hiányzó eredmény (`missingResult`) csak a
+/// lezárt, de végeredmény nélküli meccseket jelenti — nem azonos a lejárt,
+/// nyitott meccsekkel.
 enum MatchFilter: String, CaseIterable, Identifiable {
-    case all, upcoming, live, finished, missingKickoff, missingResult, missingOdds, missingLogo
+    case all, upcoming, live, finished, openPast
+    case missingKickoff, missingResult, missingOdds, missingLogo
+    case missingCompetitionLogo, withheld
 
     var id: String { rawValue }
 
@@ -19,10 +22,13 @@ enum MatchFilter: String, CaseIterable, Identifiable {
         case .upcoming: return "Következik"
         case .live: return "Élő"
         case .finished: return "Befejezett"
+        case .openPast: return "Lejárt, nyitott"
         case .missingKickoff: return "Idő nélkül"
         case .missingResult: return "Eredmény nélkül"
         case .missingOdds: return "Odds nélkül"
         case .missingLogo: return "Logó nélkül"
+        case .missingCompetitionLogo: return "Ligalogó nélkül"
+        case .withheld: return "Visszatartva"
         }
     }
 
@@ -30,7 +36,8 @@ enum MatchFilter: String, CaseIterable, Identifiable {
     /// csoportosításból (kártya-szín, "Következik/Élő/Befejezett") kimarad.
     var isGapFilter: Bool {
         switch self {
-        case .missingKickoff, .missingResult, .missingOdds, .missingLogo:
+        case .missingKickoff, .missingResult, .missingOdds, .missingLogo,
+             .missingCompetitionLogo, .withheld:
             return true
         default:
             return false
@@ -47,7 +54,8 @@ enum MatchFilter: String, CaseIterable, Identifiable {
             return ["live", "halftime"].contains(status)
         case .finished:
             return ["finished", "awarded"].contains(status)
-        case .missingKickoff, .missingResult, .missingOdds, .missingLogo:
+        case .openPast, .missingKickoff, .missingResult, .missingOdds, .missingLogo,
+             .missingCompetitionLogo, .withheld:
             return false
         }
     }
@@ -55,18 +63,28 @@ enum MatchFilter: String, CaseIterable, Identifiable {
     /// A kártya szintű döntés, a hiány-szűrőket is beleértve.
     func matches(_ match: DayMatch, now: Date = Date()) -> Bool {
         switch self {
+        case .live:
+            // „Élő" csak 6 óráig: a backend elavult live státuszt hagyhat maga után.
+            return MatchCardModel.isLiveNow(status: match.status,
+                                            kickoffAt: match.kickoffAt, now: now)
+        case .openPast:
+            return MatchCardModel.isOpenPast(status: match.status,
+                                             kickoffAt: match.kickoffAt, now: now)
         case .missingKickoff:
             return match.kickoffPrecision == "date_only"
         case .missingResult:
-            let settled: Set<String> = [
-                "finished", "awarded", "postponed", "canceled", "abandoned",
-            ]
-            guard !settled.contains(match.status) else { return false }
-            return match.kickoffAt < now.addingTimeInterval(-3 * 60 * 60)
+            let finalScore = MatchCardModel.finalScore(
+                homeScore: match.homeScore, awayScore: match.awayScore,
+                homeEt: match.homeEt, awayEt: match.awayEt)
+            return MatchCardModel.isMissingResult(status: match.status, finalScore: finalScore)
         case .missingOdds:
             return match.odds == nil
         case .missingLogo:
             return (match.homeLogo ?? "").isEmpty || (match.awayLogo ?? "").isEmpty
+        case .missingCompetitionLogo:
+            return (match.competitionLogo ?? "").isEmpty
+        case .withheld:
+            return match.publishState == .withheld
         default:
             return matches(status: match.status)
         }
@@ -75,18 +93,25 @@ enum MatchFilter: String, CaseIterable, Identifiable {
     /// Ugyanaz a döntés a megjelenítési modellen (a csoportosítás ezt használja).
     func matches(_ card: MatchCardModel, now: Date = Date()) -> Bool {
         switch self {
+        case .live:
+            return MatchCardModel.isLiveNow(status: card.status,
+                                            kickoffAt: card.kickoffAt, now: now)
+        case .openPast:
+            return MatchCardModel.isOpenPast(status: card.status,
+                                             kickoffAt: card.kickoffAt, now: now)
         case .missingKickoff:
             return card.kickoffPrecision == "date_only"
         case .missingResult:
-            let settled: Set<String> = [
-                "finished", "awarded", "postponed", "canceled", "abandoned",
-            ]
-            guard !settled.contains(card.status) else { return false }
-            return card.kickoffAt < now.addingTimeInterval(-3 * 60 * 60)
+            return MatchCardModel.isMissingResult(status: card.status,
+                                                  finalScore: card.finalScore)
         case .missingOdds:
             return card.odds == nil
         case .missingLogo:
             return (card.homeLogo ?? "").isEmpty || (card.awayLogo ?? "").isEmpty
+        case .missingCompetitionLogo:
+            return (card.competitionLogo ?? "").isEmpty
+        case .withheld:
+            return card.publishState == .withheld
         default:
             return matches(status: card.status)
         }
@@ -322,7 +347,7 @@ private struct MatchItemRow: View {
                 home: match.home,
                 away: match.away,
                 time: match.time,
-                status: match.status,
+                status: match.displayStatus,
                 homeScore: match.finalScore?.home,
                 awayScore: match.finalScore?.away,
                 publishState: match.publishState,
@@ -413,12 +438,21 @@ private struct MatchItemRow: View {
         .frame(width: kickoffWidth, alignment: .leading)
     }
 
-    /// Két csapatnév a címerrel. A forduló-jelzés a szekciófejlécben él,
-    /// a kártyán csak a meccs adatai maradnak.
+    /// Két csapatnév a címerrel, alatta a forduló diszkrét másodlagos
+    /// felirata (ha van). A felolvasott kártyacímke már tartalmazza a fordulót,
+    /// ezért a látható szöveg az akadálymentességből ki van zárva.
     private var teamsColumn: some View {
         VStack(alignment: .leading, spacing: 4) {
             teamLine(match.home, logo: match.homeLogo, weight: .semibold)
             teamLine(match.away, logo: match.awayLogo, weight: .medium)
+            if let round = match.roundText {
+                Text(round)
+                    .font(.appLabel(9.5))
+                    .tracking(1.0)
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .lineLimit(1)
+                    .accessibilityHidden(true)
+            }
         }
         .lineLimit(1)
         .minimumScaleFactor(0.8)

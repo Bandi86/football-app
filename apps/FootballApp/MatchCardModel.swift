@@ -64,6 +64,8 @@ struct MatchCardModel: Identifiable {
     let awayPosition: Int?
     let homeLogo: String?
     let awayLogo: String?
+    /// A verseny logója (a „ligalogó nélkül" hiány-szűrőhöz kell a kártyán is).
+    let competitionLogo: String?
     let homeElo: Int?
     let awayElo: Int?
 
@@ -88,6 +90,14 @@ struct MatchCardModel: Identifiable {
     /// hosszabbításnál a 120' állása, különben a rendes játékidő állása.
     /// Tizenegyesek nem számítanak bele, és hiányzó állásnál nincs eredmény.
     var finalScore: MatchScore? {
+        Self.finalScore(homeScore: homeScore, awayScore: awayScore,
+                        homeEt: homeEt, awayEt: awayEt)
+    }
+
+    /// A `finalScore` közös magja: a `DayMatch`-alapú szűrő is ezt használja,
+    /// hogy a hiányzó eredmény döntése ne duplikálódjon két helyen.
+    static func finalScore(homeScore: Int?, awayScore: Int?,
+                           homeEt: Int?, awayEt: Int?) -> MatchScore? {
         if let home = homeEt, let away = awayEt {
             return MatchScore(home: home, away: away)
         }
@@ -97,21 +107,68 @@ struct MatchCardModel: Identifiable {
         return nil
     }
 
+    // MARK: - Hiány- és élő-állapot szabályai
+
+    /// „Lejárt, de nyitott": ennyi idő után számít a kezdés lejártnak
+    /// (a szerver `open_past` definíciója). Legyen nevesített konstans, mert a
+    /// szűrő és a hiány-panel ugyanezt a határt használja.
+    static let openPastThreshold: TimeInterval = 3 * 60 * 60
+
+    /// Az `open_past` döntéshez tartozó nyitott státuszok.
+    static let openStatuses: Set<String> = ["scheduled", "confirmed", "live", "halftime"]
+
+    /// Az „élő" felső időkorlátja: a backend elavult `live` státuszt hagyhat
+    /// maga után, ezért a kliens 6 órán túl már nem tekinti élőnek a meccset.
+    static let liveWindow: TimeInterval = 6 * 60 * 60
+
+    /// Hiányzó eredmény: lezárt (`finished`) meccs, amelynek nincs végeredménye.
+    /// Ez nem azonos a lejárt, de nyitott meccsekkel.
+    static func isMissingResult(status: String, finalScore: MatchScore?) -> Bool {
+        status == "finished" && finalScore == nil
+    }
+
+    /// Lejárt, de nyitott: a kezdés több mint 3 órával ezelőtt volt, és a
+    /// meccs státusza még nyitott — a hiány-panel `open_past` fogalma.
+    static func isOpenPast(status: String, kickoffAt: Date, now: Date) -> Bool {
+        guard openStatuses.contains(status) else { return false }
+        return kickoffAt < now.addingTimeInterval(-openPastThreshold)
+    }
+
+    /// Ténylegesen élő: élő/félidős státusz, és a kezdés óta legfeljebb 6 óra
+    /// telt el. Az ennél régebbi „élő" sor a backend elavult státusza.
+    static func isLiveNow(status: String, kickoffAt: Date, now: Date) -> Bool {
+        guard ["live", "halftime"].contains(status) else { return false }
+        return now.timeIntervalSince(kickoffAt) <= liveWindow
+    }
+
     /// A kártya eredmény-oszlopa: hiányzó eredménynél „–", soha nem 0–0.
     var scoreText: String { finalScore?.text ?? "–" }
 
-    var isLive: Bool { ["live", "halftime"].contains(status) }
+    /// Ténylegesen élő: a státusz élő/félidős, és a kezdés óta legfeljebb
+    /// `liveWindow` telt el. Az ennél régebbi „élő" sor a backend elavult
+    /// státusza, ilyenkor a kártya a szokásos kezdés/állapot kijelzést mutatja.
+    var isLive: Bool { Self.isLiveNow(status: status, kickoffAt: kickoffAt, now: Date()) }
 
     var isFinished: Bool { ["finished", "awarded"].contains(status) }
 
     /// A kezdés alatti kis állapotjelzés („ÉLŐ" / „FT"); egyébként nincs.
+    /// Elavult `live` státusznál nem írunk „ÉLŐ"-t.
     var phaseLabel: String? {
         if isLive { return "ÉLŐ" }
         if isFinished { return "FT" }
         return nil
     }
 
-    var minuteText: String? { minute.map { "\($0)'" } }
+    /// Az élő minutaszám; csak ténylegesen élő meccsnél jelenik meg.
+    var minuteText: String? { isLive ? minute.map { "\($0)'" } : nil }
+
+    /// A kijelzett állapot: elavult `live`/`halftime` státusznál a kártya a
+    /// szokásos, nem-élő kezdés-kijelzést mutatja, így a felolvasott címke sem
+    /// mondhat „Élő"-t — ilyenkor „Ütemezett"-ként olvassuk fel.
+    var displayStatus: String {
+        if ["live", "halftime"].contains(status) && !isLive { return "scheduled" }
+        return status
+    }
 
     /// Csak pontos kezdésnél mutatunk időt; a `date_only` sorok placeholder
     /// időt kaptak az ingesttől, azt nem szabad valódi kezdésként kijelezni.
@@ -132,13 +189,21 @@ struct MatchCardModel: Identifiable {
             .trimmingCharacters(in: .whitespaces)
     }
 
+    /// Tisztán női-markert tartalmazó címke-e (pl. „női", „women", „(W)"):
+    /// ez nem forduló, a forduló-feliratoknál hiányzónak számít.
+    static func isWomensOnlyLabel(_ foldedLabel: String) -> Bool {
+        let compact = foldedLabel.filter { $0.isLetter || $0.isNumber }
+        return ["noi", "women", "w"].contains(compact)
+    }
+
     /// Forduló-felirat: a numerikus címkéből „17. forduló", a kupa-kódokból
     /// magyar elnevezés, minden másból a nyers címke. A csoportszintű
     /// összesítés (`LeagueGroup.roundSummary`) is ezt a mappinget használja.
     static func roundText(for rawLabel: String?) -> String? {
         guard let raw = rawLabel?.trimmingCharacters(in: .whitespacesAndNewlines),
               !raw.isEmpty,
-              let folded = foldedRoundLabel(raw) else { return nil }
+              let folded = foldedRoundLabel(raw),
+              !isWomensOnlyLabel(folded) else { return nil }
         if folded.allSatisfy({ $0.isNumber }) { return "\(folded). forduló" }
         switch folded {
         case "final": return "Döntő"
@@ -238,6 +303,7 @@ struct MatchCardModel: Identifiable {
             awayPosition: match.awayPosition,
             homeLogo: match.homeLogo,
             awayLogo: match.awayLogo,
+            competitionLogo: match.competitionLogo,
             homeElo: match.homeElo.map { Int($0.rounded()) },
             awayElo: match.awayElo.map { Int($0.rounded()) }
         )
@@ -256,6 +322,7 @@ struct MatchCardModel: Identifiable {
             awayPosition: SampleData.position(of: match.away),
             homeLogo: nil,
             awayLogo: nil,
+            competitionLogo: nil,
             homeElo: nil,
             awayElo: nil
         )

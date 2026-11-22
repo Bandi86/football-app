@@ -132,20 +132,46 @@ final class MatchCardModelTests: XCTestCase {
 
     // MARK: - Állapot
 
-    func testLiveCardShowsLivePhaseAndRunningScore() throws {
-        let matches = try decode("""
-        {"date":"2026-11-20","timezone":"Europe/Budapest","matches":[
-          {"id":"00000000-0000-0000-0000-000000000207","kickoff_at":"2026-11-20T17:00:00Z",
-           "status":"live","home":"A","away":"B","home_score":1,"away_score":0,
-           "publish_state":"provisional_publish","blockers":[],
-           "competition_id":"00000000-0000-0000-0000-0000000000c1","competition_name":"NB I",
-           "country_code":"HUN","country_name":"Hungary","tier":1,"priority":6}
-        ]}
-        """)
-        let card = MatchCardModel.from(matches[0])
+    /// Közvetlen kártyaépítés az időfüggő állapotokhoz: a napi feed nem hoz
+    /// `minute` mezőt, ezért a perc-kijelzést így tudjuk determinisztikusan
+    /// vizsgálni.
+    private func makeCard(status: String, kickoffAt: Date, minute: Int? = nil) -> MatchCardModel {
+        MatchCardModel(
+            id: "test-card", home: "A", away: "B", kickoffAt: kickoffAt,
+            dayLabel: "nov. 20.", time: "18:00", kickoffPrecision: "exact",
+            roundLabel: nil, status: status, publishState: .provisionalPublish,
+            homeScore: 1, awayScore: 0, homeHt: nil, awayHt: nil, homeEt: nil, awayEt: nil,
+            homePens: nil, awayPens: nil, minute: minute, odds: nil, markets: 0,
+            oddsSource: "–", homePosition: nil, awayPosition: nil, homeLogo: nil,
+            awayLogo: nil, competitionLogo: nil, homeElo: nil, awayElo: nil
+        )
+    }
+
+    func testLiveCardShowsLivePhaseAndRunningScore() {
+        let card = makeCard(status: "live",
+                            kickoffAt: Date().addingTimeInterval(-1 * 60 * 60),
+                            minute: 34)
         XCTAssertTrue(card.isLive)
         XCTAssertFalse(card.isFinished)
         XCTAssertEqual(card.phaseLabel, "ÉLŐ")
+        XCTAssertEqual(card.minuteText, "34'")
+        XCTAssertEqual(card.displayStatus, "live")
+        XCTAssertEqual(card.scoreText, "1 – 0")
+    }
+
+    /// Elavult `live` státusz (a kezdés több mint 6 órával ezelőtt): a kártya
+    /// nem ír „ÉLŐ"-t és nem mutat percet, csak a szokásos kezdést/eredményt.
+    func testStaleLiveCardHidesLivePhaseAndMinute() {
+        let card = makeCard(status: "live",
+                            kickoffAt: Date().addingTimeInterval(-7 * 60 * 60),
+                            minute: 87)
+        XCTAssertFalse(card.isLive)
+        XCTAssertNil(card.phaseLabel)
+        XCTAssertNil(card.minuteText)
+        // A felolvasott állapot sem „Élő", hanem a szokásos nem-élő kijelzés.
+        XCTAssertEqual(card.displayStatus, "scheduled")
+        XCTAssertFalse(card.time.isEmpty)
+        XCTAssertEqual(card.timeDisplay, card.time)
         XCTAssertEqual(card.scoreText, "1 – 0")
     }
 
@@ -194,6 +220,43 @@ final class MatchCardModelTests: XCTestCase {
         """)
         XCTAssertEqual(MatchCardModel.from(matches[0]).roundText, "17. forduló")
         XCTAssertEqual(MatchCardModel.from(matches[1]).roundText, "Döntő")
+    }
+
+    // MARK: - Hiány- és élő-állapot szabályai
+
+    func testMissingResultMeansFinishedWithoutFinalScore() {
+        XCTAssertTrue(MatchCardModel.isMissingResult(status: "finished", finalScore: nil))
+        XCTAssertFalse(MatchCardModel.isMissingResult(
+            status: "finished", finalScore: MatchScore(home: 1, away: 0)))
+        XCTAssertFalse(MatchCardModel.isMissingResult(status: "scheduled", finalScore: nil))
+        XCTAssertFalse(MatchCardModel.isMissingResult(status: "live", finalScore: nil))
+    }
+
+    func testOpenPastMeansOpenStatusOlderThanThreeHours() {
+        let now = utcDate(2026, 11, 21, 12, 0)
+        XCTAssertTrue(MatchCardModel.isOpenPast(
+            status: "scheduled", kickoffAt: now.addingTimeInterval(-4 * 3600), now: now))
+        XCTAssertTrue(MatchCardModel.isOpenPast(
+            status: "live", kickoffAt: now.addingTimeInterval(-3.5 * 3600), now: now))
+        XCTAssertFalse(MatchCardModel.isOpenPast(
+            status: "scheduled", kickoffAt: now.addingTimeInterval(-2 * 3600), now: now))
+        XCTAssertFalse(MatchCardModel.isOpenPast(
+            status: "finished", kickoffAt: now.addingTimeInterval(-4 * 3600), now: now))
+        XCTAssertFalse(MatchCardModel.isOpenPast(
+            status: "canceled", kickoffAt: now.addingTimeInterval(-4 * 3600), now: now))
+    }
+
+    func testLiveWindowIsSixHours() {
+        let now = utcDate(2026, 11, 21, 12, 0)
+        XCTAssertEqual(MatchCardModel.liveWindow, 6 * 3600)
+        XCTAssertTrue(MatchCardModel.isLiveNow(
+            status: "live", kickoffAt: now.addingTimeInterval(-5 * 3600), now: now))
+        XCTAssertTrue(MatchCardModel.isLiveNow(
+            status: "halftime", kickoffAt: now.addingTimeInterval(-1 * 3600), now: now))
+        XCTAssertFalse(MatchCardModel.isLiveNow(
+            status: "live", kickoffAt: now.addingTimeInterval(-7 * 3600), now: now))
+        XCTAssertFalse(MatchCardModel.isLiveNow(
+            status: "scheduled", kickoffAt: now.addingTimeInterval(-1 * 3600), now: now))
     }
 
 }

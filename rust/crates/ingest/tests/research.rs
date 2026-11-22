@@ -497,3 +497,149 @@ fn numeric_team_ids_are_accepted_and_prefixed() {
     assert_eq!(m.payload["competition"]["country_code"], "US");
     assert_eq!(m.payload["source_home_id"], "fm:267810");
 }
+
+/// S90: venue + weather + ismeretlen kulcsok; a második meccsnek nincs
+/// környezet-blokkja, arra nem szabad observationt adni.
+const ENV_DAILY: &str = r#"{
+  "meta": { "generated_at": "2026-11-21T00:30:00Z" },
+  "data": [
+    {
+      "uid": "espn:401932578",
+      "kickoff": { "utc": "2026-11-21T18:00:00Z", "timezone": "Europe/Budapest" },
+      "status": { "code": "scheduled" },
+      "competition": { "name": "Premier League", "country": "ENG", "country_name": "England" },
+      "teams": { "home": { "id": "359", "name": "Bayern Munich" },
+                 "away": { "id": "132", "name": "1. FC Koln" } },
+      "venue": {
+        "name": "Estadio Ricardo Gregor",
+        "city": "Luque",
+        "country": "Paraguay",
+        "capacity": 4000,
+        "surface": "grass",
+        "coordinates": { "lat": -25.275764744, "long": -57.551740408 },
+        "ismeretlen_mezo": "drift"
+      },
+      "weather": {
+        "temperature_c": 27,
+        "unit": "celsius",
+        "description": "Thunder",
+        "wind_speed": 2,
+        "humidity_pct": 86,
+        "precipitation": 0,
+        "cloud_cover_pct": 54,
+        "observed_at": "2026-11-21T00:30:00Z",
+        "source": "fotmob"
+      }
+    },
+    {
+      "uid": "ls1796153",
+      "kickoff": { "utc": "2026-11-21T19:30:00Z", "timezone": "Europe/Budapest" },
+      "status": { "code": "scheduled" },
+      "competition": { "name": "Cymru Premier", "country": "WAL", "country_name": "Wales" },
+      "teams": { "home": { "id": "s1", "name": "Caernarfon Town" },
+                 "away": { "id": "s2", "name": "Connah's Quay" } }
+    }
+  ]
+}"#;
+
+#[test]
+fn referee_observation_key_is_the_bare_match_record_key() {
+    let adapter = ResearchAdapter::default();
+    let observations = adapter.parse(&raw(DAILY), &ctx("day:2026-11-20")).unwrap();
+
+    let referee = observations
+        .iter()
+        .find(|o| o.aspect == "match_referee")
+        .expect("játékvezető observation");
+    // B: a normalized a referee-t a meccs `source_match_id`-jével párosítja,
+    // ezért a kulcs a bare uid — a korábbi "{uid}:referee" soha nem talált.
+    assert_eq!(referee.source_record_key, "espn:401932578");
+    assert_eq!(referee.natural_key, "espn:401932578");
+    assert_eq!(
+        referee.source_record_key, referee.natural_key,
+        "a referee kulcsa pontosan a meccs rekord-kulcsa"
+    );
+    assert_eq!(referee.payload["name"], "Dr. Felix Zwayer");
+}
+
+#[test]
+fn day_parse_emits_match_environment_with_contract_field_names() {
+    let adapter = ResearchAdapter::default();
+    let observations = adapter
+        .parse(&raw(ENV_DAILY), &ctx("day:2026-11-21"))
+        .unwrap();
+
+    let environments: Vec<_> = observations
+        .iter()
+        .filter(|o| o.aspect == "match_environment")
+        .collect();
+    assert_eq!(
+        environments.len(),
+        1,
+        "csak a venue/weather blokkot adó meccsre keletkezik observation"
+    );
+
+    let environment = environments[0];
+    assert_eq!(environment.entity_kind, "match");
+    assert_eq!(environment.natural_key, "espn:401932578");
+    assert_eq!(
+        environment.source_record_key, "espn:401932578",
+        "ugyanaz a kulcs, mint a match_core-nál (a normalized ezzel párosít)"
+    );
+
+    // A payload pontosan az API-kontraktus mezőit tartalmazza.
+    let payload = environment
+        .payload
+        .as_object()
+        .expect("a környezet payload objektum");
+    let mut keys: Vec<&str> = payload.keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    let mut expected = vec![
+        "venue_name",
+        "venue_city",
+        "venue_country",
+        "venue_capacity",
+        "venue_surface",
+        "venue_lat",
+        "venue_lon",
+        "temperature_c",
+        "weather_description",
+        "wind_speed",
+        "wind_direction",
+        "humidity_pct",
+        "precipitation",
+        "cloud_cover_pct",
+        "weather_observed_at",
+    ];
+    expected.sort_unstable();
+    assert_eq!(keys, expected);
+
+    assert_eq!(environment.payload["venue_name"], "Estadio Ricardo Gregor");
+    assert_eq!(environment.payload["venue_city"], "Luque");
+    assert_eq!(environment.payload["venue_country"], "Paraguay");
+    assert_eq!(environment.payload["venue_capacity"], 4000);
+    assert_eq!(environment.payload["venue_surface"], "grass");
+    assert_eq!(
+        environment.payload["venue_lat"].as_f64(),
+        Some(-25.275764744)
+    );
+    assert_eq!(
+        environment.payload["venue_lon"].as_f64(),
+        Some(-57.551740408)
+    );
+    assert_eq!(environment.payload["temperature_c"].as_f64(), Some(27.0));
+    assert_eq!(environment.payload["weather_description"], "Thunder");
+    assert_eq!(environment.payload["wind_speed"].as_f64(), Some(2.0));
+    assert_eq!(environment.payload["humidity_pct"], 86);
+    assert_eq!(environment.payload["precipitation"].as_f64(), Some(0.0));
+    assert_eq!(environment.payload["cloud_cover_pct"], 54);
+    assert_eq!(
+        environment.payload["weather_observed_at"],
+        "2026-11-21T00:30:00Z"
+    );
+    // Hiányzó forrás-mező → null, soha nem 0.
+    assert!(
+        environment.payload["wind_direction"].is_null(),
+        "a hiányzó szélirány null, nem üres string/0"
+    );
+}

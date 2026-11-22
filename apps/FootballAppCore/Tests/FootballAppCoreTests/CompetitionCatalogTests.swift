@@ -98,6 +98,27 @@ struct CompetitionCatalogTests {
         #expect(alreadyMarked.name == "Bundesliga (női)")
     }
 
+    @Test("A női versenyek széles köre felismerhető, a férfi ligák nem esnek bele")
+    func womensCompetitionMarkersAreBroad() {
+        let womensNames = [
+            "Liga F", "Liga FPD", "Frauen-Bundesliga", "Women's Serie A",
+            "Serie A Femminile", "NWSL", "WSL", "WE League", "NCAAW",
+            "A-League Women", "Première Ligue (női)", "Toppserien",
+            "Damallsvenskan", "Eredivisie Vrouwen", "Liga MX Femenil",
+        ]
+        for name in womensNames {
+            #expect(CompetitionCatalog.isWomensCompetition(name), "\(name) női verseny")
+            #expect(
+                CompetitionCatalog.canonical(
+                    name: name, countryCode: nil, countryName: nil).name.hasSuffix("(női)"),
+                "\(name) (női) utótagot kap")
+        }
+        let mensNames = ["Liga", "Serie A", "Bundesliga", "Premier League", "La Liga", "Liga MX"]
+        for name in mensNames {
+            #expect(!CompetitionCatalog.isWomensCompetition(name), "\(name) férfi verseny")
+        }
+    }
+
     @Test("A női és a férfi liga külön szekció marad")
     func womensLeagueDoesNotMergeWithMens() {
         let mens = CompetitionCatalog.canonical(

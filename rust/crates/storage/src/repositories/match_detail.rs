@@ -40,6 +40,10 @@ pub struct MatchDetailRow {
     pub away_pens: Option<i16>,
     pub decided_by: Option<String>,
     pub referee: Option<String>,
+    /// A stadion a legjobb forrású pillanatképből (S90); nincs adat → `null`.
+    pub venue: Option<VenueRow>,
+    /// Az időjárás a legjobb forrású pillanatképből (S90); nincs adat → `null`.
+    pub weather: Option<WeatherRow>,
     pub stats_source: Option<String>,
     pub stats_captured_at: Option<DateTime<Utc>>,
     pub home_shots: Option<i32>,
@@ -97,6 +101,32 @@ pub struct MatchDetailRow {
     /// Üres esetén is üres tömb, nem `null`.
     #[serde(default)]
     pub incidents: Vec<MatchIncidentRow>,
+}
+
+/// A stadion a részletező válaszban (S90). A venue nem kanonikus entitás,
+/// ezért itt csak a forrás által adott, ember által olvasható adatok vannak.
+/// Minden mező opcionális: a hiányzó adat `null`, soha nem 0.
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
+pub struct VenueRow {
+    pub name: Option<String>,
+    pub city: Option<String>,
+    pub country: Option<String>,
+    pub capacity: Option<i32>,
+    pub surface: Option<String>,
+}
+
+/// Az időjárás a részletező válaszban (S90); hiányzó adat `null`.
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
+pub struct WeatherRow {
+    /// Celsius-fok; a forrás szerződése szerint (a `unit` mezőt nem adjuk ki).
+    pub temperature_c: Option<f64>,
+    pub description: Option<String>,
+    pub wind_speed: Option<f64>,
+    pub wind_direction: Option<String>,
+    pub humidity_pct: Option<i32>,
+    pub precipitation: Option<f64>,
+    pub cloud_cover_pct: Option<i32>,
+    pub observed_at: Option<DateTime<Utc>>,
 }
 
 /// Egy meccs-esemény a részletező válaszban (S82).
@@ -189,6 +219,12 @@ pub async fn fetch_match_detail(pool: &PgPool, match_id: Uuid) -> Result<Option<
             r.home_ft, r.away_ft, r.home_ht, r.away_ht,
             r.home_et, r.away_et, r.home_pens, r.away_pens, r.decided_by,
             referee_entity.canonical_name AS referee,
+            env.venue_name, env.venue_city, env.venue_country,
+            env.venue_capacity, env.venue_surface,
+            env.temperature_c, env.weather_description,
+            env.wind_speed, env.wind_direction, env.humidity_pct,
+            env.precipitation, env.cloud_cover_pct,
+            env.weather_observed_at,
             st.source_code AS stats_source,
             st.captured_at AS stats_captured_at,
             st.home_shots, st.away_shots,
@@ -269,6 +305,26 @@ pub async fn fetch_match_detail(pool: &PgPool, match_id: Uuid) -> Result<Option<
              ORDER BY (src.code = 'research') DESC, ms.captured_at DESC
              LIMIT 1
          ) st ON true
+         -- S90: meccs-környezet (stadion + időjárás) ugyanazzal a
+         -- determinisztikus forrás-preferenciával, mint a statisztika:
+         -- a research előbb, azon belül a legfrissebb rögzítés. Egy sor
+         -- adja a venue és a weather pillanatképét, ezért egy LATERAL van.
+         LEFT JOIN LATERAL (
+             SELECT e.venue_name, e.venue_city, e.venue_country,
+                    e.venue_capacity, e.venue_surface,
+                    e.venue_lat, e.venue_lon,
+                    e.temperature_c::double precision AS temperature_c,
+                    e.weather_description,
+                    e.wind_speed::double precision AS wind_speed,
+                    e.wind_direction, e.humidity_pct,
+                    e.precipitation::double precision AS precipitation,
+                    e.cloud_cover_pct, e.weather_observed_at
+             FROM fact.match_environment e
+             JOIN ops.source src ON src.id = e.source_id
+             WHERE e.match_id = m.id
+             ORDER BY (src.code = 'research') DESC, e.captured_at DESC
+             LIMIT 1
+         ) env ON true
          LEFT JOIN LATERAL (
              SELECT jsonb_build_object(
                         'home', COALESCE(max(q.price) FILTER (WHERE q.bookmaker='default' AND q.market='1x2' AND q.outcome='home'), max(q.price) FILTER (WHERE q.bookmaker='B365' AND q.market='1x2' AND q.outcome='home'), max(q.price) FILTER (WHERE q.bookmaker='Avg' AND q.market='1x2' AND q.outcome='home'), max(q.price) FILTER (WHERE q.bookmaker='Max' AND q.market='1x2' AND q.outcome='home'), max(q.price) FILTER (WHERE q.market='1x2' AND q.outcome='home')),
@@ -349,6 +405,19 @@ struct MatchDetailDbRow {
     away_pens: Option<i16>,
     decided_by: Option<String>,
     referee: Option<String>,
+    venue_name: Option<String>,
+    venue_city: Option<String>,
+    venue_country: Option<String>,
+    venue_capacity: Option<i32>,
+    venue_surface: Option<String>,
+    temperature_c: Option<f64>,
+    weather_description: Option<String>,
+    wind_speed: Option<f64>,
+    wind_direction: Option<String>,
+    humidity_pct: Option<i32>,
+    precipitation: Option<f64>,
+    cloud_cover_pct: Option<i32>,
+    weather_observed_at: Option<DateTime<Utc>>,
     stats_source: Option<String>,
     stats_captured_at: Option<DateTime<Utc>>,
     home_shots: Option<i32>,
@@ -379,6 +448,47 @@ struct MatchDetailDbRow {
 
 impl From<MatchDetailDbRow> for MatchDetailRow {
     fn from(row: MatchDetailDbRow) -> Self {
+        // S90: a venue/weather csak akkor jelenik meg, ha a forrás adott
+        // valamit; különben `null` (nem üres objektum). A hiányzó mezők a
+        // blokkon belül is `null`-ok maradnak.
+        let venue = if row.venue_name.is_some()
+            || row.venue_city.is_some()
+            || row.venue_country.is_some()
+            || row.venue_capacity.is_some()
+            || row.venue_surface.is_some()
+        {
+            Some(VenueRow {
+                name: row.venue_name,
+                city: row.venue_city,
+                country: row.venue_country,
+                capacity: row.venue_capacity,
+                surface: row.venue_surface,
+            })
+        } else {
+            None
+        };
+        let weather = if row.temperature_c.is_some()
+            || row.weather_description.is_some()
+            || row.wind_speed.is_some()
+            || row.wind_direction.is_some()
+            || row.humidity_pct.is_some()
+            || row.precipitation.is_some()
+            || row.cloud_cover_pct.is_some()
+            || row.weather_observed_at.is_some()
+        {
+            Some(WeatherRow {
+                temperature_c: row.temperature_c,
+                description: row.weather_description,
+                wind_speed: row.wind_speed,
+                wind_direction: row.wind_direction,
+                humidity_pct: row.humidity_pct,
+                precipitation: row.precipitation,
+                cloud_cover_pct: row.cloud_cover_pct,
+                observed_at: row.weather_observed_at,
+            })
+        } else {
+            None
+        };
         Self {
             id: row.id,
             kickoff_at: row.kickoff_at,
@@ -409,6 +519,8 @@ impl From<MatchDetailDbRow> for MatchDetailRow {
             away_pens: row.away_pens,
             decided_by: row.decided_by,
             referee: row.referee,
+            venue,
+            weather,
             stats_source: row.stats_source,
             stats_captured_at: row.stats_captured_at,
             home_shots: row.home_shots,

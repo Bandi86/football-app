@@ -230,5 +230,82 @@ struct MatchDetailTests {
         #expect(detail.incidents == nil)
         #expect(detail.homeName == "Újpest")
         #expect(detail.status == "finished")
+        #expect(detail.venue == nil)
+        #expect(detail.weather == nil)
+    }
+
+    // MARK: - Stadion és időjárás
+
+    private func detailJSON(venue: String?, weather: String?) -> Data {
+        let venueField = venue.map { ",\"venue\": \($0)" } ?? ""
+        let weatherField = weather.map { ",\"weather\": \($0)" } ?? ""
+        return """
+        {"id":"00000000-0000-0000-0000-0000000000aa","kickoff_at":"2026-11-16T15:00:00Z",
+         "kickoff_precision":"exact","status":"finished","round_label":"13",
+         "competition_name":"La Liga","tier":1,"priority":8,"season_label":"2026/27",
+         "home_name":"Alfa","away_name":"Beta","gate_blockers":[]\(venueField)\(weatherField)}
+        """.data(using: .utf8)!
+    }
+
+    @Test func decodesVenueAndWeather() throws {
+        let data = detailJSON(
+            venue: """
+            {"name":"Camp Nou","city":"Barcelona","country":"Spain",
+             "capacity":99354,"surface":"grass"}
+            """,
+            weather: """
+            {"temperature_c":12.0,"description":"light rain","wind_speed":3.4,
+             "wind_direction":"NW","humidity_pct":70,"precipitation":0.4,
+             "cloud_cover_pct":80,"observed_at":"2026-11-16T14:00:00Z"}
+            """)
+        let detail = try APIDecoding.makeDecoder().decode(MatchDetail.self, from: data)
+
+        #expect(detail.venue?.name == "Camp Nou")
+        #expect(detail.venue?.city == "Barcelona")
+        #expect(detail.venue?.capacity == 99_354)
+        #expect(detail.venue?.displayText == "Camp Nou — Barcelona · 99 354 néző")
+
+        #expect(detail.weather?.temperatureC == 12.0)
+        #expect(detail.weather?.condition == "light rain")
+        #expect(detail.weather?.windDirection == "NW")
+        #expect(detail.weather?.humidityPct == 70)
+        #expect(
+            detail.weather?.displayText
+                == "12 °C · enyhe eső · szél 3,4 m/s (ÉNY) · páratartalom 70%")
+    }
+
+    @Test func toleratesNullAndMissingVenueWeather() throws {
+        let nulled = try APIDecoding.makeDecoder().decode(
+            MatchDetail.self, from: detailJSON(venue: "null", weather: "null"))
+        #expect(nulled.venue == nil)
+        #expect(nulled.weather == nil)
+        #expect(nulled.venue?.displayText == nil)
+        #expect(nulled.weather?.displayText == nil)
+
+        let missing = try APIDecoding.makeDecoder().decode(
+            MatchDetail.self, from: detailJSON(venue: nil, weather: nil))
+        #expect(missing.venue == nil)
+        #expect(missing.weather == nil)
+        #expect(missing.competitionName == "La Liga")
+    }
+
+    @Test func venueDisplaySkipsMissingParts() {
+        let bare = VenueInfo(name: "  ")
+        #expect(bare.displayText == nil)
+        let capacityOnly = VenueInfo(name: "Stadion", capacity: 12_345)
+        #expect(capacityOnly.displayText == "Stadion · 12 345 néző")
+        let cityOnly = VenueInfo(name: "Stadion", city: "Bécs", capacity: 0)
+        #expect(cityOnly.displayText == "Stadion — Bécs")
+    }
+
+    @Test func weatherDisplayOnlyIncludesPresentParts() {
+        let empty = WeatherInfo()
+        #expect(empty.displayText == nil)
+        let temperatureOnly = WeatherInfo(temperatureC: -2.5)
+        #expect(temperatureOnly.displayText == "-2,5 °C")
+        // Ismeretlen leírás és ismeretlen égtáj: a nyers leírás marad, az
+        // irány kimarad.
+        let raw = WeatherInfo(condition: "Szitáló eső", windSpeed: 2.0, windDirection: "SE")
+        #expect(raw.displayText == "Szitáló eső · szél 2 m/s (DK)")
     }
 }

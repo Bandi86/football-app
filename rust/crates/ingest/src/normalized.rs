@@ -68,8 +68,58 @@ pub struct NormalizedMatch {
     pub odds: Option<NormalizedOdds>,
     pub stats: Option<NormalizedStats>,
     pub referee: Option<String>,
+    /// S90: meccs-környezet (stadion + időjárás); hiányzó adat `None`.
+    pub environment: Option<NormalizedEnvironment>,
     /// A meccs eseményei a forrás sorrendjében (üres = nincs esemény-adat).
     pub incidents: Vec<NormalizedIncident>,
+}
+
+/// Meccs-környezet (S90): a forrás venue- és weather-blokkja együtt.
+///
+/// A hiányzó adat `None`, soha nem 0; a venue nem kanonikus entitás, ezért
+/// meccs-szintű tény. Üres környezet (minden adatmező `None`) nem ír DB-sort.
+/// Az `observed_at` a forrás-observation rögzítési ideje: ez lesz a
+/// `fact.match_environment.captured_at`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NormalizedEnvironment {
+    pub observed_at: DateTime<Utc>,
+    pub venue_name: Option<String>,
+    pub venue_city: Option<String>,
+    pub venue_country: Option<String>,
+    pub venue_capacity: Option<i32>,
+    pub venue_surface: Option<String>,
+    pub venue_lat: Option<f64>,
+    pub venue_lon: Option<f64>,
+    pub temperature_c: Option<f64>,
+    pub weather_description: Option<String>,
+    pub wind_speed: Option<f64>,
+    pub wind_direction: Option<String>,
+    pub humidity_pct: Option<i32>,
+    pub precipitation: Option<f64>,
+    pub cloud_cover_pct: Option<i32>,
+    pub weather_observed_at: Option<DateTime<Utc>>,
+}
+
+impl NormalizedEnvironment {
+    /// Igaz, ha a forrás egyetlen ismert mezőt sem adott (ilyenkor nincs mit
+    /// írni: üres környezet-sor nem keletkezik).
+    pub fn is_empty(&self) -> bool {
+        self.venue_name.is_none()
+            && self.venue_city.is_none()
+            && self.venue_country.is_none()
+            && self.venue_capacity.is_none()
+            && self.venue_surface.is_none()
+            && self.venue_lat.is_none()
+            && self.venue_lon.is_none()
+            && self.temperature_c.is_none()
+            && self.weather_description.is_none()
+            && self.wind_speed.is_none()
+            && self.wind_direction.is_none()
+            && self.humidity_pct.is_none()
+            && self.precipitation.is_none()
+            && self.cloud_cover_pct.is_none()
+            && self.weather_observed_at.is_none()
+    }
 }
 
 /// Egy meccs-esemény (a forrás sorrendjében); a hiányzó adat `None`.
@@ -329,6 +379,27 @@ struct RefereePayload {
     name: String,
 }
 
+/// S90: a `match_environment` payload az API-kontraktus mezőneveivel; minden
+/// mező opcionális (a hiányzó adat `None`, nem 0).
+#[derive(Deserialize)]
+struct EnvironmentPayload {
+    venue_name: Option<String>,
+    venue_city: Option<String>,
+    venue_country: Option<String>,
+    venue_capacity: Option<i32>,
+    venue_surface: Option<String>,
+    venue_lat: Option<f64>,
+    venue_lon: Option<f64>,
+    temperature_c: Option<f64>,
+    weather_description: Option<String>,
+    wind_speed: Option<f64>,
+    wind_direction: Option<String>,
+    humidity_pct: Option<i32>,
+    precipitation: Option<f64>,
+    cloud_cover_pct: Option<i32>,
+    weather_observed_at: Option<DateTime<Utc>>,
+}
+
 #[derive(Deserialize)]
 struct IncidentsPayload {
     incidents: Vec<IncidentPayload>,
@@ -362,6 +433,7 @@ impl NormalizedDay {
         let mut stats_by_key: Vec<(String, NormalizedStats)> = Vec::new();
         let mut incidents_by_key: Vec<(String, Vec<NormalizedIncident>)> = Vec::new();
         let mut referee_by_key: Vec<(String, String)> = Vec::new();
+        let mut environment_by_key: Vec<(String, NormalizedEnvironment)> = Vec::new();
         let mut meta: Option<(
             NormalizedCompetition,
             NormalizedSeason,
@@ -430,6 +502,7 @@ impl NormalizedDay {
                         odds: None,
                         stats: None,
                         referee: None,
+                        environment: None,
                         incidents: Vec::new(),
                     });
                 }
@@ -515,6 +588,31 @@ impl NormalizedDay {
                         .context("match_referee payload")?;
                     referee_by_key.push((obs.source_record_key.clone(), p.name));
                 }
+                "match_environment" => {
+                    let p: EnvironmentPayload = serde_json::from_value(obs.payload.clone())
+                        .context("match_environment payload")?;
+                    environment_by_key.push((
+                        obs.source_record_key.clone(),
+                        NormalizedEnvironment {
+                            observed_at: obs.observed_at,
+                            venue_name: p.venue_name,
+                            venue_city: p.venue_city,
+                            venue_country: p.venue_country,
+                            venue_capacity: p.venue_capacity,
+                            venue_surface: p.venue_surface,
+                            venue_lat: p.venue_lat,
+                            venue_lon: p.venue_lon,
+                            temperature_c: p.temperature_c,
+                            weather_description: p.weather_description,
+                            wind_speed: p.wind_speed,
+                            wind_direction: p.wind_direction,
+                            humidity_pct: p.humidity_pct,
+                            precipitation: p.precipitation,
+                            cloud_cover_pct: p.cloud_cover_pct,
+                            weather_observed_at: p.weather_observed_at,
+                        },
+                    ));
+                }
                 "standing" => {
                     let p: StandingPayload =
                         serde_json::from_value(obs.payload.clone()).context("standing payload")?;
@@ -545,6 +643,12 @@ impl NormalizedDay {
                 .find(|(key, _)| *key == m.source_match_id)
             {
                 m.referee = Some(name.clone());
+            }
+            if let Some((_, environment)) = environment_by_key
+                .iter()
+                .find(|(key, _)| *key == m.source_match_id)
+            {
+                m.environment = Some(environment.clone());
             }
             if let Some((_, incidents)) = incidents_by_key
                 .iter()
@@ -666,7 +770,8 @@ impl NormalizedDay {
             slice.extend(matches);
             for obs in observations {
                 match obs.aspect.as_str() {
-                    "match_odds" | "match_stats" | "match_referee" | "match_events" => {
+                    "match_odds" | "match_stats" | "match_referee" | "match_events"
+                    | "match_environment" => {
                         if records.contains(&obs.source_record_key) {
                             slice.push(obs.clone());
                         }
@@ -744,6 +849,7 @@ impl From<&FixtureSource> for NormalizedDay {
                     }),
                     stats: None,
                     referee: None,
+                    environment: None,
                     incidents: Vec::new(),
                 })
                 .collect(),

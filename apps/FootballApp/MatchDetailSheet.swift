@@ -582,9 +582,15 @@ struct MatchDetailContent: View {
             gridRow("Időpont", Self.kickoff.string(from: detail.kickoffAt) +
                     (detail.kickoffPrecision == "date_only" ? " (csak dátum)" : ""))
             if let round = detail.roundLabel {
-                gridRow("Forduló", round)
+                gridRow("Forduló", MatchCardModel.roundText(for: round) ?? round)
             }
             gridRow("Játékvezető", detail.referee ?? "–")
+            if let venue = detail.venue, let venueText = venue.displayText {
+                gridRow("Stadion", venueText)
+            }
+            if let weather = detail.weather, let weatherText = weather.displayText {
+                gridRow("Időjárás", weatherText)
+            }
             if let source = detail.statsSource {
                 gridRow("Statisztika forrása", source)
             }
@@ -607,6 +613,7 @@ struct MatchDetailContent: View {
         }
         .padding(.horizontal, AppTheme.Spacing.m)
         .padding(.vertical, 8)
+        .accessibilityElement(children: .combine)
     }
 
     private var periodChips: some View {

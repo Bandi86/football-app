@@ -128,6 +128,7 @@ fn live_day(teams: &[(&str, &str)], home: &str, away: &str) -> NormalizedDay {
             odds: None,
             stats: None,
             referee: None,
+            environment: None,
             incidents: Vec::new(),
         }],
         standings: None,
@@ -653,4 +654,203 @@ async fn variant_team_names_link_to_the_existing_canonical_match() {
             .await
             .unwrap();
     assert_eq!(quotes, 1, "az odds a meglévő meccshez kerül");
+}
+
+/// S90 (C): név-variáns linknél a forrás `finished` státusza és eredménye is
+/// a kanonikus sorra kerül — nem marad `scheduled` + 0–3 eredmény.
+#[tokio::test]
+async fn variant_source_finished_result_updates_status_and_result() {
+    let pool = test_pool().await;
+    let source_id = seed_source(&pool).await;
+    let country_id = seed_country(&pool).await;
+    seed_linked_team(&pool, source_id, country_id, "ujpest", "Újpest").await;
+    seed_linked_team(&pool, source_id, country_id, "gyor", "Győr").await;
+
+    let first = live_day(&[("ujpest", "Újpest"), ("gyor", "Győr")], "ujpest", "gyor");
+    let day1 = Canonicalizer::materialize(&pool, &first).await.unwrap();
+    let canonical_id = day1.matches[0].match_id;
+
+    seed_linked_team(&pool, source_id, country_id, "ujpest-fc", "Újpest FC").await;
+    seed_linked_team(&pool, source_id, country_id, "gyor-2", "Győr").await;
+    let mut second = live_day(
+        &[("ujpest-fc", "Újpest FC"), ("gyor-2", "Győr")],
+        "ujpest-fc",
+        "gyor-2",
+    );
+    second.matches[0].source_match_id = "m-2".into();
+    second.matches[0].status = "finished".into();
+    second.matches[0].result = Some(NormalizedResult {
+        home_ft: Some(0),
+        away_ft: Some(3),
+        home_ht: Some(0),
+        away_ht: Some(1),
+        home_et: None,
+        away_et: None,
+        home_pens: None,
+        away_pens: None,
+        decided_by: None,
+    });
+    let day2 = Canonicalizer::materialize(&pool, &second).await.unwrap();
+    assert_eq!(
+        day2.matches[0].match_id, canonical_id,
+        "a név-variáns sor a meglévő kanonikus meccshez linkel"
+    );
+
+    let status: String = sqlx::query_scalar("SELECT status FROM core.match WHERE id=$1")
+        .bind(canonical_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        status, "finished",
+        "a variáns forrás lezárt státusza felkerül a kanonikus sorra"
+    );
+    let (home_ft, away_ft): (Option<i16>, Option<i16>) =
+        sqlx::query_as("SELECT home_ft, away_ft FROM core.match_result WHERE match_id=$1")
+            .bind(canonical_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        (home_ft, away_ft),
+        (Some(0), Some(3)),
+        "az eredmény konzisztensen a státusszal íródik (nincs scheduled+score)"
+    );
+}
+
+/// S90 (C): terminális állapotból nem lép vissza a rendszer — egy elavult
+/// `scheduled` forrás-sor sem a státuszt nem nyitja újra, sem a meglévő
+/// eredményt nem törli.
+#[tokio::test]
+async fn stale_scheduled_source_does_not_revert_finished_status_or_drop_result() {
+    let pool = test_pool().await;
+    let source_id = seed_source(&pool).await;
+    let country_id = seed_country(&pool).await;
+    seed_linked_team(&pool, source_id, country_id, "ujpest", "Újpest").await;
+    seed_linked_team(&pool, source_id, country_id, "gyor", "Győr").await;
+
+    let mut finished = live_day(&[("ujpest", "Újpest"), ("gyor", "Győr")], "ujpest", "gyor");
+    finished.matches[0].status = "finished".into();
+    finished.matches[0].result = Some(NormalizedResult {
+        home_ft: Some(2),
+        away_ft: Some(1),
+        home_ht: Some(1),
+        away_ht: Some(0),
+        home_et: None,
+        away_et: None,
+        home_pens: None,
+        away_pens: None,
+        decided_by: None,
+    });
+    let day1 = Canonicalizer::materialize(&pool, &finished).await.unwrap();
+    let canonical_id = day1.matches[0].match_id;
+
+    // Elavult, még `scheduled` forrás-sor ugyanarra a meccsre.
+    let stale = live_day(&[("ujpest", "Újpest"), ("gyor", "Győr")], "ujpest", "gyor");
+    Canonicalizer::materialize(&pool, &stale).await.unwrap();
+
+    let status: String = sqlx::query_scalar("SELECT status FROM core.match WHERE id=$1")
+        .bind(canonical_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "finished", "terminálisból nincs visszalépés");
+    let result_rows: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM core.match_result WHERE match_id=$1")
+            .bind(canonical_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(result_rows, 1, "a lezárt eredmény nem tűnik el");
+}
+
+/// S90 (C): lejátszott meccs eredmény-korrekciója (ugyanaz a státusz, más
+/// score) átíródik — a fagyasztás csak a státuszra vonatkozik, az eredményre
+/// nem.
+#[tokio::test]
+async fn finished_score_correction_updates_result() {
+    let pool = test_pool().await;
+    let source_id = seed_source(&pool).await;
+    let country_id = seed_country(&pool).await;
+    seed_linked_team(&pool, source_id, country_id, "ujpest", "Újpest").await;
+    seed_linked_team(&pool, source_id, country_id, "gyor", "Győr").await;
+
+    let mut first = live_day(&[("ujpest", "Újpest"), ("gyor", "Győr")], "ujpest", "gyor");
+    first.matches[0].status = "finished".into();
+    first.matches[0].result = Some(NormalizedResult {
+        home_ft: Some(2),
+        away_ft: Some(1),
+        home_ht: Some(1),
+        away_ht: Some(0),
+        home_et: None,
+        away_et: None,
+        home_pens: None,
+        away_pens: None,
+        decided_by: None,
+    });
+    let day1 = Canonicalizer::materialize(&pool, &first).await.unwrap();
+    let canonical_id = day1.matches[0].match_id;
+
+    let mut corrected = first.clone();
+    corrected.matches[0].result = Some(NormalizedResult {
+        home_ft: Some(3),
+        away_ft: Some(1),
+        home_ht: Some(1),
+        away_ht: Some(0),
+        home_et: None,
+        away_et: None,
+        home_pens: None,
+        away_pens: None,
+        decided_by: None,
+    });
+    Canonicalizer::materialize(&pool, &corrected).await.unwrap();
+
+    let status: String = sqlx::query_scalar("SELECT status FROM core.match WHERE id=$1")
+        .bind(canonical_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "finished", "a státusz nem változik (nincs írás)");
+    let (home_ft, away_ft): (Option<i16>, Option<i16>) =
+        sqlx::query_as("SELECT home_ft, away_ft FROM core.match_result WHERE match_id=$1")
+            .bind(canonical_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        (home_ft, away_ft),
+        (Some(3), Some(1)),
+        "az eredmény-korrekció átíródik"
+    );
+}
+
+/// S90 (C): valós forrás-javítás `canceled` → `postponed` irányban ír (a
+/// 2026-11-21-i algériai nap esete), mert a `canceled` nem eredményt hordozó
+/// terminális.
+#[tokio::test]
+async fn canceled_to_postponed_correction_is_written() {
+    let pool = test_pool().await;
+    let source_id = seed_source(&pool).await;
+    let country_id = seed_country(&pool).await;
+    seed_linked_team(&pool, source_id, country_id, "ujpest", "Újpest").await;
+    seed_linked_team(&pool, source_id, country_id, "gyor", "Győr").await;
+
+    let mut first = live_day(&[("ujpest", "Újpest"), ("gyor", "Győr")], "ujpest", "gyor");
+    first.matches[0].status = "canceled".into();
+    let day1 = Canonicalizer::materialize(&pool, &first).await.unwrap();
+    let canonical_id = day1.matches[0].match_id;
+
+    let mut corrected = first.clone();
+    corrected.matches[0].status = "postponed".into();
+    Canonicalizer::materialize(&pool, &corrected).await.unwrap();
+
+    let status: String = sqlx::query_scalar("SELECT status FROM core.match WHERE id=$1")
+        .bind(canonical_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        status, "postponed",
+        "a nem eredményt hordozó terminális javítása átíródik"
+    );
 }
