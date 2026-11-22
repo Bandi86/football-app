@@ -132,7 +132,7 @@
       (1 pre-existing soccerway breaker). Az API `/v1/day/2026-11-21` mind a
       4 meccset lezártként, eredménnyel és publikációs állapottal adja.
 
-## S95 — daemon-frissítés, research-ütemezés, validációs retenció
+## S98 — daemon-frissítés, research-ütemezés, validációs retenció
 
 - [x] **Daemon frissítése**: `cargo build -p footballd -p footballctl
       --features obscura` → EXIT=0; `./scripts/install-footballd-agent.sh`
@@ -144,25 +144,39 @@
       `hu.bandi86.football.researchsync` (5 slot: 14:15/16:15/18:15/20:15/
       22:15, plist telepítve, `launchctl print` 5 calendar-intervallumot mutat).
       A script és a `.env` a Library alá került (Documents/TCC elkerülése),
-      `FOOTBALL_RESEARCH_ROOT` a valódi könyvtárra mutat. Első próbafuttatás
-      `kickstart`tal: a gyűjtés elindult és halad (a teljes kör még fut).
+      `FOOTBALL_RESEARCH_ROOT` a valódi könyvtárra mutat. A próbafuttatás
+      (`kickstart`) és az azt követő slotok is működnek: 11:38, 12:48, 14:28,
+      14:44, 14:51, 15:14-i discovery jobok mind `done` (1 próba, 0 hiba).
       Dokumentáció: `docs/operations/research-sync.md` frissítve.
-- [ ] A 3 napnál régebbi validációs sorok törlése (`scripts/validation-
-      retention.sh --apply`, új script + `docs/operations/validation-
-      retention.md`) — a művelet háttérben fut, a végeredmény még nincs
-      rögzítve. Indoklás: 1,47 GB / ~130 MB/nap, API/UI nem olvassa.
+- [x] **Validációs retenció**: a `scripts/validation-retention.sh` első
+      futtatása **4 óra 18 percig** akadt (a `fact.verification.last_run_id`
+      FK-nak nem volt indexe, így a cascade-check 1,8 M soros seq-scant végzett
+      törlésenként; a mozgó `now()-3 days` cutoff közben új sorokat is átlökött
+      a határon: 890 ezről 1,75 M-re nőtt a halmaz). `pg_cancel_backend`-tel
+      leállítva, teljes rollback (0 sor, 0 NULL hivatkozás). Új migráció
+      `db/migrations/0023_retention_indexes.sql` (két index, 2,9 s) + a script
+      rögzített cutoffot használ. Újrafuttatás: **16 s**, **1 794 798 run** és
+      **2 728 968 finding** törölve, 265 610 `verification.last_run_id`
+      NULL-ra állítva, mind auditálva (`validation_retention`,
+      actor `ops-retention`). `ops.validation_run` 3 191 903 → 1 397 105;
+      `ops.validation_finding` 4 838 544 → 2 109 576. A fájlméret 1,55 GB
+      marad (plain `VACUUM`), de a felszabadított hely újrahasznosítható —
+      a napi ~130 MB növekedés megállt. Új dokumentáció:
+      `docs/operations/validation-retention.md`.
+- [x] Ellenőrzés a retenció után: `integrity 11-19…11-22` → **OK**, minden
+      mutató 0 (1 pre-existing soccerway breaker).
 
 ## Következő döntési pont
 
-- A futó daemon binárisa 2026-11-21 18:33-as, az utolsó Rust feat-commit
-  18:41-es (S90 forrás-ref ország-guard) — a frissítés
-  `cargo build … && ./scripts/install-footballd-agent.sh` útján launchd
-  újraindítással jár: külön üzemeltetési döntés, nem lett elvégezve.
+- [x] A daemon frissítése megtörtént (S98, port 56995, health 200).
+- [x] A research szinkron automatizálása megtörtént (S98, launchd 5 slot).
+- [x] A validációs retenció megtörtént (S98, 1,79 M run + 2,73 M finding).
 - [x] A 45 pending review triage-a megtörtént (S92, 45 → 0).
 - [x] A női versenyű meccsek férfi hozzárendelése megtörtént (S93, 12 → 0).
 - [x] A 4 hiányzó eredmény pótlása megtörtént (S94, withheld 4 → 0).
-- A S90 nyitott tételei: research szinkron launchd-ütemezése; validációs
-  retenció (1,47 GB, ~130 MB/nap) — mindkettő külön üzemeltetési döntés.
+- Nyitott: a párhuzamos munkamenet S96–S97c kódjai után a futó daemon már
+  elavult lehet (a mi telepítésünk 11:23-as build volt); a frissítést az a
+  munkamenet végzi, amelyik a kódot írta — ne tapossunk egymás buildjébe.
 - A mai nap lejárt, eredmény nélküli meccsei (pl. mexikói Liga Premier
   `date_only` placeholderek, dél-koreai J/K-league élő meccsek) — a research
   13:00-s és 19:00-s refresh jobjai ütemezve vannak, nem kézi beavatkozás.
