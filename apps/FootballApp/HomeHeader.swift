@@ -309,8 +309,9 @@ struct HomeHeader: View {
     private func weatherTile(palette: HeaderPalette) -> some View {
         let live = weather.isLive
         let origin = weather.usesDeviceLocation ? "saját helyzet" : "alaphelyszín"
+        let freshness = weather.weatherIsStale ? "elavult adat" : "élő adat"
         let helpText = live
-            ? "Időjárás: \(palette.conditionLabel), \(weather.current?.temperatureText ?? ""), \(weather.cityName) (\(origin)). Forrás: Open-Meteo."
+            ? "Időjárás: \(palette.conditionLabel), \(weather.current?.temperatureText ?? ""), \(weather.cityName) (\(origin)), \(freshness). Forrás: helyi API (Open-Meteo)."
             : "Valódi időjárás nem elérhető; a színezés a napszakot követi (\(palette.conditionLabel))."
         return HStack(spacing: 9) {
             Image(systemName: palette.symbolName)
@@ -339,7 +340,7 @@ struct HomeHeader: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
             live
-                ? "Időjárás: \(weather.current?.temperatureText ?? ""), \(palette.conditionLabel), \(weather.cityName), \(origin), élő adat"
+                ? "Időjárás: \(weather.current?.temperatureText ?? ""), \(palette.conditionLabel), \(weather.cityName), \(origin), \(freshness)"
                 : "Időjárási adat nem elérhető, napszaki színezés: \(palette.conditionLabel)"
         )
         .accessibilityIdentifier("home.stat.weather")
@@ -413,7 +414,26 @@ struct HomeHeader: View {
                 help: "Az élő meccsek miatt percenként csendben frissül a lista. Következő: \(Self.mmss(remaining))."
             )
         }
-        // A napi adatok a worker 6 órás refresh-sávjaiban frissülnek.
+        // A backend birtokolja a következő frissítés időpontját (next_refresh_at).
+        // Csak ha ezt nem közölte, esünk vissza a régi 6 órás becslésre.
+        if let next = weather.nextRefreshAtUTC {
+            let cycle = weather.refreshCycle ?? 900
+            let remaining = next.timeIntervalSince(now)
+            if remaining <= 0 {
+                return RefreshInfo(
+                    value: "most",
+                    progress: 1,
+                    label: "frissítés esedékes",
+                    help: "A következő adatfrissítés esedékes. Kattints a frissítéshez."
+                )
+            }
+            return RefreshInfo(
+                value: Self.duration(remaining),
+                progress: min(1, max(0, remaining / cycle)),
+                label: "következő frissítés",
+                help: "A következő adatfrissítés \(Self.refreshTime.string(from: next)) körül várható."
+            )
+        }
         let cycle: TimeInterval = 6 * 3600
         let next = anchor.addingTimeInterval(cycle)
         let remaining = next.timeIntervalSince(now)

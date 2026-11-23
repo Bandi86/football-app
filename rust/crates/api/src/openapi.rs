@@ -16,6 +16,7 @@ use crate::routes::manual::{ManualResultRequest, ManualResultResponse};
 use crate::routes::ops::{OpsIntegrity, OpsSource, OpsStatus};
 use crate::routes::team::TeamDetailResponse;
 use crate::routes::verification::GateRow;
+use crate::routes::weather::WeatherResponse;
 
 use crate::error::ApiError;
 
@@ -43,6 +44,7 @@ use crate::error::ApiError;
         crate::routes::team::team_detail,
         crate::routes::verification::gates,
         crate::routes::ops::status,
+        crate::routes::weather::weather,
     ),
     components(schemas(
         ApiError,
@@ -54,6 +56,7 @@ use crate::error::ApiError;
         CompetitionDetailResponse,
         TeamDetailResponse,
         GateRow,
+        WeatherResponse,
         OpsStatus,
         OpsIntegrity,
         OpsSource,
@@ -80,6 +83,7 @@ use crate::error::ApiError;
         (name = "csapat", description = "Csapatkereső és -adatlap"),
         (name = "asset", description = "Tartalom-címzett blobok"),
         (name = "ops", description = "Üzemeltetési és publikálási kapu"),
+        (name = "időjárás", description = "A fejléc időjárása a helyi cache-ből"),
     )
 )]
 pub struct ApiDoc;
@@ -118,7 +122,7 @@ mod tests {
         let version = doc["openapi"].as_str().unwrap();
         assert!(version.starts_with("3.1"), "openapi verzió: {version}");
         let paths = doc["paths"].as_object().unwrap();
-        assert_eq!(paths.len(), 12, "dokumentált útvonalak: {paths:?}");
+        assert_eq!(paths.len(), 13, "dokumentált útvonalak: {paths:?}");
         for (path, item) in paths {
             let method = if item.get("get").is_some() {
                 "get"

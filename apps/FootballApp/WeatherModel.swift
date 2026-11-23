@@ -2,6 +2,14 @@ import Foundation
 import Observation
 import FootballAppCore
 
+/// Nincs runtime konfig (pl. daemon még nem indult): a fejléc ilyenkor
+/// napszak-alapú háttérre esik vissza, nem próbál külső hálózatot.
+private struct UnavailableWeatherService: WeatherService {
+    func currentWeather() async throws -> CurrentWeather {
+        throw WeatherError.unavailable
+    }
+}
+
 /// A fejléc időjárásának állapota. A hálózat csak a Core `WeatherService`
 /// protokollján át érkezik; hiba esetén a korábban megjelenített adat megmarad
 /// (elavultként), a fejléc pedig napszak-alapú hangulatra esik vissza.
@@ -18,6 +26,17 @@ final class WeatherModel {
     private(set) var current: CurrentWeather?
     private(set) var status: Status = .idle
     private(set) var location: WeatherLocation
+    /// A backend által birtokolt következő frissítés — a fejléc countdown-ja erről olvas.
+    private(set) var nextRefreshAtUTC: Date?
+    private(set) var capturedAtUTC: Date?
+    private(set) var weatherIsStale = false
+
+    /// A backend periódusa a két időbélyegből; a countdown ezt használja körként.
+    var refreshCycle: TimeInterval? {
+        guard let capturedAtUTC, let nextRefreshAtUTC else { return nil }
+        let cycle = nextRefreshAtUTC.timeIntervalSince(capturedAtUTC)
+        return cycle > 0 ? cycle : nil
+    }
     /// Igaz, ha a koordináták a felhasználó engedélyezett eszközhelyzetéből
     /// jönnek — a felület ezt külön kimondja, nem állít alaphelyszínt élőnek.
     private(set) var usesDeviceLocation = false
@@ -31,7 +50,16 @@ final class WeatherModel {
             self.service = service
             self.hasInjectedService = true
         } else {
-            self.service = OpenMeteoWeatherService(location: location)
+            if let info = try? RuntimeInfoLoader().load(),
+               let baseURL = URL(string: "http://127.0.0.1:\(info.port)") {
+                self.service = LocalWeatherService(
+                    baseURL: baseURL,
+                    readToken: info.readToken,
+                    location: location
+                )
+            } else {
+                self.service = UnavailableWeatherService()
+            }
             self.hasInjectedService = false
         }
         self.location = location
@@ -48,7 +76,16 @@ final class WeatherModel {
         location = newLocation
         usesDeviceLocation = true
         if !hasInjectedService {
-            service = OpenMeteoWeatherService(location: newLocation)
+            if let info = try? RuntimeInfoLoader().load(),
+               let baseURL = URL(string: "http://127.0.0.1:\(info.port)") {
+                service = LocalWeatherService(
+                    baseURL: baseURL,
+                    readToken: info.readToken,
+                    location: newLocation
+                )
+            } else {
+                service = UnavailableWeatherService()
+            }
         }
         await load()
     }
@@ -58,6 +95,10 @@ final class WeatherModel {
         do {
             let weather = try await service.currentWeather()
             current = weather
+            let metadata = await service.refreshMetadata()
+            capturedAtUTC = metadata?.capturedAtUTC
+            nextRefreshAtUTC = metadata?.nextRefreshAtUTC
+            weatherIsStale = metadata?.stale ?? false
             status = .loaded
         } catch is CancellationError {
             // A nézet eltűnt vagy új kör vette át: a régi állapot marad.
@@ -65,6 +106,7 @@ final class WeatherModel {
         } catch {
             // Nem töröljük a már megjelenített adatot: a fejléc korábbi
             // megfigyelése továbbra is pontos, csak elavult lehet.
+            weatherIsStale = true
             status = .failed
         }
     }

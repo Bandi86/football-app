@@ -28,7 +28,7 @@ pub async fn test_pool() -> PgPool {
          ops.validation_finding, ops.validation_run, ops.validation_rule,
          ops.robots_cache, ops.coverage_slot, ops.job, ops.breaker_state,
          ops.fetch_ledger, ops.source_policy,
-         ops.audit_event RESTART IDENTITY CASCADE",
+         ops.audit_event, ops.weather_cache RESTART IDENTITY CASCADE",
     )
     .execute(&pool)
     .await

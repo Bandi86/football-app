@@ -18,3 +18,4 @@ pub mod openfoot;
 pub mod research;
 pub mod soccerway;
 pub mod tipplap;
+pub mod weather;

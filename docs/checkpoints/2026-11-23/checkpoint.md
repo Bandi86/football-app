@@ -48,13 +48,46 @@
 - Dock: a tile eltávolítható a Dockból jobb kattintással, vagy a `persistent-apps` tömből való törléssel; a `~/Applications/FootballApp.app` törölhető.
 - Daemon: a régi bináris hibás volt (migrációs lánc-eltérés), visszaállítása nem kívánatos; a javított bináris a repó buildjéből bármikor újratelepíthető az install scripttel.
 
+## S101 — időjárás a backendbe, valódi countdown
+
+A felhasználó a 4 javasolt szeletet sorrendben jóváhagyta („mehetnek sorban"). Ez az 1. szelet; a `main` ágon.
+
+### Változott
+
+- [x] `db/migrations/0024_weather_cache.sql` — `ops.weather_cache` (kulcs: 2 tizedesre kerekített koordinátapár, payload jsonb, `captured_at`, `observed_at`, `next_refresh_at`, source; 7 napos korlát). Tranzakciós, rollback a fájl végén. Táblaszám 50 → **51** (`scripts/db-check.sh`, `storage/tests/connection.rs` frissítve).
+- [x] `rust/crates/ingest/src/weather.rs` — kulcs nélküli, read-only Open-Meteo fetcher 5 s időkorláttal, 64 KiB válasz-korláttal, tartalomtípus- és koordináta-ellenőrzéssel; `weather_location_key`, `parse_observed_at`, `WEATHER_REFRESH_SECS = 900`. A reqwest workspace-konfigja nem hordozza a `.query()` helperhez kellő feature-t, ezért az URL épített (a koordináták validált számok).
+- [x] `rust/crates/storage/src/repositories/weather.rs` — cache get/upsert; a `test_support` TRUNCATE-listája kiegészült az új táblával.
+- [x] `rust/crates/api/src/routes/weather.rs` — `GET /v1/weather?latitude=&longitude=` (opcionális paraméterek, alap Budapest), Read token, cache-hit vagy friss hívás, hiba esetén elavult cache `stale: true`-val, különben 503. Új `AppError::service_unavailable`. OpenAPI: 12 → **13** útvonal, `WeatherResponse` séma, új tag.
+- [x] Kliens: `LocalWeatherService` (csak `127.0.0.1`, Bearer token, koordinátákat nem tárolja/naplózza), `WeatherRefreshMetadata` (async protokollmetódus, actor-tároló), `WeatherModel` a backend metaadatokat közvetíti, `HomeHeader` a countdown-t a backend `next_refresh_at`-jéből számolja (csak ha nincs ilyen, marad a régi 6 órás becslés). A forráscímke „helyi API (Open-Meteo)" és az „elavult adat" jelzés is megjelenik.
+
+### Mért eredmény
+
+- [x] Élő daemon: pid **13971**, port **58583**. `GET /v1/weather` → 200, `temperature_c 3.0`, `weather_code 0`, `captured_at 08:21:37Z`, `next_refresh_at 08:36:37Z`, `stale false`. A DB-ben 1 cache-sor (`47.50,19.04`). `GET /openapi.json` → 13 útvonal, `/v1/weather` jelen.
+- [x] Élő app: pid **16680**. AX: `home.stat.weather` → „Időjárás: 3,3 °C, Derült, Cserszegtomaj, saját helyzet, **élő adat**" — a kliens nem hívja közvetlenül az Open-Meteo-t.
+- [x] Múltbeli napon (11-22, 619 meccs, nincs élő meccs) a countdown: „Frissítés: **14:36**, következő frissítés. A következő adatfrissítés **09:37** körül várható." — ez a DB `next_refresh_at` (09:36:37) alapján, nem a régi 6 órás becslés.
+
+### Futott ellenőrzések (mért)
+
+- [x] `cargo test --workspace -- --test-threads=1` → **568 passed / 0 failed**, 105 teszt-bináris.
+- [x] `cargo clippy --workspace --all-targets -- -D warnings` → 0 figyelmeztetés; `cargo fmt --all --check` → 0.
+- [x] `./scripts/db-reset.sh` → 0; `./scripts/check-foundation.sh` → 0 (51 tábla).
+- [x] `swift test --package-path apps/FootballAppCore` → **121 teszt / 18 suite, 0 hiba** (új: `localServiceUsesLocalApiAndExposesBackendSchedule`).
+- [x] `xcodebuild test … -only-testing:FootballAppTests` → **74 teszt, 0 failure** (új: `testBackendScheduleDrivesCountdownMetadata`).
+- [x] `./scripts/run-ui-tests.sh -parallel-testing-enabled NO` → **74 app + 8 UI teszt, 0 failure; TEST SUCCEEDED**.
+- [x] `git diff --check` → 0 hiba.
+
+### Visszaállás / korlátok
+
+- Visszaállás: `git revert` a szelet commitjára; a 0024 migráció visszaállítása `DROP TABLE ops.weather_cache;` + a `_sqlx_migrations` 0024 sorának törlése (külön, egyeztetett lépés). A kliens visszaáll a napszak-alapú fejlécre, ha a végpont nem elérhető.
+- Nem ellenőrzött: a Weather tile VoiceOver-beszédhangja; a `stale: true` ág élőben (csak unit teszt); a képernyőkép nem került fájlba.
+- A api crate új belső függőséget kapott (`football-ingest`) — új külső csomag, kulcs vagy hálózati engedély nem.
+
 ## Következő döntési pont
 
-A felhasználóval egyeztetendő, melyik fejlesztési szelet jön:
+A felhasználó a négy szeletet sorban jóváhagyta; az 1. kész. Soron következik:
 
-1. **(Ajánlott)** Időjárás a backendbe + valódi countdown — lezárja az S100 nyitott pontját, a kliens teljes egészében a `127.0.0.1` API-ról kap adatot.
-2. Bíró-identitás policy + referee-ország séma — napi ~168 auto-create entitás helyett tudatos döntés (migrációval).
-3. Fázis-2 kilépési feltételek (keresés, játékosoldal teljes adattartalma, VoiceOver/billentyűzet) — ez nyitja meg a fázis-3 live utat.
+2. **Bíró-identitás policy + referee-ország séma** — a feltárás szerint 564 official névből mindössze **1** oldható fel (1195 entitásból 994 rövid alak), ezért nem elég az országoszlop: a policy részeként a rövid alakok kezelését is el kell dönteni. Tervezett irány: `core.entity.country_id` (NULL = ismeretlen), fail-closed link, nincs auto-create, nincs fuzzy merge.
+3. Fázis-2 kilépési feltételek (keresés, játékosoldal teljes adattartalma, VoiceOver/billentyűzet).
 4. Adatminőség-maradék: competition-duplikátumok, Liga F forrás-konfliktus, tipplap replay.
 
 Gyors operatív tételek, bármikor elvégezhetők: a „Karcag" review eldöntése és a soccerway breaker újrapróbálása/csendesítése.

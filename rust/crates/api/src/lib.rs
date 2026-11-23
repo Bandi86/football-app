@@ -23,6 +23,7 @@ pub struct AppState {
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/v1/health", get(routes::health::health))
+        .route("/v1/weather", get(routes::weather::weather))
         .route("/openapi.json", get(openapi::document))
         .route("/v1/day/{date}", get(routes::day::day))
         .route("/v1/asset/{*key}", get(routes::asset::asset))

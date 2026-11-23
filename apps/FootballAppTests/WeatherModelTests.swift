@@ -4,6 +4,7 @@ import FootballAppCore
 
 private final class MutableWeatherService: WeatherService, @unchecked Sendable {
     var result: Result<CurrentWeather, WeatherError>
+    var metadata: WeatherRefreshMetadata?
 
     init(result: Result<CurrentWeather, WeatherError>) {
         self.result = result
@@ -11,6 +12,10 @@ private final class MutableWeatherService: WeatherService, @unchecked Sendable {
 
     func currentWeather() async throws -> CurrentWeather {
         try result.get()
+    }
+
+    func refreshMetadata() async -> WeatherRefreshMetadata? {
+        metadata
     }
 }
 
@@ -38,6 +43,21 @@ final class WeatherModelTests: XCTestCase {
         XCTAssertEqual(model.status, .failed)
         XCTAssertTrue(model.isLive, "A korábbi megfigyelés nem vész el hálózati hiba miatt")
         XCTAssertEqual(model.current?.weatherCode, 61)
+    }
+
+    func testBackendScheduleDrivesCountdownMetadata() async {
+        let now = Date()
+        let service = MutableWeatherService(result: .success(sample))
+        service.metadata = WeatherRefreshMetadata(
+            capturedAtUTC: now,
+            nextRefreshAtUTC: now.addingTimeInterval(900),
+            stale: true
+        )
+        let model = WeatherModel(service: service)
+        await model.load()
+        XCTAssertEqual(model.nextRefreshAtUTC, service.metadata?.nextRefreshAtUTC)
+        XCTAssertEqual(model.refreshCycle ?? 0, 900, accuracy: 1)
+        XCTAssertTrue(model.weatherIsStale)
     }
 
     func testInitialFailureLeavesHeaderInFallbackMode() async {

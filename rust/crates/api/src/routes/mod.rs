@@ -7,3 +7,4 @@ pub mod match_detail;
 pub mod ops;
 pub mod team;
 pub mod verification;
+pub mod weather;

@@ -105,4 +105,48 @@ private final class WeatherStubURLProtocol: URLProtocol {
             #expect(error == .unavailable)
         }
     }
+
+    @Test func localServiceUsesLocalApiAndExposesBackendSchedule() async throws {
+        defer { WeatherStubURLProtocol.handler = nil }
+        let captured = CapturedRequest()
+        let now = Date()
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let capturedAt = formatter.string(from: now)
+        let nextRefreshAt = formatter.string(from: now.addingTimeInterval(900))
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [WeatherStubURLProtocol.self]
+        let service = LocalWeatherService(
+            baseURL: URL(string: "http://127.0.0.1:49355")!,
+            readToken: "read-teszt-token",
+            session: URLSession(configuration: configuration)
+        )
+        WeatherStubURLProtocol.handler = { request in
+            captured.store(request)
+            let body = """
+            {"temperature_c":7.5,"apparent_c":4.1,"humidity_pct":88,"wind_speed_kmh":9.2,
+             "weather_code":61,"is_day":false,"observed_at":"\(capturedAt)",
+             "captured_at":"\(capturedAt)","next_refresh_at":"\(nextRefreshAt)",
+             "stale":false,"source":"open-meteo"}
+            """.data(using: .utf8)!
+            return (self.response(request.url, 200), body)
+        }
+
+        let weather = try await service.currentWeather()
+        #expect(weather.temperatureC == 7.5)
+        #expect(weather.kind == .rain)
+        #expect(weather.isDay == false)
+        #expect(weather.observedAtUTC != nil)
+
+        let request = try #require(captured.value)
+        let url = try #require(request.url)
+        #expect(url.host == "127.0.0.1")
+        #expect(url.path == "/v1/weather")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer read-teszt-token")
+
+        let storedMetadata = await service.refreshMetadata()
+        let metadata = try #require(storedMetadata)
+        #expect(metadata.nextRefreshAtUTC != nil)
+        #expect(metadata.stale == false)
+    }
 }

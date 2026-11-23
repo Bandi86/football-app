@@ -60,6 +60,16 @@ impl AppError {
         }
     }
 
+    /// Külső, nem kötelező forrás nem elérhető és nincs használható cache.
+    pub fn service_unavailable(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            code: "SERVICE_UNAVAILABLE",
+            message: message.into(),
+            conflict_match_id: None,
+        }
+    }
+
     /// A natural key más meccsre illeszkedik: 409, a válaszban a másik id.
     pub fn conflict(existing_match_id: Uuid) -> Self {
         Self {

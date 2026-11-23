@@ -754,6 +754,7 @@ dependencies = [
  "axum",
  "chrono",
  "football-domain",
+ "football-ingest",
  "football-storage",
  "football-worker",
  "http-body-util",

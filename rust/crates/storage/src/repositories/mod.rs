@@ -15,4 +15,5 @@ pub mod raw;
 pub mod team;
 pub mod trust;
 pub mod verification;
+pub mod weather;
 pub mod worker;
