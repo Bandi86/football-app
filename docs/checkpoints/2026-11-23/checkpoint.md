@@ -171,6 +171,10 @@ A felhasználó a négy szeletet sorban jóváhagyta; az 1., 2. és a 3. megval�
 
 - **3. maradék — játékosoldal teljes adattartalma: HALASZTVA (felhasználói döntés).** Read-only mérés: **0** player entitás, **0** `fact.match_player_stats` / `season_player_stats` / `match_lineups` / `player_availability` sor, **9 156** különböző szöveges játékosnév a `match_incidents`-ben (0 entitás-link), `core.player` és `player_team_spell` nem létezik. A felhasználó 2026-11-23-i döntése: „terjünk ki erre később részletesen — a játékosadatokhoz elemzés és kutatás kell, hogy a megfelelő módon legyen mentve, kezelve, megjelenítve és teljes részletességgel"; **jövőbeli megbeszélnivalóként rögzítve**, most nem indul adatbetöltés.
 - Akadálymentességi maradék: a checklist `:155-157` korlátjai (menük, naptár, sheet vezérlői a Tab-körben), szűrők perzisztenciája, Reduce Motion / Cmd+R emberi igazolása; a VoiceOver-hang tudatosan kihagyva (`:77-79`).
-- 4. Adatminőség-maradék: competition-duplikátumok, Liga F forrás-konfliktus, tipplap replay.
+- 4. Adatminőség-maradék: a Liga F rész lezárva (S104a). Marad két **döntést igénylő** tétel:
+  - **Verseny-duplikátumok**: a szoros definíció (azonos fold név + azonos ország) mérve **0** — a korábbi CL/BO/CR klasztereket az S95/S97 már feloldotta. A fennmaradó 4 GB ghost pár (Championship / League One / League Two / National League, GB-ENG túlélő 0 meccses GB-SCT duplikátumokkal) és 1 AT residual competition-sor **nem** automatikusan merge-elhető: a GB-párokat a `competition_merge.rs:227-232` ország-guard blokkolja, és a GB alrégiók összevonása policy-döntés (a bíró-ország policyhoz hasonlóan külön egyeztetés kell).
+  - **Tipplap replay**: a múltbeli napok nyers HTML-je megvan az objektumtárban, de a parser dátum-guardja fail-closed, és **nincs produkciós út** a tárolt artifactból újra `stage.observation` → kanonikus meccs felé (a `reverify` csak ellenőriz, nem materializál). Ez **új képesség** (offline replay az ObjectStore-ból, hálózat nélkül), nem gyors adatrevízió; robots/rate-limit (AGENTS.md §7) nem sérülne, de a canonicalizációs út miatt több szeletes munka.
+
+Ezekről a felhasználóval kell egyeztetni; egyiket sem oldottuk meg kitalált adattal vagy a guard megkerülésével.
 
 Gyors operatív tételek, bármikor elvégezhetők: a „Karcag" review eldöntése és a soccerway breaker újrapróbálása/csendesítése.
