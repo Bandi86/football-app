@@ -37,6 +37,7 @@ use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
 mod competitions;
+mod player_import;
 mod tipplap_replay;
 
 /// S2b-2: a TRUST_LEVEL + odds trust szabálykészlet verziója (a tickével azonos).
@@ -266,6 +267,17 @@ enum Command {
         to: NaiveDate,
         #[arg(long)]
         limit: Option<i64>,
+    },
+    /// Játékosadatok importja a már tárolt helyi research JSON-ekből,
+    /// hálózat nélkül. Alapból dry-run; csak stabil forrás-ID alapján hoz létre
+    /// játékosentitást (exact_external_id, nincs fuzzy merge).
+    PlayerImport {
+        #[arg(long)]
+        from: NaiveDate,
+        #[arg(long)]
+        to: NaiveDate,
+        #[arg(long)]
+        apply: bool,
     },
     /// Tipplap replay: a már tárolt nyers HTML újrafeldolgozása a jelenlegi
     /// parserrel, hálózati kérés nélkül. Alapból dry-run.
@@ -1487,6 +1499,36 @@ async fn main() -> Result<()> {
                     .map(|(kind, count)| format!("{kind} {count}"))
                     .collect();
                 println!("pending review: {}", summary.join(", "));
+            }
+        }
+        Command::PlayerImport { from, to, apply } => {
+            let api_dir = PathBuf::from(std::env::var("FOOTBALL_RESEARCH_API_DIR").unwrap_or_else(
+                |_| {
+                    format!(
+                        "{}/Library/Application Support/FootballResearch/api/v1",
+                        std::env::var("HOME").unwrap_or_else(|_| ".".to_string())
+                    )
+                },
+            ));
+            let report = player_import::run(&pool, &api_dir, from, to, apply).await?;
+            println!(
+                "player import {from}..{to}: {} fájl / {} meccs / {} játékos létrehozva, \
+                 {} lineup / {} stat / {} lövés / {} tagság sor{}",
+                report.files,
+                report.matches,
+                report.players_created,
+                report.lineup_rows,
+                report.stat_rows,
+                report.shot_rows,
+                report.spell_rows,
+                if report.applied {
+                    ""
+                } else {
+                    " (dry-run — nem történt írás)"
+                }
+            );
+            for skip in report.skipped.iter().take(10) {
+                println!("  kihagyva: {skip}");
             }
         }
         Command::TipplapReplay { from, to, apply } => {

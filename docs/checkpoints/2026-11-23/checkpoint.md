@@ -195,9 +195,37 @@ A felhasználó „mehetnek a lépések" felhatalmazására a nyitott pontok sor
 - [x] **Operátori döntés változatlan**: a breakert nem zártuk erővel, a kvótát nem emeltük, a két terminális jobot nem requeue-oltuk (AGENTS.md §7 + skill). A napi lista egyéb forrásokból kiszolgált (11-23: 117 meccs). A feloldás jövőbeli szelet: megbízható naptár-popup/dayPicker útvonal mérése (jelenleg nincs mérve) vagy a `/tegnap/` cseréje — külön döntés, mert a robots és a rate limit miatt nem lehet vakon kísérletezni.
 - Nem ellenőrzött: a naptár-popup útvonal DOM-ja; a két terminális soccerway job opcionális auditált `cancelled`-re állítása.
 
+## S108 — játékosadatok a helyi research forrásból
+
+A felhasználó döntése: soccerway később; most a **helyi forrás**; a v1 DB és a kutatási rendszer kutatási kérdések. Ez a szelet a már tárolt research JSON-eket használja, hálózat nélkül.
+
+### Változott
+
+- [x] `db/migrations/0026_player_identity.sql` — `core.player` (entity_id, country_id, position_code, date_of_birth) és `core.player_team_spell` (időben érvényes tagság, loan, source, captured_at, UNIQUE kulccsal). Táblaszám 51 → **53** (`db-check.sh`, `connection.rs`, `test_support` TRUNCATE). Az első migráció a kvalifikálatlan index miatt bukott, javítás után `26|player identity` alkalmazva.
+- [x] `rust/crates/ingest/src/research_players.rs` — a research detail JSON `lineups` / `player_statistics` / `shotmap` blokkjainak séma-drift-tűrő olvasója; a `player_id` lehet szám vagy szöveg (a 11-20-i korpuszban 9/617 szöveg). Csak numerikus stat-értékek (formázott szöveg → None, nem 0).
+- [x] `footballctl player-import --from … --to … [--apply]` — kizárólag a már tárolt `api/v1/matches/**/_fm*.json` fájlokból; a játékosentitás **csak stabil `fm:<id>` forrás-ID-ból** jön létre (`exact_external_id`, nincs fuzzy merge, nincs név-alapú auto-create); minden fact-sorhoz `source_id` + `captured_at` (research `meta.generated_at`). Dry-run alapból; `--apply` idempotens (ON CONFLICT DO UPDATE), audit-eseményenként.
+
+### Mért eredmény (dev DB, 2026-11-20)
+
+- [x] Dry-run: **168 fájl / 168 meccs / 4 498 lineup / 64 849 stat / 966 lövés**.
+- [x] Apply: **4 188 játékosentitás, 3 978 lineup, 64 849 stat, 966 lövés, 3 978 tagság-sor**. Újrafuttatás: **0 új duplikátum**, csak 1 korábban hiányzó lövés-player-link pótlódott (`player` név beolvasása után); `player_entity_id IS NULL` minden táblában **0**.
+- [x] Minták: `Marcus Kirchheiner`, mez 10, rating 7,9; `Alexander Ludwig` — „Accurate passes 47", `captured_at=2026-11-22T11:44:31Z` (a research generálási ideje, nem a feldolgozásé).
+- [x] `integrity 11-20` → **OK** (0 duplikátum, 0 árva, 0 review, 0 failed job).
+
+### Visszaállás
+
+- 0026 rollback a migrációban; az import sorai a `research` source_id + `captured_at` alapján azonosíthatók és törölhetők; a létrehozott entitások `identity.source_entity_ref`-ben `exact_external_id`-vel követhetők (`/tmp/s108-before.txt`: minden számláló 0 előtte).
+
+## Kutatási eredmények (döntési alap, 0 írás)
+
+- **v1 adatbázis** (read-only): `public` séma, **196 tábla**; `players` **36 678**, `match_player_stats` **820 752**, `match_shots` **133 351**, `match_lineups` **113 802**, `player_availability` **6 487**, `season_player_stats` **4 413**, player `external_id_map` **39 638 / 35 150 core**, `seasons` 7 498 (1888–2030). A statok ~95%-a 2020 utáni. **Kritikus blokk: nincs v1→v2 meccs-híd** (a v2 `v1-import` source-ref 608 team / **0 match**), a `season_player_stats`-ból hiányzik a `source`/`captured_at` (provenance nem található ki), 1 528 leképezetlen + 3 810 többszörösen leképezett játékos. Ez külön, több szeletes munka + licenc-/időszak-döntések.
+- **Kutatási rendszer** (read-only): 5 448 detail fájl; a nyers FotMob adatban **6 673 eseményhez van `player.id`**, de az exporter **0-t** tesz ki belőle — a legkisebb hasznos bővítés az `events[].player_id/player_in_id/player_out_id` opcionális mező (`R/docs/api-export.py:726-731`, `R/docs/api-schema.py:91-94`), amit a v2 már meglévő `fact.match_incidents.player_source_id` oszlopa fogadni tud új migráció nélkül. **Az R-be írás külön jóváhagyás** (külső rendszer, export séma változás, újraexport).
+
 ## Következő döntési pont
 
-A felhasználó 4 jóváhagyott feladata megvalósítható részben kész; a maradék:
-
-- **Játékos statok / játékosoldal: elemzés elkészült, döntések szükségesek.** Mért helyzet: a séma (`fact.match_player_stats`, `match_lineups`, `match_shots`, `season_player_stats`, `player_availability`) megvan de **mind üres (0 sor)**; `core.entity.kind='player'` **0**; `fact.match_incidents` **13 077 sor / 9 156 primer + 5 462 related név (unió 13 085)**, entitás-link nélkül. Ugyanakkor a helyi research korpuszban **5 448 JSON** van: lineups **30 984 player-id**, player_statistics **21 620 FotMob-id**, events **22 603 név**, shotmap, injuries, season_statistics — de a `research.rs` adapter csak `meta/uid/odds/events/team_statistics` mezőket olvas, a játékos-mezőket a serde eldobja. A 13 085 név 9 058-hoz egyetlen csapatkontextus tartozik (tehát a legtöbbnél van kontextus), de a játékos saját országa csak a forrás lineupsban van. Hiányzik: `core.player`, `player_team_spell`, read model, API, UI. A felhasználónak kell dönteni: (1) identitás-policy (auto-create vs egzakt-only vs megjelenítés-only), (2) forrásprioritás (FotMob/Opta vs ESPN/Livescore), (3) engedélyezett-e a már helyben lévő JSON-ek kanonikus betöltése (AGENTS.md §6), (4) mi legyen a 13 ezer szöveges névvel, (5) PII/market adat tárolása, (6) as-of hatók. Javasolt szeletrend: P0 policy-doc → P1 read-only név/kontextus-elemzés → P2 séma → P3 offline ingest → P4 API → P5 kliens → P6 historikus backfill.
-- Akadálymentességi maradék: a checklist `:155-157` korlátjai (menük, naptár, sheet vezérlői a Tab-körben), szűrők perzisztenciája, Reduce Motion / Cmd+R emberi igazolása; a VoiceOver-hang tudatosan kihagyva.
+- **Játékos API + UI**: a most betöltött lineup/stat/shots adatokhoz read model, `GET /v1/player/{id}` és játékosoldal kell (kontrakt-fixture, AX-címkék, UI-teszt). Erre külön szelet.
+- **Több nap betöltése**: a 16 napos research korpusz (2026-11-13…11-28) dry-run mérése után `player-import` tartományra; döntés, meddig érdemes (a forrás csak friss ablak).
+- **v1 játékos-import**: külön engedély kell a forrásokra (fotmob/statsbomb/transfermarkt licence), az időszakra (teljes 1958–2026 vs 2015+) és a meccs-hídra; a `season_player_stats` provenance-a nem található ki.
+- **Kutatási export bővítése**: `events[].player_id` az R-ben — írási jog + újraexport szükséges (külön döntés).
+- **soccerway**: dayPicker/-popup útvonal mérése később; a breaker jelenleg nyitva marad.
+- Akadálymentességi maradék: menük/naptár/sheet vezérlői a Tab-körben, szűrők perzisztenciája, Reduce Motion/Cmd+R; VO-hang tudatosan kihagyva.
