@@ -328,6 +328,13 @@ Döntés: a **v1 teljes importját félretesszük**; a múltbeli napokat a resea
 
 - V2: a betöltött job és sorok törlése source_id (`research`) + `captured_at` / `time_window='2026-11-12'` alapján; a research könyvtár `2026/11/12` és `api/v1/**/2026-11-12*` újragenerálható.
 
+### Sofascore referencia-lista rögzítése (11-12)
+
+- [x] A felhasználó által megadott teljes Sofascore-lista (https://www.sofascore.com/football/2026-11-12) elmentve: `~/Library/Application Support/FootballResearch/docs/sofascore-snapshots/2026-11-12.txt` (1753 sor, git-en kívül — nyers payload nem kerül a repóba).
+- [x] Összehasonlító manifest: `2026-11-12-comparison.md`. Sofascore **360 verseny / 818 meccs** vs. research **40 verseny / 122 meccs**. Lefedve 16 verseny / 89 meccs (a csoportosak összesítve: Nations League 8, AFCON Qual 9, NCAA 19, NCAA Women 27, CONCACAF 4, Copa del Rey 3). Kimaradt 344 verseny / 729 meccs — szinte kivétel nélkül 1 mecces amatőr/ifjúsági liga.
+- [x] **11/11 kiválasztott eredmény pontosan egyezik** a referenciával (Türkiye 1-2 Belgium, Italy 3-1 France, England 2-1 Croatia, Navalcarnero 2-3 Betis, stb.). A kimaradás **lefedettségi**, nem adatpontossági kérdés.
+- [x] Döntés: **nem készül Sofascore adapter** (túlterhelés, alacsony értékű amatőr farok). A kurált 122-vel haladunk visszafelé. A referencia csak későbbi összehasonlításra szolgál.
+
 ## Következő döntési pont
 
 - **Játékos UI**: a most kész API-hoz játékosoldal (nézet, AX-címkék, UI-teszt, kontrakt-fixture a meglévő DTO-val).
