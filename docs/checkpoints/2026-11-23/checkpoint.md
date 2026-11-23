@@ -335,6 +335,13 @@ Döntés: a **v1 teljes importját félretesszük**; a múltbeli napokat a resea
 - [x] **11/11 kiválasztott eredmény pontosan egyezik** a referenciával (Türkiye 1-2 Belgium, Italy 3-1 France, England 2-1 Croatia, Navalcarnero 2-3 Betis, stb.). A kimaradás **lefedettségi**, nem adatpontossági kérdés.
 - [x] Döntés: **nem készül Sofascore adapter** (túlterhelés, alacsony értékű amatőr farok). A kurált 122-vel haladunk visszafelé. A referencia csak későbbi összehasonlításra szolgál.
 
+### Visszafelé haladás — 11-11 és 11-10 (napi kapuval)
+
+- [x] **11-11**: backfill 77 detail (verify/deep_verify 0 hiba) → export 77 dok → discovery job → **94 meccs** (előtte 20) → **46 insight sor**, 470 játékos / 11 910 stat → integrity **OK**, coverage 94/80 lezárt/47 verified, odds 22.
+- [x] **11-10**: backfill 92 detail (0 hiba) → export 92 dok → job → **91 meccs** → **71 insight sor**, 688 játékos / 23 669 stat → integrity **OK**, coverage 91/89 lezárt/58 verified, odds 0.
+- [x] Generált `rust/target/debug/incremental` takarítva; lemez 1.8 GiB → **2.5 GiB**.
+- [x] A napi kapu minden napon: backfill → api-export (lokális) → research-sync `--enqueue-only` → worker → match-insight-import + player-import `--apply` → integrity + coverage.
+
 ## Következő döntési pont
 
 - **Játékos UI**: a most kész API-hoz játékosoldal (nézet, AX-címkék, UI-teszt, kontrakt-fixture a meglévő DTO-val).
