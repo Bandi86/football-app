@@ -15,6 +15,8 @@ enum KeyCode {
     static let today: UInt16 = 17
     /// ⌘R — a nap újratöltése.
     static let refresh: UInt16 = 15
+    /// ⌘F — globális keresés (kVK_ANSI_F).
+    static let search: UInt16 = 3
 }
 
 /// Helyi billentyűfigyelő a SwiftUI nézet mögött.

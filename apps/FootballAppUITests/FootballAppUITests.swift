@@ -157,6 +157,34 @@ final class FootballAppUITests: XCTestCase {
         XCTAssertTrue(yesterday.waitForExistence(timeout: 15), "Cmd+← nem váltott az előző napra")
     }
 
+    /// ⌘F megnyitja a globális keresést; a találatok fajtával és szöveggel
+    /// jelennek meg, Escape pedig bezárja a sheetet.
+    func testGlobalSearchCmdFShowsResults() throws {
+        let app = try launch(port: Self.loadedPort)
+        app.activate()
+
+        let today = textElement(valueContains: "MA", in: app)
+        XCTAssertTrue(today.waitForExistence(timeout: 30), "a nap nem töltődött be")
+
+        let searchButton = element("nav.search", in: app)
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 10), "a keresőgomb hiányzik a navigációból")
+        searchButton.click()
+        let field = element("search.field", in: app)
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "a keresés nem nyitotta meg a mezőt")
+
+        field.click()
+        app.typeText("ujpest")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        let result = element("search.result.team", in: app)
+        XCTAssertTrue(result.waitForExistence(timeout: 10), "a csapat-találat nem jelent meg")
+        let matchResult = element("search.result.match", in: app)
+        XCTAssertTrue(matchResult.waitForExistence(timeout: 10), "a meccs-találat nem jelent meg")
+
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(waitForGone(field, timeout: 10), "Escape nem zárta be a keresést")
+    }
+
     // MARK: - Billentyűzet-fókusz a napi listában
 
     /// Tab belép a listába, a nyilak lépkednek, Return megnyitja a részletezőt,

@@ -111,11 +111,42 @@ A felhasználó a 4 szeletet sorban jóváhagyta; ez a 2. szelet. A tudatos poli
 
 - `git revert` a szelet commitjára; 0025 visszaállítása: `ALTER TABLE fact.match_official DROP COLUMN country_code; DROP INDEX idx_entity_country_id; ALTER TABLE core.entity DROP COLUMN country_id;` + a migrációs sor törlése külön lépés.
 
+## S103a — globális keresés (⌘F)
+
+A felhasználó a 4 szeletet sorban jóváhagyta; ez a 3. szelet megvalósítható része.
+
+### Változott
+
+- [x] `rust/crates/storage/src/repositories/search.rs` — ékezet-inszenzitív keresés (`translate()` az SQL-ben, nincs `unaccent` kiterjesztés) csapatokra, versenyekre és az utóbbi 7 nap meccseire; fajtánként 8 találat.
+- [x] `rust/crates/api/src/routes/search.rs` — `GET /v1/search?q=` (min. 2 karakter, max 80, Read token), `SearchResponse`/`SearchHit` sémák; OpenAPI 13 → **14** útvonal; új `search` tag.
+- [x] Kliens Core: `SearchModels.swift`, `SearchService.swift` (`HTTPSearchService`, csak `127.0.0.1`); új kontrakt-fixture `tests/fixtures/contract/search-response.json` és kétoldalas teszt.
+- [x] Kliens app: `SearchModel.swift`, `SearchView.swift` (fajta + szöveges címke, AX-címkék), `nav.search` gomb `⌘F` shortcut-tal, a `KeyboardMonitor` is kezeli a ⌘F-et; `SearchField` most AX-címkét kap.
+- [x] UI-harness: fixture-szerver `/v1/search` útvonala + `testGlobalSearchCmdFShowsResults` (9. UI-teszt).
+
+### Mért eredmény
+
+- [x] Élő daemon: port **64853**. `GET /v1/search?q=ujpest` → az ékezetes „Újpest" csapat és meccsei is megtalálhatók; `?q=x` → **400**; `/openapi.json` → **14** útvonal, `/v1/search` jelen.
+- [x] Élő app: `nav.search` AX-gomb jelen; a `swift scripts/ax-key.swift FootballApp cmd-f` után `search.field` AX-mező jelen („Globális keresés").
+
+### Futott ellenőrzések (mért)
+
+- [x] `cargo test --workspace -- --test-threads=1` → **574 passed / 0 failed**; `cargo clippy … -D warnings` → 0; `cargo fmt --all --check` → 0; `check-foundation.sh` → 0.
+- [x] `swift test --package-path apps/FootballAppCore` → **123 teszt / 19 suite**; `xcodebuild test …FootballAppTests` → **76 teszt, 0 failure**.
+- [x] `./scripts/run-ui-tests.sh -parallel-testing-enabled NO` → **76 app + 9 UI teszt, 0 failure; TEST SUCCEEDED**.
+- [x] `git diff --check` → 0.
+
+### Visszaállás / korlátok
+
+- `git revert` a szelet commitjára; nincs új migráció, nincs adatírás. A meccs-találatok csak 7 napos ablakból jönnek (költségkorlát, dokumentált).
+- Az XCUITest `typeKey("f", .command)` nem jutott el a KeyboardMonitorhoz, ezért a UI-teszt a `nav.search` gombot kattintja; a ⌘F működését külön, valódi CGEventtel igazoltuk az élő appon.
+- Nem ellenőrzött: a keresési találatok VoiceOver-beszédhangja; a sheet vizuális megjelenése képernyőképen.
+
 ## Következő döntési pont
 
-A felhasználó a négy szeletet sorban jóváhagyta; az 1. és 2. kész. Soron következik:
+A felhasználó a négy szeletet sorban jóváhagyta; az 1., 2. és a 3. megvalósítható része kész.
 
-3. **Fázis-2 kilépési feltételek** — a feltárás szerint a **játékosoldal teljes adattartalma blokkolt**: 0 player entitás, 0 játékos-statisztika, 9 156 szöveges játékosnév, `core.player`/`player_team_spell` nem létezik. Ez valós adatfeltöltést és review-t igényel (AGENTS.md §6: külön, explicit engedélyezett fázis) — nem lehet UI-val vagy kitalált adattal lezárni. A megvalósítható rész: globális keresés (Cmd+F) + akadálymentességi maradék; a játékos-adatfázisról a felhasználót kell kérdezni.
-4. Adatminőség-maradék: competition-duplikátumok, Liga F forrás-konfliktus, tipplap replay.
+- **3. maradék — játékosoldal teljes adattartalma: BLOKKOLT.** Read-only mérés: **0** player entitás, **0** `fact.match_player_stats` / `season_player_stats` / `match_lineups` / `player_availability` sor, **9 156** különböző szöveges játékosnév a `match_incidents`-ben (0 entitás-link), `core.player` és `player_team_spell` nem létezik. A „teljes tartalom" nem zárható le UI-val vagy kitalált adattal: valós forrásadat betöltése és review szükséges, ami az **AGENTS.md §6 szerint külön, explicit engedélyezett fázis**. A felhasználó döntése szükséges.
+- Akadálymentességi maradék: a checklist `:155-157` korlátjai (menük, naptár, sheet vezérlői a Tab-körben), szűrők perzisztenciája, Reduce Motion / Cmd+R emberi igazolása; a VoiceOver-hang tudatosan kihagyva (`:77-79`).
+- 4. Adatminőség-maradék: competition-duplikátumok, Liga F forrás-konfliktus, tipplap replay.
 
 Gyors operatív tételek, bármikor elvégezhetők: a „Karcag" review eldöntése és a soccerway breaker újrapróbálása/csendesítése.

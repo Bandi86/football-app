@@ -31,6 +31,9 @@ struct HomeView: View {
     @State private var selected: SelectedMatch?
     @State private var focus: AppFocus?
     @State private var showCalendar = false
+    /// ⌘F globális keresés (csapat / verseny / meccs).
+    @State private var showSearch = false
+    @State private var searchModel = SearchModel()
     /// A fejléc élő időjárása; hálózat híján napszak-alapú hangulatra esik vissza.
     @State private var weather = WeatherModel()
 
@@ -42,7 +45,8 @@ struct HomeView: View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
                 TopNavigationBar(selected: tab, focused: focus,
-                                 compact: geometry.size.width < 760) { tab = $0 }
+                                 compact: geometry.size.width < 760,
+                                 onSearch: { showSearch = true }) { tab = $0 }
 
                 Rectangle().fill(AppTheme.hairline).frame(height: 1)
 
@@ -62,6 +66,21 @@ struct HomeView: View {
         .background(KeyboardMonitor { keyCode, modifiers in
             handle(keyCode: keyCode, modifiers: modifiers)
         })
+        .sheet(isPresented: $showSearch) {
+            SearchView(model: searchModel) { result in
+                switch result.kind {
+                case "match":
+                    tab = .day
+                    selected = SelectedMatch(id: result.id)
+                case "team":
+                    tab = .teams
+                case "competition":
+                    tab = .competitions
+                default:
+                    break
+                }
+            }
+        }
         .onAppear {
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.4)) { appeared = true }
         }
@@ -143,6 +162,9 @@ struct HomeView: View {
                 return true
             case KeyCode.refresh where modifiers.contains(.command):
                 Task { await model.load() }
+                return true
+            case KeyCode.search where modifiers.contains(.command):
+                showSearch = true
                 return true
             default:
                 return false
@@ -400,6 +422,7 @@ private struct TopNavigationBar: View {
     let focused: AppFocus?
     /// Keskeny ablakban az óra helyet ad a füleknek.
     let compact: Bool
+    let onSearch: () -> Void
     let onSelect: (AppTab) -> Void
     private static let clock: DateFormatter = {
         let formatter = DateFormatter()
@@ -426,6 +449,19 @@ private struct TopNavigationBar: View {
                 pill("Csapatok", tab: .teams, identifier: "teams", active: selected == .teams) { onSelect(.teams) }
                 pill("Üzemeltetés", tab: .ops, identifier: "ops", active: selected == .ops) { onSelect(.ops) }
             }
+
+            Button {
+                onSearch()
+            } label: {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(AppTheme.secondaryText)
+            }
+            .buttonStyle(.plain)
+            .help("Globális keresés (⌘F)")
+            .accessibilityLabel("Globális keresés")
+            .accessibilityIdentifier("nav.search")
+            .keyboardShortcut("f", modifiers: .command)
 
             Spacer()
 

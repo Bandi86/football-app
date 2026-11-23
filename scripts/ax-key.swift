@@ -19,6 +19,7 @@ let keys: [String: (UInt16, CGEventFlags)] = [
     "cmd-right": (124, .maskCommand),
     "cmd-t": (17, .maskCommand),
     "cmd-r": (15, .maskCommand),
+    "cmd-f": (3, .maskCommand),
 ]
 
 func attribute(_ element: AXUIElement, _ name: String) -> String? {

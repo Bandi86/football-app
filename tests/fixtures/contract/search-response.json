@@ -1,0 +1,23 @@
+{
+  "query": "ujpest",
+  "results": [
+    {
+      "kind": "team",
+      "id": "00000000-0000-0000-0000-000000000001",
+      "title": "Újpest",
+      "subtitle": "Magyarország"
+    },
+    {
+      "kind": "competition",
+      "id": "00000000-0000-0000-0000-000000000002",
+      "title": "NB I",
+      "subtitle": "HU"
+    },
+    {
+      "kind": "match",
+      "id": "00000000-0000-0000-0000-000000000003",
+      "title": "Újpest – Győr",
+      "subtitle": "2026-11-22 18:00"
+    }
+  ]
+}

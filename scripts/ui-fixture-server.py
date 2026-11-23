@@ -18,6 +18,7 @@ def main() -> int:
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--fixture", required=True)
     parser.add_argument("--detail-fixture", help="opcionális meccs-részletező JSON")
+    parser.add_argument("--search-fixture", help="opcionális globális keresési JSON")
     args = parser.parse_args()
 
     with open(args.fixture, "rb") as handle:
@@ -30,6 +31,12 @@ def main() -> int:
             detail_payload = handle.read()
         json.loads(detail_payload)
 
+    search_payload = None
+    if args.search_fixture:
+        with open(args.search_fixture, "rb") as handle:
+            search_payload = handle.read()
+        json.loads(search_payload)
+
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -38,6 +45,8 @@ def main() -> int:
                 body, status = payload, 200
             elif self.path.startswith("/v1/match/") and detail_payload is not None:
                 body, status = detail_payload, 200
+            elif self.path.startswith("/v1/search") and search_payload is not None:
+                body, status = search_payload, 200
             elif self.path == "/v1/health":
                 body, status = b'{"status":"ok","service":"footballd"}', 200
             else:

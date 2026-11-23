@@ -14,6 +14,7 @@ use crate::routes::day::{DayMatch, DayResponse};
 use crate::routes::health::HealthResponse;
 use crate::routes::manual::{ManualResultRequest, ManualResultResponse};
 use crate::routes::ops::{OpsIntegrity, OpsSource, OpsStatus};
+use crate::routes::search::SearchResponse;
 use crate::routes::team::TeamDetailResponse;
 use crate::routes::verification::GateRow;
 use crate::routes::weather::WeatherResponse;
@@ -34,6 +35,7 @@ use crate::error::ApiError;
     paths(
         crate::routes::health::health,
         crate::routes::day::day,
+        crate::routes::search::search,
         crate::routes::match_detail::match_detail,
         crate::routes::manual::manual_result,
         crate::routes::asset::asset,
@@ -57,6 +59,8 @@ use crate::error::ApiError;
         TeamDetailResponse,
         GateRow,
         WeatherResponse,
+        SearchResponse,
+        football_storage::repositories::search::SearchHit,
         OpsStatus,
         OpsIntegrity,
         OpsSource,
@@ -78,6 +82,7 @@ use crate::error::ApiError;
     tags(
         (name = "health", description = "Életjel"),
         (name = "nap", description = "Napi meccslista"),
+        (name = "keresés", description = "Globális keresés csapatokra, versenyekre és meccsekre"),
         (name = "meccs", description = "Meccs-részletek"),
         (name = "verseny", description = "Verseny-lista és -adatlap"),
         (name = "csapat", description = "Csapatkereső és -adatlap"),
@@ -122,7 +127,7 @@ mod tests {
         let version = doc["openapi"].as_str().unwrap();
         assert!(version.starts_with("3.1"), "openapi verzió: {version}");
         let paths = doc["paths"].as_object().unwrap();
-        assert_eq!(paths.len(), 13, "dokumentált útvonalak: {paths:?}");
+        assert_eq!(paths.len(), 14, "dokumentált útvonalak: {paths:?}");
         for (path, item) in paths {
             let method = if item.get("get").is_some() {
                 "get"

@@ -485,6 +485,8 @@ struct SearchField: View {
                 .font(.appText(12.5))
                 .foregroundStyle(AppTheme.primaryText)
                 .frame(width: 210)
+                .accessibilityLabel("Keresés: \(placeholder)")
+                .accessibilityIdentifier("field.search")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
