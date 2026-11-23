@@ -342,6 +342,14 @@ Döntés: a **v1 teljes importját félretesszük**; a múltbeli napokat a resea
 - [x] Generált `rust/target/debug/incremental` takarítva; lemez 1.8 GiB → **2.5 GiB**.
 - [x] A napi kapu minden napon: backfill → api-export (lokális) → research-sync `--enqueue-only` → worker → match-insight-import + player-import `--apply` → integrity + coverage.
 
+### Visszafelé haladás — 11-09 és 11-08 (napi kapuval)
+
+- [x] **11-09**: backfill 87 detail (0 hiba, odds 4 — ebből 2 football-data) → export → job → **84 meccs** → **63 insight sor** → integrity **OK**, coverage 84/83 lezárt/5 odds/37 verified.
+- [x] **11-08 (nagy nap)**: backfill **572 detail** (verify/deep_verify 0 hiba; odds **56**, ebből **50 football-data — a v1 adatbázisból**) → export 572 dok → worker **557 meccs** (15 feloldatlan csapat kimaradt) → **482 insight sor**, **4330 játékos / 227 215 stat / 3858 lövés** → integrity **OK** (26 függő review, 0 failed job), coverage 557/553 lezárt/64 odds/259 verified.
+- [x] **Öt nap összesen (11-12 … 11-08)**: 950 research meccs → 892 kanonikus meccs, **721 insight sor**, ~6000 játékos. Minden napon verify/deep_verify 0 hiba és integrity verdict OK.
+- [x] A v1 odds-felhasználás most mérve: 11-08-on **50 football-data odds sor** került be a research-be — a v1 import elkerülhető, a `tools/odds.py` közvetlenül olvassa a v1 `match_odds` tábláját.
+- [x] Generált cache takarítva; lemez 2.3 GiB.
+
 ## Következő döntési pont
 
 - **Játékos UI**: a most kész API-hoz játékosoldal (nézet, AX-címkék, UI-teszt, kontrakt-fixture a meglévő DTO-val).
