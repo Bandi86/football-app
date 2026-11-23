@@ -295,6 +295,39 @@ A felhasználó kérése: játékos API, több nap betöltése, majd minden rés
 - A `rust/target` ismét 20 GiB közelébe nőtt, a szabad hely **1,0 GiB**. A generált `incremental` cache ismét törölhető (6,5 GiB), ha a következő build `No space left`-et ad — adatot nem érint.
 - `git revert` a szelet commitjaira; a `fm:0` tisztítás az `ops.audit_event` payloadjából visszaállítható; a játékosadatok `research` source_id + `captured_at` alapján törölhetők.
 
+## S114 — Historikus backfill pilot (11-12), research alapú
+
+Döntés: a **v1 teljes importját félretesszük**; a múltbeli napokat a research pipeline-pal töltjük fel visszafelé, háttérben, egyszerre egy nappal. A v1-et csak kereszt-ellenőrzésre / hiánypótlásra használjuk.
+
+### Változott (csak adat, kód nem)
+
+- [x] Research: `football.py backfill --from 2026-11-12 --to 2026-11-12 --limit 1` → fetch + enrich (122/122 detail) + odds + verify + deep_verify (0 hiba, 0 figyelmeztetés). `backfill-state.json`: done = 11-19, **11-12**.
+- [x] Research: `api-export.py 2026-11-12` (lokális, hálózat nélkül) → 122 `api/v1/matches` dokumentum + napi envelope (122 meccs).
+- [x] V2: `research-sync.sh 2026-11-12 --enqueue-only` → research discovery job → worker → **116 kanonikus meccs** (6 feloldatlan csapat kimaradt).
+- [x] V2: `footballctl match-insight-import --from 2026-11-12 --to 2026-11-12 --apply` → **59 insight sor** (61 fájl / 59 meccs; 2 hiányzó `fm:` ref).
+- [x] V2: `footballctl player-import … --apply` → **419 játékos, 1550 lineup, 25 821 stat, 325 lövés, 1550 tagság**.
+
+### Mért eredmény
+
+- [x] `integrity --from --to`: **verdict OK** — 0 duplikátum, 0 árva provenance, 0 failed job. (5 függő review, 1 withheld gate, 1 nyitott breaker — ezek globális, nem a pilotból erednek.)
+- [x] `coverage-day`: 116 meccs / 115 lezárt / 115 eredmény / **2 odds** / 53 logó / 40 verified.
+- [x] API `/v1/match/<11-12-i meccs>`: 67 kulcs, insight 7 szekcióval (`fan_poll`, `h2h_streaks`, `odds_markets`, `standings`, `venue_details`, `captured_at`, `source`).
+- [x] Lemez: 2.3 GiB szabad maradt; egy nap ~12–32 MB.
+
+### A v1-gyel kapcsolatos mérés (a Te kérdésedre)
+
+- [x] A v1 `match_odds` táblája **3 820 607 football-data sort** tartalmaz, **2004-08-06 → 2026-11-16** tartományban. A `tools/odds.py` ezt **már most közvetlenül olvassa** — tehát a historikus oddsot nem kell v1 importtal behozni.
+- [x] A pilot napján (11-12) 0 football-data odds sor van — a meccsek többsége egyetemi / kisebb dél-amerikai liga, amit egyik odds-forrás sem fed. Ez **adatelérhetőség, nem pipeline-hiba**.
+
+### Talált dizájn-rés (döntést igényel)
+
+- [x] A `preview_hu` és `prediction` **csak `scheduled` meccsekre** készül (`api-export.py:1376,1380`). Egy múltbeli, lejátszott napon ezért 0/122 — helyette `match_report_hu` keletkezik: **121/122 (11-12)**, 244/246 (11-20), de `generated: true, verified: false`.
+- [x] A `match_report_hu` **nincs** a Rust `SECTIONS` listában (`research_insight.rs:15-25`) és a Swift insight UI-ban sem — így a lejátszott meccsek leggazdagabb szöveges tartalma jelenleg láthatatlan a v2-ben.
+
+### Visszaállás
+
+- V2: a betöltött job és sorok törlése source_id (`research`) + `captured_at` / `time_window='2026-11-12'` alapján; a research könyvtár `2026/11/12` és `api/v1/**/2026-11-12*` újragenerálható.
+
 ## Következő döntési pont
 
 - **Játékos UI**: a most kész API-hoz játékosoldal (nézet, AX-címkék, UI-teszt, kontrakt-fixture a meglévő DTO-val).
