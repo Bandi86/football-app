@@ -14,6 +14,7 @@ use crate::routes::day::{DayMatch, DayResponse};
 use crate::routes::health::HealthResponse;
 use crate::routes::manual::{ManualResultRequest, ManualResultResponse};
 use crate::routes::ops::{OpsIntegrity, OpsSource, OpsStatus};
+use crate::routes::player::PlayerResponse;
 use crate::routes::search::SearchResponse;
 use crate::routes::team::TeamDetailResponse;
 use crate::routes::verification::GateRow;
@@ -44,6 +45,7 @@ use crate::error::ApiError;
         crate::routes::competition::competition_seasons,
         crate::routes::team::teams,
         crate::routes::team::team_detail,
+        crate::routes::player::player_detail,
         crate::routes::verification::gates,
         crate::routes::ops::status,
         crate::routes::weather::weather,
@@ -60,7 +62,13 @@ use crate::error::ApiError;
         GateRow,
         WeatherResponse,
         SearchResponse,
+        PlayerResponse,
         football_storage::repositories::search::SearchHit,
+        football_storage::repositories::player::PlayerDetailRow,
+        football_storage::repositories::player::PlayerSpellRow,
+        football_storage::repositories::player::PlayerAppearanceRow,
+        football_storage::repositories::player::PlayerStatRow,
+        football_storage::repositories::player::PlayerIncidentRow,
         OpsStatus,
         OpsIntegrity,
         OpsSource,
@@ -86,6 +94,7 @@ use crate::error::ApiError;
         (name = "meccs", description = "Meccs-részletek"),
         (name = "verseny", description = "Verseny-lista és -adatlap"),
         (name = "csapat", description = "Csapatkereső és -adatlap"),
+        (name = "játékos", description = "Játékosadatlap: tagság, fellépések, statisztika, események"),
         (name = "asset", description = "Tartalom-címzett blobok"),
         (name = "ops", description = "Üzemeltetési és publikálási kapu"),
         (name = "időjárás", description = "A fejléc időjárása a helyi cache-ből"),
@@ -127,7 +136,7 @@ mod tests {
         let version = doc["openapi"].as_str().unwrap();
         assert!(version.starts_with("3.1"), "openapi verzió: {version}");
         let paths = doc["paths"].as_object().unwrap();
-        assert_eq!(paths.len(), 14, "dokumentált útvonalak: {paths:?}");
+        assert_eq!(paths.len(), 15, "dokumentált útvonalak: {paths:?}");
         for (path, item) in paths {
             let method = if item.get("get").is_some() {
                 "get"

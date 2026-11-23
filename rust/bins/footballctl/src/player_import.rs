@@ -121,6 +121,11 @@ async fn import_lineup(ctx: LineupImport<'_>, players: &[LineupPlayer]) -> Resul
         report,
     } = ctx;
     for player in players {
+        // A forrás néha `id: 0`-t ad placeholderként; ez nem stabil azonosító,
+        // és minden ilyen játékost egy entitásba olvasztana. Fail-closed: kimarad.
+        if player.id <= 0 {
+            continue;
+        }
         let Some(name) = player.name.as_deref().filter(|n| !n.trim().is_empty()) else {
             continue;
         };
@@ -252,11 +257,19 @@ pub async fn run(
                     .push(format!("{uid}: nincs kanonikus meccs-ref"));
                 continue;
             };
-            let (home_team_id, away_team_id): (Uuid, Uuid) =
+            // Egy régi source-ref mutathat már összeolvadt meccsre — ilyenkor
+            // nincs core.match sor; a fájlt kihagyjuk és a riportban jelezzük.
+            let teams: Option<(Uuid, Uuid)> =
                 sqlx::query_as("SELECT home_team_id, away_team_id FROM core.match WHERE id=$1")
                     .bind(match_id)
-                    .fetch_one(pool)
+                    .fetch_optional(pool)
                     .await?;
+            let Some((home_team_id, away_team_id)) = teams else {
+                report
+                    .skipped
+                    .push(format!("{uid}: a meccs sor már nem létezik"));
+                continue;
+            };
             let captured_at = detail
                 .meta
                 .as_ref()
@@ -346,6 +359,9 @@ pub async fn run(
                 .and_then(|l| l.away.as_ref())
                 .and_then(|s| s.team_id);
             for stat in detail.player_statistics.as_deref().unwrap_or_default() {
+                if stat.player_id <= 0 {
+                    continue;
+                }
                 let side = if stat.team_id == home_fm_id && home_fm_id.is_some() {
                     Some("home")
                 } else if stat.team_id == away_fm_id && away_fm_id.is_some() {
@@ -413,6 +429,9 @@ pub async fn run(
                 let Some(player_id) = shot.player_id else {
                     continue;
                 };
+                if player_id <= 0 {
+                    continue;
+                }
                 let source_player_id = format!("fm:{player_id}");
                 let entity_id = resolve_player(
                     pool,

@@ -5,6 +5,7 @@ pub mod health;
 pub mod manual;
 pub mod match_detail;
 pub mod ops;
+pub mod player;
 pub mod search;
 pub mod team;
 pub mod verification;

@@ -270,10 +270,34 @@ A felhasználó jóváhagyta az R-be írást, de kikötötte: **nem elég egy na
 
 - Az R nincs git alatt: visszaállítás = a három hozzáadott kódrészlet törlése a két Python fájlból és az érintett napok újraexportja. A v2 oldal `git revert`-tel visszafordítható; a DB-ben az ID-k a `research` source + `captured_at` alapján törölhetők (előtte 0 sor).
 
+## S110 — 16 napos játékos-import + játékos API + teljes ellenőrzés
+
+A felhasználó kérése: játékos API, több nap betöltése, majd minden részletes ellenőrzése; v1 és soccerway később.
+
+### Változott
+
+- [x] `player-import` hibatűrése: a már összeolvadt meccsre mutató régi source-refek kihagyása (`fetch_optional` + riport), nem vak `fetch_one`.
+- [x] **Fail-closed `id` ellenőrzés**: a forrás `id: 0` placeholder értéke 474 lineupot és 474 tagságot olvasztott egyetlen „Abdalla Mugib" entitásba (281 meccs, 431 csapat, ~90 verseny). Az import most `id <= 0` esetén kihagyja; a hibás sorok és entitás auditalt tisztítása (`player_import_invalid_id_cleanup`, 474+474 törölt sor).
+- [x] Új `rust/crates/storage/src/repositories/player.rs` (read model: név/ország, tagság, fellépések, statisztika, események) és `rust/crates/api/src/routes/player.rs` — `GET /v1/player/{id}?limit=`, Read token, 15. OpenAPI-útvonal.
+- [x] Az események a meglévő `player_source_id` ↔ `source_entity_ref` (`'fm:' || id`) kapcsolón kötődnek — név-alapú találgatás nélkül. A `numeric` → `f64` dekódolási hibát SQL `::double precision` kastsszal javítottuk.
+- [x] Kontrakt-fixture `tests/fixtures/contract/player-response.json` (valódi API-válaszból), Rust round-trip teszt, Swift `PlayerModels.swift` + `PlayerContractTests`.
+
+### Mért eredmény
+
+- [x] **16 napos import** (11-13…11-28): 2 598 fájl / 2 550 meccs / **31 042 játékosentitás / 33 182 lineup / 485 518 stat / 7 702 lövés / 33 182 tagság**. 48 fájl kihagyva (nincs `_fm` JSON, illetve hiányzó/összeolvadt meccs-ref) — a riportban jelezve.
+- [x] **Adataudit**: 0 `fm:` érvénytelen referencia, 0 duplikált player source-ref, 0 NULL `player_entity_id`, 0 hiányzó `captured_at` a lineup/stat/shots/incidents táblákban; 28 546/31 042 játékosnak van országa; minden sor `research` forrásból.
+- [x] **API**: `/v1/health`, `/v1/day`, `/v1/player/{id}`, `/v1/search`, `/v1/weather`, `/openapi.json` — mind **200**. A játékosválasz élőben: `Juan Sanabria (UY)` 3 tagság/3 fellépés/50 stat; `Jobson (BR)` 3 esemény stabil ID-vel.
+- [x] `integrity 11-13…11-28` → **OK** (0 duplikátum, 0 árva, 0 review, 0 failed job; 1 withheld, 1 nyitott breaker — ismert); `reverify 11-22` → **619 meccs / 0 hiba**; `dedupe` → 0 duplikátum; `coverage 11-20` → 260 meccs.
+- [x] **Teljes kapu-lánc**: `cargo test` **578 passed / 0 failed**, clippy 0, fmt 0, build OK; `swift test` **124 teszt / 20 suite**; app tesztek **TEST SUCCEEDED**; UI tesztek **TEST SUCCEEDED**; `daily-check.sh` **EXIT=0**; `git diff --check` 0.
+
+### Kockázat / visszaállás
+
+- A `rust/target` ismét 20 GiB közelébe nőtt, a szabad hely **1,0 GiB**. A generált `incremental` cache ismét törölhető (6,5 GiB), ha a következő build `No space left`-et ad — adatot nem érint.
+- `git revert` a szelet commitjaira; a `fm:0` tisztítás az `ops.audit_event` payloadjából visszaállítható; a játékosadatok `research` source_id + `captured_at` alapján törölhetők.
+
 ## Következő döntési pont
 
-- **Játékos API + UI**: a betöltött lineup/stat/shots és most az esemény-ID-k alapján read model, `GET /v1/player/{id}`, játékosoldal (kontrakt, AX-címkék, UI-teszt).
-- **Több nap játékos-import**: a 16 napos korpuszra `player-import` tartományban; ezután játékosentitások száma ~tízezer lesz, mérni kell az átfedést.
+- **Játékos UI**: a most kész API-hoz játékosoldal (nézet, AX-címkék, UI-teszt, kontrakt-fixture a meglévő DTO-val).
 - **v1 játékos-import**: külön engedély licencre (fotmob/statsbomb/transfermarkt), időszakra és meccs-hídra; a user kifejezetten későbbre halasztotta.
 - **soccerway**: dayPicker/-popup útvonal mérése később; a breaker nyitva marad.
 - Akadálymentességi maradék: menük/naptár/sheet vezérlői a Tab-körben, szűrők perzisztenciája, Reduce Motion/Cmd+R; VO-hang tudatosan kihagyva.
