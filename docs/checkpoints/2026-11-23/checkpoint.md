@@ -141,11 +141,35 @@ A felhasználó a 4 szeletet sorban jóváhagyta; ez a 3. szelet megvalósíthat
 - Az XCUITest `typeKey("f", .command)` nem jutott el a KeyboardMonitorhoz, ezért a UI-teszt a `nav.search` gombot kattintja; a ⌘F működését külön, valódi CGEventtel igazoltuk az élő appon.
 - Nem ellenőrzött: a keresési találatok VoiceOver-beszédhangja; a sheet vizuális megjelenése képernyőképen.
 
+## S104a — Liga F forrás-konfliktus és crosswalk (adatrevízió)
+
+A 4. szelet első, legkisebb része. Nincs új kód, nincs migráció, nincs hálózati hívás — csak auditalt, visszafordítható adatrevízió.
+
+### Változott (adat)
+
+- [x] A gyökér nem a 11-21-i forrás volt: a soccerway capture-scoped `team_identity` megfigyelései a helyes `Eibar N–Atletico Madrid N` és `Logrono N–Alaves N` párokat adták, de az aktív `identity.source_entity_ref` sorok **2026-11-19 12:37-ből** (11-18-i capture) származtak, ahol ugyanazok a source-ID-k még `Levante N`/`Cacereno N` neveket hordoztak. Ez a crosswalk-elavulás okozta a „Logroño"/hamis ellenfél-jelenséget.
+- [x] `footballctl identity repair-matches --from 2026-11-21 --to 2026-11-22 --apply` → **24 vizsgált, 8 már helyes, 14 átállítva, 0 merge, 0 visszatartva, 2 feloldhatatlan, 0 hiba**. A két Liga F sor ezután: `Eibar N–Atletico Madrid N` és `Logrono N–Alaves N`.
+- [x] A két soccerway sor duplikáltja a research/FotMob által megerősített lezárt meccsnek (16:00Z ill. 18:00Z, `1–3`, ill. `3–1`, 12. forduló). Auditált `dedupe pair`:
+  - `01a1fb69-cac2-…` → túlélő `01a1fa06-13ed-…` (merge `01a207b9-8c32-…`)
+  - `01a1fb69-cac4-…` → túlélő `01a1fa06-13ee-…` (merge `01a207b9-8c51-…`)
+- [x] A crosswalk-javítás két további, Serie C-beli duplikátumot is felszínre hozott; `footballctl dedupe matches --date 2026-11-21 --to 2026-11-22 --apply` → **2 csoport, 2 merge**, túlélők `01a1fa06-6b8e-…` és `01a1fa06-6b92-…`.
+
+### Futott ellenőrzések (mért)
+
+- [x] `integrity --from 2026-11-21 --to 2026-11-22` → a javítás közben ideiglenesen **FAIL** (2 duplikált kickoff/fixture, 1 azonos pillanat), a két Serie C merge után **OK** (0/0/0/0, 1 függő review, 1 withheld, 1 failed job, 1 nyitott breaker).
+- [x] `reverify --from 2026-11-21 --to 2026-11-21` → **909 meccs, 0 hiba**, withheld **0** (előtte 2), 516 verified / 393 provisional.
+- [x] `coverage-day 11-21` → **905 meccs / 848 lezárt / 0 withheld**; a Liga F nap API 4 sora közül a spanyol Liga F 3 meccs **mind finished** (2–1, 1–3, 3–1); a Liga F `open_past` 2 → **0**.
+- [x] Audit: `identity_repair_match` **14** esemény; a `dedupe pair` és a `dedupe matches` merge-ek `ops.dedupe_archive`-ban, túlélő/áldozat payloaddal.
+
+### Visszaállás
+
+- Minden lépés auditált: a `repair-matches` átállításai az `ops.audit_event`-ben, a merge-ek az `ops.dedupe_archive.payload`-jában teljes előzménnyel rendelkeznek. Visszaállítás = az archív payloadból való visszaírás (nincs CLI undo), illetve az átállított `core.match` csapat-ID-k visszaállítása a `/tmp/s104-before-distinct.tsv` pillanatképből (25 sor).
+
 ## Következő döntési pont
 
 A felhasználó a négy szeletet sorban jóváhagyta; az 1., 2. és a 3. megvalósítható része kész.
 
-- **3. maradék — játékosoldal teljes adattartalma: BLOKKOLT.** Read-only mérés: **0** player entitás, **0** `fact.match_player_stats` / `season_player_stats` / `match_lineups` / `player_availability` sor, **9 156** különböző szöveges játékosnév a `match_incidents`-ben (0 entitás-link), `core.player` és `player_team_spell` nem létezik. A „teljes tartalom" nem zárható le UI-val vagy kitalált adattal: valós forrásadat betöltése és review szükséges, ami az **AGENTS.md §6 szerint külön, explicit engedélyezett fázis**. A felhasználó döntése szükséges.
+- **3. maradék — játékosoldal teljes adattartalma: HALASZTVA (felhasználói döntés).** Read-only mérés: **0** player entitás, **0** `fact.match_player_stats` / `season_player_stats` / `match_lineups` / `player_availability` sor, **9 156** különböző szöveges játékosnév a `match_incidents`-ben (0 entitás-link), `core.player` és `player_team_spell` nem létezik. A felhasználó 2026-11-23-i döntése: „terjünk ki erre később részletesen — a játékosadatokhoz elemzés és kutatás kell, hogy a megfelelő módon legyen mentve, kezelve, megjelenítve és teljes részletességgel"; **jövőbeli megbeszélnivalóként rögzítve**, most nem indul adatbetöltés.
 - Akadálymentességi maradék: a checklist `:155-157` korlátjai (menük, naptár, sheet vezérlői a Tab-körben), szűrők perzisztenciája, Reduce Motion / Cmd+R emberi igazolása; a VoiceOver-hang tudatosan kihagyva (`:77-79`).
 - 4. Adatminőség-maradék: competition-duplikátumok, Liga F forrás-konfliktus, tipplap replay.
 
