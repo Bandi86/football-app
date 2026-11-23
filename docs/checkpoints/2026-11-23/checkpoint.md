@@ -350,6 +350,14 @@ Döntés: a **v1 teljes importját félretesszük**; a múltbeli napokat a resea
 - [x] A v1 odds-felhasználás most mérve: 11-08-on **50 football-data odds sor** került be a research-be — a v1 import elkerülhető, a `tools/odds.py` közvetlenül olvassa a v1 `match_odds` tábláját.
 - [x] Generált cache takarítva; lemez 2.3 GiB.
 
+## Napi záró összegzés (2026-11-23 16:15)
+
+- [x] **S113 KÉSZ** (`acfa435`): meccsrészletező research-adatokkal, teljes kapu-lánccal zöld.
+- [x] **S114 FOLYAMATBAN**: 5 nap teljesen kész (11-12 … 11-08) → 950 research meccsből 892 kanonikus meccs, **721 insight sor**, ~6 000 játékos, ~290 k stat sor; minden napon deep_verify 0 hiba és integrity **OK**. A **11-07 backfill a zárás pillanatában még futott** — nem szakítottam meg, de v2-be még nem került.
+- [x] **V1**: teljes import nem kell; a 3,82 M football-data odds sort a `tools/odds.py` közvetlenül olvassa (11-08-on 50 sor hasznosult).
+- [x] **Referencia**: Sofascore 11-12 teljes lista + összehasonlítás elmentve a research könyvtárba (git-en kívül).
+- [x] **Részletes folytatási jegyzet**: `docs/checkpoints/2026-11-23/folytatas.md` — adatmennyiség naponta, a nov. 9-i `fm:` ref-probléma, feloldatlan csapatok, odds-hézag, `match_report_hu`, ellenőrzendő tesztek, parancsok, visszaállás.
+
 ## Következő döntési pont
 
 - **Játékos UI**: a most kész API-hoz játékosoldal (nézet, AX-címkék, UI-teszt, kontrakt-fixture a meglévő DTO-val).
@@ -498,6 +506,9 @@ Spec és terv: `docs/superpowers/specs/2026-11-23-match-insight-design.md`, `doc
 
 ## Következő döntési pont
 
+- **Nov 9-i hiányosság kivizsgálása (tesztekkel)**: 2 meccs kimaradt `nincs kanonikus meccs-ref` miatt (`fm:1000014221`, `fm:1000023069`) — l. `folytatas.md`. Elsőként vizsgálandó, mielőtt további napokat töltünk be.
+- **11-07 backfill**: fut; befejezés után v2-lánc, aztán 11-06, 11-05…
+- **match_report_hu**: kis szelet a lejátszott meccsek szöveges tartalmának az insight UI-ba történő felvételére — a user még nem kérte.
 - **v1 játékos-import**: külön engedély licencre (fotmob/statsbomb/transfermarkt), időszakra és meccs-hídra; a user kifejezetten későbbre halasztotta.
 - **soccerway**: dayPicker/-popup útvonal mérése később; a breaker nyitva marad.
 - Akadálymentességi maradék: menük/naptár/sheet vezérlői a Tab-körben, szűrők perzisztenciája, Reduce Motion/Cmd+R; VO-hang tudatosan kihagyva.
