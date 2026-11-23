@@ -378,8 +378,33 @@ SIP engedélyezett, a terminálnak nincs Full Disk Accessa (a TCC.db nem nyithat
 
 - A checkouton egy párhuzamos munkamenet S104/S105 változásai is jelen vannak (`HomeHeader.swift`, `MatchListView.swift`, `UserLocationProvider.swift`, új `SavedWeatherLocation.swift`, és a közös `HomeView.swift` időjárás-része). Ezeket **nem írtuk felül**, és mivel a `HomeView.swift` közös fájl, a commit ezeket is magával viszi, hogy a checkout fordítható maradjon. A saját változtatásaink a játékos UI-hoz és a kereséshez kapcsolódnak.
 
+## S112 — research export hibái és hiányai (A+B rész, kutatási fázis)
+
+A felhasználó egy konkrét meccsdetail (`fm:5853558`, 1 190 sor) teljes elolvasása után kérte: először az **A (hibák)** és **B (rés/hiányosságok)** pontokat kezeljük, a C/D tervezés később jön. Csak az R-ben történtek módosítások, v2 kód nem változott.
+
+### Változott (R — nem git-menedzselt, a v2 repón kívül)
+
+- [x] `api-export.py:1428` — provenance út: a duplált `2026/2026/…` prefix eltávolítva (a dátum már hordozza az évet). Az aktív fájlokban javítva.
+- [x] `api-export.py:_fm_lineup_team` — az üres `formation` most `null` (a „hiány = NULL" szabály szerint).
+- [x] `api-export.py` — `odds.bookmakers` / `odds.sources` most a **teljes** `by_bookmaker` alapján épül (korábban csak a tipplapot sorolta, miközben a bet365 is jelen volt); az extra bookmakereknél a saját `observed_at`/`sources` érvényesül.
+- [x] Új `odds.markets_source` mező (sémával együtt): egyértelmű, melyik bookmaker értékei vannak az összesített `markets`-ben — jelen esetben `tipplap` (3,90/3,15/1,81), míg a bet365 külön `by_bookmaker`-ben (4,0/3,4/1,75).
+- [x] A 16 nap (`11-13…11-28`) újraexportálva; `api-schema.py --validate` → **5464/5464 zöld**; `daily-check.sh` → EXIT=0.
+
+### Ellenőrzött, nem hiba
+
+- A Poisson-előrejelzés számai (`0.9/1.38` → 24,5/27,5/48,0%, legvalószínűbb 0–1 = 14,1%), a H2H `4–6–4`, az odds `overround 12,6%`, a forma-leírások és a tabella adatai **helyesek**.
+- A `data_tier: "enriched"` a `detail_status: "ok"`-ból következik (kód-koment: a régi forrásalapú címke 60%-ban hazudott) — nem hiba, de a UI-nak nem szabad teljességet sugallnia.
+- A `preview: null` + generált `preview_hu` (verified: false) és a `prediction` („not a source fact") tudatos derived tartalom — a későbbi UI-nak jelölnie kell.
+
+### Nyitva maradt (döntés kell hozzá)
+
+- **800 orphan detail-fájl** (főleg `_ls`, `11-21`: 570 db) őrzi a régi duplált provenance-útvonalat; már nincsenek a napi `matches.json`-ban, de az `api/v1/index/matches.json` még hivatkozik rájuk. Törlésükhöz/újraindexelésükhöz jóváhagyás kell (destruktív takarítás).
+- `coverage.open_gaps = 6` egy **más taxonómiából** (injuries/lineup/context/preview/news/broadcast) jön, mint `data_quality.open_total = 2` (referee/lineups); a régi 6-os lista stale (a meccsnek van `injuries`-e és `preview_hu`-ja is). A gaps-export újragenerálása nem változtatta meg a `coverage` mezőt — ez a research-gap pipeline-ból ered. Vagy a forrás pipeline javítása, vagy a v2-ben eltérő névvel/értelmezéssel kezelés — döntés tárgya.
+- Az országkód `country_name: "ROU"` (a verseny `country` és `country_name` egyaránt ISO kód) — kisebb minőségi rés, nem javítottuk.
+
 ## Következő döntési pont
 
+- **C/D rész (részletes tervezés)**: mely szekciók kerüljenek a v2 meccsrészletezőbe, hogyan jelöljük a generált/nem ellenőrzött tartalmat, teljes vs kurált odds-piacok, forrásprioritás, adattárolási stratégia, licenc/PII.
 - **v1 játékos-import**: külön engedély licencre (fotmob/statsbomb/transfermarkt), időszakra és meccs-hídra; a user kifejezetten későbbre halasztotta.
 - **soccerway**: dayPicker/-popup útvonal mérése később; a breaker nyitva marad.
 - Akadálymentességi maradék: menük/naptár/sheet vezérlői a Tab-körben, szűrők perzisztenciája, Reduce Motion/Cmd+R; VO-hang tudatosan kihagyva.
