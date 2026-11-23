@@ -407,9 +407,42 @@ A felhasználó egy konkrét meccsdetail (`fm:5853558`, 1 190 sor) teljes elolva
 
 - A törölt fájlok a két backup-könyvtárban manifesttel együtt megvannak; az index a `manifest.json` alapján visszaállítható. A hiány- és országnév-javítások az exporterben visszafordíthatók, az érintett napok újraexportálásával.
 
+## S113 — Meccsrészletező gazdagítása research adatokkal
+
+Spec és terv: `docs/superpowers/specs/2026-11-23-match-insight-design.md`, `docs/superpowers/plans/2026-11-23-match-insight.md`.
+
+### Változott
+
+- [x] `db/migrations/0027_match_insight.sql` — `fact.match_insight` (PK `match_id, source_id`, JSONB szekciók, `captured_at`). Táblaszám 53 → **54**.
+- [x] Ingest: `research_insight.rs` (séma-drift-tűrő szekciókivonat + `match_insight` observation), `research.rs::parse_detail` bekötése, `normalized.rs` új `insight` mezője, `canonicalize.rs::write_insight` tranzakciós upserttel.
+- [x] Storage/API: `match_insight.rs` repo (`upsert`, `fetch_json`), `MatchDetailRow.insight` opcionális mező, OpenAPI séma. Új CLI: `footballctl match-insight-import --from … --to … [--apply]`.
+- [x] Kliens: `MatchInsightModels.swift` (DTO-k), `MatchInsightView.swift` (progresszív szekciók, szakaszszintű „Számított / nem ellenőrzött" jelölés), bekötés a `MatchDetailSheet`-be.
+- [x] Fixture: kontrakt `match-detail-response.json` (67 kulcs) és UI `match-detail.json` az insight blokkal; Rust round-trip + Swift decode + Core kontrakt-teszt.
+
+### Mért eredmény
+
+- [x] Offline import 11-23: **96 fájl / 96 meccs / 96 insight sor**; `captured_at` a research `meta.generated_at`-jából.
+- [x] **Valódi adatos macOS ellenőrzés** (nem fixture!): a telepített app + futó daemon + `football_v2_dev`, `FOOTBALL_UI_MATCH_ID` belépési ponttal a Sepsi OSK–Rapid București meccsen. AX: `match.insight` → „Research adat, rögzítve 2026. 23. 23. 14:23. A számított tartalom nem ellenőrzött."; `match.insight.preview.section` → „Bevezető"; `match.insight.probabilities` → „Hazai: 25 százalék / Döntetlen: 28 százalék".
+- [x] Kapuk: `cargo test` **581 passed**, clippy 0, fmt 0, `check-foundation.sh` 0; `swift test` **125 teszt**; app **TEST SUCCEEDED**; UI **TEST SUCCEEDED**; `daily-check.sh` EXIT=0; `git diff --check` 0.
+
+### A valódi adat ellenőrzése során talált és javított hibák
+
+- `by_bookmaker.tipplap.observed_at = "2026-11-22 06:33:15"` (időzóna nélkül) — a `Date` dekódoló elutasította és az egész `MatchDetail` dekódolása elbukott. A mező most nyers `String?`.
+- A research `injuries` blokk `{home: [...], away: [...]}` objektum, nem lista — egyedi `Decodable` mindkét alakot egy listára simítja.
+- A külső `.accessibilityIdentifier("match.detail.insight")` felülírta a belső AX-azonosítókat — eltávolítva; a belső `match.insight`, `match.insight.trust`, `match.insight.probabilities` most elérhetők.
+
+### Tanulság / kockázat
+
+- A **fixture-alapú XCUITest nem bizonyítja**, hogy a valódi research adat megjelenik — a runner sandboxban fut és `tests/fixtures/ui/*.json`-t kap. Ezért az insight AX-állításait kivettem a fixture-tesztből; a bizonyíték a fenti valódi adatos AX-próba.
+- A generált `preview_hu` és `prediction` továbbra is `generated: true, verified: false` — a UI szövegesen jelöli őket; tényként való felhasználásuk tilos.
+- A teljes ~45 piac csak összecsukható részben jelenik meg (determinisztikus kulcsrendezéssel).
+
+### Visszaállás
+
+- `git revert` a commitra; a 0027 migráció visszaállítása `DROP TABLE fact.match_insight;` + a migrációs sor törlése; az import sorai `research` source_id + `captured_at` alapján törölhetők.
+
 ## Következő döntési pont
 
-- **C/D rész (részletes tervezés)**: mely szekciók kerüljenek a v2 meccsrészletezőbe, hogyan jelöljük a generált/nem ellenőrzött tartalmat, teljes vs kurált odds-piacok, forrásprioritás, adattárolási stratégia, licenc/PII.
 - **v1 játékos-import**: külön engedély licencre (fotmob/statsbomb/transfermarkt), időszakra és meccs-hídra; a user kifejezetten későbbre halasztotta.
 - **soccerway**: dayPicker/-popup útvonal mérése később; a breaker nyitva marad.
 - Akadálymentességi maradék: menük/naptár/sheet vezérlői a Tab-körben, szűrők perzisztenciája, Reduce Motion/Cmd+R; VO-hang tudatosan kihagyva.

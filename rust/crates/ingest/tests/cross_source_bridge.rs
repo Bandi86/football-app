@@ -114,6 +114,7 @@ fn day(
             referee_country: None,
             environment: None,
             incidents: Vec::new(),
+            insight: None,
         }],
         standings: None,
     }

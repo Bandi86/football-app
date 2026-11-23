@@ -16,6 +16,7 @@ pub mod obscura;
 pub mod observe;
 pub mod openfoot;
 pub mod research;
+pub mod research_insight;
 pub mod research_players;
 pub mod soccerway;
 pub mod tipplap;

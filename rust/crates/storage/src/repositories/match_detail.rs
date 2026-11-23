@@ -101,6 +101,10 @@ pub struct MatchDetailRow {
     /// Üres esetén is üres tömb, nem `null`.
     #[serde(default)]
     pub incidents: Vec<MatchIncidentRow>,
+    /// S113: research gazdag szekciói (forrással és rögzítési idővel).
+    /// Régi válaszoknál a kulcs hiányozhat → `null`.
+    #[serde(default)]
+    pub insight: Option<serde_json::Value>,
 }
 
 /// A stadion a részletező válaszban (S90). A venue nem kanonikus entitás,
@@ -382,6 +386,7 @@ pub async fn fetch_match_detail(pool: &PgPool, match_id: Uuid) -> Result<Option<
     };
     let mut detail: MatchDetailRow = db_row.into();
     detail.incidents = fetch_match_incidents(pool, match_id).await?;
+    detail.insight = crate::repositories::match_insight::fetch_json(pool, match_id).await?;
     Ok(Some(detail))
 }
 
@@ -530,6 +535,7 @@ impl From<MatchDetailDbRow> for MatchDetailRow {
             away_pens: row.away_pens,
             decided_by: row.decided_by,
             referee: row.referee,
+            insight: None,
             venue,
             weather,
             stats_source: row.stats_source,

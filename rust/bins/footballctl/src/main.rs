@@ -37,6 +37,7 @@ use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
 mod competitions;
+mod match_insight_import;
 mod player_import;
 mod tipplap_replay;
 
@@ -267,6 +268,16 @@ enum Command {
         to: NaiveDate,
         #[arg(long)]
         limit: Option<i64>,
+    },
+    /// Research meccs-insight szekciók importja a már tárolt JSON-ekből,
+    /// hálózat nélkül. Alapból dry-run; auditált upsert.
+    MatchInsightImport {
+        #[arg(long)]
+        from: NaiveDate,
+        #[arg(long)]
+        to: NaiveDate,
+        #[arg(long)]
+        apply: bool,
     },
     /// Játékosadatok importja a már tárolt helyi research JSON-ekből,
     /// hálózat nélkül. Alapból dry-run; csak stabil forrás-ID alapján hoz létre
@@ -1499,6 +1510,27 @@ async fn main() -> Result<()> {
                     .map(|(kind, count)| format!("{kind} {count}"))
                     .collect();
                 println!("pending review: {}", summary.join(", "));
+            }
+        }
+        Command::MatchInsightImport { from, to, apply } => {
+            let api_dir = PathBuf::from(std::env::var("FOOTBALL_RESEARCH_API_DIR").unwrap_or_else(
+                |_| {
+                    format!(
+                        "{}/Library/Application Support/FootballResearch/api/v1",
+                        std::env::var("HOME").unwrap_or_else(|_| ".".to_string())
+                    )
+                },
+            ));
+            let report = match_insight_import::run(&pool, &api_dir, from, to, apply).await?;
+            println!(
+                "match-insight {from}..{to}: {} fájl / {} meccs / {} írt sor{}",
+                report.files,
+                report.matches,
+                report.written,
+                if report.applied { "" } else { " (dry-run)" }
+            );
+            for skip in report.skipped.iter().take(10) {
+                println!("  kihagyva: {skip}");
             }
         }
         Command::PlayerImport { from, to, apply } => {

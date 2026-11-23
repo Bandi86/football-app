@@ -66,5 +66,47 @@
   ],
   "gate_evaluated_at": "2026-11-20T18:41:00Z",
   "gate_rule_set_version": "1.4.0",
-  "publish_date": "2026-11-20"
+  "publish_date": "2026-11-20",
+  "insight": {
+    "captured_at": "2026-11-22T11:44:31Z",
+    "source": "research",
+    "preview_hu": {
+      "generated": true,
+      "verified": false,
+      "title": "Előnézet"
+    },
+    "prediction": {
+      "model": "poisson_v1",
+      "note": "not a source fact",
+      "win_probability_pct": {
+        "home": 24.5,
+        "draw": 27.5,
+        "away": 48.0
+      }
+    },
+    "h2h_streaks": {
+      "home": {
+        "no_win": 1
+      }
+    },
+    "standings": null,
+    "season_stats": null,
+    "injuries": [
+      {
+        "player_id": 958011,
+        "name": "Antoine Baroan",
+        "type": "injury"
+      }
+    ],
+    "fan_poll": null,
+    "odds_markets": {
+      "markets_source": "tipplap",
+      "observed_at": "2026-11-22T05:33:15Z"
+    },
+    "venue_details": {
+      "name": "Sepsi Duna Aréna",
+      "capacity": 8400,
+      "surface": "grass"
+    }
+  }
 }

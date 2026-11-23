@@ -85,6 +85,8 @@ public struct MatchDetail: Decodable, Equatable, Sendable {
     /// A meccs eseményeinek idővonala (perc szerint rendezve). Régi válaszokból
     /// hiányozhat, ezért opcionális; a nézet a hiányt üres listaként kezeli.
     public let incidents: [MatchIncident]?
+    /// S113: research gazdag szekciói. Régi válaszokban a kulcs hiányozhat.
+    public let insight: MatchInsight?
 
     enum CodingKeys: String, CodingKey, CaseIterable {
         case id
@@ -152,6 +154,7 @@ public struct MatchDetail: Decodable, Equatable, Sendable {
         case awayPosition = "away_position"
         case tableSlice = "table_slice"
         case incidents
+        case insight
     }
 }
 

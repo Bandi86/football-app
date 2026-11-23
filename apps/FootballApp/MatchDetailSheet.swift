@@ -562,6 +562,10 @@ struct MatchDetailContent: View {
                     .accessibilityIdentifier("match.detail.odds")
                 }
 
+                if let insight = detail.insight {
+                    MatchInsightView(insight: insight)
+                }
+
                 VerificationStrip(
                     gateState: detail.gateState,
                     ruleSetVersion: detail.gateRuleSetVersion,

@@ -255,6 +255,7 @@ fn create_on_miss_day(source_code: &str) -> NormalizedDay {
             referee_country: None,
             environment: None,
             incidents: Vec::new(),
+            insight: None,
         }],
         standings: None,
     }

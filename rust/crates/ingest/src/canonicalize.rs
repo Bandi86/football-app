@@ -705,6 +705,26 @@ impl Canonicalizer {
             {
                 write_environment(&mut tx, match_id, source_id, environment).await?;
             }
+            // S113: a research gazdag szekciói; az as-of a detail saját
+            // generated_at ideje, hiány esetén a napi envelope ideje.
+            if let Some(insight) = &fixture_match.insight
+                && insight.is_object()
+            {
+                let captured_at = insight
+                    .get("captured_at")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                    .map(|d| d.with_timezone(&Utc))
+                    .unwrap_or(day.captured_at);
+                football_storage::repositories::match_insight::upsert(
+                    &mut *tx,
+                    match_id,
+                    source_id,
+                    captured_at,
+                    insight,
+                )
+                .await?;
+            }
             if !reversed {
                 if let Some(stats) = &fixture_match.stats {
                     write_stats(&mut tx, match_id, source_id, day.captured_at, stats).await?;

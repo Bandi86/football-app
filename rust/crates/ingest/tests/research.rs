@@ -191,12 +191,15 @@ fn odds_parse_maps_markets_outcomes_and_phase() {
     let observations = adapter
         .parse(&raw(DETAIL), &ctx("odds:espn:401932578"))
         .unwrap();
-    assert_eq!(observations.len(), 1);
-    let payload = &observations[0].payload;
+    let odds_obs = observations
+        .iter()
+        .find(|o| o.aspect == "match_odds")
+        .expect("match_odds megfigyelés");
+    let payload = &odds_obs.payload;
     let quotes = payload["quotes"].as_array().expect("quotes");
     assert_eq!(quotes.len(), 8, "3 1X2 + 2 BTTS + 2 OU + 1 DC");
     assert_eq!(payload["market_count"], 4);
-    assert_eq!(observations[0].natural_key, "espn:401932578");
+    assert_eq!(odds_obs.natural_key, "espn:401932578");
 
     let find = |market: &str, outcome: &str| -> Option<&Value> {
         quotes
@@ -221,7 +224,15 @@ fn detail_parse_emits_events_and_team_statistics() {
     let observations = adapter
         .parse(&raw(DETAIL_FULL), &ctx("detail:espn:401932578"))
         .unwrap();
-    assert_eq!(observations.len(), 3, "odds + események + statisztika");
+    assert_eq!(
+        observations.len(),
+        4,
+        "odds + események + statisztika + insight"
+    );
+    assert!(
+        observations.iter().any(|o| o.aspect == "match_insight"),
+        "insight observation"
+    );
 
     let by_aspect = |aspect: &str| {
         observations

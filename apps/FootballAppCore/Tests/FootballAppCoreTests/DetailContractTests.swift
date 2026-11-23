@@ -88,4 +88,18 @@ import Testing
         let clientKeys = Set(MatchDetail.CodingKeys.allCases.map(\.stringValue))
         #expect(fixtureKeys == clientKeys)
     }
+
+    /// S113: a research insight blokk értelmezése, a generált jelzők megőrzése.
+    @Test func decodesResearchInsightWithTrustFlags() throws {
+        let detail = try APIDecoding.makeDecoder().decode(MatchDetail.self, from: fixtureData())
+        let insight = try #require(detail.insight)
+        #expect(insight.source == "research")
+        #expect(insight.previewHu?.generated == true)
+        #expect(insight.previewHu?.verified == false)
+        #expect(insight.prediction?.model == "poisson_v1")
+        #expect(insight.prediction?.winProbabilityPct?.away == 48.0)
+        #expect(insight.injuries?.items.first?.name == "Antoine Baroan")
+        #expect(insight.oddsMarkets?.marketsSource == "tipplap")
+        #expect(insight.venueDetails?.capacity == 8400)
+    }
 }

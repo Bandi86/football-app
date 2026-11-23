@@ -10,11 +10,11 @@ fi
 : "${DATABASE_URL:?DATABASE_URL hiányzik}"
 : "${TEST_DATABASE_URL:?TEST_DATABASE_URL hiányzik}"
 
-# Elvárt táblaszám: mindkét DB a 0001–0026 migrációk után 53 tábla.
+# Elvárt táblaszám: mindkét DB a 0001–0027 migrációk után 54 tábla.
 # A 0013 adja a fact.club_elo-t, a 0017 az ops.editorial_hold-ot,
 # a 0021 a fact.match_environment-et, a 0022 a fact.match_official-t;
 # a 0018–0020 csak függvényt/indexet/módoslót hoz létre, nem új táblát.
-expected_tables=53
+expected_tables=54
 
 for name in DATABASE_URL TEST_DATABASE_URL; do
   url="${!name}"

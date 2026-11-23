@@ -34,7 +34,14 @@ struct HomeView: View {
     @State private var favorites: Set<String> = LeagueFavorites().load()
     @State private var tab: AppTab = .day
     @State private var featuredOnly = false
-    @State private var selected: SelectedMatch?
+    @State private var selected: SelectedMatch? = {
+        // Valódi adatos ellenőrzési belépési pont: a futó API-ból olvas,
+        // nem fixture-szerverről. Az UI-teszt a saját fixture-ét használja.
+        guard let value = ProcessInfo.processInfo.environment["FOOTBALL_UI_MATCH_ID"],
+              let id = UUID(uuidString: value)
+        else { return nil }
+        return SelectedMatch(id: id)
+    }()
     @State private var autoPlayer: SelectedPlayer? = {
         guard let value = ProcessInfo.processInfo.environment["FOOTBALL_UI_PLAYER_ID"],
               let id = UUID(uuidString: value)

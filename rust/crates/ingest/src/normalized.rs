@@ -74,6 +74,8 @@ pub struct NormalizedMatch {
     pub environment: Option<NormalizedEnvironment>,
     /// A meccs eseményei a forrás sorrendjében (üres = nincs esemény-adat).
     pub incidents: Vec<NormalizedIncident>,
+    /// S113: research gazdag szekciói (preview, predikció, piacok stb.).
+    pub insight: Option<serde_json::Value>,
 }
 
 /// Meccs-környezet (S90): a forrás venue- és weather-blokkja együtt.
@@ -444,6 +446,7 @@ impl NormalizedDay {
         let mut stats_by_key: Vec<(String, NormalizedStats)> = Vec::new();
         let mut incidents_by_key: Vec<(String, Vec<NormalizedIncident>)> = Vec::new();
         let mut referee_by_key: Vec<(String, String, Option<String>)> = Vec::new();
+        let mut insight_by_key: Vec<(String, serde_json::Value)> = Vec::new();
         let mut environment_by_key: Vec<(String, NormalizedEnvironment)> = Vec::new();
         let mut meta: Option<(
             NormalizedCompetition,
@@ -515,6 +518,7 @@ impl NormalizedDay {
                         referee: None,
                         referee_country: None,
                         environment: None,
+                        insight: None,
                         incidents: Vec::new(),
                     });
                 }
@@ -602,6 +606,9 @@ impl NormalizedDay {
                         .context("match_referee payload")?;
                     referee_by_key.push((obs.source_record_key.clone(), p.name, p.country));
                 }
+                "match_insight" => {
+                    insight_by_key.push((obs.source_record_key.clone(), obs.payload.clone()));
+                }
                 "match_environment" => {
                     let p: EnvironmentPayload = serde_json::from_value(obs.payload.clone())
                         .context("match_environment payload")?;
@@ -658,6 +665,12 @@ impl NormalizedDay {
             {
                 m.referee = Some(name.clone());
                 m.referee_country = country.clone();
+            }
+            if let Some((_, insight)) = insight_by_key
+                .iter()
+                .find(|(key, _)| *key == m.source_match_id)
+            {
+                m.insight = Some(insight.clone());
             }
             if let Some((_, environment)) = environment_by_key
                 .iter()
@@ -866,6 +879,7 @@ impl From<&FixtureSource> for NormalizedDay {
                     referee: None,
                     referee_country: None,
                     environment: None,
+                    insight: None,
                     incidents: Vec::new(),
                 })
                 .collect(),

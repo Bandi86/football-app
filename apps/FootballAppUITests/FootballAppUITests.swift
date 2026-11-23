@@ -314,7 +314,6 @@ final class FootballAppUITests: XCTestCase {
                       "a statisztika-párbaj nem jelent meg")
         XCTAssertTrue(element("match.detail.verification", in: app).waitForExistence(timeout: 10),
                       "az ellenőrzési sáv nem jelent meg")
-
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         XCTAssertTrue(waitForGone(sheet, timeout: 10), "Escape nem zárta be a részletezőt")
     }

@@ -605,6 +605,20 @@ impl ResearchAdapter {
         if let Some(stats) = self.stats_observation(&doc, &match_key, captured_at) {
             observations.push(stats);
         }
+        // S113: a research detail gazdag szekciói (preview, predikció, H2H,
+        // tabella, sérülések, teljes odds, stadion) külön observationben.
+        if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&raw.bytes)
+            && let Some(payload) = crate::research_insight::insight_payload(&value)
+        {
+            observations.push(Observation {
+                entity_kind: "match".into(),
+                aspect: "match_insight".into(),
+                natural_key: match_key.clone(),
+                source_record_key: match_key.clone(),
+                observed_at: captured_at,
+                payload,
+            });
+        }
         Ok(observations)
     }
 

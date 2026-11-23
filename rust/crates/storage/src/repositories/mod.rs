@@ -11,6 +11,7 @@ pub mod identity_merge;
 pub mod integrity;
 pub mod manual;
 pub mod match_detail;
+pub mod match_insight;
 pub mod player;
 pub mod raw;
 pub mod search;

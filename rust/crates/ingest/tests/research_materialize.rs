@@ -117,6 +117,7 @@ fn research_day(
             referee_country: None,
             environment: None,
             incidents,
+            insight: None,
         }],
         standings: None,
     }
