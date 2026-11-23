@@ -396,11 +396,16 @@ A felhasználó egy konkrét meccsdetail (`fm:5853558`, 1 190 sor) teljes elolva
 - A `data_tier: "enriched"` a `detail_status: "ok"`-ból következik (kód-koment: a régi forrásalapú címke 60%-ban hazudott) — nem hiba, de a UI-nak nem szabad teljességet sugallnia.
 - A `preview: null` + generált `preview_hu` (verified: false) és a `prediction` („not a source fact") tudatos derived tartalom — a későbbi UI-nak jelölnie kell.
 
-### Nyitva maradt (döntés kell hozzá)
+### A három nyitott tétel lezárása (S112b)
 
-- **800 orphan detail-fájl** (főleg `_ls`, `11-21`: 570 db) őrzi a régi duplált provenance-útvonalat; már nincsenek a napi `matches.json`-ban, de az `api/v1/index/matches.json` még hivatkozik rájuk. Törlésükhöz/újraindexelésükhöz jóváhagyás kell (destruktív takarítás).
-- `coverage.open_gaps = 6` egy **más taxonómiából** (injuries/lineup/context/preview/news/broadcast) jön, mint `data_quality.open_total = 2` (referee/lineups); a régi 6-os lista stale (a meccsnek van `injuries`-e és `preview_hu`-ja is). A gaps-export újragenerálása nem változtatta meg a `coverage` mezőt — ez a research-gap pipeline-ból ered. Vagy a forrás pipeline javítása, vagy a v2-ben eltérő névvel/értelmezéssel kezelés — döntés tárgya.
-- Az országkód `country_name: "ROU"` (a verseny `country` és `country_name` egyaránt ISO kód) — kisebb minőségi rés, nem javítottuk.
+- [x] **Orphan/stale detail-fájlok**: 818 orphan + 9 stale duplikátum biztonsági mentéssel törölve (`ops/orphan-backup-…`, `ops/stale-duplicate-backup-…`, manifesttel), az index praticingelve (5442 → 4653, 0 hiányzó hivatkozás). A 6 envelope-only fájlt az exporter saját `match_detail()` függvényével generáltuk újra (nem kézi JSON-szerkesztéssel). Végeredmény: **0 duplált provenance-útvonal**.
+- [x] **Hiány-taxonomia**: közös `_missing_fields()` helper; a summary eltárolja a `coverage.missing_fields` listát, a detail ezt használja. A kutatási ügynök régi száma `coverage.research_gap_count`-ként megőrzött (a mintameccsnél 6). Végeredmény: **0 eltérés** a `coverage.open_gaps` és a `data_quality.open_total` között (4654 fájlra mérve).
+- [x] **Országnév**: ISO3 alias-térkép a `code_to_hu`-ban (ROU→Románia, USA→Amerikai Egyesült Államok, NED→Hollandia, GBR→Nagy-Britannia). Végeredmény: **0 fájl**, ahol `country_name == country`.
+- [x] `api-schema.py --validate` → **4670/4670 zöld**; v2 `daily-check.sh` → EXIT=0.
+
+### Visszaállás
+
+- A törölt fájlok a két backup-könyvtárban manifesttel együtt megvannak; az index a `manifest.json` alapján visszaállítható. A hiány- és országnév-javítások az exporterben visszafordíthatók, az érintett napok újraexportálásával.
 
 ## Következő döntési pont
 
