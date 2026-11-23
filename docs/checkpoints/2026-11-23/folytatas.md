@@ -5,7 +5,7 @@ Ez a fájl a holnapi (vagy későbbi) folytatás egyetlen belépőpontja. A napi
 ## Hol tartunk
 
 - **S113 — meccsrészletező gazdagítása research adatokkal: KÉSZ.** Commit `acfa435`; spec `docs/superpowers/specs/2026-11-23-match-insight-design.md`, terv `docs/superpowers/plans/2026-11-23-match-insight.md`. Teljes kapu-lánc zöld (581 Rust teszt, 125 Core teszt, UI TEST SUCCEEDED, daily-check 0).
-- **S114 — historikus backfill research-szel: FOLYAMATBAN.** Pilot (11-12) + 4 teljes nap (11-11, 11-10, 11-09, 11-08) végigment a v2-be; a **11-07 backfill a zárás pillanatában még futott** (csak a research könyvtárba ír, v2-be még nem került be).
+- **S114 — historikus backfill research-szel: FOLYAMATBAN.** Pilot (11-12) + 4 teljes nap (11-11, 11-10, 11-09, 11-08) végigment a v2-be. A **11-07 backfill a zárás után magától befejeződött, zöld**: 680 meccs / 680 detail, verify + deep_verify 0 hiba / 0 figyelmeztetés, odds 69 (ebből **66 football-data a v1-ből**). Csak a research könyvtárba írt — **v2-be még nem került be**.
 - Döntés: **v1 teljes import NEM kell** — a v1 `match_odds` tábláját (3,82 M football-data sor, 2004-től) a `tools/odds.py` közvetlenül olvassa. A v1 marad kereszt-ellenőrzésre / hiánypótlásra.
 - Döntés: **nem készül Sofascore adapter** — a teljes ~818 meccses lista amatőr/ifjúsági farka alacsony értékű és túlterhelést jelentene. A teljes lista referenciaként elmentve: `~/Library/Application Support/FootballResearch/docs/sofascore-snapshots/2026-11-12.txt` + `2026-11-12-comparison.md`.
 
@@ -18,7 +18,8 @@ Ez a fájl a holnapi (vagy későbbi) folytatás egyetlen belépőpontja. A napi
 | 11-10 | 92 | 91 | 71 | 688 | 23 669 | 0 (0) | OK |
 | 11-09 | 87 | 84 | 63 | — | — | 5 (2) | OK |
 | 11-08 | 572 | 557 | 482 | 4 330 | 227 215 | 64 (50) | OK |
-| **Össz.** | **950** | **892** | **721** | **~6 000** | **~290 k** | **93 (52)** | **5/5 OK** |
+| 11-07 | 680 | — | — | — | — | 69 (66) | backfill zöld, v2-lánc hátra |
+| **Össz.** | **1 630** | **892** | **721** | **~6 000** | **~290 k** | **162 (118)** | **5/5 OK + 1 backfill zöld** |
 
 Minden napon: `backfill` → verify + deep_verify **0 hiba / 0 figyelmeztetés**, `api-export`, discovery job (worker, 1 kísérlet, `last_error` üres), `match-insight-import --apply`, `player-import --apply`, `integrity` verdict **OK**, 0 failed job, `coverage-day`.
 
@@ -48,7 +49,7 @@ rust/target/debug/footballctl coverage-day --from $DATE --to $DATE
 
 ## Folytatási lépések sorban
 
-1. **11-07 backfill** befejezésének ellenőrzése (`backfill-1107.log`), majd ha zöld: ugyanaz a v2-lánc (export → job → importok → integrity/coverage). Ha a backfill maga piros, megállni és jelenteni.
+1. **11-07**: a backfill már zöld (l. fent) — csak a v2-lánc van hátra: `api-export 2026-11-07` → `research-sync.sh 2026-11-07 --enqueue-only` → `match-insight-import` + `player-import --apply` → `integrity` + `coverage-day`.
 2. **11-06, 11-05, …** sorban, naponta egy kapuval. Nagy napoknál (FotMob 150+ liga) a worker 2-3 percet is igénybe vehet — a `junction` tick 60 mp.
 3. **Nov 9-i kivizsgálás** tesztekkel (l. fent 1.), külön szeletként, a napi backfill mellé nem keverve.
 4. Csak ezután: `match_report_hu` szelet, ha a user kéri.
