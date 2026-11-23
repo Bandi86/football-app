@@ -267,15 +267,18 @@ pub async fn insert_alias_seeds(
 }
 
 const ENTITY_COLUMNS: &str =
-    "e.id AS entity_id, e.canonical_name, c.code AS country_code, t.gender, t.age_group, t.branch";
+    "e.id AS entity_id, e.canonical_name, COALESCE(c.code, ec.code) AS country_code,
+     t.gender, t.age_group, t.branch";
 
 // Fajtafüggetlen entitás-olvasás: a `core.team` sor csak a `team` fajtánál
-// létezik, ezért LEFT JOIN. Nem-csapat entitásnál (pl. `referee`) a kontextus
-// mezői NULL-ok: az `IdentityContext` ilyenkor wildcard, azaz nincs ország-
-// /nem-/korosztály-szűrés (a hiányzó adat NULL, nem kitalált érték).
+// létezik, ezért LEFT JOIN. S102 óta a személyfajták (pl. `referee`) saját
+// országa a `core.entity.country_id`-ban él; a csapat-ág változatlan, a
+// COALESCE csak akkor használja az entitás országát, ha a csapat-oldal nincs.
+// Hiány esetén a mező NULL: az `IdentityContext` ilyenkor wildcard.
 const ENTITY_JOIN: &str = "FROM core.entity e
          LEFT JOIN core.team t ON t.entity_id = e.id
-         LEFT JOIN core.country c ON c.id = t.country_id";
+         LEFT JOIN core.country c ON c.id = t.country_id
+         LEFT JOIN core.country ec ON ec.id = e.country_id";
 
 fn entity_from_row(row: &PgRow) -> Result<EntityRow> {
     Ok(EntityRow {
@@ -587,13 +590,16 @@ pub async fn entity_exists(pool: &PgPool, entity_id: Uuid) -> Result<bool> {
         .context("entitás létezés")
 }
 
-/// Egy csapat-entitás kontextusa (core.team + core.country). `None`, ha nincs
-/// team sor az entitáshoz; ország nélküli csapatnál country_code = None.
+/// Egy entitás kontextusa. Csapatnál a `core.team` adatai, személyfajtáknál
+/// a `core.entity.country_id` (S102); hiány esetén a mezők NULL (wildcard).
 pub async fn entity_context(pool: &PgPool, entity_id: Uuid) -> Result<Option<IdentityContext>> {
     let row = sqlx::query(
-        "SELECT c.code AS country_code, t.gender, t.age_group, t.branch
-         FROM core.team t LEFT JOIN core.country c ON c.id = t.country_id
-         WHERE t.entity_id = $1",
+        "SELECT COALESCE(c.code, ec.code) AS country_code, t.gender, t.age_group, t.branch
+         FROM core.entity e
+         LEFT JOIN core.team t ON t.entity_id = e.id
+         LEFT JOIN core.country c ON c.id = t.country_id
+         LEFT JOIN core.country ec ON ec.id = e.country_id
+         WHERE e.id = $1 AND (t.entity_id IS NOT NULL OR ec.id IS NOT NULL)",
     )
     .bind(entity_id)
     .fetch_optional(pool)

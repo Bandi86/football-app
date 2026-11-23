@@ -128,6 +128,7 @@ fn live_day(teams: &[(&str, &str)], home: &str, away: &str) -> NormalizedDay {
             odds: None,
             stats: None,
             referee: None,
+            referee_country: None,
             environment: None,
             incidents: Vec::new(),
         }],

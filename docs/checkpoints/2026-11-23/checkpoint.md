@@ -82,12 +82,40 @@ A felhasználó a 4 javasolt szeletet sorrendben jóváhagyta („mehetnek sorba
 - Nem ellenőrzött: a Weather tile VoiceOver-beszédhangja; a `stale: true` ág élőben (csak unit teszt); a képernyőkép nem került fájlba.
 - A api crate új belső függőséget kapott (`football-ingest`) — új külső csomag, kulcs vagy hálózati engedély nem.
 
+## S102 — bíró-identitás és ország
+
+A felhasználó a 4 szeletet sorban jóváhagyta; ez a 2. szelet. A tudatos policy: **`docs/decisions/2026-11-23-referee-policy.md`** — nincs auto-create, nincs fuzzy merge, research továbbra is display-only; a bíró saját országa viszont tárolódik és a teljes név egzakt linkjénél érvényesül.
+
+### Változott
+
+- [x] `db/migrations/0025_referee_country.sql` — `core.entity.country_id` (NULL = ismeretlen, minden személyfajtára) és `fact.match_official.country_code` (kizárólag a forrás által kimondott bíró-ország; a versenyország nem kerül ide). Rollback a fájlban.
+- [x] `rust/crates/ingest/src/research.rs`, `normalized.rs`, `canonicalize.rs` — a research `referee.country` végigjut az observation → normalized → `fact.match_official` úton; a linkelési kontextus a bíró saját országa, ha van, egyébként a versenyország review-kontextusként.
+- [x] `rust/crates/storage/src/repositories/identity.rs` — `ENTITY_COLUMNS`/`ENTITY_JOIN` a `COALESCE(c.code, ec.code)`-vel; `entity_context` most a személyfajták országát is visszaadja, de továbbra is `None`, ha nincs sem team sor, sem entitás-ország.
+- [x] `rust/crates/identity/src/review.rs` — a jóváhagyási keresés fajtátudatos (`entities_by_normalized_name` a nem-csapat fajtáknál); ismert országkódnál `country_id` íródik, ismeretlen kódnál NULL (nem találunk ki országot).
+- [x] Tesztek: `referee_link.rs` (bíró-ország felülírja a versenyországot; eltérés → nincs link; `fact.match_official.country_code`), `identity_repos.rs` (referee kontextus), 6 ingest-fixture a `referee_country` mezővel.
+
+### Futott ellenőrzések (mért)
+
+- [x] `./scripts/db-reset.sh` → 0; `./scripts/check-foundation.sh` → 0; dev DB migrációk: `24|weather cache`, `25|referee country`.
+- [x] `cargo test --workspace -- --test-threads=1` → **571 passed / 0 failed**.
+- [x] `cargo clippy --workspace --all-targets -- -D warnings` → 0; `cargo fmt --all --check` → 0.
+- [x] Daemon újratelepítve (pid **19681**), health rendben.
+
+### Nem ellenőrzött / korlátok
+
+- A 564 meglévő `fact.match_official` sor nem kapott utólag `country_code`-t (nincs adatjavítás migrációval); az új értékek csak a következő research ingesttel jelennek meg.
+- A feloldási arány nem nőtt automatikusan (1/564 marad) — ez tudatos; a rövid alakú katalógus normalizálása külön szelet.
+- A live research envelope `referee.country` mezőjének tényleges tartalma nem lett újraingestelve ellenőrizve (a 0022 migráció kommentje igazolja a mezőt).
+
+### Visszaállás
+
+- `git revert` a szelet commitjára; 0025 visszaállítása: `ALTER TABLE fact.match_official DROP COLUMN country_code; DROP INDEX idx_entity_country_id; ALTER TABLE core.entity DROP COLUMN country_id;` + a migrációs sor törlése külön lépés.
+
 ## Következő döntési pont
 
-A felhasználó a négy szeletet sorban jóváhagyta; az 1. kész. Soron következik:
+A felhasználó a négy szeletet sorban jóváhagyta; az 1. és 2. kész. Soron következik:
 
-2. **Bíró-identitás policy + referee-ország séma** — a feltárás szerint 564 official névből mindössze **1** oldható fel (1195 entitásból 994 rövid alak), ezért nem elég az országoszlop: a policy részeként a rövid alakok kezelését is el kell dönteni. Tervezett irány: `core.entity.country_id` (NULL = ismeretlen), fail-closed link, nincs auto-create, nincs fuzzy merge.
-3. Fázis-2 kilépési feltételek (keresés, játékosoldal teljes adattartalma, VoiceOver/billentyűzet).
+3. **Fázis-2 kilépési feltételek** — a feltárás szerint a **játékosoldal teljes adattartalma blokkolt**: 0 player entitás, 0 játékos-statisztika, 9 156 szöveges játékosnév, `core.player`/`player_team_spell` nem létezik. Ez valós adatfeltöltést és review-t igényel (AGENTS.md §6: külön, explicit engedélyezett fázis) — nem lehet UI-val vagy kitalált adattal lezárni. A megvalósítható rész: globális keresés (Cmd+F) + akadálymentességi maradék; a játékos-adatfázisról a felhasználót kell kérdezni.
 4. Adatminőség-maradék: competition-duplikátumok, Liga F forrás-konfliktus, tipplap replay.
 
 Gyors operatív tételek, bármikor elvégezhetők: a „Karcag" review eldöntése és a soccerway breaker újrapróbálása/csendesítése.

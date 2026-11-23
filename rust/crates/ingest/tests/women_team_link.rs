@@ -154,6 +154,7 @@ fn named_team_day(women: bool, home_name: &str, away_name: &str) -> NormalizedDa
             odds: None,
             stats: None,
             referee: None,
+            referee_country: None,
             environment: None,
             incidents: Vec::new(),
         }],

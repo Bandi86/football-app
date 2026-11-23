@@ -112,6 +112,7 @@ fn research_day(
             odds: None,
             stats,
             referee: None,
+            referee_country: None,
             environment: None,
             incidents,
         }],

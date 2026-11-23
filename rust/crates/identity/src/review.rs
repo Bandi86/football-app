@@ -180,9 +180,18 @@ pub async fn approve_create_with(
     let mut existing_entity: Option<Uuid> = None;
     if let Some(ctx) = &ctx {
         let folded = fold_name(&row.proposed_name);
-        let entities = repo::team_entities_by_normalized_name(pool, &folded)
-            .await
-            .map_err(db_err)?;
+        let entities = if row.entity_kind == "team" {
+            repo::team_entities_by_normalized_name(pool, &folded)
+                .await
+                .map_err(db_err)?
+        } else {
+            // S102: bíró-/játékos-/edző-entitásnál a fajtátudatos katalógus
+            // kell — a team-only keresés eddig minden ilyen review-t új
+            // entitásként hozott volna létre.
+            repo::entities_by_normalized_name(pool, &row.entity_kind, &folded)
+                .await
+                .map_err(db_err)?
+        };
         let hits: Vec<_> = entities
             .iter()
             .filter(|e| context_matches(ctx, &e.context()))
@@ -194,13 +203,34 @@ pub async fn approve_create_with(
     let entity_id = existing_entity.unwrap_or_else(Uuid::now_v7);
 
     if existing_entity.is_none() {
-        sqlx::query("INSERT INTO core.entity (id, kind, canonical_name) VALUES ($1,$2,$3)")
-            .bind(entity_id)
-            .bind(&row.entity_kind)
-            .bind(&row.proposed_name)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| IdentityError::Db(e.to_string()))?;
+        // S102: személyfajtáknál a review kontextusában lévő, ismert országot
+        // rögzítjük. Ismeretlen kódnál nem találunk ki új országot: NULL.
+        // (A csapat-ág country-ja továbbra is a core.team soron él.)
+        let entity_country_id: Option<Uuid> = if row.entity_kind == "team" {
+            None
+        } else {
+            match ctx.as_ref().and_then(|c| c.country_code.as_deref()) {
+                Some(code) => {
+                    sqlx::query_scalar::<_, Uuid>("SELECT id FROM core.country WHERE code = $1")
+                        .bind(code)
+                        .fetch_optional(&mut *tx)
+                        .await
+                        .map_err(|e| IdentityError::Db(e.to_string()))?
+                }
+                None => None,
+            }
+        };
+        sqlx::query(
+            "INSERT INTO core.entity (id, kind, canonical_name, country_id)
+             VALUES ($1,$2,$3,$4)",
+        )
+        .bind(entity_id)
+        .bind(&row.entity_kind)
+        .bind(&row.proposed_name)
+        .bind(entity_country_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| IdentityError::Db(e.to_string()))?;
     }
 
     if row.entity_kind == "team" && existing_entity.is_none() {

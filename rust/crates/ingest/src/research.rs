@@ -186,6 +186,9 @@ struct Halftime {
 #[derive(Debug, Deserialize)]
 struct Referee {
     name: String,
+    /// A forrás által kimondott bíró-ország; régi envelope-ekben nincs → None.
+    #[serde(default)]
+    country: Option<String>,
 }
 
 /// A napi envelope `venue` blokkja (S90). A stadion nem kanonikus entitás,
@@ -533,7 +536,12 @@ impl ResearchAdapter {
                     // soha nem linkelődött a meccshez.
                     source_record_key: m.uid.clone(),
                     observed_at: captured_at,
-                    payload: json!({ "name": referee.name.trim() }),
+                    payload: json!({
+                        "name": referee.name.trim(),
+                        "country": referee.country.as_deref()
+                            .map(str::trim)
+                            .filter(|code| !code.is_empty()),
+                    }),
                 });
             }
 

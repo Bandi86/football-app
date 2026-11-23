@@ -111,6 +111,7 @@ fn day(
             odds: None,
             stats: None,
             referee: None,
+            referee_country: None,
             environment: None,
             incidents: Vec::new(),
         }],

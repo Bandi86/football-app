@@ -731,6 +731,7 @@ impl Canonicalizer {
                             match_id,
                             competition_id,
                             name,
+                            country_code: fixture_match.referee_country.as_deref(),
                             captured_at: day.captured_at,
                         },
                     )
@@ -1776,6 +1777,8 @@ struct RefereeLink<'a> {
     match_id: Uuid,
     competition_id: Uuid,
     name: &'a str,
+    /// A forrás által kimondott bíró-országa (nem a verseny országa).
+    country_code: Option<&'a str>,
     captured_at: DateTime<Utc>,
 }
 
@@ -1790,6 +1793,7 @@ async fn link_referee(
         match_id,
         competition_id,
         name,
+        country_code,
         captured_at,
     } = link;
     // Slug: ismétlődő elválasztók összevonva ("M. Oliver" → "m-oliver").
@@ -1802,11 +1806,9 @@ async fn link_referee(
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join("-");
-    // A referee katalógusnak ma nincs ország-tárolása a sémában (nincs
-    // core.referee és nincs core.entity.country_id), ezért az entitás oldalán
-    // a kontextus wildcard. A verseny országa ettől még valódi kontextus: a
-    // review-sorba bekerül, és a szűrés azonnal él, ha az entitás oldalán
-    // lesz ország.
+    // S102: a bíró SAJÁT országa a forrásból jön (core.entity.country_id-nál
+    // is ez érvényesül). Ha a forrás nem ad bíró-országot, a versenyország
+    // csak review-kontextusként szolgál — nem állítjuk bíróországnak.
     let competition_country: Option<String> = sqlx::query_scalar(
         "SELECT c.code
            FROM core.competition comp
@@ -1817,15 +1819,21 @@ async fn link_referee(
     .fetch_optional(&mut **tx)
     .await?
     .flatten();
+    let context_country = country_code
+        .map(str::trim)
+        .filter(|code| !code.is_empty())
+        .map(str::to_string)
+        .or(competition_country);
     let ctx = football_domain::identity::IdentityContext {
         // Üres / INT / XX → None (semleges kontextus, nincs ország-szűrés).
-        country_code: football_domain::identity::alias_country_code(competition_country.as_deref()),
+        country_code: football_domain::identity::alias_country_code(context_country.as_deref()),
         ..Default::default()
     };
-    // S97: a research bíró-neve megjelenítés-only (a forrás alakját a
-    // `fact.match_official` tárolja), ezért nem nyitunk rá feldolgozatlan
-    // review-sort — a referee-identitás policy (ország-tárolás, auto-create)
-    // külön döntés, addig napi ~150-200 felesleges review gyűlne.
+    // S102 policy: a research bíró-neve megjelenítés-only (a forrás alakját a
+    // `fact.match_official` tárolja), ezért nem nyitunk review-sort. Nincs
+    // auto-create és nincs fuzzy merge sem: csak TELJES név egzakt egyezése
+    // linkel, és csak akkor, ha a két ország (mindkét oldalon ismert) egyezik.
+    // A döntés indoklása: docs/decisions/2026-11-23-referee-policy.md.
     let options = football_identity::linker::ResolveOptions {
         open_review: source_code != "research",
     };
@@ -1859,15 +1867,21 @@ async fn link_referee(
     // link nem jött létre (nem egzakt névforma). Így a részletező meg tudja
     // jeleníteni a játékvezetőt forrás-megjelöléssel, identitás állítása nélkül.
     sqlx::query(
-        "INSERT INTO fact.match_official (match_id, source_id, role, name, captured_at)
-         VALUES ($1,$2,'referee',$3,$4)
+        "INSERT INTO fact.match_official (match_id, source_id, role, name, country_code, captured_at)
+         VALUES ($1,$2,'referee',$3,$4,$5)
          ON CONFLICT (match_id, source_id, role) DO UPDATE SET
            name = EXCLUDED.name,
+           country_code = EXCLUDED.country_code,
            captured_at = EXCLUDED.captured_at",
     )
     .bind(match_id)
     .bind(source_id)
     .bind(name)
+    .bind(
+        country_code
+            .map(str::trim)
+            .filter(|code| !code.is_empty()),
+    )
     .bind(captured_at)
     .execute(&mut **tx)
     .await?;

@@ -45,6 +45,49 @@ async fn seed_country(pool: &PgPool) -> Uuid {
         .unwrap()
 }
 
+async fn seed_country_code(pool: &PgPool, code: &str) -> Uuid {
+    sqlx::query(
+        "INSERT INTO core.country (id, code, name) VALUES ($1,$2,$2)
+         ON CONFLICT (code) DO NOTHING",
+    )
+    .bind(Uuid::now_v7())
+    .bind(code)
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query_scalar("SELECT id FROM core.country WHERE code=$1")
+        .bind(code)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn seed_referee_with_country(pool: &PgPool, name: &str, code: &str) -> Uuid {
+    let country_id = seed_country_code(pool, code).await;
+    let id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO core.entity (id, kind, canonical_name, country_id)
+         VALUES ($1,'referee',$2,$3)",
+    )
+    .bind(id)
+    .bind(name)
+    .bind(country_id)
+    .execute(pool)
+    .await
+    .unwrap();
+    id
+}
+
+fn referee_day_with_country(
+    competition_country: &str,
+    referee: &str,
+    referee_country: &str,
+) -> NormalizedDay {
+    let mut day = referee_day(competition_country, "Versenyország", Some(referee));
+    day.matches[0].referee_country = Some(referee_country.into());
+    day
+}
+
 async fn seed_linked_team(
     pool: &PgPool,
     source_id: Uuid,
@@ -142,6 +185,7 @@ fn referee_day(country_code: &str, country_name: &str, referee: Option<&str>) ->
             odds: None,
             stats: None,
             referee: referee.map(str::to_string),
+            referee_country: None,
             environment: None,
             incidents: Vec::new(),
         }],
@@ -329,5 +373,46 @@ async fn neutral_competition_country_has_no_country_context() {
     assert!(
         country.is_none(),
         "semleges verseny-országnál nincs ország-szűrés: {country:?}"
+    );
+}
+
+/// (f) S102: a bíró SAJÁT országafelülírja a versenyországot — a verseny HU,
+/// a bíró DE, és a katalógusban is DE: a teljes név linkel.
+#[tokio::test]
+async fn referee_own_country_wins_over_competition_country() {
+    let pool = test_pool().await;
+    let (_source_id, _country_id) = seed_match_pool(&pool).await;
+    let referee = seed_referee_with_country(&pool, "Felix Zwayer", "DE").await;
+
+    let day = referee_day_with_country("HU", "Felix Zwayer", "DE");
+    let materialized = Canonicalizer::materialize(&pool, &day).await.unwrap();
+    assert_eq!(
+        match_referee(&pool, materialized.matches[0].match_id).await,
+        Some(referee),
+        "a bíró saját országa szerinti egyezés linkel"
+    );
+    let stored_country: Option<String> = sqlx::query_scalar(
+        "SELECT country_code FROM fact.match_official WHERE role='referee' AND name='Felix Zwayer'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(stored_country.as_deref(), Some("DE"));
+}
+
+/// (g) S102: ha a bíró saját országa és a katalógus országa eltér, nincs link —
+/// fail-closed, nem találgatunk, nem fuzzy-zünk.
+#[tokio::test]
+async fn referee_country_mismatch_blocks_exact_link() {
+    let pool = test_pool().await;
+    let (_source_id, _country_id) = seed_match_pool(&pool).await;
+    let _referee = seed_referee_with_country(&pool, "Felix Zwayer", "DE").await;
+
+    let day = referee_day_with_country("DE", "Felix Zwayer", "HU");
+    let materialized = Canonicalizer::materialize(&pool, &day).await.unwrap();
+    assert_eq!(
+        match_referee(&pool, materialized.matches[0].match_id).await,
+        None,
+        "eltérő bíró-ország: nincs automatikus link"
     );
 }

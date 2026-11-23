@@ -68,6 +68,8 @@ pub struct NormalizedMatch {
     pub odds: Option<NormalizedOdds>,
     pub stats: Option<NormalizedStats>,
     pub referee: Option<String>,
+    /// A forrás által kimondott bíró-ország; nem a verseny országa. Hiány → None.
+    pub referee_country: Option<String>,
     /// S90: meccs-környezet (stadion + időjárás); hiányzó adat `None`.
     pub environment: Option<NormalizedEnvironment>,
     /// A meccs eseményei a forrás sorrendjében (üres = nincs esemény-adat).
@@ -377,6 +379,8 @@ struct StatsPayload {
 #[derive(Deserialize)]
 struct RefereePayload {
     name: String,
+    #[serde(default)]
+    country: Option<String>,
 }
 
 /// S90: a `match_environment` payload az API-kontraktus mezőneveivel; minden
@@ -432,7 +436,7 @@ impl NormalizedDay {
         let mut odds_by_key: Vec<(String, NormalizedOdds)> = Vec::new();
         let mut stats_by_key: Vec<(String, NormalizedStats)> = Vec::new();
         let mut incidents_by_key: Vec<(String, Vec<NormalizedIncident>)> = Vec::new();
-        let mut referee_by_key: Vec<(String, String)> = Vec::new();
+        let mut referee_by_key: Vec<(String, String, Option<String>)> = Vec::new();
         let mut environment_by_key: Vec<(String, NormalizedEnvironment)> = Vec::new();
         let mut meta: Option<(
             NormalizedCompetition,
@@ -502,6 +506,7 @@ impl NormalizedDay {
                         odds: None,
                         stats: None,
                         referee: None,
+                        referee_country: None,
                         environment: None,
                         incidents: Vec::new(),
                     });
@@ -586,7 +591,7 @@ impl NormalizedDay {
                 "match_referee" => {
                     let p: RefereePayload = serde_json::from_value(obs.payload.clone())
                         .context("match_referee payload")?;
-                    referee_by_key.push((obs.source_record_key.clone(), p.name));
+                    referee_by_key.push((obs.source_record_key.clone(), p.name, p.country));
                 }
                 "match_environment" => {
                     let p: EnvironmentPayload = serde_json::from_value(obs.payload.clone())
@@ -638,11 +643,12 @@ impl NormalizedDay {
             {
                 m.stats = Some(stats.clone());
             }
-            if let Some((_, name)) = referee_by_key
+            if let Some((_, name, country)) = referee_by_key
                 .iter()
-                .find(|(key, _)| *key == m.source_match_id)
+                .find(|(key, _, _)| *key == m.source_match_id)
             {
                 m.referee = Some(name.clone());
+                m.referee_country = country.clone();
             }
             if let Some((_, environment)) = environment_by_key
                 .iter()
@@ -849,6 +855,7 @@ impl From<&FixtureSource> for NormalizedDay {
                     }),
                     stats: None,
                     referee: None,
+                    referee_country: None,
                     environment: None,
                     incidents: Vec::new(),
                 })

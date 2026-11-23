@@ -924,6 +924,31 @@ async fn entity_exists_and_context() {
     assert_eq!(ctx.gender.as_deref(), Some("female"));
 }
 
+/// S102: a személyfajták saját országa a core.entity.country_id-ban él;
+/// a team sor nélküli, de országos referee entitás kontextusa ezért nem None.
+#[tokio::test]
+async fn referee_entity_country_context_is_returned() {
+    let pool = test_pool().await;
+    let country_id = seed_country(&pool, "DE", "Németország").await;
+    let entity_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO core.entity (id, kind, canonical_name, country_id)
+         VALUES ($1,'referee','Felix Zwayer',$2)",
+    )
+    .bind(entity_id)
+    .bind(country_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let ctx = repo::entity_context(&pool, entity_id)
+        .await
+        .unwrap()
+        .expect("országos referee entitásnak van kontextusa");
+    assert_eq!(ctx.country_code.as_deref(), Some("DE"));
+    assert_eq!(ctx.gender, None, "a referee-nek nincs csapat-neme");
+}
+
 // ---------------------------------------------------------------------------
 // Audit
 // ---------------------------------------------------------------------------
