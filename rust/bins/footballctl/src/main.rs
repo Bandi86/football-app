@@ -37,6 +37,7 @@ use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
 mod competitions;
+mod tipplap_replay;
 
 /// S2b-2: a TRUST_LEVEL + odds trust szabálykészlet verziója (a tickével azonos).
 const RULE_SET_VERSION: &str = "verification-1.3";
@@ -265,6 +266,16 @@ enum Command {
         to: NaiveDate,
         #[arg(long)]
         limit: Option<i64>,
+    },
+    /// Tipplap replay: a már tárolt nyers HTML újrafeldolgozása a jelenlegi
+    /// parserrel, hálózati kérés nélkül. Alapból dry-run.
+    TipplapReplay {
+        #[arg(long)]
+        from: NaiveDate,
+        #[arg(long)]
+        to: NaiveDate,
+        #[arg(long)]
+        apply: bool,
     },
     /// Konfliktusok listája (alap: feloldatlan).
     Conflicts {
@@ -1476,6 +1487,26 @@ async fn main() -> Result<()> {
                     .map(|(kind, count)| format!("{kind} {count}"))
                     .collect();
                 println!("pending review: {}", summary.join(", "));
+            }
+        }
+        Command::TipplapReplay { from, to, apply } => {
+            let data_dir =
+                PathBuf::from(std::env::var("DATA_DIR").unwrap_or_else(|_| "./data".to_string()));
+            let report = tipplap_replay::run(&pool, from, to, apply, &data_dir).await?;
+            println!(
+                "tipplap replay {from}..{to}: {} nap, {} observation, {} új sor, {} verseny materializálva{}",
+                report.days,
+                report.parsed,
+                report.inserted_new,
+                report.materialized_competitions,
+                if report.applied {
+                    ""
+                } else {
+                    " (dry-run — nem történt írás)"
+                }
+            );
+            for skip in &report.skipped {
+                println!("  kihagyva: {skip}");
             }
         }
         Command::Reverify { from, to, limit } => {

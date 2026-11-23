@@ -165,16 +165,30 @@ A 4. szelet első, legkisebb része. Nincs új kód, nincs migráció, nincs há
 
 - Minden lépés auditált: a `repair-matches` átállításai az `ops.audit_event`-ben, a merge-ek az `ops.dedupe_archive.payload`-jában teljes előzménnyel rendelkeznek. Visszaállítás = az archív payloadból való visszaírás (nincs CLI undo), illetve az átállított `core.match` csapat-ID-k visszaállítása a `/tmp/s104-before-distinct.tsv` pillanatképből (25 sor).
 
+## S105 — gyors operatív tételek + GB alrégió-policy
+
+A felhasználó „mehetnek a lépések" felhatalmazására a nyitott pontok sorban jöttek.
+
+- [x] **Karcag review**: a HU/senior/férfi csapatnak nem volt meglévő entitása → `identity approve-create` audittal (`01a2076a-c155-…` → `01a207bd-b604-…`). Pending review **1 → 0**.
+- [x] **Soccerway breaker**: **szándékosan nem zártuk**. Mérés: 13 timeout, 382 `quota_blocked`, 3 success (3 nap), a forrás halott; a skill szerint ilyenkor a fail-closed nyitva tartás a helyes, a jobnak megvan a `MAX_TRANSIENT_ATTEMPTS=8` korlátja. A „failed job" a breaker tünete, nem külön hiba.
+- [x] **GB alrégió policy** (`docs/decisions/2026-11-23-gb-subregion-competitions.md`): a 4 angol liga GB-SCT ghostját a meglévő `normalize_country_code` mintájára GB-ENG-re hoztuk. Előbb auditalt ország-revízió (`competition_country_revision`, 4 sor), majd 4 `identity merge-competition --apply` (0 meccs, 1-1 ütköző szezon, 1 alias, 1 ref; merge után 0 duplikátum). A valódi skót versenyeket és az NZ „National League"-t nem érintettük.
+- [x] **AT maradvány**: a már merge-elt „Bundesliga" entitás elavult `core.competition` sora (0 meccs, 1 szezon) audittal archiválva és törölve (`competition_orphan_cleanup`).
+- [x] `integrity --from 2026-11-01 --to 2026-11-30` → **OK**, pending review **0**, withheld **0**, duplikátumok **0**.
+
+## S106 — tipplap replay (új képesség)
+
+- [x] Új CLI: `footballctl tipplap-replay --from … --to … [--apply]` (`rust/bins/footballctl/src/tipplap_replay.rs`). Kizárólag a már tárolt, zstd-tömörített HTML-t olvassa az `ObjectStore`-ból — **nincs hálózati kérés**, ezért robots/kvóta/breaker érintetlen (AGENTS.md §7). A dátum-guardot nem kerüljük meg: a tárolt oldal saját selected optionját ellenőrzi a parser 1.1. Dry-run alapból; `--apply` esetén új `stage.observation` sorok + `verify_and_publish` materializáció.
+- [x] Dry-run 11-18..11-20: **3 nap, 248 observation, 0 írás**. Apply: **248 observation / 136 új sor / 27 verseny materializálva / 11 új meccs**.
+- [x] A replay 6 duplikátum-csoportot és 7 review-t hozott felszínre: `dedupe matches --apply` → **6 csoport / 6 merge**; a 7 review-ból 6 meglévő entitáshoz került (`approve --entity`, köztük a `fuzzy_candidate` „Gol Gohar Sirjan" kézi review-val, auto-fuzzy nélkül), 1 új entitás („FTC", HU női). Pending review újra **0**.
+- [x] Ellenőrzés: `integrity 11-18..11-21` → **OK** (minden duplikátum-mutató 0, review 0, árva 0); `reverify 11-18..11-20` → **466 meccs, 0 hiba**; `dedupe matches` dry-run → **0 duplikátum**; `daily-check.sh` → **EXIT=0**.
+
+### Visszaállás
+
+- Az új observationök és meccsek azonosíthatók a replay idejéből (`/tmp/s106-before.txt` pillanatkép: obs 2714 → 2850, meccs 283808 → 283819); a merge-ek az `ops.dedupe_archive`-ban, a review-döntések az `ops.audit_event`-ben.
+
 ## Következő döntési pont
 
-A felhasználó a négy szeletet sorban jóváhagyta; az 1., 2. és a 3. megvalósítható része kész.
+A felhasználó 4 jóváhagyott feladata megvalósítható részben kész; a maradék:
 
-- **3. maradék — játékosoldal teljes adattartalma: HALASZTVA (felhasználói döntés).** Read-only mérés: **0** player entitás, **0** `fact.match_player_stats` / `season_player_stats` / `match_lineups` / `player_availability` sor, **9 156** különböző szöveges játékosnév a `match_incidents`-ben (0 entitás-link), `core.player` és `player_team_spell` nem létezik. A felhasználó 2026-11-23-i döntése: „terjünk ki erre később részletesen — a játékosadatokhoz elemzés és kutatás kell, hogy a megfelelő módon legyen mentve, kezelve, megjelenítve és teljes részletességgel"; **jövőbeli megbeszélnivalóként rögzítve**, most nem indul adatbetöltés.
-- Akadálymentességi maradék: a checklist `:155-157` korlátjai (menük, naptár, sheet vezérlői a Tab-körben), szűrők perzisztenciája, Reduce Motion / Cmd+R emberi igazolása; a VoiceOver-hang tudatosan kihagyva (`:77-79`).
-- 4. Adatminőség-maradék: a Liga F rész lezárva (S104a). Marad két **döntést igénylő** tétel:
-  - **Verseny-duplikátumok**: a szoros definíció (azonos fold név + azonos ország) mérve **0** — a korábbi CL/BO/CR klasztereket az S95/S97 már feloldotta. A fennmaradó 4 GB ghost pár (Championship / League One / League Two / National League, GB-ENG túlélő 0 meccses GB-SCT duplikátumokkal) és 1 AT residual competition-sor **nem** automatikusan merge-elhető: a GB-párokat a `competition_merge.rs:227-232` ország-guard blokkolja, és a GB alrégiók összevonása policy-döntés (a bíró-ország policyhoz hasonlóan külön egyeztetés kell).
-  - **Tipplap replay**: a múltbeli napok nyers HTML-je megvan az objektumtárban, de a parser dátum-guardja fail-closed, és **nincs produkciós út** a tárolt artifactból újra `stage.observation` → kanonikus meccs felé (a `reverify` csak ellenőriz, nem materializál). Ez **új képesség** (offline replay az ObjectStore-ból, hálózat nélkül), nem gyors adatrevízió; robots/rate-limit (AGENTS.md §7) nem sérülne, de a canonicalizációs út miatt több szeletes munka.
-
-Ezekről a felhasználóval kell egyeztetni; egyiket sem oldottuk meg kitalált adattal vagy a guard megkerülésével.
-
-Gyors operatív tételek, bármikor elvégezhetők: a „Karcag" review eldöntése és a soccerway breaker újrapróbálása/csendesítése.
+- **Játékosoldal teljes adattartalma: HALASZTVA (felhasználói döntés).** 0 player entitás, 0 játékos-statisztika, 9 156 szöveges név; elemzés+kutatás kell a tároláshoz/kezeléshez/megjelenítéshez — jövőbeli megbeszélnivaló.
+- Akadálymentességi maradék: a checklist `:155-157` korlátjai (menük, naptár, sheet vezérlői a Tab-körben), szűrők perzisztenciája, Reduce Motion / Cmd+R emberi igazolása; a VoiceOver-hang tudatosan kihagyva.
