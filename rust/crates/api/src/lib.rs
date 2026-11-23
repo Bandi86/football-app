@@ -26,6 +26,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/weather", get(routes::weather::weather))
         .route("/openapi.json", get(openapi::document))
         .route("/v1/day/{date}", get(routes::day::day))
+        .route("/v1/search", get(routes::search::search))
         .route("/v1/asset/{*key}", get(routes::asset::asset))
         .route("/v1/match/{id}", get(routes::match_detail::match_detail))
         .route(
