@@ -16,6 +16,7 @@ targets:
       path: FootballApp/Info.plist
       properties:
         CFBundleName: FootballApp
+        CFBundleIconName: AppIcon
         LSMinimumSystemVersion: "14.0"
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
@@ -26,6 +27,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: hu.bandi86.FootballApp
         SWIFT_VERSION: "6.0"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
   FootballAppUITests:
     type: bundle.ui-testing
     platform: macOS

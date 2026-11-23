@@ -100,7 +100,7 @@ A Rust verziót a [`rust-toolchain.toml`](rust-toolchain.toml) rögzíti.
 
 ## Helyi környezet
 
-A backend már futtatható (a `footballd` daemon és a `footballctl` CLI; lásd a [helyi fejlesztési útmutatót](docs/operations/local-development.md)). A teljes asztali alkalmazás a SwiftUI kliens elkészültéig még nem indítható. A környezeti változók mintája:
+A backend már futtatható (a `footballd` daemon és a `footballctl` CLI; lásd a [helyi fejlesztési útmutatót](docs/operations/local-development.md)). A SwiftUI kliens natív macOS app: a `./scripts/install-football-app.sh` lefordítja és a `~/Applications/FootballApp.app`-be teszi, a `./scripts/add-football-app-to-dock.sh` pedig hozzáadja a Dock-hoz. A napi read-only ellenőrzés (tegnapi integritás, mai adat, egyéb hibák): `./scripts/daily-check.sh`. A környezeti változók mintája:
 
 ```bash
 cp .env.example .env
