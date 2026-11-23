@@ -260,6 +260,12 @@ A felhasználó jóváhagyta az R-be írást, de kikötötte: **nem elég egy na
 
 - [x] Daemon újraépítve/telepítve; `research-sync.sh 2026-11-20 --enqueue-only` → job `done` (1 próba, 0 hiba). A `fact.match_incidents`ben a `player_source_id IS NOT NULL` sorok száma **0 → 1 763**; cseréknél `related_player_source_id` is kitöltött (pl. `José Martínez 739536 ↔ Nick Hagglund 525614`). A góloknál az assziszt-ID hiánya tudatos NULL.
 
+### Üzemeltetési incidens (lemezterület)
+
+- Az első kapu-futtatás **nem kódban bukott**, hanem `No space left on device` (a `/System/Volumes/Data` 100%-ig tele, 133 MiB szabad). A `rust/target` 21 GiB-re nőtt.
+- Csak a **generált fordítói cache** `rust/target/debug/incremental` (6,5 GiB) került törlésre — forrás, adatbázis, research JSON és `.env` nem. Szabad hely: 133 MiB → **4,8 GiB**; a teljes kapu-lánc újrafutása zöld.
+- Tanulság: a `target` növekedését figyelni kell (jelenleg 16 GiB); a következő karbantartási lépés lehet a `cargo clean` + újrafordítás, ha a szabad hely ismét 1 GiB alá esik.
+
 ### Visszaállás / kockázat
 
 - Az R nincs git alatt: visszaállítás = a három hozzáadott kódrészlet törlése a két Python fájlból és az érintett napok újraexportja. A v2 oldal `git revert`-tel visszafordítható; a DB-ben az ID-k a `research` source + `captured_at` alapján törölhetők (előtte 0 sor).
