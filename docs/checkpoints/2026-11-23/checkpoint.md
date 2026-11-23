@@ -301,3 +301,85 @@ A felhasználó kérése: játékos API, több nap betöltése, majd minden rés
 - **v1 játékos-import**: külön engedély licencre (fotmob/statsbomb/transfermarkt), időszakra és meccs-hídra; a user kifejezetten későbbre halasztotta.
 - **soccerway**: dayPicker/-popup útvonal mérése később; a breaker nyitva marad.
 - Akadálymentességi maradék: menük/naptár/sheet vezérlői a Tab-körben, szűrők perzisztenciája, Reduce Motion/Cmd+R; VO-hang tudatosan kihagyva.
+
+## S104 — kis design-korrekciók a Főoldalon (fejléc + kártyák)
+
+A felhasználó kérése: a fejléc ikon–szöveg igazítása, több térköz a logók és szövegek között, és a forduló/kupa-felirat **csak** a liga neve után (a csapatnevek után nem).
+
+### Változott
+
+- [x] `HomeHeader.swift`: szekciók közt 18→20; üdvözlő ikon–szöveg 8→10 (explicit középigazítás); dátum–meta 10→12; dátumvezérlők 6→8; téglák közt 10→12; ikon–szöveg mindhárom téglában 9→11.
+- [x] `MatchListView.swift`: ligalogó–név 12→16; ország–forduló 6→8; címer–csapatnév 8→12; kártya padding 17→18.
+- [x] `MatchListView.swift`: a látható forduló/kupa-felirat kikerült a `teamsColumn`-ból — csak a liga szekciófejlécben marad. A VoiceOver `matchCardLabel` továbbra is hordozza.
+
+### Futott ellenőrzések (mért)
+
+- [x] `git diff --check` → 0 hiba.
+- [x] `swift test --package-path apps/FootballAppCore` → **124 teszt / 20 suite, 0 hiba**.
+- [x] `xcodebuild test … -only-testing:FootballAppTests` → **76 teszt, 0 failure; TEST SUCCEEDED**.
+- [x] `./scripts/run-ui-tests.sh -parallel-testing-enabled NO` → 10-ből 6 zöld; a betöltött napot ellenőrző `testLoadedDaySpeaksTeamsStatusScoreAndPublishState` **zöld** (kártyák, ligafejléc, forduló, fejléc-téglák).
+- [x] 4 UI-teszt bukott: játékoslap, Tab-fókusz, meccsrészlet-ellenőrzési sáv, daemon-offline — mind az érintett fájlokon kívül. Az A/B-visszaállítás **0 tesztet választott ki**, így alapállapot-összehasonlítás nem bizonyított; közben a játékos-szelet párhuzamosan módosította az UI-tesztet, fixture-eket és scripteket. Nyitva marad.
+- [x] `./scripts/install-football-app.sh` → **BUILD SUCCEEDED**; app újraindítva, pid **59429**.
+- [x] AX élő app: `home.stat.matches` → „117 mérkőzés"; `live` → „0 élő"; `odds` → „76 oddsadattal"; időjárás + countdown rendben; kártya-címke továbbra is tartalmazza pl. a „14. forduló"-t.
+- [x] Vizuális ellenőrzés (ezzel a kóddal készült kép): forduló csak a ligafejlécben, a logók/címerek és szövegek között tágabb térköz, fejléc-téglák egyenletesen igazítva.
+
+### Nem ellenőrzött / kockázat
+
+- A 117 meccses élő ablak képél (`~/.hermes/cache/scratch/football-design-live.png`) a gépi képelemzés rate-limit miatt nem futott le; a fájl megvan, emberi ellenőrzésre alkalmas.
+- A 4 UI-teszt-bukás oka nincs izolálva (lásd fent). Világos mód és VoiceOver-hang külön nem lett ellenőrizve.
+- Commit **nem** készült: a repo más fájljai párhuzamos munka alatt állnak.
+
+### Visszaállás
+
+- A két fájl `git diff`-je visszafordítható; mentés: `~/.hermes/cache/scratch/design-spacing.patch`.
+
+## S105 — nincs többé helymeghatározási engedélyablak
+
+A felhasználó kérése: „adj engedélyt az appnak hogy a hely adatokat megkapja az időjáráshoz és ne jöjjön fel az ablak hogy engedélyezzem".
+
+### Változott
+
+- [x] Új `apps/FootballApp/SavedWeatherLocation.swift`: a helyszín a `~/Library/Application Support/FootballAppV2/weather-location.json` fájlból jön (`name`/`latitude`/`longitude`, tartomány-ellenőrzéssel); hiány esetén Budapest. Az env-felülírás (`FOOTBALL_APP_RUNTIME_FILE`) miatt az UI-tesztek determinisztikusan Budapestet kapnak.
+- [x] `HomeView.swift`: a `WeatherModel` a mentett hellyel indul; a `UserLocationProvider().resolve()` hívás kikerült az időjárás-taskből.
+- [x] `UserLocationProvider.swift`: védelmi réteg — nem hív többé `requestWhenInUseAuthorization()`-t, csak már megadott engedély esetén kér pozíciót.
+- [x] Helyi konfig létrehozva: `Cserszegtomaj`, `46.806133 / 17.2312621` (Wikipédia/geokódolás alapján). A fájl az Application Supportban van, **nem** kerül a publikus repóba.
+
+### Miért nem közvetlen TCC-engedély
+
+SIP engedélyezett, a terminálnak nincs Full Disk Accessa (a TCC.db nem nyitható), és az ad-hoc aláírt app minden újratelepítéskor elveszíti a TCC-grantot. Nincs támogatott CLI az engedély megadására — a tartós megoldás az engedélykérés megszüntetése.
+
+### Futott ellenőrzések (mért)
+
+- [x] `git diff --check` → 0; Core **124/124**; app **76/76** zöld (első app-futás a még nem generált projekt miatt `SavedWeatherLocation` scope-hibát adott → `xcodegen generate` után zöld).
+- [x] `./scripts/install-football-app.sh` → **BUILD SUCCEEDED**, app újraindítva (pid **60394**).
+- [x] Élő AX: `home.stat.weather` → „Időjárás: **5 °C, Borult, Cserszegtomaj**, alaphelyszín, élő adat" — korábban Budapest.
+- [x] Teljes UI-szett: **9/10 zöld**; a betöltött nap (fejléc-tégla, kártyák, forduló) zöld. Egyedüli bukás: `testGlobalSearchOpensPlayerDetail` (a párhuzamos játékos-szelet). A korábban bukó 3 teszt (Tab-fókusz, részlet-ellenőrzés, offline) most zöld — megerősítve, hogy nem az S104 változás okozta őket.
+
+### Visszaállás / kockázat
+
+- A konfig törlésével az app Budapestre esik vissza; a Swift-fájlok `git revert`-tel visszaállíthatók. Az engedélyablak, ha újra engedélykérést vezetünk be, újra megjelenik.
+- A felhasználó személyes koordinátája csak a helyi `weather-location.json`-ban van, nem a repóban.
+
+## S111 — játékosoldal UI (a kész API-hoz)
+
+- [x] `PlayerService.swift` (Core) + `PlayerModel.swift` / `PlayerView.swift` (app): játékosadatlap névvel, országgal, tagsággal, fellépésekkel, statisztikával és eseményekkel. A hiány szövegesen „Nincs adat" / „Nincs …-adat", nem üres sor és nem kitalált 0. AX-azonosítók: `player.name`, `player.country`, `player.spell`, `player.appearance`, `player.stat`, `player.incident`, `player.content`.
+- [x] A globális keresés kiterjesztése játékos-találatokra (`storage/repositories/search.rs`): a keresés eredménye `kind="player"`, a sheet az adatlapot nyitja (nested sheet a `SearchView`-ben). A Swift `SearchResult.kindLabel` „Játékos".
+- [x] UI-fixture és harness: `search-results.json` player-találattal, `player-detail.json`, `--player-fixture`, valamint determinisztikus UI-teszt (`FOOTBALL_UI_PLAYER_ID` környezeti belépési pont). Az XCUITest `Text` szövegét a `value`-ban olvassa (a `label` üres).
+- [x] `scripts/ax-type.swift` — CGEvent alapú szövegbevitel; a virtuális billentyűkódok javítása (a Unicode érték nem kVK kód) után megbízható.
+
+### Futott ellenőrzések (mért)
+
+- [x] `cargo test --workspace` → **578 passed / 0 failed**; clippy 0; fmt 0; `check-foundation.sh` 0; `daily-check.sh` **EXIT=0**.
+- [x] `swift test` → **124 teszt / 20 suite**; app tesztek és UI tesztek: **TEST SUCCEEDED** (76 app + 10 UI).
+- [x] **Valódi macOS AX-folyamat** (élő app, éles API): keresés `jobson` → `search.result.player` („Játékos: Jobson, BR") → kattintás → `player.name = Jobson`, `player.stat` (pl. „Accurate passes, 18.00"), `player.incident` („46. perc · Substitution, Jobson ↔ Bilal Yousef").
+- [x] Lemez: generált cache törlése után 5,2 GiB szabad; a záró kapuk után **2,7 GiB**.
+
+### Kockázat / párhuzamos munka
+
+- A checkouton egy párhuzamos munkamenet S104/S105 változásai is jelen vannak (`HomeHeader.swift`, `MatchListView.swift`, `UserLocationProvider.swift`, új `SavedWeatherLocation.swift`, és a közös `HomeView.swift` időjárás-része). Ezeket **nem írtuk felül**, és mivel a `HomeView.swift` közös fájl, a commit ezeket is magával viszi, hogy a checkout fordítható maradjon. A saját változtatásaink a játékos UI-hoz és a kereséshez kapcsolódnak.
+
+## Következő döntési pont
+
+- **v1 játékos-import**: külön engedély licencre (fotmob/statsbomb/transfermarkt), időszakra és meccs-hídra; a user kifejezetten későbbre halasztotta.
+- **soccerway**: dayPicker/-popup útvonal mérése később; a breaker nyitva marad.
+- Akadálymentességi maradék: menük/naptár/sheet vezérlői a Tab-körben, szűrők perzisztenciája, Reduce Motion/Cmd+R; VO-hang tudatosan kihagyva.

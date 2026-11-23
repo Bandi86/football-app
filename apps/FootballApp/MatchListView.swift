@@ -227,7 +227,7 @@ private struct LeagueSectionView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
+            HStack(spacing: 16) {
                 if let logo = league.logo {
                     CompetitionLogo(path: logo, store: logos, fallbackFlag: league.countryCode, size: 40)
                 } else {
@@ -238,7 +238,7 @@ private struct LeagueSectionView: View {
                     Text(league.name)
                         .font(.appText(16, weight: .semibold))
                         .foregroundStyle(AppTheme.primaryText)
-                    HStack(spacing: 6) {
+                    HStack(spacing: 8) {
                         Text(league.subtitle)
                             .font(.appLabel())
                             .tracking(1.2)
@@ -339,7 +339,7 @@ private struct MatchItemRow: View {
             }
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 17)
+        .padding(.vertical, 18)
         // Az egér fölé vitelén a sor finoman kiemelkedik: enyhe borostyán
         // tónus, hajszál szegély és mikro-skálázás. A billentyűfókusz saját,
         // vastagabb borostyán kerete ettől függetlenül látszik.
@@ -453,28 +453,20 @@ private struct MatchItemRow: View {
         .frame(width: kickoffWidth, alignment: .leading)
     }
 
-    /// Két csapatnév a címerrel, alatta a forduló diszkrét másodlagos
-    /// felirata (ha van). A felolvasott kártyacímke már tartalmazza a fordulót,
-    /// ezért a látható szöveg az akadálymentességből ki van zárva.
+    /// Két csapatnév a címerrel. A forduló/kupa-felirat kizárólag a liga
+    /// szekciófejlécében jelenik meg láthatóan; a kártyán a felolvasott címke
+    /// hordozza (`AccessibilityLabels.matchCardLabel`).
     private var teamsColumn: some View {
         VStack(alignment: .leading, spacing: 4) {
             teamLine(match.home, logo: match.homeLogo, weight: .semibold)
             teamLine(match.away, logo: match.awayLogo, weight: .medium)
-            if let round = match.roundText {
-                Text(round)
-                    .font(.appLabel(9.5))
-                    .tracking(1.0)
-                    .foregroundStyle(AppTheme.secondaryText)
-                    .lineLimit(1)
-                    .accessibilityHidden(true)
-            }
         }
         .lineLimit(1)
         .minimumScaleFactor(0.8)
     }
 
     private func teamLine(_ name: String, logo: String?, weight: Font.Weight) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 12) {
             CrestLogo(name: name, path: logo, store: logos, size: 26)
             Text(name)
                 .font(.appText(16, weight: weight))

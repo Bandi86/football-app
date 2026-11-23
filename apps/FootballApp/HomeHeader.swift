@@ -80,7 +80,7 @@ struct HomeHeader: View {
             ZStack(alignment: .leading) {
                 HeaderAtmosphere(palette: palette, reduceMotion: reduceMotion)
 
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 20) {
                     if compact {
                         VStack(alignment: .leading, spacing: 14) {
                             dateBlock(phase: phase, palette: palette)
@@ -117,7 +117,7 @@ struct HomeHeader: View {
 
     private func dateBlock(phase: DayPhase, palette: HeaderPalette) -> some View {
         VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 8) {
+            HStack(alignment: .center, spacing: 10) {
                 Image(systemName: palette.symbolName)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Color(hex: palette.accentHex))
@@ -138,7 +138,7 @@ struct HomeHeader: View {
             .offset(y: appeared ? 0 : 8)
             .animation(step(0.04), value: appeared)
 
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text(Self.bigDate.string(from: date))
                     .font(.scoreboard(52))
                     .tracking(-1.4)
@@ -159,7 +159,7 @@ struct HomeHeader: View {
     // MARK: - Dátumvezérlők
 
     private func dateControls(palette: HeaderPalette) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             iconButton("chevron.left", help: "Előző nap", tint: palette,
                        focus: .previousDay, action: onPrevious)
                 .keyboardShortcut(.leftArrow, modifiers: .command)
@@ -218,7 +218,7 @@ struct HomeHeader: View {
     // MARK: - Ikonos összefoglaló téglák
 
     private func statsRow(palette: HeaderPalette, refresh: RefreshInfo) -> some View {
-        let tiles = HStack(spacing: 10) {
+        let tiles = HStack(spacing: 12) {
             statTile(
                 icon: "sportscourt",
                 value: count.map { "\($0)" } ?? "–",
@@ -267,7 +267,7 @@ struct HomeHeader: View {
         identifier: String,
         pulsing: Bool = false
     ) -> some View {
-        HStack(spacing: 9) {
+        HStack(spacing: 11) {
             ZStack {
                 if pulsing {
                     Circle()
@@ -313,7 +313,7 @@ struct HomeHeader: View {
         let helpText = live
             ? "Időjárás: \(palette.conditionLabel), \(weather.current?.temperatureText ?? ""), \(weather.cityName) (\(origin)), \(freshness). Forrás: helyi API (Open-Meteo)."
             : "Valódi időjárás nem elérhető; a színezés a napszakot követi (\(palette.conditionLabel))."
-        return HStack(spacing: 9) {
+        return HStack(spacing: 11) {
             Image(systemName: palette.symbolName)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Color(hex: palette.accentHex))
@@ -347,7 +347,7 @@ struct HomeHeader: View {
     }
 
     private func countdownTile(info: RefreshInfo, palette: HeaderPalette) -> some View {
-        HStack(spacing: 9) {
+        HStack(spacing: 11) {
             ZStack {
                 Circle()
                     .stroke(Color.white.opacity(0.10), lineWidth: 2.5)

@@ -8,6 +8,12 @@ struct SelectedMatch: Identifiable {
     let id: UUID
 }
 
+/// UI-teszt belépési pont: indításkor közvetlenül megnyitható egy játékoslap
+/// anélkül, hogy a keresési sheet interactiójára kellene hagyatkozni.
+struct SelectedPlayer: Identifiable {
+    let id: UUID
+}
+
 enum AppTab: Equatable {
     case day
     case ops
@@ -29,13 +35,21 @@ struct HomeView: View {
     @State private var tab: AppTab = .day
     @State private var featuredOnly = false
     @State private var selected: SelectedMatch?
+    @State private var autoPlayer: SelectedPlayer? = {
+        guard let value = ProcessInfo.processInfo.environment["FOOTBALL_UI_PLAYER_ID"],
+              let id = UUID(uuidString: value)
+        else { return nil }
+        return SelectedPlayer(id: id)
+    }()
     @State private var focus: AppFocus?
     @State private var showCalendar = false
     /// ⌘F globális keresés (csapat / verseny / meccs).
     @State private var showSearch = false
     @State private var searchModel = SearchModel()
-    /// A fejléc élő időjárása; hálózat híján napszak-alapú hangulatra esik vissza.
-    @State private var weather = WeatherModel()
+    /// A fejléc élő időjárása; a helyzet a szerkeszthető helyi konfigból jön,
+    /// így a macOS soha nem kér helymeghatározási engedélyt. Hálózat híján
+    /// napszak-alapú hangulatra esik vissza.
+    @State private var weather = WeatherModel(location: SavedWeatherLocation.load())
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
@@ -66,6 +80,9 @@ struct HomeView: View {
         .background(KeyboardMonitor { keyCode, modifiers in
             handle(keyCode: keyCode, modifiers: modifiers)
         })
+        .sheet(item: $autoPlayer) { selected in
+            PlayerView(id: selected.id)
+        }
         .sheet(isPresented: $showSearch) {
             SearchView(model: searchModel) { result in
                 switch result.kind {
@@ -88,13 +105,11 @@ struct HomeView: View {
         // Időjárás: azonnal, majd 15 percenként. A szolgáltatás rövid
         // időkorláttal és graceful fallbackgel dolgozik, ezért nem blokkol.
         .task {
-            // Előbb az alaphelyszínnel megjelenítünk valamit, közben egyszeri
-            // engedélykéréssel feloldjuk a felhasználó saját helyzetét. Ha az
-            // engedély nincs megadva, a `nil` hatására megmarad Budapest.
+            // A helyzet a `weather-location.json`-ból jön (lásd
+            // SavedWeatherLocation): nem hívunk CoreLocation-t, így a rendszer
+            // nem dob fel engedélyező ablakot. A szolgáltatás rövid időkorláttal
+            // és graceful fallbackgel dolgozik, ezért nem blokkol.
             await weather.load()
-            if let located = await UserLocationProvider().resolve() {
-                await weather.useLocation(located)
-            }
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(900))
                 if Task.isCancelled { return }

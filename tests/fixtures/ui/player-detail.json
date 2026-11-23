@@ -1,0 +1,62 @@
+{
+  "player": {
+    "id": "00000000-0000-0000-0000-000000000014",
+    "name": "Játékos Kereső",
+    "country_code": "HU"
+  },
+  "spells": [
+    {
+      "team_name": "Ajman",
+      "valid_from": "2026-11-20",
+      "valid_to": "2026-11-20",
+      "loan": false
+    }
+  ],
+  "appearances": [
+    {
+      "match_id": "01a1f9ee-229f-764e-861d-519a0be77492",
+      "kickoff_at": "2026-11-20T15:25:00Z",
+      "status": "finished",
+      "competition_name": "Pro League",
+      "side": "away",
+      "role": "sub",
+      "rating": 5.7,
+      "captured_at": "2026-11-23T10:35:45Z",
+      "source_code": "research"
+    }
+  ],
+  "stats": [
+    {
+      "match_id": "01a1f9ee-229f-764e-861d-519a0be77492",
+      "stat_key": "Accurate long balls",
+      "value": 3.0,
+      "captured_at": "2026-11-23T10:35:45Z",
+      "source_code": "research"
+    },
+    {
+      "match_id": "01a1f9ee-229f-764e-861d-519a0be77492",
+      "stat_key": "Accurate passes",
+      "value": 18.0,
+      "captured_at": "2026-11-23T10:35:45Z",
+      "source_code": "research"
+    }
+  ],
+  "incidents": [
+    {
+      "match_id": "01a1f9ee-229f-764e-861d-519a0be77492",
+      "incident_type": "Substitution",
+      "minute": 46,
+      "player_name": "Jobson",
+      "related_player_name": "Bilal Yousef",
+      "captured_at": "2026-11-23T10:35:45Z"
+    },
+    {
+      "match_id": "01a1f9ee-229f-764e-861d-519a0be77492",
+      "incident_type": "Card",
+      "minute": 55,
+      "player_name": "Jobson",
+      "related_player_name": null,
+      "captured_at": "2026-11-23T10:35:45Z"
+    }
+  ]
+}

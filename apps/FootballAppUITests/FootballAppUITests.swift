@@ -185,6 +185,28 @@ final class FootballAppUITests: XCTestCase {
         XCTAssertTrue(waitForGone(field, timeout: 10), "Escape nem zárta be a keresést")
     }
 
+    /// A keresés játékos-találatából megnyíló adatlap; a hiány szövegesen
+    /// jelenik meg, az AX-azonosítók stabilak.
+    func testPlayerDetailShowsDataAndMissingStates() throws {
+        let app = try launch(
+            port: Self.loadedPort,
+            playerID: "00000000-0000-0000-0000-000000000014"
+        )
+        app.activate()
+
+        let name = element("player.name", in: app)
+        XCTAssertTrue(name.waitForExistence(timeout: 20), "a játékosadatlap nem nyílt meg")
+        // A SwiftUI Text a szöveget a `value`-ban hordozza, a `label` üres.
+        XCTAssertEqual(name.value as? String, "Játékos Kereső")
+        XCTAssertTrue(element("player.country", in: app).exists, "az ország mező hiányzik")
+        XCTAssertTrue(element("player.content", in: app).exists, "a tartalom hiányzik")
+        XCTAssertTrue(element("player.stat", in: app).exists, "a statisztika hiányzik")
+        XCTAssertTrue(element("player.incident", in: app).exists, "az esemény hiányzik")
+
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(waitForGone(name, timeout: 10), "Escape nem zárta be a játékoslapot")
+    }
+
     // MARK: - Billentyűzet-fókusz a napi listában
 
     /// Tab belép a listába, a nyilak lépkednek, Return megnyitja a részletezőt,
@@ -349,7 +371,7 @@ final class FootballAppUITests: XCTestCase {
 
     /// A futtató környezet (runner) sandboxja miatt a runtime.json-t a runner
     /// saját temp könyvtárába írjuk; az app (nincs sandboxban) onnan olvassa.
-    private func launch(port: UInt16) throws -> XCUIApplication {
+    private func launch(port: UInt16, playerID: String? = nil) throws -> XCUIApplication {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("football-ui-fixture-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -359,6 +381,9 @@ final class FootballAppUITests: XCTestCase {
 
         let app = XCUIApplication()
         app.launchEnvironment["FOOTBALL_APP_RUNTIME_FILE"] = runtimeURL.path
+        if let playerID {
+            app.launchEnvironment["FOOTBALL_UI_PLAYER_ID"] = playerID
+        }
         app.launch()
         return app
     }

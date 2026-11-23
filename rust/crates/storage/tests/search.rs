@@ -91,6 +91,14 @@ async fn search_is_accent_insensitive_across_teams_competitions_and_matches() {
     .await
     .unwrap();
 
+    let player_id = seed_entity(&pool, "player", "Játékos Kereső").await;
+    sqlx::query("INSERT INTO core.player (entity_id, country_id) VALUES ($1,$2)")
+        .bind(player_id)
+        .bind(country_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
     // Ékezet nélküli keresőszó megtalálja az ékezetes nevet.
     let hits = search(&pool, "ujpest", 8).await.unwrap();
     assert!(hits.iter().any(|h| h.kind == "team" && h.title == "Újpest"));
@@ -98,6 +106,13 @@ async fn search_is_accent_insensitive_across_teams_competitions_and_matches() {
         hits.iter()
             .any(|h| h.kind == "match" && h.title.contains("Újpest")),
         "a meccs találat a csapatnévből jön: {hits:?}"
+    );
+
+    let hits = search(&pool, "jatekos", 8).await.unwrap();
+    assert!(
+        hits.iter()
+            .any(|h| h.kind == "player" && h.title == "Játékos Kereső"),
+        "a játékos is találat: {hits:?}"
     );
 
     let hits = search(&pool, "magyar", 8).await.unwrap();

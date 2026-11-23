@@ -61,6 +61,22 @@ pub async fn search(pool: &PgPool, query: &str, per_kind: i64) -> Result<Vec<Sea
     .fetch_all(pool)
     .await?;
 
+    let players = sqlx::query_as::<_, SearchHit>(&format!(
+        "SELECT 'player'::text AS kind, e.id, e.canonical_name AS title,
+                c.code AS subtitle
+           FROM core.entity e
+           JOIN core.player p ON p.entity_id = e.id
+           LEFT JOIN core.country c ON c.id = p.country_id
+          WHERE e.kind = 'player' AND e.merged_into_id IS NULL
+            AND {player_fold} LIKE '%' || {query_fold} || '%'
+          ORDER BY e.canonical_name LIMIT $2",
+        player_fold = fold_expression("e.canonical_name"),
+    ))
+    .bind(query)
+    .bind(per_kind)
+    .fetch_all(pool)
+    .await?;
+
     let matches = sqlx::query_as::<_, SearchHit>(&format!(
         "SELECT 'match'::text AS kind, m.id,
                     (th.name || ' – ' || ta.name) AS title,
@@ -83,6 +99,7 @@ pub async fn search(pool: &PgPool, query: &str, per_kind: i64) -> Result<Vec<Sea
     let mut all = teams;
     all.extend(competitions);
     all.extend(matches);
+    all.extend(players);
     Ok(all)
 }
 

@@ -1,6 +1,11 @@
 import SwiftUI
 import FootballAppCore
 
+/// A `sheet(item:)` hordozójához kell az Identifiable burkoló (UUID önmagában nem az).
+private struct SelectedPlayerSheet: Identifiable {
+    let id: UUID
+}
+
 /// Cmd+F-el megnyitott globális keresés. A találat fajtája minden sorban
 /// szövegesen is megjelenik (a szín nem egyedüli hordozó).
 struct SearchView: View {
@@ -9,6 +14,9 @@ struct SearchView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
+    /// A játékosadatlap a keresési sheetből nyílik (nested sheet) — így nem
+    /// két, ugyanahhoz a nézethez kötött sheet verseng a prezentációért.
+    @State private var selectedPlayer: SelectedPlayerSheet?
 
     var body: some View {
         VStack(spacing: 12) {
@@ -38,8 +46,12 @@ struct SearchView: View {
                     Section("\(feed.results.count) találat — \(feed.query)") {
                         ForEach(feed.results) { result in
                             Button {
-                                onSelect(result)
-                                dismiss()
+                                if result.kind == "player" {
+                                    selectedPlayer = SelectedPlayerSheet(id: result.id)
+                                } else {
+                                    onSelect(result)
+                                    dismiss()
+                                }
                             } label: {
                                 HStack(spacing: 10) {
                                     Text(result.kindLabel)
@@ -69,6 +81,9 @@ struct SearchView: View {
             }
             .listStyle(.plain)
             .accessibilityIdentifier("search.results")
+        }
+        .sheet(item: $selectedPlayer) { selected in
+            PlayerView(id: selected.id)
         }
         .padding(16)
         .frame(width: 640, height: 480)

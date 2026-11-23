@@ -20,6 +20,7 @@ public struct SearchResult: Codable, Equatable, Sendable, Identifiable {
         case "team": return "Csapat"
         case "competition": return "Verseny"
         case "match": return "Meccs"
+        case "player": return "Játékos"
         default: return "Találat"
         }
     }

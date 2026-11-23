@@ -40,10 +40,11 @@ final class UserLocationProvider: NSObject, CLLocationManagerDelegate {
     }
 
     private func requestPosition() {
+        // Tudatosan NEM hívunk requestWhenInUseAuthorization()-t: az abrakadabra
+        // engedélyező ablak minden indításkor előjönne. Csak akkor használunk
+        // eszközhelyzetet, ha a felhasználó azt korábban már külön megadta.
         let status = manager.authorizationStatus
-        if status == .notDetermined {
-            manager.requestWhenInUseAuthorization()
-        } else if isAuthorized(status) {
+        if isAuthorized(status) {
             manager.requestLocation()
         } else {
             finish(with: nil)
