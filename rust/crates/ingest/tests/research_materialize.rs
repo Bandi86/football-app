@@ -51,6 +51,8 @@ fn incident(
         side: side.map(Into::into),
         player_name: player_name.map(Into::into),
         related_player_name: related_player_name.map(Into::into),
+        player_source_id: None,
+        related_player_source_id: None,
         detail: detail.map(Into::into),
         score_after_home: score_after.map(|(home, _)| home),
         score_after_away: score_after.map(|(_, away)| away),

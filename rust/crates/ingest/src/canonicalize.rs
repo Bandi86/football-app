@@ -1624,8 +1624,9 @@ async fn write_incidents(
             "INSERT INTO fact.match_incidents
              (match_id, source_id, captured_at, incident_no, side, incident_type,
               minute, detail, player_name, related_player_name,
+              player_source_id, related_player_source_id,
               score_after_home, score_after_away)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
         )
         .bind(match_id)
         .bind(source_id)
@@ -1637,6 +1638,8 @@ async fn write_incidents(
         .bind(&incident.detail)
         .bind(&incident.player_name)
         .bind(&incident.related_player_name)
+        .bind(&incident.player_source_id)
+        .bind(&incident.related_player_source_id)
         .bind(score_after_home)
         .bind(score_after_away)
         .execute(&mut **tx)

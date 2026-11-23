@@ -136,6 +136,9 @@ pub struct NormalizedIncident {
     pub side: Option<String>,
     pub player_name: Option<String>,
     pub related_player_name: Option<String>,
+    /// R1.1 exporter stabil player-ID-i; név nélkül is hordozható.
+    pub player_source_id: Option<String>,
+    pub related_player_source_id: Option<String>,
     pub detail: Option<String>,
     pub score_after_home: Option<i16>,
     pub score_after_away: Option<i16>,
@@ -420,6 +423,10 @@ struct IncidentPayload {
     #[serde(default)]
     related_player_name: Option<String>,
     #[serde(default)]
+    player_source_id: Option<String>,
+    #[serde(default)]
+    related_player_source_id: Option<String>,
+    #[serde(default)]
     detail: Option<String>,
     #[serde(default)]
     score_after_home: Option<i16>,
@@ -581,6 +588,8 @@ impl NormalizedDay {
                                 side: i.side,
                                 player_name: i.player_name,
                                 related_player_name: i.related_player_name,
+                                player_source_id: i.player_source_id,
+                                related_player_source_id: i.related_player_source_id,
                                 detail: i.detail,
                                 score_after_home: i.score_after_home,
                                 score_after_away: i.score_after_away,

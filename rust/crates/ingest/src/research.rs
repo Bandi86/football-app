@@ -299,6 +299,13 @@ struct DetailEvent {
     player_out: Option<String>,
     #[serde(default)]
     assist: Option<String>,
+    /// Stabil forrás-ID-k (R exporter 1.1) — a név bizonytalan, az ID nem.
+    #[serde(default)]
+    player_id: Option<String>,
+    #[serde(default)]
+    player_in_id: Option<String>,
+    #[serde(default)]
+    player_out_id: Option<String>,
     #[serde(default)]
     score_after: Option<Vec<i16>>,
     #[serde(default)]
@@ -782,12 +789,26 @@ fn incident_payload(event: &DetailEvent) -> Option<serde_json::Value> {
         Some([home, away]) => (Some(*home), Some(*away)),
         _ => (None, None),
     };
+    // A cserénél a bejövő ID a fő, a kimenő a kapcsolódó oldal; gólnál a
+    // gólszerző ID-je. Az asszisztnak nincs külön ID mezője a forrásban.
+    let (player_source_id, related_player_source_id) = match incident_type {
+        "Substitution" => (
+            event
+                .player_in_id
+                .clone()
+                .or_else(|| event.player_id.clone()),
+            event.player_out_id.clone(),
+        ),
+        _ => (event.player_id.clone(), None),
+    };
     Some(json!({
         "minute": event.minute,
         "incident_type": incident_type,
         "side": side,
         "player_name": player_name,
         "related_player_name": related_player_name,
+        "player_source_id": player_source_id,
+        "related_player_source_id": related_player_source_id,
         "detail": event.detail,
         "score_after_home": score_after_home,
         "score_after_away": score_after_away,
@@ -1244,5 +1265,39 @@ mod tests {
         // A forrás U18 tokenje a kanonikus `youth` age_group-ra képeződik.
         assert_eq!(team_context("Premier League U18").1, "youth");
         assert_eq!(team_context("Premier League").2, "senior");
+    }
+
+    /// R1.1: a stabil esemény-ID-k eljutnak a match_events payloadba is, hogy
+    /// a canonicalize a meglévő `player_source_id` oszlopokba írja őket.
+    #[test]
+    fn incident_payload_carries_stable_player_ids() {
+        let substitution = DetailEvent {
+            minute: Some(46),
+            incident_type: Some("Substitution".into()),
+            team: Some("home".into()),
+            player: Some("Ihab Goudani".into()),
+            player_in: Some("Andrej Vasovic".into()),
+            player_out: Some("Ihab Goudani".into()),
+            assist: None,
+            player_id: Some("2035207".into()),
+            player_in_id: Some("2323116".into()),
+            player_out_id: Some("1698721".into()),
+            score_after: None,
+            detail: None,
+        };
+        let payload = incident_payload(&substitution).unwrap();
+        assert_eq!(payload["player_source_id"], "2323116");
+        assert_eq!(payload["related_player_source_id"], "1698721");
+
+        let goal = DetailEvent {
+            incident_type: Some("Goal".into()),
+            player_id: Some("2035207".into()),
+            player_in_id: None,
+            player_out_id: None,
+            ..substitution
+        };
+        let payload = incident_payload(&goal).unwrap();
+        assert_eq!(payload["player_source_id"], "2035207");
+        assert!(payload["related_player_source_id"].is_null());
     }
 }

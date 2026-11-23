@@ -221,11 +221,53 @@ A felhasználó döntése: soccerway később; most a **helyi forrás**; a v1 DB
 - **v1 adatbázis** (read-only): `public` séma, **196 tábla**; `players` **36 678**, `match_player_stats` **820 752**, `match_shots` **133 351**, `match_lineups` **113 802**, `player_availability` **6 487**, `season_player_stats` **4 413**, player `external_id_map` **39 638 / 35 150 core**, `seasons` 7 498 (1888–2030). A statok ~95%-a 2020 utáni. **Kritikus blokk: nincs v1→v2 meccs-híd** (a v2 `v1-import` source-ref 608 team / **0 match**), a `season_player_stats`-ból hiányzik a `source`/`captured_at` (provenance nem található ki), 1 528 leképezetlen + 3 810 többszörösen leképezett játékos. Ez külön, több szeletes munka + licenc-/időszak-döntések.
 - **Kutatási rendszer** (read-only): 5 448 detail fájl; a nyers FotMob adatban **6 673 eseményhez van `player.id`**, de az exporter **0-t** tesz ki belőle — a legkisebb hasznos bővítés az `events[].player_id/player_in_id/player_out_id` opcionális mező (`R/docs/api-export.py:726-731`, `R/docs/api-schema.py:91-94`), amit a v2 már meglévő `fact.match_incidents.player_source_id` oszlopa fogadni tud új migráció nélkül. **Az R-be írás külön jóváhagyás** (külső rendszer, export séma változás, újraexport).
 
+## S109 — research export bővítése és esemény-ID-k a v2-ben
+
+A felhasználó jóváhagyta az R-be írást, de kikötötte: **nem elég egy nap**, az egész elérhető korpuszt kell bővíteni és naponként részletesen ellenőrizni; a v1 import később jön.
+
+### Változott (R — a v2 repón KÍVÜL, nem git-menedzselt)
+
+- [x] `R/docs/api-export.py` — FotMob eseményekből `player.id`, `swap[0].id`, `swap[1].id` → `events[].player_id`, `player_in_id`, `player_out_id` (opcionális, hiány → null); ESPN `participants[].athlete.id` → `player_id`. A `raw/`-t nem érintettük.
+- [x] `R/docs/api-schema.py` — a három új opcionális mező a detail séma `events.items.properties`-ben.
+- [x] **Mind a 16 nap** (2026-11-13…11-28) újraexportálva `python3 docs/api-export.py <16 dátum>`. Az első próba a zsh-szétválasztás miatt elbukott (a dátumok egy argumentumként mentek át), zsh tömbbel javítva.
+
+### Naponkénti mérés (előtte → utána)
+
+| nap | napi sor | detail | esemény | esemény ID-vel |
+|---|---|---|---|---|
+| 11-13/14 | 116/616 | 116/616 | 0 | 0 |
+| 11-15 | 431 → **428** | 438 | 0 | 0 |
+| 11-16 | 79 → **74** | 79 | 784 | 0 → **357** |
+| 11-17 | 164 → **161** | 170 | 983 | 0 → **417** |
+| 11-18 | 116 → **100** | 116 | 780 | 0 → **304** |
+| 11-19 | 80 → **70** | 80 | 821 | 0 → **334** |
+| 11-20 | 244 | 292 | 2 198 | 932 (első export) → **932** |
+| 11-21 | 897 | 1 466 | 5 901 | 0 → **2 554** |
+| 11-22 | 616 | 736 | 4 900 | 0 → **2 085** |
+| 11-23 | 122 | 153 | 223 | 0 → **77** |
+| 11-24…28 | változatlan | — | 0 | 0 |
+
+- A napi sor-szám csökkenése a **LiveScore-összeolvasztásból** ered (a napló pl. 11-16: 49 összeolvasztva, 12 új sor); az eseményszám minden napon **változatlan**, tehát nem veszett el esemény. Két egymást követő export között kizárólag a `snapshot_at`/`revision` időbélyeg változik — az adat determinisztikus.
+- Kötelező ellenőrzés: `python3 docs/api-schema.py --validate` → **5464/5464 dokumentum megfelel**. Mintázat 11-20: a 13. perc Goal `player_id=2035207` — megegyezik a nyers FotMob `player.id`-vel.
+
+### Változott (v2 repó)
+
+- [x] `research.rs` `DetailEvent` + `incident_payload` — a stabil ID-k bekerülnek a `match_events` payloadba (cserénél bejövő/kimenő ID a megfelelő oldalra; gólnál a gólszerző ID-je, assziszt-ID nincs a forrásban → NULL).
+- [x] `normalized.rs` — `NormalizedIncident` és `IncidentPayload` új opcionális mezői; `canonicalize.rs::write_incidents` a meglévő `fact.match_incidents.player_source_id` / `related_player_source_id` oszlopokba ír — **új migráció nem kellett**.
+- [x] Új egységteszt: `incident_payload_carries_stable_player_ids`.
+
+### Élő ellenőrzés
+
+- [x] Daemon újraépítve/telepítve; `research-sync.sh 2026-11-20 --enqueue-only` → job `done` (1 próba, 0 hiba). A `fact.match_incidents`ben a `player_source_id IS NOT NULL` sorok száma **0 → 1 763**; cseréknél `related_player_source_id` is kitöltött (pl. `José Martínez 739536 ↔ Nick Hagglund 525614`). A góloknál az assziszt-ID hiánya tudatos NULL.
+
+### Visszaállás / kockázat
+
+- Az R nincs git alatt: visszaállítás = a három hozzáadott kódrészlet törlése a két Python fájlból és az érintett napok újraexportja. A v2 oldal `git revert`-tel visszafordítható; a DB-ben az ID-k a `research` source + `captured_at` alapján törölhetők (előtte 0 sor).
+
 ## Következő döntési pont
 
-- **Játékos API + UI**: a most betöltött lineup/stat/shots adatokhoz read model, `GET /v1/player/{id}` és játékosoldal kell (kontrakt-fixture, AX-címkék, UI-teszt). Erre külön szelet.
-- **Több nap betöltése**: a 16 napos research korpusz (2026-11-13…11-28) dry-run mérése után `player-import` tartományra; döntés, meddig érdemes (a forrás csak friss ablak).
-- **v1 játékos-import**: külön engedély kell a forrásokra (fotmob/statsbomb/transfermarkt licence), az időszakra (teljes 1958–2026 vs 2015+) és a meccs-hídra; a `season_player_stats` provenance-a nem található ki.
-- **Kutatási export bővítése**: `events[].player_id` az R-ben — írási jog + újraexport szükséges (külön döntés).
-- **soccerway**: dayPicker/-popup útvonal mérése később; a breaker jelenleg nyitva marad.
+- **Játékos API + UI**: a betöltött lineup/stat/shots és most az esemény-ID-k alapján read model, `GET /v1/player/{id}`, játékosoldal (kontrakt, AX-címkék, UI-teszt).
+- **Több nap játékos-import**: a 16 napos korpuszra `player-import` tartományban; ezután játékosentitások száma ~tízezer lesz, mérni kell az átfedést.
+- **v1 játékos-import**: külön engedély licencre (fotmob/statsbomb/transfermarkt), időszakra és meccs-hídra; a user kifejezetten későbbre halasztotta.
+- **soccerway**: dayPicker/-popup útvonal mérése később; a breaker nyitva marad.
 - Akadálymentességi maradék: menük/naptár/sheet vezérlői a Tab-körben, szűrők perzisztenciája, Reduce Motion/Cmd+R; VO-hang tudatosan kihagyva.
