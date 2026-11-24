@@ -27,6 +27,16 @@ struct Entry {
 }
 
 const ENTRIES: &[Entry] = &[
+    // S114/S116: a soccerway magyar CL-címe és a research angol címe ugyanaz
+    // a verseny — külön entitásból duplikált meccseket szült (pl. AEK Athén
+    // vs AEK Athens). A kanonikus név a research `Champions League` alakja.
+    Entry {
+        observed: "bajnokok ligaja - fotabla",
+        name: "Champions League",
+        country: None,
+        tier: 0,
+        priority: 80,
+    },
     // Nemzetközi selejtezők / kupák angol + magyar alakjai.
     Entry {
         observed: "afc asian cup u17 - qualification",
@@ -761,6 +771,20 @@ mod tests {
         let a = canonicalize(&comp("SAFF Championship - Play Offs", "", ""));
         let b = canonicalize(&comp("SAFF Championship - Play Off", "", ""));
         assert_eq!(a.name, b.name);
+    }
+
+    #[test]
+    fn hungarian_champions_league_title_maps_to_english_canonical() {
+        // S116: a soccerway „Bajnokok Ligája - Főtábla" és a research
+        // „Champions League" ugyanaz a verseny; külön entitás duplikált meccseket
+        // eredményezett (AEK Athén vs AEK Athens).
+        let hu = canonicalize(&comp("Bajnokok Ligája - Főtábla", "", ""));
+        let en = canonicalize(&comp("Champions League", "", ""));
+        assert_eq!(
+            hu.name, en.name,
+            "a magyar és angol CL-cím egy kanonikus versenyt ad"
+        );
+        assert_eq!(hu.name, "Champions League");
     }
 
     #[test]

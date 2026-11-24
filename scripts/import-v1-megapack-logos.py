@@ -97,6 +97,11 @@ def country_family(code: str) -> str:
         return "GB"
     if code in {"ENG", "SCO", "WAL", "NIR"}:
         return "GB"
+    # S116: a nemzetközi versenyeknek a v1-ben nincs országa (''), a v2-ben
+    # XX/INT/UNK — ezek ugyanahhoz a családhoz tartoznak, különben a
+    # Champions League / AFC Champions League logója nem illeszkedik.
+    if code in {"", "INT", "XX", "UNK", "ZZ"}:
+        return "XX"
     return ISO3_TO_ISO2.get(code, code)
 
 
@@ -206,7 +211,10 @@ def resolve(
         # mindegyik kaphatja ugyanazt a logót.
         return list(exact), None
     same_name = [ids for (folded_name, _), ids in index.items() if folded_name == folded]
-    if len(same_name) == 1 and len(same_name[0]) == 1:
+    if len(same_name) == 1:
+        # Ugyanaz a pontos név több v2 entitáson is élhet (pl. a regionális
+        # AFC Elite East/West, vagy a research + v1 külön sora) — mindegyik
+        # ugyanazt a logót kapja, ahogy az `exact` ág is teszi.
         return list(same_name[0]), None
     if not same_name:
         # Rövidített tokenegyezés (Ath Bilbao ~ Athletic Bilbao): országon belül,
