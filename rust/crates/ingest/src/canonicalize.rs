@@ -277,8 +277,12 @@ impl Canonicalizer {
                     .await
                     {
                         Ok(football_domain::identity::Resolution::Exact { entity_id, .. }) => {
-                            ensure_live_team(&mut tx, entity_id, &team.name, team_country).await?;
-                            team_ids.insert(team.source_entity_id.clone(), entity_id);
+                            // S119: a tényleges core.team.id-t használjuk (az
+                            // entity_id régi adatoknál nem egyezhet a sor id-jével).
+                            let live_id =
+                                ensure_live_team(&mut tx, entity_id, &team.name, team_country)
+                                    .await?;
+                            team_ids.insert(team.source_entity_id.clone(), live_id);
                         }
                         Ok(football_domain::identity::Resolution::NotFound { queue_id })
                             if create_on_miss =>
@@ -925,7 +929,12 @@ async fn upsert_team(
         "INSERT INTO core.team
          (id, entity_id, country_id, name, gender, age_group, branch)
          VALUES ($1,$1,$2,$3,$4,$5,$6)
-         ON CONFLICT (id) DO UPDATE SET
+         -- S119: a core.team entity_id UNIQUE (team_entity_id_key); a create-
+         -- on-miss mindig új id-t ad, de az entitás már létezhet (pl. egy másik
+         -- forrásnap ugyanazt a csapatot hozta létre) — az id-only ON CONFLICT
+         -- nem fogta, és a job `duplicate key` hibával bukott. Az entity_id-n
+         -- kell ütköztetni; az id megegyezik vele ($1,$1).
+         ON CONFLICT (entity_id) DO UPDATE SET
            name = EXCLUDED.name,
            country_id = COALESCE(EXCLUDED.country_id, core.team.country_id),
            gender = EXCLUDED.gender,
@@ -1094,25 +1103,34 @@ async fn ensure_live_team(
     entity_id: Uuid,
     name: &str,
     country_id: Option<Uuid>,
-) -> Result<()> {
-    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM core.team WHERE id=$1)")
+) -> Result<Uuid> {
+    // S119: az invariáns (core.team.id == entity.id) régi adatoknál sérülhet
+    // (17 sor: id != entity_id). A meccs FK-jának a TÉNYLEGES core.team.id kell,
+    // ezért entity_id alapján keressük, és azt adjuk vissza — nem feltételezzük,
+    // hogy az entity_id maga a sor id-je.
+    let existing: Option<Uuid> = sqlx::query_scalar("SELECT id FROM core.team WHERE entity_id=$1")
         .bind(entity_id)
-        .fetch_one(&mut **tx)
+        .fetch_optional(&mut **tx)
         .await?;
-    if exists {
-        return Ok(());
+    if let Some(team_id) = existing {
+        return Ok(team_id);
     }
     sqlx::query(
         "INSERT INTO core.team
          (id, entity_id, country_id, name, gender, age_group, branch)
-         VALUES ($1,$1,$2,$3,'male','senior','senior')",
+         VALUES ($1,$1,$2,$3,'male','senior','senior')
+         -- Csonka entitás (van core.entity, nincs core.team) esetén a sor itt
+         -- jön létre; entity_id UNIQUE miatt idempotens.
+         ON CONFLICT (entity_id) DO UPDATE SET
+           name = EXCLUDED.name,
+           country_id = COALESCE(EXCLUDED.country_id, core.team.country_id)",
     )
     .bind(entity_id)
     .bind(country_id)
     .bind(name)
     .execute(&mut **tx)
     .await?;
-    Ok(())
+    Ok(entity_id)
 }
 
 /// Élő meccs natural-key keresése, különben új id. A `round_label` NEM

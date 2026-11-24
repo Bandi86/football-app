@@ -233,7 +233,11 @@ pub async fn approve_create_with(
         .map_err(|e| IdentityError::Db(e.to_string()))?;
     }
 
-    if row.entity_kind == "team" && existing_entity.is_none() {
+    if row.entity_kind == "team" {
+        // S119: a core.team sort MINDIG biztosítani kell — akkor is, ha az
+        // entitás már létezik (csonka entitás: van core.entity, nincs core.team).
+        // Régen csak `existing_entity.is_none()` esetén jött létre, ezért a
+        // meccs FK-ja (match_home_team_id_fkey) lógva maradt és a job bukott.
         let ctx = ctx.as_ref().ok_or_else(|| {
             IdentityError::InvalidInput("a csapat kontextusa hiányzik".to_string())
         })?;
@@ -271,7 +275,13 @@ pub async fn approve_create_with(
         sqlx::query(
             "INSERT INTO core.team
              (id, entity_id, country_id, name, gender, age_group, branch)
-             VALUES ($1,$1,$2,$3,$4,$5,$6)",
+             VALUES ($1,$1,$2,$3,$4,$5,$6)
+             -- S119: az entity_id UNIQUE (team_entity_id_key); az entitás
+             -- már létezhet egy másik forrásnapból, ezért az approve-nak
+             -- idempotensnek kell lennie (create-on-miss újrapróbálás).
+             ON CONFLICT (entity_id) DO UPDATE SET
+               name = EXCLUDED.name,
+               country_id = COALESCE(EXCLUDED.country_id, core.team.country_id)",
         )
         .bind(entity_id)
         .bind(country_id)

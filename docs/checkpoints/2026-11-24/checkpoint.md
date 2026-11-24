@@ -146,3 +146,24 @@
 ### Folyamatban
 - [ ] 10-31 backfill (700+ meccsre számítva).
 
+## S119 — Október 31. betöltése + 7 kódjavítás (csonka team invariáns)
+
+### Gyökér (mért)
+- A `core.team` 17 soránál `id != entity_id` (régi női csapatok) — az invariáns sértése. Ez okozta a tartós `team_entity_id_key` és `match_home_team_id_fkey` / `player_team_spell_team_entity_id_fkey` hibákat: a `team_ids` az `entity_id`-t tette a meccsbe, de a `core.team` sor `id`-ja más volt.
+- 6 iteráció után megtalált és javított gyökerek:
+  1. `canonicalize.rs` `upsert_team`: `ON CONFLICT (id)` → `ON CONFLICT (entity_id)`.
+  2. `identity/review.rs` + `repair.rs`: nyers INSERT → `ON CONFLICT (entity_id) DO UPDATE` + a `core.team` sort **mindig** biztosítani kell (nem csak új entitásnál).
+  3. `canonicalize.rs` `ensure_live_team`: `entity_id` alapján keres, és a **tényleges `core.team.id`-t adja vissza** (nem feltételezi, hogy az entity_id == sor id).
+  4. `player_import.rs`: a `player_team_spell.team_entity_id`-be a `core.team.entity_id`-t írja (FK a `core.entity.id`-re).
+
+### Eredmény (mért)
+- [x] 10-31 backfill: **829 meccs**, 0 verify hiba, odds 334 (99 football-data + 329 tipplap).
+- [x] discovery job a 7. próbálkozásra **`done`** — **838 meccs** betöltve.
+- [x] `match-insight-import`: **703 sor**; `player-import`: **1755 játékos / 225 223 stat / 4455 lövés**.
+- [x] `integrity`: **verdict OK**, 0 duplikátum, 0 árva provenance; `coverage-day`: 838/828 lezárt/335 odds/375 verified.
+- [x] Kapuk: `cargo fmt` 0, `clippy --workspace --all-targets` 0, `cargo test --workspace` **584 passed**.
+- [ ] A 9 failed job a javítás **előtti** próbálkozásokból (zaj, nem adatvesztés) — opcionális tisztítás külön szelet.
+
+### Visszaállás
+- Git revert a kódjavításokra; a 10-31 adatai source_id + captured_at alapján törölhetők; a 17 csonka `core.team` sor adatrevízióra vár (nem automatikus merge).
+

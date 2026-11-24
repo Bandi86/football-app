@@ -296,7 +296,11 @@ async fn create_team(
     sqlx::query(
         "INSERT INTO core.team
          (id, entity_id, country_id, name, gender, age_group, branch)
-         VALUES ($1,$1,$2,$3,$4,$5,$6)",
+         VALUES ($1,$1,$2,$3,$4,$5,$6)
+         -- S119: idempotens approve — az entity_id már létezhet (l. review.rs).
+         ON CONFLICT (entity_id) DO UPDATE SET
+           name = EXCLUDED.name,
+           country_id = COALESCE(EXCLUDED.country_id, core.team.country_id)",
     )
     .bind(entity_id)
     .bind(country_id)

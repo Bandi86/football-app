@@ -173,6 +173,14 @@ async fn import_lineup(ctx: LineupImport<'_>, players: &[LineupPlayer]) -> Resul
         .execute(pool)
         .await?;
 
+        // S119: a `team_entity_id` FK a core.entity.id-re mutat, de a `team_id`
+        // egy core.team.id — régi adatoknál a kettő eltérhet (17 sor ahol
+        // team.id != team.entity_id). A tényleges entity_id-t oldjuk fel.
+        let team_entity_id: Uuid =
+            sqlx::query_scalar("SELECT entity_id FROM core.team WHERE id=$1")
+                .bind(team_id)
+                .fetch_one(pool)
+                .await?;
         sqlx::query(
             "INSERT INTO core.player_team_spell
                (id, player_entity_id, team_entity_id, source_id, valid_from, valid_to, captured_at)
@@ -182,7 +190,7 @@ async fn import_lineup(ctx: LineupImport<'_>, players: &[LineupPlayer]) -> Resul
         )
         .bind(Uuid::now_v7())
         .bind(player_entity_id)
-        .bind(team_id)
+        .bind(team_entity_id)
         .bind(source_id)
         .bind(date)
         .bind(captured_at)
