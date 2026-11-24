@@ -57,6 +57,18 @@
 
 - [x] backfill 171 detail (0 hiba, odds 75: 15 football-data + 73 tipplap) → export → job → **169 meccs** → **158 insight sor**, 582 játékos / 69 350 stat → integrity **OK**, coverage 169/169 lezárt/75 odds/79 verified. **Nincs** `fm:` ref-kimaradás.
 
+### November teljes feltöltése — ZÁRÁS
+
+- [x] **11-01**: backfill 623 detail (1 `DC/DA=1.01` határ-megjegyzés) → export → job → **614 meccs** → **486 insight sor**, 1 059 játékos / 187 877 stat → integrity **OK**, coverage 614/611 lezárt/239 odds/220 verified. `fm:5161690` ref-kimaradás.
+- [x] **Teljes november (01–30)**: integrity `--json` → `duplicate_kickoff=0`, `duplicate_fixture=0`, `orphan_provenance=0`, `active_refs_to_merged=0`, `failed_jobs=0`, `open_breakers=0` — **kemény hibamentes**. `same_pair_same_instant=43` / `same_pair_same_day=45` review-jelzés (11-17 U17/U19 időzóna-párok), `pending_reviews=7`, `withheld_gates=1` — nem kemény hibák.
+- [x] **Összesen november**: **7 897 kanonikus meccs / 6 494 eredmény / 2 743 insight sor**. Lemez 35 GiB.
+- [x] 12 nap backfill+export+job+import+integrity lánc mind zöld (11-12 → 11-01).
+
+### Döntési pont: október
+
+- A research forrás korábbi hónapokra is ad adatot (mérve: 2026-10-15 → 31 liga / 102 meccs, 2026-09-01 → 59 liga / 118 meccs, 2026-01-15 → 21 liga / 41 meccs).
+- Kérdés: folytassuk-e októberrel visszafelé, vagy megálljunk november teljes feltöltésénél és összegezzünk.
+
 ## Következő döntési pont
 - Nov 7 és nov 9 kivizsgálása tesztekkel, csak a mai rendezés után.
 - A soccerway tiltás tartósságának napi ellenőrzése a `daily-check`-ben.
