@@ -183,3 +183,15 @@
 - [x] Tesztek (részletes): `bash -n` 0, `shellcheck` 0; hibás dátum (`2026-99-99`) → exit 2; érvényes de hiányzó nap → exit 1; **pozitív teszt 10-27** (EXIT 0: 219 insight, 928 játékos, integrity OK); **teljes `--fetch` teszt 10-26** (EXIT 0: 115 backfill detail → 103 insight, 166 játékos, integrity OK). Közben talált bug: dupla export → javítva (egyszer fut).
 - [x] 10-27: 227 meccs / 219 insight; 10-26: 109 meccs / 103 insight (5 `fm:` ref-kimaradás), mindkettő integrity OK.
 
+## S120 — „figyelmen kívül maradt" hibák lezárása (user észrevétele)
+
+- [x] **7 `same_pair_same_day` csoport kivizsgálva**: 6 **valódi duplikátum** (azonos csapatpár+nap+eredmény, de más verseny név alatt: 4× Veikkausliiga vs Veikkausliiga Championship Group 10-24/25/29, 11-02; NWSL vs NWSL Playoff 11-15; Friendlies U21 vs Men's U-21 Friendly 11-15) → `dedupe pair` mind **6 összeolvasztva**, a gazdagabb (insight+stat+incidens) sor lett a túlélő, áldozatok `ops.dedupe_archive`-ban.
+- [x] Az 7. csoport (**11-07 creighton-depaul**) **NEM duplikátum**: két külön meccs — férfi NCAAM Soccer 2:1 (01:00) és női NCAAW Soccer 3:1 (20:00). A `fold_name` nem különböztet `gender`-t → téves review-jelzés. Nem olvasztottam (adatvesztés lett volna).
+- [x] **3 withheld gate** (11-16×2, 11-20×1): mind `MATERIAL_SOURCE_CONFLICT` — a források anyagi mezőben eltérnek. Szándékosan visszatartott publikáció = **helyes viselkedés**, nem javítandó.
+- [x] **9 failed job** (10-31×6, 11-14×2, 11-22×1): mind a 7 kódjavítás **előtti** próbálkozás; a napoknak van `done` jobja → törölve (zaj a napi checkben).
+- [x] **Végső integrity**: `duplicate=0`, `orphan=0`, `active_refs_to_merged=0`, `failed_jobs=0`, `open_breakers=0`. Maradék: 39 pending review (36 fuzzy + 3 multiple, fail-closed ismeretlen csapatok), 3 withheld gate, 1 same_pair (férfi/női) — mind **helyes állapot**.
+- [x] 17 `core.team` sor ahol `id != entity_id`: a S119 kódjavítások már kezelik (a tényleges `core.team.id`-t használjuk FK-ként); az adatrevízió (sorok rendbetétele) külön szelet, nem blokkol.
+
+### Folytatás
+- [ ] 10-21 és korábbi napok sorban, napi kapuval, cél 2026-08-01.
+
