@@ -143,8 +143,11 @@
 - [x] **Rate limit / IP block**: 5 breaker `closed`, `failure_count=0`; a 24h logban 0 `429/403/quota/blocked`; soccerway tiltva maradt. FotMob próba `2026-10-31`: **185 liga / 707 meccs** — forrás elérhető.
 - [x] Döntés: napi haladás visszafelé, minden napon teljes lánc + részletes ellenőrzés (integrity, coverage, random probe, webes összehasonlítás), cél **2026-08-01** (26-27 szezon kezdete).
 
-### Folyamatban
-- [ ] 10-31 backfill (700+ meccsre számítva).
+### Októberi napi haladás (javított kóddal)
+
+- [x] **10-31**: 838 meccs / 703 insight / 1755 játékos / 225 223 stat, integrity OK (7 kódjavítás után, l. S119).
+- [x] **10-30**: backfill 204 detail (0 verify hiba, DC=1.01 határ) → export → job **első próbálkozásra `done`** (javított kód) → **203 meccs** / **162 insight** / 612 játékos / 67 859 stat → integrity **OK**, coverage 203/203/99 odds/100 verified. Random probe: Al-Ittihad Alexandria–Tala'ea El Gaish — szöglet 2-6, sárga 1-1, xG 1.23-0.52, 17 incidens, 8 insight szekció. Webes FotMob 10-30: 92 liga / 163 meccs (a DB 203 = több forrás összesítve).
+- [ ] **10-29 és korábbi napok**: folytatás sorban, napi kapuval, cél 2026-08-01.
 
 ## S119 — Október 31. betöltése + 7 kódjavítás (csonka team invariáns)
 
