@@ -203,7 +203,8 @@
 - [x] **10-14**: 154 detail → 121 insight / 184 játékos / 43 308 stat, integrity OK.
 - [x] **10-13**: 216 detail → 179 insight / 439 játékos / 70 011 stat, integrity OK.
 - [x] **10-12**: 152 detail → 133 insight / 81 játékos / 62 652 stat, integrity OK (2. próbálkozás, lock-timeout után).
-- [ ] 10-11 és korábbi napok sorban, napi kapuval (ma 10-01-ig).
+- [x] **10-11**: 653 detail → 467 insight / 387 játékos / 184 690 stat, integrity OK.
+- [ ] 10-10 és korábbi napok sorban, napi kapuval (ma 10-01-ig).
 - [ ] **Döntés (user)**: ma **2026-10-01-ig** haladunk, ott szünet; **szeptembert holnap folytatjuk** (cél至 augusztus 1, a 26-27 szezon kezdete).
 
 ## S121 — Felhasználói észrevételek: verseny-besorolások
