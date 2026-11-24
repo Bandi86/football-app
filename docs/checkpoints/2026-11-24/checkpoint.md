@@ -30,7 +30,7 @@
 
 - [x] `integrity --from 2026-11-01 --to 2026-11-24`: kiindulás **duplicate_fixture=2**, `same_pair_same_day=3`.
 - [x] **11-23 rendezve**: ugyanaz a `livescore:1914527` esemény két rögzítési idővel (21:00 eredmény nélkül / 01:30 eredménnyel) → `dedupe pair`, túlélő az eredményes `01a20caa`, áldozat archiválva.
-- [ ] **11-07 NYITOTT — döntés kell**: a `Rhode Island – Davidson` pár két **külön ESPN esemény** (`espn:401929719` 0–0 01:00, `espn:401933415` 2–2 17:00), mindkettő `NCAA Men's Soccer`, ugyanaz a nap. A `duplicate_fixture` check kemény hibát jelez, de a két külön eredmény miatt az automatikus merge **adatvesztést okozna** (az egyik eredmény elveszne). Nem olvasztottam össze. Döntés: (a) két valódi külön meccs → a check megkerülése review-jelzéssel, vagy (b) az ESPN duplikálta → kézi kiválasztás, melyik eredmény a valódi.
+- [x] **11-07 RENDEZVE** (felhasználói döntés: a Davidson Wildcats hivatalos oldala szerint a 2–2 a valódi): a `espn:401933415` (2–2, 17:00) a túlélő, a `espn:401929719` (0–0, 01:00) áldozat archiválva. A korábbi [- ] döntési pont tartalma: a `Rhode Island – Davidson` pár két **külön ESPN esemény** (`espn:401929719` 0–0 01:00, `espn:401933415` 2–2 17:00), mindkettő `NCAA Men's Soccer`, ugyanaz a nap. A `duplicate_fixture` check kemény hibát jelez, de a két külön eredmény miatt az automatikus merge **adatvesztést okozna** (az egyik eredmény elveszne). Nem olvasztottam össze. Döntés: (a) két valódi külön meccs → a check megkerülése review-jelzéssel, vagy (b) az ESPN duplikálta → kézi kiválasztás, melyik eredmény a valódi.
 
 ### Visszaállás / biztonság
 
@@ -41,3 +41,16 @@
 ## Következő döntési pont
 - Nov 7 és nov 9 kivizsgálása tesztekkel, csak a mai rendezés után.
 - A soccerway tiltás tartósságának napi ellenőrzése a `daily-check`-ben.
+## S116 zárás — felhasználói döntések és teljes ellenőrzés
+
+- [x] **11-07 döntés (user)**: a Davidson Wildcats hivatalos oldala szerint a **2–2** a valódi eredmény → `dedupe pair`: túlélő `01a20c8f-f34e` (2–2), áldozat `01a20c8f-f326` (0–0) archiválva. A meccs most `home_ft=2, away_ft=2`.
+- [x] **11-21 új duplikátum**: `A-League Women` Newcastle Jets W – Adelaide United W, két rögzítés (`espn:401913229` 21:00 eredménnyel / `fm:1000020337` 01:00 eredmény nélkül) → eredményes túlél, áldozat archiválva. (A mai soccerway/catchup újrarögzítésből származott.)
+- [x] **Teljes hónap integrity (nov 01–24)**: `duplicate_kickoff=0`, `duplicate_fixture=0`, `orphan_provenance=0`, `active_refs_to_merged=0`, `pending_reviews=0` — **kemény hibamentes**. A `same_pair_same_instant=43` / `same_pair_same_day=46` review-jelzés (11-17 U17/U19 időzóna-duplikátumok), nem kemény hiba.
+- [x] **11-07 zárás**: integrity **OK**, 672 meccs / 667 eredmény / 620 insight.
+- [x] **11-24 zárás (a mai nap)**: integrity **OK**, 209 meccs / 153 insight / 116 odds / 169 logó, 0 függő review. Preview-adat: a research-ben 175 scheduled meccsből **175-höz van `preview_hu`**, 129-hez `prediction`, mind a 184 dokumentumhoz `odds` — a predikció-hiány ott van, ahol nincs elég szezonstatisztika (adatelérhetőség, nem hiba).
+- [x] Összesen 9 duplikátum pár archiválva (6 CL/AFC + livescore 11-23 + ESPN 11-07 + A-League 11-21), mind visszaállítható `ops.dedupe_archive`-ból.
+
+## Következő döntési pont
+- A mai nap és a hónap adatai tiszták → **folytatás a visszafelé haladással: 11-06, 11-05…** napi kapuval.
+- Nov 9-i `fm:` ref-probléma továbbra is nyitott, külön szelet.
+- Soccerway tiltás tartóssága napi ellenőrzés alatt.
