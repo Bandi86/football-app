@@ -8,8 +8,12 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 set -a && . ./.env && set +a
 
-CTL="$ROOT/rust/target/debug/footballctl"
-[ -x "$CTL" ] || CTL="$(command -v footballctl || true)"
+CTL=""
+for c in "$ROOT/rust/target/debug/footballctl" \
+         "$HOME/Library/Application Support/FootballAppV2/agent/bin/footballctl"; do
+  [ -x "$c" ] && { CTL="$c"; break; }
+done
+[ -n "$CTL" ] || CTL="$(command -v footballctl || true)"
 RUNTIME="$HOME/Library/Application Support/FootballAppV2/runtime.json"
 
 MAI="$(TZ=Europe/Budapest date +%F)"
