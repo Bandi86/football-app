@@ -325,3 +325,12 @@ A SOAP (soccerway) tiltás ellenére a tiltás **előtt** betöltött soccerway-
 - [x] Tesztek: `testStaleLiveCardShowsResultPending` (202 perc + eredmény érkezése után nem pending), `testLiveWindowIs150Minutes`, `MatchFilter` 150 perces ablak, UI `testPartialData…` új címkével. Valódi app: az „Élő" számláló **14 → 8** (6 lejárt meccs már nem élő).
 - [x] Kapuk: Rust **585**, clippy 0, fmt 0, Core **125**, app unit **TEST SUCCEEDED**, UI **TEST SUCCEEDED**, daily-check **EXIT=0**, git diff 0.
 
+## S131 — „Következik" szűrő lejárt meccsei (felhasználói észrevétel)
+
+- [x] **Probléma**: 18:12-kor a „Következik" szűrőben ott voltak a 16:00 és 16:30 Budapest-idővel kezdett meccsek, amiknek már rég vége lett. A 16:15-ös frissítéskor még `scheduled` státuszúak voltak, a szűrő pedig kizárólag a státuszt nézte (`scheduled/confirmed/postponed`), a kezdési időt nem.
+- [x] `MatchFilter.upcomingGrace = 5 perc`, és a `.upcoming` ág mind a `DayMatch`, mind a `MatchCardModel` változatban a státusz **mellett** azt is ellenőrzi, hogy a kezdés a jövőben van-e (5 perc tűrés a forráskésésre). Régi, félrevezető „6 óráig" komment javítva 150 percre.
+- [x] Teszt: `testUpcomingRequiresFutureKickoff` (jövő / −2 perc tűrés / −6 perc / −132 perc a felhasználó esete / postponed −989 perc / finished jövővel). App unit **TEST SUCCEEDED**.
+- [x] Mérés: a „Következik" darabszáma **147 → 119** (28 lejárt kezdésű meccs kikerült); „Mind" változatlan 204; Élő 7, Befejezett 50, Idő nélkül 1. A két konkrét 16:00-as meccs (Lithuania U19 W–Faroe Islands U19 W, Vejle U17–Viborg U17) már nem következik.
+- [x] Kapuk: Rust **585**, clippy 0, fmt 0, Core **125**, app unit **TEST SUCCEEDED**, UI **TEST SUCCEEDED**, daily-check **EXIT=0**, git diff 0.
+- [ ] **Döntési pont**: a 6 darab, 5 percnél régebben kezdődött de még `scheduled` meccs jelenleg egyik státusz-szűrőben sincs (a `lejárt, nyitott` 3 órás backend-küszöbe alatt vannak). A „Mind"-ben láthatók. Kérdés: átkerüljenek-e a „Lejárt, nyitott" szűrőbe (ez a backend `open_past` 3 órás küszöbének megváltoztatását is jelentené).
+

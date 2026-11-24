@@ -35,6 +35,11 @@ enum MatchFilter: String, CaseIterable, Identifiable {
         }
     }
 
+    /// A „Következik" tűréshatára a kezdési időnél: a forrás frissítése
+    /// késhet néhány percet, de egy lejárt meccset nem szabad következőnek
+    /// mutatni csak mert a státusza még mindig `scheduled` (S131).
+    static let upcomingGrace: TimeInterval = 5 * 60
+
     /// Hiány-szűrő: nem státusz alapján dönt, ezért a státusz-alapú
     /// csoportosításból (kártya-szín, "Következik/Élő/Befejezett") kimarad.
     var isGapFilter: Bool {
@@ -66,8 +71,13 @@ enum MatchFilter: String, CaseIterable, Identifiable {
     /// A kártya szintű döntés, a hiány-szűrőket is beleértve.
     func matches(_ match: DayMatch, now: Date = Date()) -> Bool {
         switch self {
+        case .upcoming:
+            // S131: a státusz önmagában nem elég — a 16:15-ös frissítéskor
+            // `scheduled` meccsek a 18:15-ös frissítésig elavultak lehetnek.
+            guard matches(status: match.status) else { return false }
+            return match.kickoffAt > now.addingTimeInterval(-Self.upcomingGrace)
         case .live:
-            // „Élő" csak 6 óráig: a backend elavult live státuszt hagyhat maga után.
+            // „Élő" csak 150 percig: a backend elavult live státuszt hagyhat maga után.
             return MatchCardModel.isLiveNow(status: match.status,
                                             kickoffAt: match.kickoffAt, now: now)
         case .openPast:
@@ -96,6 +106,9 @@ enum MatchFilter: String, CaseIterable, Identifiable {
     /// Ugyanaz a döntés a megjelenítési modellen (a csoportosítás ezt használja).
     func matches(_ card: MatchCardModel, now: Date = Date()) -> Bool {
         switch self {
+        case .upcoming:
+            guard matches(status: card.status) else { return false }
+            return card.kickoffAt > now.addingTimeInterval(-Self.upcomingGrace)
         case .live:
             return MatchCardModel.isLiveNow(status: card.status,
                                             kickoffAt: card.kickoffAt, now: now)

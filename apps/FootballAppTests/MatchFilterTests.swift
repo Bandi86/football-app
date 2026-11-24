@@ -101,6 +101,34 @@ final class MatchFilterTests: XCTestCase {
         XCTAssertFalse(MatchFilter.live.matches(scheduledRecent, now: now))
     }
 
+    /// S131: a „Következik" nem mutathat lejárt meccset csak azért, mert a
+    /// forrás még mindig `scheduled` státuszt ad (pl. 16:15-ös frissítéskor
+    /// 16:00-kor kezdett meccs 18:12-kor még mindig scheduled).
+    func testUpcomingRequiresFutureKickoff() {
+        let now = ISO8601DateFormatter().date(from: "2026-11-24T17:12:00Z")!
+        func matchAt(_ offsetMinutes: Int, status: String = "scheduled",
+                     suffix: String) -> DayMatch {
+            let kickoff = now.addingTimeInterval(Double(offsetMinutes * 60))
+            let text = ISO8601DateFormatter().string(from: kickoff)
+            return match(id: "00000000-0000-0000-0000-000000000\(suffix)",
+                         kickoff: text, status: status)
+        }
+        // Jövőbeli kezdés: következik.
+        XCTAssertTrue(MatchFilter.upcoming.matches(matchAt(30, suffix: "031"), now: now))
+        // 5 perces tűréshatár a forráskésés miatt.
+        XCTAssertTrue(MatchFilter.upcoming.matches(matchAt(-2, suffix: "032"), now: now))
+        // A felhasználó esete: 15:00Z (16:00 Budapest), 132 perce kezdődött.
+        XCTAssertFalse(MatchFilter.upcoming.matches(matchAt(-132, suffix: "033"), now: now))
+        // Túl a tűréshatáron, de még a meccs közben.
+        XCTAssertFalse(MatchFilter.upcoming.matches(matchAt(-6, suffix: "034"), now: now))
+        // Elhalasztott meccs múlt idejű eredeti időponttal szintén nem következik.
+        XCTAssertFalse(MatchFilter.upcoming.matches(
+            matchAt(-989, status: "postponed", suffix: "035"), now: now))
+        // A státuszellenőrzés továbbra is él: lezárt meccs jövőbeli idővel nem az.
+        XCTAssertFalse(MatchFilter.upcoming.matches(
+            matchAt(30, status: "finished", suffix: "036"), now: now))
+    }
+
     func testLeagueGroupDetectsCupsAndWomensLeagues() throws {
         let cup = try decode("""
         {"date":"2026-11-20","timezone":"Europe/Budapest","matches":[
