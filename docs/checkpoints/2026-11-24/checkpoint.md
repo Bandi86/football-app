@@ -53,6 +53,10 @@
 
 - [x] backfill 169 detail (0 verify hiba; deep_verify 3× `DC=1.01` határ-hiba — valódi tipplap odds, l. 11-05 megjegyzés) → export → job → **165 meccs** → **159 insight sor**, 889 játékos / 70 792 stat → integrity **OK**, coverage 165/164 lezárt/63 odds/99 verified. Ismételt `fm:6016325` ref-kimaradás.
 
+### 11-02
+
+- [x] backfill 171 detail (0 hiba, odds 75: 15 football-data + 73 tipplap) → export → job → **169 meccs** → **158 insight sor**, 582 játékos / 69 350 stat → integrity **OK**, coverage 169/169 lezárt/75 odds/79 verified. **Nincs** `fm:` ref-kimaradás.
+
 ## Következő döntési pont
 - Nov 7 és nov 9 kivizsgálása tesztekkel, csak a mai rendezés után.
 - A soccerway tiltás tartósságának napi ellenőrzése a `daily-check`-ben.
