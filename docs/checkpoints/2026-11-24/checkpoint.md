@@ -305,3 +305,9 @@ A SOAP (soccerway) tiltás ellenére a tiltás **előtt** betöltött soccerway-
 - [x] Kapuk: Rust **585 teszt**, clippy 0, fmt 0, Core **125 teszt**, app unit **TEST SUCCEEDED**, UI **TEST SUCCEEDED**, git diff --check 0. Egy törékeny saját UI-teszt (Menu AX-label üres fixture-ben) javítva: a label helyett a menüopciókat ellenőrzi.
 - [ ] Megjegyzés: ha a research pipeline egy nap nem fut (pl. hiba), a backend akkor is a következő ütemezett slotot mutatja — ez tervezett becslés, nem új adat garanciája.
 
+## S128 — Újabb bugok irtása (felhasználói észrevétel)
+
+- [x] **Stevenage duplikátum**: ugyanaz a meccs (Stevenage–Sheffield Wednesday, 11-24 20:45) két forrásból — `research+openfoot` és `tipplap`, a tipplap külön `League One` verseny-entitást hozott létre. `dedupe pair`-vel összeolvasztva (a research verzió túlél, áldozat archiválva). Az API-n most **1** Stevenage meccs.
+- [x] **Hamis „8. forduló"**: a FotMob nyers `Tournament.round` a League One-nál 8-at és 9-et is ad (a research hűségesen átveszi). A kliens `LeagueGroup.roundSummary` régi szabálya a „leggyakoribb, döntetlennél kisebb" értéket választotta → hamis 8. Most: ha egynél több különböző numerikus forduló van, **nil** (bizonytalan adat = NULL, AGENTS.md §6). Teszt átírva (`testRoundSummaryIsNilWhenSourceDisagreesOnRoundNumber`). A Championship (egységes 17) továbbra is helyesen jelenik meg.
+- [x] Kapuk: Rust **585**, clippy 0, fmt 0, Core **125**, UI **TEST SUCCEEDED**, git diff 0. API: League One 4 meccs / round_label 8×2+9×2 (forrás), de a kliens nem mutat fordulót; Stevenage 1.
+

@@ -69,15 +69,11 @@ struct LeagueGroup: Identifiable {
         if !numeric.isEmpty {
             var counts: [String: Int] = [:]
             for label in numeric { counts[label, default: 0] += 1 }
-            let ordered = counts.sorted { lhs, rhs in
-                if lhs.value != rhs.value { return lhs.value > rhs.value }
-                if let left = Int(lhs.key), let right = Int(rhs.key), left != right {
-                    return left < right
-                }
-                return lhs.key < rhs.key
-            }
-            guard let winner = ordered.first else { return nil }
-            return MatchCardModel.roundText(for: winner.key)
+            // S128: ha a forrás egynél több különböző fordulót ad (pl. a
+            // FotMob a League One-nál 8-at és 9-et is), a "leggyakoribb"
+            // kiválasztása hamis bizonyosság — ilyenkor nem mutatunk fordulót.
+            guard counts.count == 1, let winner = counts.keys.first else { return nil }
+            return MatchCardModel.roundText(for: winner)
         }
         guard let first = labels.first,
               labels.allSatisfy({ $0 == first }),

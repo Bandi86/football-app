@@ -450,23 +450,26 @@ final class LeagueGroupTests: XCTestCase {
         XCTAssertEqual(groups[0].roundSummary, "13. forduló")
     }
 
-    func testRoundSummaryTieBreaksOnSmallestRoundNumber() throws {
+    /// S128: ha a forrás két különböző fordulót ad (pl. League One 8 és 9),
+    /// a régi "leggyakoribb / döntetlennél kisebb" szabály hamis 8-at mutatott.
+    /// Ilyenkor nem mutatunk fordulót (bizonytalan adat = nil, AGENTS.md §6).
+    func testRoundSummaryIsNilWhenSourceDisagreesOnRoundNumber() throws {
         let leagueId = "00000000-0000-0000-0000-0000000000d6"
         let groups = try groups([
             roundMatchJSON(id: "00000000-0000-0000-0000-000000000d61",
-                           competitionId: leagueId, competitionName: "NB I",
-                           countryCode: "HUN", roundLabel: "14"),
+                           competitionId: leagueId, competitionName: "League One",
+                           countryCode: "ENG", roundLabel: "8"),
             roundMatchJSON(id: "00000000-0000-0000-0000-000000000d62",
-                           competitionId: leagueId, competitionName: "NB I",
-                           countryCode: "HUN", roundLabel: "13"),
+                           competitionId: leagueId, competitionName: "League One",
+                           countryCode: "ENG", roundLabel: "9"),
             roundMatchJSON(id: "00000000-0000-0000-0000-000000000d63",
-                           competitionId: leagueId, competitionName: "NB I",
-                           countryCode: "HUN", roundLabel: "14"),
+                           competitionId: leagueId, competitionName: "League One",
+                           countryCode: "ENG", roundLabel: "8"),
             roundMatchJSON(id: "00000000-0000-0000-0000-000000000d64",
-                           competitionId: leagueId, competitionName: "NB I",
-                           countryCode: "HUN", roundLabel: "13"),
+                           competitionId: leagueId, competitionName: "League One",
+                           countryCode: "ENG", roundLabel: "9"),
         ])
-        XCTAssertEqual(groups[0].roundSummary, "13. forduló")
+        XCTAssertNil(groups[0].roundSummary)
     }
 
     func testRoundSummaryIsNilWithoutRoundLabels() throws {
