@@ -450,6 +450,24 @@ fn plan_is_empty_for_invalid_window() {
 }
 
 #[test]
+fn catchup_job_reads_target_day_from_entity_key() {
+    let dir = std::env::temp_dir().join(format!("research-catchup-{}", Uuid::now_v7()));
+    let daily_path = dir.join("daily/2026/11/2026-11-20.json");
+    std::fs::create_dir_all(daily_path.parent().unwrap()).unwrap();
+    std::fs::write(&daily_path, DAILY).unwrap();
+
+    let adapter = ResearchAdapter::new(dir.clone());
+    let mut catchup = job("2026-11-24"); // time_window = ma, mint a schedulerben
+    catchup.entity_key = "catchup-2026-11-20".into();
+    let requests = adapter.plan(&catchup);
+    assert!(!requests.is_empty(), "a catchup napnak van fetch-terve");
+    assert_eq!(requests[0].url, "daily/2026/11/2026-11-20.json");
+    assert_eq!(requests[0].request_key, "day:2026-11-20");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn youth_competition_uses_canonical_youth_age_group() {
     // A forrás U17/U19 tokenjei nem lehetnek age_group értékek: a kanonikus
     // szótár csak `senior`/`youth`, különben párhuzamos entitások születnek.

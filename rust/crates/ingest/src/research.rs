@@ -363,7 +363,17 @@ impl SourceAdapter for ResearchAdapter {
     }
 
     fn plan(&self, job: &FetchJob) -> Vec<FetchRequest> {
-        let Ok(date) = NaiveDate::parse_from_str(&job.time_window, "%Y-%m-%d") else {
+        // S45 catch-up: a scheduler a múltbeli napot az entity_key-ben hordozza,
+        // a time_window a mai nap marad (napi coverage/idempotencia miatt).
+        // A tervnek mégis a JELÖLT nap fájlját kell olvasnia, különben minden
+        // catch-up job újra és újra a mai napot tölti be és a tegnapi eredmény
+        // soha nem jut el a v2-be.
+        let target = job
+            .entity_key
+            .strip_prefix("catchup-")
+            .and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok())
+            .or_else(|| NaiveDate::parse_from_str(&job.time_window, "%Y-%m-%d").ok());
+        let Some(date) = target else {
             return Vec::new();
         };
         let daily_rel = Self::daily_rel(date);
