@@ -27,6 +27,93 @@ struct Entry {
 }
 
 const ENTRIES: &[Entry] = &[
+    // S121: az U17-es VB csoportjai egyetlen tournament-entitás alá tartoznak;
+    // a csoportot a `round` (pl. "Group I / 2") hordozza, nem külön verseny.
+    // A 12 bejegyzés a research `World Cup U17 - <betű>` címeire vonatkozik.
+    Entry {
+        observed: "world cup u17 - a",
+        name: "World Cup U17",
+        country: None,
+        tier: 0,
+        priority: 60,
+    },
+    Entry {
+        observed: "world cup u17 - b",
+        name: "World Cup U17",
+        country: None,
+        tier: 0,
+        priority: 60,
+    },
+    Entry {
+        observed: "world cup u17 - c",
+        name: "World Cup U17",
+        country: None,
+        tier: 0,
+        priority: 60,
+    },
+    Entry {
+        observed: "world cup u17 - d",
+        name: "World Cup U17",
+        country: None,
+        tier: 0,
+        priority: 60,
+    },
+    Entry {
+        observed: "world cup u17 - e",
+        name: "World Cup U17",
+        country: None,
+        tier: 0,
+        priority: 60,
+    },
+    Entry {
+        observed: "world cup u17 - f",
+        name: "World Cup U17",
+        country: None,
+        tier: 0,
+        priority: 60,
+    },
+    Entry {
+        observed: "world cup u17 - g",
+        name: "World Cup U17",
+        country: None,
+        tier: 0,
+        priority: 60,
+    },
+    Entry {
+        observed: "world cup u17 - h",
+        name: "World Cup U17",
+        country: None,
+        tier: 0,
+        priority: 60,
+    },
+    Entry {
+        observed: "world cup u17 - i",
+        name: "World Cup U17",
+        country: None,
+        tier: 0,
+        priority: 60,
+    },
+    Entry {
+        observed: "world cup u17 - j",
+        name: "World Cup U17",
+        country: None,
+        tier: 0,
+        priority: 60,
+    },
+    Entry {
+        observed: "world cup u17 - k",
+        name: "World Cup U17",
+        country: None,
+        tier: 0,
+        priority: 60,
+    },
+    Entry {
+        observed: "world cup u17 - l",
+        name: "World Cup U17",
+        country: None,
+        tier: 0,
+        priority: 60,
+    },
     // S114/S116: a soccerway magyar CL-címe és a research angol címe ugyanaz
     // a verseny — külön entitásból duplikált meccseket szült (pl. AEK Athén
     // vs AEK Athens). A kanonikus név a research `Champions League` alakja.
@@ -785,6 +872,23 @@ mod tests {
             "a magyar és angol CL-cím egy kanonikus versenyt ad"
         );
         assert_eq!(hu.name, "Champions League");
+    }
+
+    #[test]
+    fn world_cup_u17_groups_map_to_one_tournament() {
+        // S121: a 12 csoport mindegyike egyetlen World Cup U17 verseny.
+        for suffix in "abcdefghijkl".chars() {
+            let grouped = comp(
+                &format!("World Cup U17 - {}", suffix.to_ascii_uppercase()),
+                "",
+                "",
+            );
+            assert_eq!(
+                canonicalize(&grouped).name,
+                "World Cup U17",
+                "a(z) {suffix} csoport is a fő verseny alá tartozik"
+            );
+        }
     }
 
     #[test]

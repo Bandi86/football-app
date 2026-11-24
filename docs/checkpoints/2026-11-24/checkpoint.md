@@ -210,3 +210,18 @@
 - [x] A DB-ben **9 külön verseny**: `World Cup U17 - A…J` (+ magyar `U17-es VB`), a csoport a **verseny nevében** van, a `round_label` csak a fordulót (1/2/3) tartja. A research 11-24-ben I/J/K/L csoportokat ad (8 meccs), de a DB-ben **csak J (2 meccs)** van — **4 meccs hiányzik** (Brazil–Tanzania U17, Honduras–Colombia U17, Venezuela–Romania U17, Mexico–Cameroon U17); további 2 (Costa Rica–Ireland, Japan–Serbia) csak soccerway `U17-es VB` forrásból van. A soccerway részben **eltérő párosításokat** ad (Algeria–Dominican / Chile–Montenegro vs research Algeria–Montenegro / Dominican–Chile) = `MATERIAL_SOURCE_CONFLICT`.
 - [ ] **Javaslat (megerősítés kell, 123 versenyt érint)**: minden csoportos versenyt egy fő tournament-entitás alá vonni (pl. `World Cup U17`), a csoportot átmozgatni a `round_label`-be (`Group I / 1` formátum, megőrizve a fordulót), majd a verseny-entitásokat `merge-competition --force`-tal összeolvasztani. Visszaállás: `ops.dedupe_archive` + `ops.audit_event`. Kérdés: (a) fő név `World Cup U17` (research/angol) vagy `U17-es VB` (v1/magyar)? (b) csoport formátum `Group I / 1` megfelelő-e?
 
+## S121/S122 — World Cup U17 és League Cup Indonesia (felhasználói kérés)
+
+### World Cup U17 — egy fő verseny, csoportok a round_label-ben (KÉSZ)
+- [x] A 9 külön verseny (`World Cup U17 - A…J`) összevonva egy `World Cup U17` fő versenybe: 52 meccs, 27 `Group X / forduló` round_label. A csoportok át lettek mozgatva a `round_label`-be (`Group A / 1`…), a verseny-entitások `merge-competition --force`-tal összeolvasztva (audit: `ops.dedupe_archive`).
+- [x] `competitions.rs` szótár: 12 bejegyzés (`world cup u17 - a…l`) → `World Cup U17` + teszt (`world_cup_u17_groups_map_to_one_tournament`, 14 teszt zöld). Build + daemon restart.
+- [x] A 11-24-es research 6 hiányzó meccse (I/K/L csoportok: Costa Rica–Ireland, Venezuela–Romania, Japan–Serbia, Mexico–Cameroon, Brazil–Tanzania, Honduras–Colombia) betöltve — a szótár javítása után a fő verseny alá kerültek, `Group I/K/L / 2` round_label-lel. A soccerway `Group I/K/L` versenyei most üresek.
+
+### Ipswich U21 – Porto U21 (KÉSZ)
+- [x] Tudatos revízióval átmozgatva a `Premier League Cup` → `Premier League International Cup` versenybe (U21 + portugál csapat), `ops.audit_event`-tel auditálva. A soccerway már tiltva van, nem jön újra.
+
+### League Cup Indonesia (KÉSZ — kézi adatpótlás)
+- [x] A v2 research-ben nincs ilyen verseny (a `League Cup` 11-24-en észak-írországi). A felhasználó Sofascore-listájából 6 meccs betöltve `sofascore` forrással: `League Cup Indonesia` verseny + `Group A/B/C/F/G/I / 1` round_label + eredmények 7:0, 2:0, 5:0 + `provisional_publish` gate. API `/v1/day/2026-11-24`: 6 meccs, helyes eredmények/státuszok.
+- [ ] Megjegyzés: a kézi meccseknek nincs `fact.provenance`/`match_insight`/`match_stats` (csak eredmény+gate) — ha később gazdagítás kell, külön szelet.
+- [ ] A „minden csoportos verseny egy tournament alá" általános elv (123 verseny) még nem teljes — csak a World Cup U17 készült el; a többi külön döntés (név, round formátum).
+
