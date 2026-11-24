@@ -135,6 +135,44 @@ struct LeagueGroup: Identifiable {
         return trimmedRaw
     }
 
+    /// A napi lista ligáinak rendezési módja (S122). A `featured` a régi
+    /// alapértelmezés: kiemelt ligák, aztán ország, aztán név. A másik kettő
+    /// ábécé-sorrend: ország → versenynév, illetve versenynév → ország.
+    enum SortMode: String, CaseIterable, Sendable {
+        case featured
+        case country
+        case name
+
+        var title: String {
+            switch self {
+            case .featured: return "Kiemelt ligák"
+            case .country: return "Ország A–Z"
+            case .name: return "Versenynév A–Z"
+            }
+        }
+    }
+
+    /// A ligák rendezése a választott mód szerint. A belső meccs-sorrend
+    /// (kezdés, majd id) változatlan; az azonos kulcsú csoportoknál az id
+    /// determinisztikus döntő.
+    static func ordered(_ groups: [LeagueGroup], mode: SortMode) -> [LeagueGroup] {
+        groups.sorted { lhs, rhs in
+            switch mode {
+            case .featured:
+                if lhs.priority != rhs.priority { return lhs.priority < rhs.priority }
+                if lhs.country != rhs.country { return lhs.country < rhs.country }
+                if lhs.name != rhs.name { return lhs.name < rhs.name }
+            case .country:
+                if lhs.country != rhs.country { return lhs.country < rhs.country }
+                if lhs.name != rhs.name { return lhs.name < rhs.name }
+            case .name:
+                if lhs.name != rhs.name { return lhs.name < rhs.name }
+                if lhs.country != rhs.country { return lhs.country < rhs.country }
+            }
+            return lhs.id < rhs.id
+        }
+    }
+
     /// Csoportosítás verseny szerint. A csoport metaadatai a kezdés + id szerint
     /// determinisztikusan kiválasztott első meccsből jönnek, a csoportokon belüli
     /// sorrend pedig kezdés, majd id szerint rendezett.

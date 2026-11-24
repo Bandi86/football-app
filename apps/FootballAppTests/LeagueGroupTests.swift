@@ -37,6 +37,40 @@ final class LeagueGroupTests: XCTestCase {
         XCTAssertEqual(groups[1].country, "Magyarország")
     }
 
+    /// S122: a választható rendezési módok (kiemelt / ország A–Z / név A–Z)
+    /// determinisztikusan átrendezik ugyanazokat a ligákat.
+    func testSortModesReorderTheSameGroups() throws {
+        let matches = try decode("""
+        {"date":"2026-11-11","timezone":"Europe/Budapest","matches":[
+          {"id":"00000000-0000-0000-0000-000000000001","kickoff_at":"2026-11-11T18:00:00Z",
+           "status":"scheduled","home":"A","away":"B","home_score":null,"away_score":null,
+           "publish_state":"verified_publish","blockers":[],
+           "competition_id":"00000000-0000-0000-0000-0000000000a1","competition_name":"NB I",
+           "country_code":"HUN","country_name":"Hungary","tier":1,"priority":6},
+          {"id":"00000000-0000-0000-0000-000000000002","kickoff_at":"2026-11-11T16:00:00Z",
+           "status":"scheduled","home":"C","away":"D","home_score":null,"away_score":null,
+           "publish_state":"verified_publish","blockers":[],
+           "competition_id":"00000000-0000-0000-0000-0000000000a2","competition_name":"Premier League",
+           "country_code":"ENG","country_name":"England","tier":1,"priority":1},
+          {"id":"00000000-0000-0000-0000-000000000003","kickoff_at":"2026-11-11T19:00:00Z",
+           "status":"scheduled","home":"E","away":"F","home_score":null,"away_score":null,
+           "publish_state":"verified_publish","blockers":[],
+           "competition_id":"00000000-0000-0000-0000-0000000000a3","competition_name":"Bundesliga",
+           "country_code":"GER","country_name":"Germany","tier":1,"priority":3}
+        ]}
+        """)
+        let groups = LeagueGroup.fromDay(matches)
+
+        let featured = LeagueGroup.ordered(groups, mode: .featured)
+        XCTAssertEqual(featured.map(\.name), ["Premier League", "Bundesliga", "NB I"])
+
+        let byCountry = LeagueGroup.ordered(groups, mode: .country)
+        XCTAssertEqual(byCountry.map(\.country), ["Anglia", "Magyarország", "Németország"])
+
+        let byName = LeagueGroup.ordered(groups, mode: .name)
+        XCTAssertEqual(byName.map(\.name), ["Bundesliga", "NB I", "Premier League"])
+    }
+
     func testCardModelCarriesDisplayFields() throws {
         let matches = try decode("""
         {"date":"2026-11-11","timezone":"Europe/Budapest","matches":[

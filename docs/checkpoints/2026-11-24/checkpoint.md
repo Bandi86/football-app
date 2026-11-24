@@ -233,3 +233,12 @@
 - [x] **Nem a Swift klienst kellett újra buildelni**, hanem a daemon API-ját (`cargo build -p footballd --features obscura` + telepítés + restart). A `/v1/search?q=indonesia` most **7 meccset** ad.
 - [x] Valódi macOS ellenőrzés: az appban a keresőbe „indonesia" + **return** → **11 találat**, benne mind a 6 League Cup Indonesia meccs. (A keresés return billentyűvel indul; a puszta begépelés után az AXOutline még üres.)
 
+## S122 — Választható rendezési mód a napi listán (felhasználói kérés)
+
+- [x] **Döntés (user, question tool)**: `Kiemelt` / `Ország A–Z` / `Versenynév A–Z` — három mód választható, nem fix rendezés.
+- [x] `LeagueGroup.SortMode` enum (featured/country/name) + `LeagueGroup.ordered(_:mode:)` determinisztikus rendezés (belső meccs-sorrend változatlan).
+- [x] `FilterBar`: új `filter.sort` menü a három móddal; `HomeView`: `@State sortMode` (alap: `.featured`), átadva a FilterBar-nak és a `groups()`-nek.
+- [x] Tesztek: `LeagueGroupTests.testSortModesReorderTheSameGroups` (3 mód, app unit teszt), `FootballAppUITests.testSortModeMenuOffersThreeModesAndPersistsSelection`. App build zöld, 77 unit teszt 0 failure, Core 125 teszt zöld, rust fmt 0, git diff --check 0.
+- [x] **Valódi macOS ellenőrzés**: az appban a `filter.sort` menü `Kiemelt ligák / Ország A–Z / Versenynév A–Z` opciókat mutat; az „Ország A–Z" kiválasztása után a menü címe `Ország A–Z`, és a lista első ligája FA Cup → Championshipre váltott.
+- [ ] Megjegyzés: a teljes XCUITest-szett ezen a körön **`Timed out while enabling automation mode`** miatt nem futott (a futó app zavarta az automationt) — környezeti, nem kódhiba; az új teszt lefordult, az élő AX ellenőrzés zöld.
+

@@ -118,6 +118,24 @@ final class FootballAppUITests: XCTestCase {
 
     // MARK: - Üres nap
 
+    /// S122: a rendezési mód választható, és a kiválasztott mód látható a menüben.
+    func testSortModeMenuOffersThreeModesAndPersistsSelection() throws {
+        let app = try launch(port: Self.loadedPort)
+        XCTAssertTrue(element("match.card.11111111-1111-1111-1111-111111111111", in: app)
+            .waitForExistence(timeout: 30), "a nap nem töltődött be")
+
+        let sortMenu = element("filter.sort", in: app)
+        XCTAssertTrue(sortMenu.waitForExistence(timeout: 10), "a rendezési menü hiányzik")
+        XCTAssertEqual(sortMenu.label, "Kiemelt ligák")
+
+        sortMenu.click()
+        for title in ["Kiemelt ligák", "Ország A–Z", "Versenynév A–Z"] {
+            XCTAssertTrue(app.menuItems[title].exists, "hiányzó rendezési mód: \(title)")
+        }
+        app.menuItems["Ország A–Z"].click()
+        XCTAssertEqual(sortMenu.label, "Ország A–Z")
+    }
+
     func testEmptyDayShowsEmptyState() throws {
         let app = try launch(port: Self.emptyPort)
 

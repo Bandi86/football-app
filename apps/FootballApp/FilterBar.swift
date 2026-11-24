@@ -44,6 +44,8 @@ struct FilterBar: View {
     @Binding var womensOnly: Bool
     @Binding var favoritesOnly: Bool
     @Binding var searchText: String
+    /// A napi lista ligáinak rendezési módja (S122).
+    @Binding var sortMode: LeagueGroup.SortMode
     let focused: AppFocus?
     let counts: [MatchFilter: Int]
     let countries: [String]
@@ -227,6 +229,17 @@ struct FilterBar: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
             .accessibilityIdentifier("filter.division")
+
+            Menu {
+                ForEach(LeagueGroup.SortMode.allCases, id: \.self) { mode in
+                    Button(mode.title) { sortMode = mode }
+                }
+            } label: {
+                menuLabel(sortMode.title)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .accessibilityIdentifier("filter.sort")
         }
     }
 

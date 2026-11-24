@@ -29,6 +29,8 @@ struct HomeView: View {
     @State private var searchText = ""
     @State private var womensOnly = false
     @State private var favoritesOnly = false
+    /// A napi lista ligáinak rendezési módja (S122).
+    @State private var sortMode: LeagueGroup.SortMode = .featured
     /// Összecsukott verseny-szekciók (UserDefaults-ból, hogy megmaradjon).
     @State private var collapsed: Set<String> = LeagueCollapse().load()
     @State private var favorites: Set<String> = LeagueFavorites().load()
@@ -277,7 +279,7 @@ struct HomeView: View {
             FilterBar(filter: $filter, country: $country, division: $division,
                       featuredOnly: $featuredOnly, womensOnly: $womensOnly,
                       favoritesOnly: $favoritesOnly,
-                      searchText: $searchText, focused: focus,
+                      searchText: $searchText, sortMode: $sortMode, focused: focus,
                       counts: filterCounts, countries: allCountries,
                       compact: width < 1_000)
 
@@ -356,13 +358,14 @@ struct HomeView: View {
     }
 
     private func groups(_ matches: [DayMatch], featured: Bool) -> [LeagueGroup] {
-        LeagueGroup.fromDay(matches).filter { league in
+        let filtered = LeagueGroup.fromDay(matches).filter { league in
             (!featured || LeagueGroup.featured([league]).isEmpty == false) &&
             (country == nil || league.country == country) &&
             (division == nil || division!.matches(league)) &&
             (!womensOnly || league.isWomens) &&
             (!favoritesOnly || favorites.contains(league.id))
         }
+        return LeagueGroup.ordered(filtered, mode: sortMode)
     }
 
     private func baseGroups(_ matches: [DayMatch]) -> [LeagueGroup] {
