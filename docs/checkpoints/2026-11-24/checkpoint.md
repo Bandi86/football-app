@@ -26,6 +26,18 @@
 - **Biztonsági megjegyzés**: `~/Library/Application Support/FootballAppV2/agent/run.sh` plaintextben tartalmazza az OpenFoot API-kulcsot (`of_live_...`) — nincs a repóban, de Keychainbe kellene kerülni.
 - Nov 7 (Rhode Island–Davidson duplikátum) és a nov 9-i `fm:` ref-probléma továbbra is nyitott — a folytatási jegyzet szerint.
 
+### Teljes hónap ellenőrzés (nov 01–24)
+
+- [x] `integrity --from 2026-11-01 --to 2026-11-24`: kiindulás **duplicate_fixture=2**, `same_pair_same_day=3`.
+- [x] **11-23 rendezve**: ugyanaz a `livescore:1914527` esemény két rögzítési idővel (21:00 eredmény nélkül / 01:30 eredménnyel) → `dedupe pair`, túlélő az eredményes `01a20caa`, áldozat archiválva.
+- [ ] **11-07 NYITOTT — döntés kell**: a `Rhode Island – Davidson` pár két **külön ESPN esemény** (`espn:401929719` 0–0 01:00, `espn:401933415` 2–2 17:00), mindkettő `NCAA Men's Soccer`, ugyanaz a nap. A `duplicate_fixture` check kemény hibát jelez, de a két külön eredmény miatt az automatikus merge **adatvesztést okozna** (az egyik eredmény elveszne). Nem olvasztottam össze. Döntés: (a) két valódi külön meccs → a check megkerülése review-jelzéssel, vagy (b) az ESPN duplikálta → kézi kiválasztás, melyik eredmény a valódi.
+
+### Visszaállás / biztonság
+
+- A 7 merge (6 CL/AFC + 1 livescore) minden áldozata a `ops.dedupe_archive`-ban van JSONB payloadtal.
+- Soccerway tiltás: `UPDATE ops.source_policy SET enabled=true WHERE source_slug='soccerway'` visszaállítható.
+- **Biztonsági teendő**: az agent `run.sh` plaintext OpenFoot API-kulcsot tartalmaz — Keychainbe kell kerülni, de ez külön üzemeltetési döntés, most nem módosítottam.
+
 ## Következő döntési pont
 - Nov 7 és nov 9 kivizsgálása tesztekkel, csak a mai rendezés után.
 - A soccerway tiltás tartósságának napi ellenőrzése a `daily-check`-ben.
