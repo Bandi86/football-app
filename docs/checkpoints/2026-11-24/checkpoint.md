@@ -198,7 +198,8 @@
 - [x] **10-19**: 135 detail → 120 insight / 131 játékos / 52 777 stat, integrity OK.
 - [x] **10-18**: 762 detail → 578 insight / 600 játékos / 222 445 stat, integrity OK.
 - [x] **10-17**: 853 detail → 749 insight / 1246 játékos / 222 431 stat, integrity OK.
-- [ ] 10-16 és korábbi napok sorban, napi kapuval, cél 2026-08-01.
+- [x] **10-16**: 238 detail → 167 insight / 196 játékos / 55 422 stat, integrity OK.
+- [ ] 10-15 és korábbi napok sorban, napi kapuval, cél 2026-08-01.
 
 ## S121 — Felhasználói észrevételek: verseny-besorolások
 
