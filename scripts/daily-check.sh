@@ -96,6 +96,16 @@ union all select 'withheld gate (' || '$MA' || '): ' || count(*) from ops.publis
 union all select 'verified gate (' || '$MA' || '): ' || count(*) from ops.publish_gate where publish_date = '$MA' and state = 'verified_publish';
 "
 
+# 5. Soccerway tiltás (S116) — a policy-t kézzel állítottuk false-ra; ha egy
+#    jövőbeli seed/script visszaállítaná, a napi check jelezze. Read-only: nem ír.
+SOCCERWAY_ENABLED="$(psql "$DATABASE_URL" -Atc "select enabled from ops.source_policy where source_slug='soccerway'" 2>/dev/null)"
+if [ "$SOCCERWAY_ENABLED" = "t" ]; then
+  echo "[HIBA] soccerway újra engedélyezve — S116 szerint tiltva kell maradnia" >&2
+  hiba=1
+else
+  echo "[OK] soccerway tiltva (enabled=${SOCCERWAY_ENABLED:-nincs sor})"
+fi
+
 echo
 if [ "$hiba" -eq 0 ]; then
   echo "VÉGEREDMÉNY: ZÖLD — kemény hiba nincs (a figyelmeztetéseket fent ellenőrizd)."
