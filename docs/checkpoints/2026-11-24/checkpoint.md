@@ -242,3 +242,13 @@
 - [x] **Valódi macOS ellenőrzés**: az appban a `filter.sort` menü `Kiemelt ligák / Ország A–Z / Versenynév A–Z` opciókat mutat; az „Ország A–Z" kiválasztása után a menü címe `Ország A–Z`, és a lista első ligája FA Cup → Championshipre váltott.
 - [ ] Megjegyzés: a teljes XCUITest-szett ezen a körön **`Timed out while enabling automation mode`** miatt nem futott (a futó app zavarta az automationt) — környezeti, nem kódhiba; az új teszt lefordult, az élő AX ellenőrzés zöld.
 
+## S123 — Napi lista duplikátumok (felhasználói észrevétel)
+
+A SOAP (soccerway) tiltás ellenére a tiltás **előtt** betöltött soccerway-meccsek duplikátumokat hagytak a 11-24-es napon. Mind a 4 esetben a research/kézi verzió a túlélő, a soccerway az áldozat (`dedupe pair`, `ops.dedupe_archive`-ban visszaállítható):
+
+- [x] **Copa Chile / Cup Chile negyeddöntő**: ugyanaz a meccs (Coquimbo–Calera, 23:00) két verseny alatt — `Cup` (research, verified) és `Copa Chile - Play Off` (soccerway). Az áldozat (soccerway) összeolvasztva, az API-n most csak a research `Cup` meccs látszik.
+- [x] **ZED FC**: két meccs ugyanazzal az idővel — `ZED FC – Abo Qir Semad` (research/fotmob, user által megerősítve: a valódi) és `ZED FC – Smouha SC` (soccerway, hamis). A soccerway áldozat összeolvasztva.
+- [x] **Indonézia**: `League Cup Indonesia` (6 kézi meccs) + `I.League Cup` (soccerway, Garudayaksa–PSS duplikátum). A soccerway meccs összeolvasztva; az API-n most csak a 6 `League Cup Indonesia` meccs.
+- [x] **U17-es VB**: 4 soccerway meccs a `U17-es VB` verseny alatt. 2 egyértelmű duplikátum (Costa Rica–Ireland, Japan–Serbia) összeolvasztva a research `World Cup U17` meccseibe. 2 eltérő párosítás (Algeria–Dominican, Chile–Montenegro vs research Algeria–Montenegro / Dominican–Chile) `MATERIAL_SOURCE_CONFLICT` miatt **withheld gate**-be téve (nem törölve, visszaállítható). Az API-n most 8 meccs, mind a `World Cup U17` alatt.
+- [x] Integrity 11-24 és teljes okt+nov: verdict **OK**, 0 duplikátum, 0 árva provenance, 0 failed job; 44 pending review + 5 withheld gate (helyes állapot).
+
