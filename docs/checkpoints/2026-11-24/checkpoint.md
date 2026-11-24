@@ -265,3 +265,8 @@ A SOAP (soccerway) tiltás ellenére a tiltás **előtt** betöltött soccerway-
 - [x] **FC Porto / FC Porto U21 logó**: a külön `Porto` entitásnak volt v1-megapack logója (`assets/7c/3a/...webp`), de az `FC Porto` (01a1fc05-055b…) és `FC Porto U21` (01a1f823-968e…) entitásoknak nem. Asset-másolással (nem entitás-összevonással) hozzárendelve ugyanazzal a `storage_key`-el, `ops.audit_event`-tel auditálva. Az API-n mindkét meccsen `logo: True` (Champions League: Feyenoord–FC Porto; Premier League International Cup: Ipswich U21–FC Porto U21).
 - [ ] Megjegyzés: a jövőbeni asset-importoknál a `DATA_DIR`-et az agent könyvtárára kell beállítani (vagy a bájtokat oda másolni), különben újra 404 lesz. Külön szelet/üzemeltetési javítás.
 
+## S125 — Lock-timeout (10-12 első próbálkozás)
+
+- [x] A 10-12 backfill első futása **`LOCK_TIMEOUT`** miatt bukott: a `.football.lock`-ot az automatikus `football odds 2026-11-24` folyamat tartotta 300 mp-nél tovább (egy elakadt `obscura scrape` a betexplorer.com ellen, ami 0 adatot adna). A mai nap már be volt töltve (pipeline 08:40-kor zárult), ez későbbi automatikus odds-futtatás volt — leállítása **nem adatvesztés**. Lock törölve, scrape gyerek leállítva, a 10-12 újraindítva.
+- [ ] Üzemeltetési tanulság: a `backfill-day.sh` és az automatikus napi `collect-only.sh` egyaránt használja a `.football.lock`-ot. Ha a launchd 14:15-ös odds-futtatása elakad, a napi backfill 300 mp után kilép. Jövőben érdemes a backfillt a lock elengedésére újrapróbálni (a `backfill-day.sh` jelenleg nem retryel) — külön szelet.
+
