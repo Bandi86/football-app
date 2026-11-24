@@ -91,8 +91,11 @@
 
 ## S118 — A és B javítások
 
-### A: 11-13/14/15 `fm:`-ref pótlása (FOLYAMATBAN)
-- [ ] A researchben ezeken a napokon **nem volt egyetlen detail fájl sem** (0 fm, 0 espn) — csak livescore ref. Újra gyűjtés indítva: `football.py backfill --from 2026-11-13 --to 2026-11-15 --limit 3` (háttérben fut; fm detail fájlok már keletkeznek: 11-14: 198, 11-15: 230). A záráskor még futott — a folytatásnál ellenőrizni kell a logot, majd `api-export` + discovery job + insight/player import a 3 napra.
+### A: 11-13/14/15 `fm:`-ref pótlása (KÉSZ)
+- [x] Újra gyűjtés: `backfill --from 2026-11-13 --to 2026-11-15 --limit 3` → **3 ok / 0 hiba**, verify/deep_verify 0 hiba. fm detail: 11-13: 88, 11-14: 311, 11-15: 230.
+- [x] `api-export` mindhárom napra (fm dokumentumok: 88/311/230) → discovery job → 11-13 `done`, 11-15 `done`, 11-14 két `failed` (`team_entity_id_key` ütközés — de a korábbi `done` job 623 meccset és 85 fm refet már betöltött, így **nem adatvesztés**).
+- [x] Insight/player import: **11-13: 87, 11-14: 85, 11-15: 230 insight sor** (előtte 0/0/0). 11-13: 108 játékos, 11-14: 160, 11-15: 411.
+- [x] A három nap meccsszáma most 158/659/555 (új live meccsek is bekerültek a friss gyűjtéssel).
 
 ### B: lap szín bevezetése az `incidents`-be (KÉSZ)
 - [x] Gyökér: `docs/api-export.py:768` a `detail`-t csak `goalDescription`/`eventDescription`/`description`-ből vette — a FotMob `card` (`Yellow`/`Red`) mezőt nem. A `cardDescription` néha dict, ezt is kezelni kellett.
@@ -122,3 +125,14 @@
 - A mai nap és a hónap adatai tiszták → **folytatás a visszafelé haladással: 11-06, 11-05…** napi kapuval.
 - Nov 9-i `fm:` ref-probléma továbbra is nyitott, külön szelet.
 - Soccerway tiltás tartóssága napi ellenőrzés alatt.
+## S118 zárás — A+B kész, teljes ellenőrzés
+
+- [x] **Teljes november**: **8 087 meccs / 4 563 insight sor** (előtte 7 897 / 4 161 — a 3 nap +402 insight).
+- [x] Integrity nov 01–30: `duplicate_kickoff=0`, `duplicate_fixture=0`, `orphan=0`, `active_refs_to_merged=0` — **kemény hibamentes**. 20 pending review, 3 failed job (11-14×2 ref-ütközés + 11-22 hiányzó fájl), 1 `same_pair_same_instant` + 4 `same_pair_same_day` — review-jelzések, nem kemény hibák.
+- [x] **Probe újra (B)**: az új napokon (11-13/14/15) az API `/v1/match` `incidents` tömbben **8 színes lap** (pl. São Bernardo–Athletic, `Yellow card`) — a javítás ott is érvényes.
+- [x] **Probe xG új napokon**: még nincs elég xG (a friss 87/85/230 insight nem hordoz xG-t) — adatelérhetőség, nem hiba; a régi napokon (Chelsea W −2.0) már mért.
+- [x] Visszaállás: A → `backfill-state.json` done lista + újragenerálható napok; B → `api-export.py.bak-20261124-card` + worker DELETE/INSERT újraírás.
+
+## Következő döntési pont
+- Október folytatása (a research mérve ad adatot: 10-15 → 102 meccs), vagy megállni és fenntartani a novemberi állapotot.
+- A 3 failed job (2 ref-ütközés + 1 hiányzó fájl) opcionális külön tisztítása — nem adatvesztés, csak zaj a napi checkben.
