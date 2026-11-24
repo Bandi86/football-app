@@ -85,10 +85,14 @@ pub async fn search(pool: &PgPool, query: &str, per_kind: i64) -> Result<Vec<Sea
                FROM core.match m
                JOIN core.team th ON th.id = m.home_team_id
                JOIN core.team ta ON ta.id = m.away_team_id
+               JOIN core.competition comp ON comp.id = m.competition_id
               WHERE m.kickoff_at >= now() - interval '7 days'
                 AND ({home_fold} LIKE '%' || {query_fold} || '%'
                      OR {away_fold} LIKE '%' || {query_fold} || '%'
-                     OR {round_fold} LIKE '%' || {query_fold} || '%')
+                     OR {round_fold} LIKE '%' || {query_fold} || '%'
+                     -- S122: verseny nev alapjan is (pl. indonesia ->
+                     -- League Cup Indonesia meccsei).
+                     OR {competition_fold} LIKE '%' || {query_fold} || '%')
               ORDER BY m.kickoff_at DESC LIMIT $2"
     ))
     .bind(query)

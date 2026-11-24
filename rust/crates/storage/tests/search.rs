@@ -120,6 +120,12 @@ async fn search_is_accent_insensitive_across_teams_competitions_and_matches() {
         hits.iter()
             .any(|h| h.kind == "competition" && h.title == "Magyar Kupa")
     );
+    // S122: a meccs a verseny neve alapján is megtalálható
+    // (pl. "indonesia" -> League Cup Indonesia meccsei).
+    assert!(
+        hits.iter().any(|h| h.kind == "match"),
+        "a meccs találat a verseny névéből is jön: {hits:?}"
+    );
 
     let hits = search(&pool, "nem-this", 8).await.unwrap();
     assert!(hits.is_empty(), "nincs találat: {hits:?}");

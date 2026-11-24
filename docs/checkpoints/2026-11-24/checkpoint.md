@@ -226,3 +226,10 @@
 - [ ] Megjegyzés: a kézi meccseknek nincs `fact.provenance`/`match_insight`/`match_stats` (csak eredmény+gate) — ha később gazdagítás kell, külön szelet.
 - [ ] A „minden csoportos verseny egy tournament alá" általános elv (123 verseny) még nem teljes — csak a World Cup U17 készült el; a többi külön döntés (név, round formátum).
 
+## S122 — Kereső: verseny név alapján is (felhasználói észrevétel)
+
+- [x] A `/v1/search?q=indonesia` csak **1 meccset** adott (az `Indonesia U17 – Myanmar U17`-t a csapatnév miatt), a 6 League Cup Indonesia meccset nem. Gyökér: `storage/repositories/search.rs` a meccseket csak `home`/`away`/`round_label` alapján kereste, a **verseny nevét nem** vette be.
+- [x] Javítás: `JOIN core.competition comp` + `OR {competition_fold} LIKE ...` a meccs-keresésben. Teszt bővítve (`storage/tests/search.rs`: a „Magyar Kupa" meccs találata a verseny névéből), `cargo test -p football-storage --test search` zöld.
+- [x] **Nem a Swift klienst kellett újra buildelni**, hanem a daemon API-ját (`cargo build -p footballd --features obscura` + telepítés + restart). A `/v1/search?q=indonesia` most **7 meccset** ad.
+- [x] Valódi macOS ellenőrzés: az appban a keresőbe „indonesia" + **return** → **11 találat**, benne mind a 6 League Cup Indonesia meccs. (A keresés return billentyűvel indul; a puszta begépelés után az AXOutline még üres.)
+
