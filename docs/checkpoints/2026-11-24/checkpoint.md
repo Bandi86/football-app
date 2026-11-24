@@ -213,7 +213,15 @@
 - [x] **10-04**: 444 detail → 281 insight / 300 játékos / 81 304 stat, integrity OK.
 - [x] **10-03**: 644 detail → 388 insight / 268 játékos / 97 146 stat, integrity OK.
 - [x] **10-02**: 223 detail → 86 insight / 91 játékos / 29 272 stat, integrity OK.
-- [ ] **10-01** (utolsó októberi nap) — folyamatban; utána szünet, szeptember holnap.
+- [x] **10-01**: 130 detail → 64 insight / 89 játékos / 25 091 stat, integrity OK.
+
+## OKTÓBER ZÁRÁS (2026-10-01 → 10-31)
+
+- [x] **31/31 nap kész**, mind `backfill-day.sh --fetch`-el, napi kapuval (integrity + coverage). Egy lock-timeout (10-12, betexplorer scrape) újrapróbálással megoldva.
+- [x] **Adatállomány**: **10 161 meccs / 10 080 eredmény / 7 902 insight sor / 33 065 játékos / 2 870 452 stat sor / 419 verseny**.
+- [x] **Integrity október**: `duplicate=0`, `orphan=0`, `active_refs_to_merged=0`, `failed_jobs=0`, `open_breakers=0` — kemény hibamentes. 104 pending review + 5 withheld gate + 1/6 same-pair = review-jelzések (helyes állapot).
+- [x] Lemez 27 GiB, git szinkronban.
+- [ ] **SZÜNET**: szeptembert **holnap** folytatjuk (cél: augusztus 1, a 26-27 szezon kezdete).
 - [ ] **Döntés (user)**: ma **2026-10-01-ig** haladunk, ott szünet; **szeptembert holnap folytatjuk** (cél至 augusztus 1, a 26-27 szezon kezdete).
 
 ## S121 — Felhasználói észrevételek: verseny-besorolások
