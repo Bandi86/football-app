@@ -296,3 +296,12 @@ A SOAP (soccerway) tiltás ellenére a tiltás **előtt** betöltött soccerway-
 - [x] **Kézi kézi döntéssel** (`footballctl identity approve`, 5 review + 1 source ref pótlás, mind auditálva) feloldva; a 10-01 discovery job háromszori újrajátszása után a DB-ben **130 meccs, 0 research UID hiányzik**. Insight/player import újra: 66 sor. Integrity: verdict **OK**.
 - [x] Október záró száma így **10 166 meccs** (10161 + 5).
 
+## S127 — Valódi adatfrissítési countdown a fejlécben
+
+- [x] A régi countdown a **weather API 15 perces ciklusát** (`next_refresh_at`) vagy egy 6 órás fallbacket mutatott, és élő meccseknél 60 mp-es „élő frissítés" volt — egyik sem mondta meg, mikor jön **új meccsadat**. A user kérte: azt számolja vissza, mikor érkezik új adat.
+- [x] Backend: `DayResponse.next_refresh_at` — a research napi slotjai (14:15, 16:15, 18:15, 20:15, 22:15 Europe/Budapest) alapján, időzóna-helyesen (új `chrono-tz` függőség a football-api crate-ben, indokolt: nyári/téli idő), UTC-ben. Mért: `2026-11-24T17:15:00Z` = 18:15 Budapest.
+- [x] Kliens: `DayResponse`/`DayFeed.nextRefreshAt`, `HTTPDayService`, `HomeView.loadedNextRefreshAt`, `HomeHeader` — a research slot **mindig elöl van**, még élő meccsek alatt is (a 60 mp-es csendes frissítés csak újraolvassa ugyanazt az adatot). Régi 6 órás fallback eltávolítva.
+- [x] Valódi macOS ellenőrzés: `home.stat.refresh` AX → „Frissítés: 1 ó 35 p, következő adatfrissítés. A következő meccsadat-frissítés 18:15 körül várható."
+- [x] Kapuk: Rust **585 teszt**, clippy 0, fmt 0, Core **125 teszt**, app unit **TEST SUCCEEDED**, UI **TEST SUCCEEDED**, git diff --check 0. Egy törékeny saját UI-teszt (Menu AX-label üres fixture-ben) javítva: a label helyett a menüopciókat ellenőrzi.
+- [ ] Megjegyzés: ha a research pipeline egy nap nem fut (pl. hiba), a backend akkor is a következő ütemezett slotot mutatja — ez tervezett becslés, nem új adat garanciája.
+

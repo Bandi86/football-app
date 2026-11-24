@@ -8,6 +8,7 @@ rust-version.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 chrono.workspace = true
+chrono-tz.workspace = true
 football-domain = { path = "../domain" }
 football-ingest = { path = "../ingest" }
 football-storage = { path = "../storage" }

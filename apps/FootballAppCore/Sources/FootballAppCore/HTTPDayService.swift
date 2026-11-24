@@ -41,7 +41,7 @@ public struct HTTPDayService: DayService {
         case 200...299:
             do {
                 let response = try APIDecoding.makeDecoder().decode(DayResponse.self, from: data)
-                return DayFeed(refreshedAt: response.refreshedAt, gaps: response.gaps, matches: response.matches)
+                return DayFeed(refreshedAt: response.refreshedAt, nextRefreshAt: response.nextRefreshAt, gaps: response.gaps, matches: response.matches)
             } catch {
                 throw APIError.decoding
             }

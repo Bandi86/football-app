@@ -266,6 +266,7 @@ struct HomeView: View {
                 oddsCount: loadedOddsCount,
                 compact: width < 900,
                 refreshedAt: loadedRefreshedAt,
+                nextRefreshAt: loadedNextRefreshAt,
                 appeared: appeared,
                 focused: focus,
                 weather: weather,
@@ -325,6 +326,12 @@ struct HomeView: View {
 
     private var loadedRefreshedAt: Date? {
         if case .loaded(let feed) = model.state { return feed.refreshedAt }
+        return nil
+    }
+
+    /// A következő tényleges adatfrissítés (research napi slot) a backendtől.
+    private var loadedNextRefreshAt: Date? {
+        if case .loaded(let feed) = model.state { return feed.nextRefreshAt }
         return nil
     }
 

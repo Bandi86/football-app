@@ -15,6 +15,8 @@ struct HomeHeader: View {
     let oddsCount: Int
     let compact: Bool
     let refreshedAt: Date?
+    /// A következő tényleges adatfrissítés a backendtől (research napi slot).
+    let nextRefreshAt: Date?
     let appeared: Bool
     let focused: AppFocus?
     let weather: WeatherModel
@@ -402,22 +404,12 @@ struct HomeHeader: View {
 
     private func refreshInfo(now: Date) -> RefreshInfo {
         let anchor = refreshedAt ?? now
-        if liveCount > 0 {
-            // Az app élő meccseknél 60 másodpercenként csendben frissít.
-            let cycle: TimeInterval = 60
-            let elapsed = max(0, now.timeIntervalSince(anchor))
-            let remaining = cycle - elapsed.truncatingRemainder(dividingBy: cycle)
-            return RefreshInfo(
-                value: Self.mmss(remaining),
-                progress: remaining / cycle,
-                label: "élő frissítés",
-                help: "Az élő meccsek miatt percenként csendben frissül a lista. Következő: \(Self.mmss(remaining))."
-            )
-        }
-        // A backend birtokolja a következő frissítés időpontját (next_refresh_at).
-        // Csak ha ezt nem közölte, esünk vissza a régi 6 órás becslésre.
-        if let next = weather.nextRefreshAtUTC {
-            let cycle = weather.refreshCycle ?? 900
+        // A meccsadatok a research napi slotjaiban érkeznek — a backend
+        // `/v1/day` next_refresh_at mezője mondja meg a következőt. Ez mindig
+        // elöl van, még élő meccsek alatt is: a 60 mp-es csendes frissítés
+        // csak újra lekérdezi ugyanazt az adatot, nem hoz új research-adatot.
+        if let next = nextRefreshAt {
+            let cycle: TimeInterval = 2 * 3600
             let remaining = next.timeIntervalSince(now)
             if remaining <= 0 {
                 return RefreshInfo(
@@ -430,8 +422,8 @@ struct HomeHeader: View {
             return RefreshInfo(
                 value: Self.duration(remaining),
                 progress: min(1, max(0, remaining / cycle)),
-                label: "következő frissítés",
-                help: "A következő adatfrissítés \(Self.refreshTime.string(from: next)) körül várható."
+                label: "következő adatfrissítés",
+                help: "A következő meccsadat-frissítés \(Self.refreshTime.string(from: next)) körül várható."
             )
         }
         let cycle: TimeInterval = 6 * 3600

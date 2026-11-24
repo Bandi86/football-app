@@ -2,6 +2,7 @@
   "date": "2026-11-20",
   "timezone": "Europe/Budapest",
   "refreshed_at": "2026-11-20T17:30:00Z",
+  "next_refresh_at": "2026-11-20T18:15:00Z",
   "matches": [
     {
       "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
@@ -13,7 +14,12 @@
       "away_score": 0,
       "publish_state": "provisional_publish",
       "blockers": [
-        {"rule_key": "odds_freshness", "severity": "warning", "field": "odds", "message": "Az odds 40 perccel ezelőtti."}
+        {
+          "rule_key": "odds_freshness",
+          "severity": "warning",
+          "field": "odds",
+          "message": "Az odds 40 perccel ezelőtti."
+        }
       ],
       "competition_id": "33333333-3333-3333-3333-333333333333",
       "competition_name": "NB I",

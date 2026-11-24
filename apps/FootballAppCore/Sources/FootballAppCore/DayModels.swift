@@ -165,23 +165,29 @@ public struct DayResponse: Decodable, Sendable {
     public let date: String
     public let timezone: String
     public let refreshedAt: Date?
+    /// A következő tényleges adatfrissítés (research napi slot), UTC-ben.
+    public let nextRefreshAt: Date?
     public let gaps: DayGaps?
     public let matches: [DayMatch]
 
     enum CodingKeys: String, CodingKey {
         case date, timezone, matches, gaps
         case refreshedAt = "refreshed_at"
+        case nextRefreshAt = "next_refresh_at"
     }
 }
 
 /// Egy nap teljes válasza: a batch-frissítés ideje + a meccsek.
 public struct DayFeed: Equatable, Sendable {
     public let refreshedAt: Date?
+    /// A következő tényleges adatfrissítés (research napi slot), UTC-ben.
+    public let nextRefreshAt: Date?
     public let gaps: DayGaps?
     public let matches: [DayMatch]
 
-    public init(refreshedAt: Date?, gaps: DayGaps? = nil, matches: [DayMatch]) {
+    public init(refreshedAt: Date?, nextRefreshAt: Date? = nil, gaps: DayGaps? = nil, matches: [DayMatch]) {
         self.refreshedAt = refreshedAt
+        self.nextRefreshAt = nextRefreshAt
         self.gaps = gaps
         self.matches = matches
     }

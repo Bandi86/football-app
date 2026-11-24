@@ -2,6 +2,7 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use chrono::NaiveDate;
+use chrono_tz::Europe::Budapest;
 use football_storage::repositories::day::{DayFilter, fetch_day, fetch_day_refreshed_at};
 use serde::{Deserialize, Serialize};
 
@@ -20,9 +21,40 @@ pub struct DayResponse {
     pub timezone: &'static str,
     /// A nap legutóbbi gate-kiértékelésének ideje (batch-frissítés jelzés).
     pub refreshed_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// A következő tényleges adatfrissítés (research napi slot: 14:15, 16:15,
+    /// 18:15, 20:15, 22:15 Europe/Budapest). A fejléc countdown erről olvas.
+    pub next_refresh_at: Option<chrono::DateTime<chrono::Utc>>,
     /// Napi hiány-mutatók (idő nélküli, lezáratlan, eredmény/logó/odds nélküli, withheld).
     pub gaps: DayGaps,
     pub matches: Vec<DayMatch>,
+}
+
+/// A következő research adatfrissítés időpontja UTC-ben.
+///
+/// A napi gyűjtés (docs/operations/research-sync.md) Budapest idő szerint
+/// 14:15, 16:15, 18:15, 20:15 és 22:15 órakor fut. A kliens a fejlécben
+/// ettől számolja vissza, mikor jön új meccsadat — nem az időjárás 15
+/// perces ciklusától (az nem meccsadat).
+fn next_research_refresh(now: chrono::DateTime<chrono::Utc>) -> chrono::DateTime<chrono::Utc> {
+    let local = now.with_timezone(&Budapest);
+    let today = local.date_naive();
+    for hour in [14, 16, 18, 20, 22] {
+        let slot = today
+            .and_hms_opt(hour, 15, 0)
+            .and_then(|naive| naive.and_local_timezone(Budapest).single())
+            .map(|dt| dt.with_timezone(&chrono::Utc));
+        if let Some(slot) = slot
+            && slot > now
+        {
+            return slot;
+        }
+    }
+    // Aznap már minden slot elment: következő nap 14:15 Budapest.
+    (today + chrono::Duration::days(1))
+        .and_hms_opt(14, 15, 0)
+        .and_then(|naive| naive.and_local_timezone(Budapest).single())
+        .map(|dt| dt.with_timezone(&chrono::Utc))
+        .unwrap_or(now)
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -159,10 +191,13 @@ pub async fn day(
             AppError::internal("A napi frissítés-idő lekérdezése sikertelen.")
         })?;
 
+    let next_refresh_at = next_research_refresh(chrono::Utc::now());
+
     Ok(Json(DayResponse {
         date,
         timezone: "Europe/Budapest",
         refreshed_at,
+        next_refresh_at: Some(next_refresh_at),
         gaps: gaps.into(),
         matches: rows.into_iter().map(map_match).collect(),
     }))

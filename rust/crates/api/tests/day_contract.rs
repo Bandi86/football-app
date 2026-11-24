@@ -114,6 +114,7 @@ fn day_response_matches_contract_fixture() {
         date: NaiveDate::from_ymd_opt(2026, 11, 20).unwrap(),
         timezone: "Europe/Budapest",
         refreshed_at: Some(timestamp("2026-11-20T17:30:00Z")),
+        next_refresh_at: Some(timestamp("2026-11-20T18:15:00Z")),
         gaps: football_api::routes::day::DayGaps {
             missing_kickoff: 1,
             open_past: 0,
