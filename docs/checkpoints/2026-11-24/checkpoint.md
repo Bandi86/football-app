@@ -289,3 +289,10 @@ A SOAP (soccerway) tiltás ellenére a tiltás **előtt** betöltött soccerway-
 - [x] A 10-12 backfill első futása **`LOCK_TIMEOUT`** miatt bukott: a `.football.lock`-ot az automatikus `football odds 2026-11-24` folyamat tartotta 300 mp-nél tovább (egy elakadt `obscura scrape` a betexplorer.com ellen, ami 0 adatot adna). A mai nap már be volt töltve (pipeline 08:40-kor zárult), ez későbbi automatikus odds-futtatás volt — leállítása **nem adatvesztés**. Lock törölve, scrape gyerek leállítva, a 10-12 újraindítva.
 - [ ] Üzemeltetési tanulság: a `backfill-day.sh` és az automatikus napi `collect-only.sh` egyaránt használja a `.football.lock`-ot. Ha a launchd 14:15-ös odds-futtatása elakad, a napi backfill 300 mp után kilép. Jövőben érdemes a backfillt a lock elengedésére újrapróbálni (a `backfill-day.sh` jelenleg nem retryel) — külön szelet.
 
+## S126 — Október 1. mély ellenőrzés (felhasználói észrevétel: kevés a meccs)
+
+- [x] **Mérés**: FotMob nyers 10-01 = 66 meccs, ESPN = 104, LiveScore = 62 → research összesen **130 egyedi**; a DB-ben eredetileg csak **125** volt (5 kimaradt). A Sofascore teljes listája API 403 (robots/policy) miatt nem elérhető — nem kerültük meg; a 130 a kurált források maximuma.
+- [x] **5 kimaradt meccs oka**: mind `finished`, de a csapatnév fuzzy review-ban ragadt (fail-closed, AGENTS.md §6): `SSV Jahn Regensburg`, `UC San Diego`, `Rhode Island FC`, `Northern Ireland U21`, `FC Atert Bissen` (+ `RFC Liège`-hez hiányzott az `espn:132938` source ref).
+- [x] **Kézi kézi döntéssel** (`footballctl identity approve`, 5 review + 1 source ref pótlás, mind auditálva) feloldva; a 10-01 discovery job háromszori újrajátszása után a DB-ben **130 meccs, 0 research UID hiányzik**. Insight/player import újra: 66 sor. Integrity: verdict **OK**.
+- [x] Október záró száma így **10 166 meccs** (10161 + 5).
+
