@@ -311,3 +311,10 @@ A SOAP (soccerway) tiltás ellenére a tiltás **előtt** betöltött soccerway-
 - [x] **Hamis „8. forduló"**: a FotMob nyers `Tournament.round` a League One-nál 8-at és 9-et is ad (a research hűségesen átveszi). A kliens `LeagueGroup.roundSummary` régi szabálya a „leggyakoribb, döntetlennél kisebb" értéket választotta → hamis 8. Most: ha egynél több különböző numerikus forduló van, **nil** (bizonytalan adat = NULL, AGENTS.md §6). Teszt átírva (`testRoundSummaryIsNilWhenSourceDisagreesOnRoundNumber`). A Championship (egységes 17) továbbra is helyesen jelenik meg.
 - [x] Kapuk: Rust **585**, clippy 0, fmt 0, Core **125**, UI **TEST SUCCEEDED**, git diff 0. API: League One 4 meccs / round_label 8×2+9×2 (forrás), de a kliens nem mutat fordulót; Stevenage 1.
 
+## S129 — Header sűrítése és élő meccs fázisjelzése
+
+- [x] **Header magasság felezése** (`HomeHeader.swift`): belső `spacing 20→8`, `padding(.vertical, 20→8)`, külső `padding(.top, 20→8)/(.bottom, 14→6)`, dátum betű `.scoreboard(52→32)`, gombsor padding `7→4`; kompakt módban `spacing 14→6`, normál `24→16`. Tartalom sűrítve,UGYanazok az elemek maradnak.
+- [x] **Élő meccs fázis** (`MatchCardModel.livePhaseText`, megjelenítés `MatchListView.swift`): a kezdésből számol 45 perc félidő → 15 perc szünet → 45 perc második félidő → „Várakozás az eredményre". Ha a research adott `minute`-ot, az felülírja a becslést (`≤45` 1. félidő, `≤90` 2. félidő, felett hosszabbítás). A meglévő `phaseLabel` („ÉLŐ") és `minuteText` változatlan (teszt+AX kompatibilitás).
+- [x] Tesztek: `testLivePhaseFromKickoffWithoutMinute` (20'/50'/80'/110' + minute felülírás), `testLiveCardShowsLivePhaseAndRunningScore` bővítve. App unit **TEST SUCCEEDED**.
+- [x] Kapuk: Rust **585**, clippy 0, fmt 0, Core **125**, UI **TEST SUCCEEDED**, daily-check **EXIT=0**, git diff 0.
+

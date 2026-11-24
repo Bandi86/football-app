@@ -162,6 +162,25 @@ struct MatchCardModel: Identifiable {
     /// Az élő minutaszám; csak ténylegesen élő meccsnél jelenik meg.
     var minuteText: String? { isLive ? minute.map { "\($0)'" } : nil }
 
+    /// Élő meccs fázisa és játékideje, a kezdésből számolva (45 + 15 + 45,
+    /// majd várakozás az eredményre). Ha a forrás adott minute-ot, azt használjuk.
+    /// A `phaseLabel` ("ÉLŐ") változatlan marad — ez csak a részletesebb jelzés.
+    var livePhaseText: String? {
+        guard isLive else { return nil }
+        // A research pontos játékideje, ha rendelkezésre áll.
+        if let m = minute {
+            if m <= 45 { return "1. félidő · \(m)'" }
+            if m <= 90 { return "2. félidő · \(m)'" }
+            return "Hosszabbítás · \(m)'"
+        }
+        guard hasExactKickoff else { return nil }
+        let elapsedMin = max(0, Int(Date().timeIntervalSince(kickoffAt) / 60))
+        if elapsedMin < 45 { return "1. félidő · \(elapsedMin)'" }
+        if elapsedMin < 60 { return "Félidő · 15' szünet" }
+        if elapsedMin < 105 { return "2. félidő · \(elapsedMin - 15)'" }
+        return "Várakozás az eredményre"
+    }
+
     /// A kijelzett állapot: elavult `live`/`halftime` státusznál a kártya a
     /// szokásos, nem-élő kezdés-kijelzést mutatja, így a felolvasott címke sem
     /// mondhat „Élő"-t — ilyenkor „Ütemezett"-ként olvassuk fel.

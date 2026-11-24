@@ -82,14 +82,14 @@ struct HomeHeader: View {
             ZStack(alignment: .leading) {
                 HeaderAtmosphere(palette: palette, reduceMotion: reduceMotion)
 
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 8) {
                     if compact {
-                        VStack(alignment: .leading, spacing: 14) {
+                        VStack(alignment: .leading, spacing: 6) {
                             dateBlock(phase: phase, palette: palette)
                             dateControls(palette: palette)
                         }
                     } else {
-                        HStack(alignment: .center, spacing: 24) {
+                        HStack(alignment: .center, spacing: 16) {
                             dateBlock(phase: phase, palette: palette)
                             Spacer(minLength: 12)
                             dateControls(palette: palette)
@@ -98,7 +98,7 @@ struct HomeHeader: View {
                     statsRow(palette: palette, refresh: refresh)
                 }
                 .padding(.horizontal, 24)
-                .padding(.vertical, 20)
+                .padding(.vertical, 8)
             }
             .background {
                 LinearGradient(
@@ -110,15 +110,15 @@ struct HomeHeader: View {
             .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(AppTheme.hairline))
             .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             .padding(.horizontal, 48)
-            .padding(.top, 20)
-            .padding(.bottom, 14)
+            .padding(.top, 8)
+            .padding(.bottom, 6)
         }
     }
 
     // MARK: - Dátum blokk
 
     private func dateBlock(phase: DayPhase, palette: HeaderPalette) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .center, spacing: 10) {
                 Image(systemName: palette.symbolName)
                     .font(.system(size: 13, weight: .semibold))
@@ -142,8 +142,8 @@ struct HomeHeader: View {
 
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text(Self.bigDate.string(from: date))
-                    .font(.scoreboard(52))
-                    .tracking(-1.4)
+                    .font(.scoreboard(32))
+                    .tracking(-1.0)
                     .lineLimit(1)
                     .minimumScaleFactor(0.55)
                     .foregroundStyle(AppTheme.primaryText)
@@ -210,7 +210,7 @@ struct HomeHeader: View {
                        focus: .refresh, action: onRefresh)
                 .keyboardShortcut("r", modifiers: .command)
         }
-        .padding(7)
+        .padding(4)
         .background(Color.black.opacity(0.32), in: Capsule())
         .overlay(Capsule().strokeBorder(AppTheme.hairline))
         .opacity(appeared ? 1 : 0)

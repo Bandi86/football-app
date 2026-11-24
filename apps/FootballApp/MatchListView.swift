@@ -442,7 +442,11 @@ private struct MatchItemRow: View {
                         .font(.system(size: 9.5, weight: .bold))
                         .tracking(0.6)
                         .foregroundStyle(match.isLive ? AppTheme.liveGreen : AppTheme.secondaryText)
-                    if let minute = match.minuteText {
+                    if let phase = match.livePhaseText {
+                        Text(phase)
+                            .font(.system(size: 9.5, weight: .bold).monospacedDigit())
+                            .foregroundStyle(AppTheme.liveGreen)
+                    } else if let minute = match.minuteText {
                         Text(minute)
                             .font(.system(size: 9.5, weight: .bold).monospacedDigit())
                             .foregroundStyle(AppTheme.liveGreen)

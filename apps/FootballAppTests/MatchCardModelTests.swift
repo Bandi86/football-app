@@ -155,8 +155,28 @@ final class MatchCardModelTests: XCTestCase {
         XCTAssertFalse(card.isFinished)
         XCTAssertEqual(card.phaseLabel, "ÉLŐ")
         XCTAssertEqual(card.minuteText, "34'")
+        XCTAssertEqual(card.livePhaseText, "1. félidő · 34'")
         XCTAssertEqual(card.displayStatus, "live")
         XCTAssertEqual(card.scoreText, "1 – 0")
+    }
+
+    /// S129: ha a forrás nem ad minute-ot, a kártya a kezdésből számol
+    /// (45 perc félidő, 15 perc szünet, 45 perc, majd várakozás).
+    func testLivePhaseFromKickoffWithoutMinute() {
+        func card(startedMinutesAgo: Int) -> MatchCardModel {
+            makeCard(status: "live",
+                     kickoffAt: Date().addingTimeInterval(Double(-startedMinutesAgo * 60)),
+                     minute: nil)
+        }
+        XCTAssertEqual(card(startedMinutesAgo: 20).livePhaseText, "1. félidő · 20'")
+        XCTAssertEqual(card(startedMinutesAgo: 50).livePhaseText, "Félidő · 15' szünet")
+        XCTAssertEqual(card(startedMinutesAgo: 80).livePhaseText, "2. félidő · 65'")
+        XCTAssertEqual(card(startedMinutesAgo: 110).livePhaseText, "Várakozás az eredményre")
+        // A második félidőben a forrás minute-ja felülírja a becslést.
+        let withMinute = makeCard(status: "live",
+                                  kickoffAt: Date().addingTimeInterval(-80 * 60),
+                                  minute: 72)
+        XCTAssertEqual(withMinute.livePhaseText, "2. félidő · 72'")
     }
 
     /// Elavult `live` státusz (a kezdés több mint 6 órával ezelőtt): a kártya
