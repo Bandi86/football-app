@@ -152,7 +152,9 @@
 - [x] **10-27**: 227 meccs / 219 insight / 928 játékos (script pozitív tesztjével).
 - [x] **10-26**: 109 meccs / 103 insight / 166 játékos (`--fetch` teljes teszt; 5 fm ref-kimaradás).
 - [x] **10-25**: 731 backfill detail → 499 insight / 963 játékos / 210 541 stat, integrity OK.
-- [ ] **10-24 és korábbi napok**: folytatás sorban, napi kapuval, cél 2026-08-01.
+- [x] **10-24**: 805 detail → 719 insight / 1456 játékos / 247 690 stat, integrity OK.
+- [x] **10-23**: 280 detail → 203 insight / 581 játékos / 72 877 stat, integrity OK.
+- [ ] **10-22 és korábbi napok**: folytatás sorban, napi kapuval, cél 2026-08-01.
 
 ## S119 — Október 31. betöltése + 7 kódjavítás (csonka team invariáns)
 
