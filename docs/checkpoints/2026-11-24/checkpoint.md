@@ -334,3 +334,13 @@ A SOAP (soccerway) tiltás ellenére a tiltás **előtt** betöltött soccerway-
 - [x] Kapuk: Rust **585**, clippy 0, fmt 0, Core **125**, app unit **TEST SUCCEEDED**, UI **TEST SUCCEEDED**, daily-check **EXIT=0**, git diff 0.
 - [ ] **Döntési pont**: a 6 darab, 5 percnél régebben kezdődött de még `scheduled` meccs jelenleg egyik státusz-szűrőben sincs (a `lejárt, nyitott` 3 órás backend-küszöbe alatt vannak). A „Mind"-ben láthatók. Kérdés: átkerüljenek-e a „Lejárt, nyitott" szűrőbe (ez a backend `open_past` 3 órás küszöbének megváltoztatását is jelentené).
 
+## S132 — Sofascore élő állapot összevetése (felhasználói referencia)
+
+- [x] **Referencia**: a felhasználó 18:12–18:35 körüli Sofascore-képernyője. Az API frissítése 18:34-kor történt, így összehasonlítható.
+- [x] **Egyezések**: a kickoff idők rendben (17:00 / 17:30 / 18:00 Budapest). A 6 közös élő meccs (Algeria U17–Montenegro U17, Honduras U17–Colombia U17, Shabab–Al Qadsiah, Al-Seeb–Shorta, Fratria–Yantra, Zenit–Krylia) research percei közel vannak a Sofascore-hoz (87'/88'/55'/55'/59'/41' vs 82'/60'/45' stb. — a különbség a frissítési késés).
+- [x] **Javított hiba**: Zenit–Krylia Sovetov duplikátum — a research meccs mellett egy **soccerway** változat is publikálva volt (fordított hazai/vendég szereposztással), `dedupe pair`-vel összeolvasztva; az API-n most 1 Zenit meccs. Teljes napi duplikátum-szkennelés: 0 gyanús csoport.
+- [x] **Ellenőrzés**: daily-check **EXIT=0**, git diff 0.
+- [ ] **KOCKÁZAT / DÖNTÉS**: a soccerway forrás 11-17 óta `enabled=f`, mégis **ma 07:31-kor** futottak soccerway jobok (18 `done`) és 78 kizárólag soccerway forrású meccs van publikálva a 11-24-i publish gate-tel. A tiltott forrás bejutása a kannonikus adatba szabályszegés (AGENTS.md §7); a withhold/exclude és az enqueue/worker policy-ellenőrzés külön döntés.
+- [ ] **LEFEDETTSÉGI HÉZAG**: ~11 meccs / 22 csapat egyáltalán nincs az adatainkban (Al Duhail–Neom, Ajman–Al-Ettifaq, Buru–Club Eagles, Halcones–CD Mexiquense, Vitesse U21–Excelsior U21, Torreense U23–Vizela U23, Al-Ittihad U21–Al-Hazem U21, Al-Riyadh U21–Al-Ahli U21, ASFA Dakar–Oslo FA, Teranga SC–Camberene, Koper U19–Bravo U19). A research források ezeket a ligákat nem követik; Sofascore adapter kifejezetten tiltott — új forrás csak külön döntéssel.
+- [ ] **HIÁNYZÓ ADAT**: minden élő meccsnél nincs aktuális eredmény (a FotMob nyersben csak félidős eredmény van), ezért a kliens „–"-t mutat. A research API-ben van pontos `status.minute`, de az ingest `Status` struktúrája csak a `code`-ot tartja meg, így a perc nem jut el az API-be; a kliens jelenleg a kezdésből becsül. A perc átadása több crate-t érint (ingest → storage LATERAL join → API DTO → kliens), külön szelet.
+
