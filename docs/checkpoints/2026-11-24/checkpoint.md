@@ -195,3 +195,16 @@
 ### Folytatás
 - [ ] 10-21 és korábbi napok sorban, napi kapuval, cél 2026-08-01.
 
+## S121 — Felhasználói észrevételek: verseny-besorolások
+
+### 1. Ipswich U21 – Porto U21 (KÉSZ)
+- [x] A meccs (2026-11-24 20:00) kizárólag **soccerway** forrásból jött (ma 07:31), és a `Premier League Cup` (GB-ENG) alá került — hibásan. A v1-ben külön verseny: `Premier League International Cup` (71 meccs), és a v2-ben is volt már entitás (0 meccsel).
+- [x] Tudatos revízióval (SQL UPDATE, `ops.audit_event`-tel auditálva) átmozgatva a **`Premier League International Cup`** (01a1f7a8…) alá. Indok: U21 + portugál csapat = International Cup. Soccerway tiltva van, nem jön újra.
+
+### 2. „Liga Kupa" (Indonézia) — NINCS ADAT
+- [x] A v2 research-ben és a v1 DB-ben **nincs** ilyen nevű verseny. A 11-24-es `League Cup` 8 meccse mind **észak-írországi** (Carrick Rangers, Glenavon, Linfield…), nem indonéz. A Sofascore-listán szerepelt ilyen név a usernek — onnan nincs betöltött adat. **Nincs mit javítani a v2-ben**; ha a user akarja, a Sofascore-listáról kellene forrást szerezni.
+
+### 3. World Cup U17 csoportok (DÖNTÉS KELL)
+- [x] A DB-ben **9 külön verseny**: `World Cup U17 - A…J` (+ magyar `U17-es VB`), a csoport a **verseny nevében** van, a `round_label` csak a fordulót (1/2/3) tartja. A research 11-24-ben I/J/K/L csoportokat ad (8 meccs), de a DB-ben **csak J (2 meccs)** van — **4 meccs hiányzik** (Brazil–Tanzania U17, Honduras–Colombia U17, Venezuela–Romania U17, Mexico–Cameroon U17); további 2 (Costa Rica–Ireland, Japan–Serbia) csak soccerway `U17-es VB` forrásból van. A soccerway részben **eltérő párosításokat** ad (Algeria–Dominican / Chile–Montenegro vs research Algeria–Montenegro / Dominican–Chile) = `MATERIAL_SOURCE_CONFLICT`.
+- [ ] **Javaslat (megerősítés kell, 123 versenyt érint)**: minden csoportos versenyt egy fő tournament-entitás alá vonni (pl. `World Cup U17`), a csoportot átmozgatni a `round_label`-be (`Group I / 1` formátum, megőrizve a fordulót), majd a verseny-entitásokat `merge-competition --force`-tal összeolvasztani. Visszaállás: `ops.dedupe_archive` + `ops.audit_event`. Kérdés: (a) fő név `World Cup U17` (research/angol) vagy `U17-es VB` (v1/magyar)? (b) csoport formátum `Group I / 1` megfelelő-e?
+
