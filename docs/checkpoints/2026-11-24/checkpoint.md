@@ -45,6 +45,10 @@
 - [ ] **Megjegyzés (nem elnyomva)**: a 11-05 `deep_verify` 1 hibát jelzett — `fm6112410 FK Crvena Zvezda–Inter Club d'Escaldes: érvénytelen odds DC/HD=1.01`. A tipplap `1X2 home=1.03` mellett a `DC/HD=1.01` matematikailag összhangban van a forrással; a `tools/football.py:1775` `val <= 1.01` határa túl szigorú. A backfill EXIT=0 maradt (deep_verify csak logol). Az adatot betöltöttük; a határ felülvizsgálata külön szelet (research tools, git-en kívül).
 - [x] Mindkét napon ismételt `fm:... nincs kanonikus meccs-ref` kimaradás (11-06: `fm:1000019176`, 11-05: `fm:6543254`) — a nov 9-i ref-probléma része, külön szeletre vár.
 
+### 11-04
+
+- [x] backfill 145 detail (0 hiba, odds 29: 4 football-data + 27 tipplap) → export → job → **132 meccs** → **93 insight sor**, 777 játékos / 42 667 stat → integrity **OK**, coverage 132/125 lezárt/28 odds/20 verified. Ismételt `fm:1000022343` ref-kimaradás (nov 9-i szelet).
+
 ## Következő döntési pont
 - Nov 7 és nov 9 kivizsgálása tesztekkel, csak a mai rendezés után.
 - A soccerway tiltás tartósságának napi ellenőrzése a `daily-check`-ben.
