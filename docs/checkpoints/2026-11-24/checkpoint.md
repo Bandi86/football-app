@@ -136,3 +136,13 @@
 ## Következő döntési pont
 - Október folytatása (a research mérve ad adatot: 10-15 → 102 meccs), vagy megállni és fenntartani a novemberi állapotot.
 - A 3 failed job (2 ref-ütközés + 1 hiányzó fájl) opcionális külön tisztítása — nem adatvesztés, csak zaj a napi checkben.
+## S119 — Október felé (augusztus 1-ig)
+
+### Előfeltételek ellenőrizve
+- [x] **20 pending review**: mind `fuzzy_candidate` / `multiple_candidates` **ismeretlen csapat-jelzés** (ESPN/FotMob, ma 10:12–10:41, a backfillből). Fail-closed — nem került rossz adat a DB-be, és a szabály (automatikus fuzzy tiltott) miatt **review-ként maradnak**, nem oldjuk meg automatikusan.
+- [x] **Rate limit / IP block**: 5 breaker `closed`, `failure_count=0`; a 24h logban 0 `429/403/quota/blocked`; soccerway tiltva maradt. FotMob próba `2026-10-31`: **185 liga / 707 meccs** — forrás elérhető.
+- [x] Döntés: napi haladás visszafelé, minden napon teljes lánc + részletes ellenőrzés (integrity, coverage, random probe, webes összehasonlítás), cél **2026-08-01** (26-27 szezon kezdete).
+
+### Folyamatban
+- [ ] 10-31 backfill (700+ meccsre számítva).
+
