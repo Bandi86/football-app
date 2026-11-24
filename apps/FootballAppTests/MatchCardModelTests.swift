@@ -135,12 +135,13 @@ final class MatchCardModelTests: XCTestCase {
     /// Közvetlen kártyaépítés az időfüggő állapotokhoz: a napi feed nem hoz
     /// `minute` mezőt, ezért a perc-kijelzést így tudjuk determinisztikusan
     /// vizsgálni.
-    private func makeCard(status: String, kickoffAt: Date, minute: Int? = nil) -> MatchCardModel {
+    private func makeCard(status: String, kickoffAt: Date, minute: Int? = nil,
+                          score: (home: Int, away: Int)? = (1, 0)) -> MatchCardModel {
         MatchCardModel(
             id: "test-card", home: "A", away: "B", kickoffAt: kickoffAt,
             dayLabel: "nov. 20.", time: "18:00", kickoffPrecision: "exact",
             roundLabel: nil, status: status, publishState: .provisionalPublish,
-            homeScore: 1, awayScore: 0, homeHt: nil, awayHt: nil, homeEt: nil, awayEt: nil,
+            homeScore: score?.home, awayScore: score?.away, homeHt: nil, awayHt: nil, homeEt: nil, awayEt: nil,
             homePens: nil, awayPens: nil, minute: minute, odds: nil, markets: 0,
             oddsSource: "–", homePosition: nil, awayPosition: nil, homeLogo: nil,
             awayLogo: nil, competitionLogo: nil, homeElo: nil, awayElo: nil
@@ -179,20 +180,26 @@ final class MatchCardModelTests: XCTestCase {
         XCTAssertEqual(withMinute.livePhaseText, "2. félidő · 72'")
     }
 
-    /// Elavult `live` státusz (a kezdés több mint 6 órával ezelőtt): a kártya
-    /// nem ír „ÉLŐ"-t és nem mutat percet, csak a szokásos kezdést/eredményt.
-    func testStaleLiveCardHidesLivePhaseAndMinute() {
+    /// Elavult `live` státusz (a kezdés több mint 150 perccel ezelőtt): a kártya
+    /// nem ír „ÉLŐ"-t, hanem azt, hogy az eredmény még várható (S130).
+    func testStaleLiveCardShowsResultPending() {
         let card = makeCard(status: "live",
-                            kickoffAt: Date().addingTimeInterval(-7 * 60 * 60),
-                            minute: 87)
+                            kickoffAt: Date().addingTimeInterval(-202 * 60),
+                            minute: nil, score: nil)
         XCTAssertFalse(card.isLive)
-        XCTAssertNil(card.phaseLabel)
+        XCTAssertTrue(card.isResultPending)
+        XCTAssertEqual(card.phaseLabel, "EREDMÉNY VÁRHATÓ")
+        XCTAssertEqual(card.livePhaseText, "Várakozás az eredményre")
         XCTAssertNil(card.minuteText)
-        // A felolvasott állapot sem „Élő", hanem a szokásos nem-élő kijelzés.
-        XCTAssertEqual(card.displayStatus, "scheduled")
-        XCTAssertFalse(card.time.isEmpty)
-        XCTAssertEqual(card.timeDisplay, card.time)
-        XCTAssertEqual(card.scoreText, "1 – 0")
+        XCTAssertEqual(card.displayStatus, "result_pending")
+        XCTAssertEqual(card.scoreText, "–")
+
+        // Ha közben megjön az eredmény, már nem „várható".
+        let withScore = makeCard(status: "live",
+                                 kickoffAt: Date().addingTimeInterval(-202 * 60),
+                                 minute: nil, score: (2, 1))
+        XCTAssertFalse(withScore.isResultPending)
+        XCTAssertEqual(withScore.scoreText, "2 – 1")
     }
 
     func testFinishedCardShowsFullTimeMarker() throws {
@@ -266,15 +273,16 @@ final class MatchCardModelTests: XCTestCase {
             status: "canceled", kickoffAt: now.addingTimeInterval(-4 * 3600), now: now))
     }
 
-    func testLiveWindowIsSixHours() {
+    func testLiveWindowIs150Minutes() {
         let now = utcDate(2026, 11, 21, 12, 0)
-        XCTAssertEqual(MatchCardModel.liveWindow, 6 * 3600)
+        XCTAssertEqual(MatchCardModel.liveWindow, 150 * 60)
         XCTAssertTrue(MatchCardModel.isLiveNow(
-            status: "live", kickoffAt: now.addingTimeInterval(-5 * 3600), now: now))
+            status: "live", kickoffAt: now.addingTimeInterval(-2 * 3600), now: now))
         XCTAssertTrue(MatchCardModel.isLiveNow(
             status: "halftime", kickoffAt: now.addingTimeInterval(-1 * 3600), now: now))
+        // 202 perc eltelt (14:45-i meccs 18:07-kor) — már nem élő.
         XCTAssertFalse(MatchCardModel.isLiveNow(
-            status: "live", kickoffAt: now.addingTimeInterval(-7 * 3600), now: now))
+            status: "live", kickoffAt: now.addingTimeInterval(-202 * 60), now: now))
         XCTAssertFalse(MatchCardModel.isLiveNow(
             status: "scheduled", kickoffAt: now.addingTimeInterval(-1 * 3600), now: now))
     }

@@ -93,8 +93,9 @@ final class FootballAppUITests: XCTestCase {
         XCTAssertTrue(live.waitForExistence(timeout: 30), "a részleges nap nem töltődött be")
         XCTAssertTrue(live.label.contains("Győr – Fehérvár"), live.label)
         // A fixture dátuma 2026-11-20; a stale-live guard ezt két nappal
-        // később ütemezettnek mondja, az eredmény és a publikációs állapot marad.
-        XCTAssertTrue(live.label.contains("Ütemezett"), live.label)
+        // később úgy mondja, hogy az eredmény még várható (S130),
+        // az eredmény és a publikációs állapot marad.
+        XCTAssertTrue(live.label.contains("Eredmény várható"), live.label)
         XCTAssertTrue(live.label.contains("1 – 0"), live.label)
         XCTAssertTrue(live.label.contains("Ideiglenes publikáció"), live.label)
 

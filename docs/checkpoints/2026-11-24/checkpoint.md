@@ -318,3 +318,10 @@ A SOAP (soccerway) tiltás ellenére a tiltás **előtt** betöltött soccerway-
 - [x] Tesztek: `testLivePhaseFromKickoffWithoutMinute` (20'/50'/80'/110' + minute felülírás), `testLiveCardShowsLivePhaseAndRunningScore` bővítve. App unit **TEST SUCCEEDED**.
 - [x] Kapuk: Rust **585**, clippy 0, fmt 0, Core **125**, UI **TEST SUCCEEDED**, daily-check **EXIT=0**, git diff 0.
 
+## S130 — Elavult „élő" meccsek (felhasználói észrevétel)
+
+- [x] **Probléma**: egy 14:45-kor kezdődött meccs (East Bengal–Al-Hussein) 202 perc elteltével is „ÉLŐ"-t mutatott — a 6 órás `liveWindow` miatt, pedig 105 perc (45+15+45) + hosszabbítás után régen vége kellett volna lenni, csak a forrás nem küldött eredményt.
+- [x] `MatchCardModel.liveWindow`: 6 óra → **150 perc** (105 + 30 hosszabbítás + 15 tartalék). Új `isResultPending`: lejárt `live`/`halftime`, pontos kezdés, eredmény nélkül → `phaseLabel` „EREDMÉNY VÁRHATÓ", `livePhaseText` „Várakozás az eredményre", `displayStatus` `result_pending`. Az `AccessibilityLabels` új címkéje: „Eredmény várható".
+- [x] Tesztek: `testStaleLiveCardShowsResultPending` (202 perc + eredmény érkezése után nem pending), `testLiveWindowIs150Minutes`, `MatchFilter` 150 perces ablak, UI `testPartialData…` új címkével. Valódi app: az „Élő" számláló **14 → 8** (6 lejárt meccs már nem élő).
+- [x] Kapuk: Rust **585**, clippy 0, fmt 0, Core **125**, app unit **TEST SUCCEEDED**, UI **TEST SUCCEEDED**, daily-check **EXIT=0**, git diff 0.
+

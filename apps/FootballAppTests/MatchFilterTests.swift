@@ -83,16 +83,16 @@ final class MatchFilterTests: XCTestCase {
         XCTAssertFalse(MatchFilter.openPast.matches(oldPostponed, now: now))
     }
 
-    /// Az „Élő" szűrő a státusz mellett legfeljebb 6 órás kezdés-ablakot enged
-    /// (a backend stale-live védelem kliensoldali párja).
-    func testLiveFilterRequiresLiveStatusWithinSixHours() {
+    /// Az „Élő" szűrő a státusz mellett legfeljebb 150 perces kezdés-ablakot enged
+    /// (45 + 15 + 45 + hosszabbítás; a backend stale-live védelem kliensoldali párja).
+    func testLiveFilterRequiresLiveStatusWithin150Minutes() {
         let now = ISO8601DateFormatter().date(from: "2026-11-21T12:00:00Z")!
         let liveRecent = match(id: "00000000-0000-0000-0000-000000000021",
                                kickoff: "2026-11-21T11:00:00Z", status: "live")
         let liveStale = match(id: "00000000-0000-0000-0000-000000000022",
                               kickoff: "2026-11-21T04:00:00Z", status: "live")
         let halftimeRecent = match(id: "00000000-0000-0000-0000-000000000023",
-                                   kickoff: "2026-11-21T07:30:00Z", status: "halftime")
+                                   kickoff: "2026-11-21T11:00:00Z", status: "halftime")
         let scheduledRecent = match(id: "00000000-0000-0000-0000-000000000024",
                                     kickoff: "2026-11-21T11:00:00Z", status: "scheduled")
         XCTAssertTrue(MatchFilter.live.matches(liveRecent, now: now))

@@ -15,6 +15,7 @@ public enum AccessibilityLabels {
         "canceled": "Törölt",
         "abandoned": "Félbeszakadt",
         "awarded": "Megítélt",
+        "result_pending": "Eredmény várható",
     ]
 
     private static let kickoffFormatter: DateFormatter = {

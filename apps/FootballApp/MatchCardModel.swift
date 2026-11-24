@@ -117,9 +117,10 @@ struct MatchCardModel: Identifiable {
     /// Az `open_past` döntéshez tartozó nyitott státuszok.
     static let openStatuses: Set<String> = ["scheduled", "confirmed", "live", "halftime"]
 
-    /// Az „élő" felső időkorlátja: a backend elavult `live` státuszt hagyhat
-    /// maga után, ezért a kliens 6 órán túl már nem tekinti élőnek a meccset.
-    static let liveWindow: TimeInterval = 6 * 60 * 60
+    /// Az „élő" felső időkorlátja: 105 perc játék (45 + 15 + 45), legfeljebb
+    /// 30 perc hosszabbítással + 15 perc tartalék = 150 perc. Ennél régebbi
+    /// `live` státusz nem élő meccs, hanem elavult — eredmény várható.
+    static let liveWindow: TimeInterval = 150 * 60
 
     /// Hiányzó eredmény: lezárt (`finished`) meccs, amelynek nincs végeredménye.
     /// Ez nem azonos a lejárt, de nyitott meccsekkel.
@@ -151,10 +152,19 @@ struct MatchCardModel: Identifiable {
 
     var isFinished: Bool { ["finished", "awarded"].contains(status) }
 
-    /// A kezdés alatti kis állapotjelzés („ÉLŐ" / „FT"); egyébként nincs.
-    /// Elavult `live` státusznál nem írunk „ÉLŐ"-t.
+    /// A meccsnek régen vége kellett volna lenni, de a forrás még mindig
+    /// `live`/`halftime`-t mond és nincs eredmény — ilyenkor nem „ÉLŐ"-t
+    /// mutatunk, hanem azt, hogy az eredmény még várható (S130).
+    var isResultPending: Bool {
+        guard ["live", "halftime"].contains(status), !isLive,
+              hasExactKickoff, finalScore == nil else { return false }
+        return Date().timeIntervalSince(kickoffAt) > Self.liveWindow
+    }
+
+    /// A kezdés alatti kis állapotjelzés („ÉLŐ" / „FT" / eredmény várható).
     var phaseLabel: String? {
         if isLive { return "ÉLŐ" }
+        if isResultPending { return "EREDMÉNY VÁRHATÓ" }
         if isFinished { return "FT" }
         return nil
     }
@@ -166,6 +176,7 @@ struct MatchCardModel: Identifiable {
     /// majd várakozás az eredményre). Ha a forrás adott minute-ot, azt használjuk.
     /// A `phaseLabel` ("ÉLŐ") változatlan marad — ez csak a részletesebb jelzés.
     var livePhaseText: String? {
+        if isResultPending { return "Várakozás az eredményre" }
         guard isLive else { return nil }
         // A research pontos játékideje, ha rendelkezésre áll.
         if let m = minute {
@@ -185,7 +196,7 @@ struct MatchCardModel: Identifiable {
     /// szokásos, nem-élő kezdés-kijelzést mutatja, így a felolvasott címke sem
     /// mondhat „Élő"-t — ilyenkor „Ütemezett"-ként olvassuk fel.
     var displayStatus: String {
-        if ["live", "halftime"].contains(status) && !isLive { return "scheduled" }
+        if ["live", "halftime"].contains(status) && !isLive { return "result_pending" }
         return status
     }
 
