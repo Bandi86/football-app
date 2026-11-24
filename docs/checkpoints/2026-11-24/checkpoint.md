@@ -89,6 +89,23 @@
 - [x] **Csapat-teszt (random)**: „Nacional" 3 külön entitás (UY 7 / PY 4 / PT 3 meccs), API-ban is elkülönül — **az entitás-ID a helyes kulcs, nem a `canonical_name`**.
 - [x] **xG-lefedettségi hiány**: API `home_xg/away_xg` a `fact.match_stats`-ból jön (novemberben 2312 sor, ebből 903 xG-vel), miközben a research xG a `match_player_stats`-ben van (891 meccs). Ahol a forrás nem adott xG-t, ott `None` — adatelérhetőség, nem serving-hiba.
 
+## S118 — A és B javítások
+
+### A: 11-13/14/15 `fm:`-ref pótlása (FOLYAMATBAN)
+- [ ] A researchben ezeken a napokon **nem volt egyetlen detail fájl sem** (0 fm, 0 espn) — csak livescore ref. Újra gyűjtés indítva: `football.py backfill --from 2026-11-13 --to 2026-11-15 --limit 3` (háttérben fut; fm detail fájlok már keletkeznek: 11-14: 198, 11-15: 230). A záráskor még futott — a folytatásnál ellenőrizni kell a logot, majd `api-export` + discovery job + insight/player import a 3 napra.
+
+### B: lap szín bevezetése az `incidents`-be (KÉSZ)
+- [x] Gyökér: `docs/api-export.py:768` a `detail`-t csak `goalDescription`/`eventDescription`/`description`-ből vette — a FotMob `card` (`Yellow`/`Red`) mezőt nem. A `cardDescription` néha dict, ezt is kezelni kellett.
+- [x] Javítás (git-en kívüli research könyvtár): `_card_detail(e)` helper → `Yellow card` / `Red card` (+ ok ha van), bekapcsolva a `detail` kifejezésbe. Backup: `docs/api-export.py.bak-20261124-card`.
+- [x] Újraexport `2026-11-16` → research dokumentumok: **141/141 Card eseménynek van `detail`-e**.
+- [x] Discovery job → worker újraírta az incidenseket: `fact.match_incidents.detail` most **97 Yellow card + 8 Red card** (előtte mind null).
+- [x] API ellenőrzés: `/v1/match/{id}` `incidents` tömbben a Card `detail` = `Yellow card` — **a végfelhasználónál is megjelenik**.
+- [x] A javítás minden jövőbeli exportra érvényes; a korábbi napokhoz újraexport + discovery job kellene (11-16 bizonyíték).
+
+### Kapu / visszaállás
+- A B-hez: `cargo` érintetlen (csak research Python + DB adat). `py_compile` 0, export EXIT=0, job `done`, integrity 0 duplikátum.
+- Visszaállás: backup `.bak-20261124-card`; az incidens-sorokat a worker `DELETE + INSERT` újraírja a source_id alapján.
+
 ## Következő döntési pont
 - Nov 7 és nov 9 kivizsgálása tesztekkel, csak a mai rendezés után.
 - A soccerway tiltás tartósságának napi ellenőrzése a `daily-check`-ben.
