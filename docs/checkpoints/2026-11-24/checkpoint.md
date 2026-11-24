@@ -69,6 +69,26 @@
 - A research forrás korábbi hónapokra is ad adatot (mérve: 2026-10-15 → 31 liga / 102 meccs, 2026-09-01 → 59 liga / 118 meccs, 2026-01-15 → 21 liga / 41 meccs).
 - Kérdés: folytassuk-e októberrel visszafelé, vagy megálljunk november teljes feltöltésénél és összegezzünk.
 
+## Self-audit 2. kör — hézag feltöltése + kreatív probe tesztek
+
+### A 11-13…11-22 hézag feltöltése
+
+- [x] 10 discovery job betéve (research oldalon minden dokumentum megvolt, **nem volt hálózati letöltés**).
+- [x] **7 nap gazdag adattal feltöltve**: 11-16 (60), 11-17 (90), 11-18 (65), 11-19 (57), 11-20 (168), 11-21 (598), 11-22 (380) — összesen **1 418 insight sor**.
+- [x] **11-13/14/15: 0 insight** — a research `api/v1/matches` dokumentumok **csak `ls:` (livescore) ref-űek, nincs `fm:` referencia**; az import `fm:` refen köt, ezért ezekre nem megy insight. A meccsek (114/623/438) és eredmények be vannak töltve. Ez az ismert `fm:`-hiány része, nem betöltési hiba.
+- [x] Integrity a 10 napra: **0 duplikátum**, 0 árva provenance, 8 pending review.
+- [ ] **2 failed job (nem adatvesztés)**: 11-14 `team_entity_id_key` ütközés (a nap már `done` jobbal betöltve, felesleges új job); 11-22 hiányzó research dokumentum `..._bendel-insurance-vs-doma-united_fm6103183.json` (1 meccs kimaradt az insightból).
+
+### Kreatív probe tesztek (nov 01–12)
+
+- [x] **xG vs valós gól (csapat)**: Chelsea W 9.0 xG / 7 gól (**−2.0, alulrúgott**), Twente 14.1/13 (−1.1), Real Madrid 9.1/9 (−0.1).
+- [x] **Szöglet**: API `home_corners/away_corners` él (pl. Deportivo Garcilaso–Comerciantes 9–0); `Corners` player-stat 4649 sor.
+- [x] **Sárga/piros lap**: API `home_yellow/away_yellow/home_red/away_red` él (pl. 3–6 / 1–1); 6468 `Card` incidens — **de az incidens-sor `detail` mezője üres** (a szín csak az összesített mezőkben van, az `incidents` tömbben nem).
+- [x] **Bíró**: `fact.match_official` él (pl. Mohammed Al Hakim 3 meccs: Kalmar–Sirius, Malmö–Hammarby, Panathinaikos–CSKA); API `referee` mezővel.
+- [x] **Játékos-teszt (random)**: Esposito 7 gól / 4 meccs / 328 perc — API `/v1/player` 4 appearance + 50 stat sor, DB-vel egyezik.
+- [x] **Csapat-teszt (random)**: „Nacional" 3 külön entitás (UY 7 / PY 4 / PT 3 meccs), API-ban is elkülönül — **az entitás-ID a helyes kulcs, nem a `canonical_name`**.
+- [x] **xG-lefedettségi hiány**: API `home_xg/away_xg` a `fact.match_stats`-ból jön (novemberben 2312 sor, ebből 903 xG-vel), miközben a research xG a `match_player_stats`-ben van (891 meccs). Ahol a forrás nem adott xG-t, ott `None` — adatelérhetőség, nem serving-hiba.
+
 ## Következő döntési pont
 - Nov 7 és nov 9 kivizsgálása tesztekkel, csak a mai rendezés után.
 - A soccerway tiltás tartósságának napi ellenőrzése a `daily-check`-ben.
