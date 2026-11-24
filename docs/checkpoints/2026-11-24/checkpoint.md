@@ -252,3 +252,9 @@ A SOAP (soccerway) tiltás ellenére a tiltás **előtt** betöltött soccerway-
 - [x] **U17-es VB**: 4 soccerway meccs a `U17-es VB` verseny alatt. 2 egyértelmű duplikátum (Costa Rica–Ireland, Japan–Serbia) összeolvasztva a research `World Cup U17` meccseibe. 2 eltérő párosítás (Algeria–Dominican, Chile–Montenegro vs research Algeria–Montenegro / Dominican–Chile) `MATERIAL_SOURCE_CONFLICT` miatt **withheld gate**-be téve (nem törölve, visszaállítható). Az API-n most 8 meccs, mind a `World Cup U17` alatt.
 - [x] Integrity 11-24 és teljes okt+nov: verdict **OK**, 0 duplikátum, 0 árva provenance, 0 failed job; 44 pending review + 5 withheld gate (helyes állapot).
 
+## S124 — Logók: Champions League és FC Porto (felhasználói észrevétel)
+
+- [x] **Champions League logó gyökere**: az API (`/v1/day`, `/v1/competitions`) már hivatkozott a logóra (`/v1/asset/assets/c1/e2/...webp`), de a végpont **HTTP 404**-t adott — a tényleges bájtok a repo `data/raw/assets/` alatt voltak, miközben a daemon a `~/Library/Application Support/FootballAppV2/agent/data/raw/assets/` könyvtárból olvas (`DATA_DIR` a `run.sh`-ben). **1077 asset fájl hiányzott** az agent könyvtárból (4056 → 5136) — `rsync`-vel átmásolva. Az asset URL most **HTTP 200, image/webp**; a Versenyek oldalon a `🏳️` fallback eltűnt.
+- [x] **FC Porto / FC Porto U21 logó**: a külön `Porto` entitásnak volt v1-megapack logója (`assets/7c/3a/...webp`), de az `FC Porto` (01a1fc05-055b…) és `FC Porto U21` (01a1f823-968e…) entitásoknak nem. Asset-másolással (nem entitás-összevonással) hozzárendelve ugyanazzal a `storage_key`-el, `ops.audit_event`-tel auditálva. Az API-n mindkét meccsen `logo: True` (Champions League: Feyenoord–FC Porto; Premier League International Cup: Ipswich U21–FC Porto U21).
+- [ ] Megjegyzés: a jövőbeni asset-importoknál a `DATA_DIR`-et az agent könyvtárára kell beállítani (vagy a bájtokat oda másolni), különben újra 404 lesz. Külön szelet/üzemeltetési javítás.
+
