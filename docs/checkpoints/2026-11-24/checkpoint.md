@@ -171,3 +171,9 @@
 ### Visszaállás
 - Git revert a kódjavításokra; a 10-31 adatai source_id + captured_at alapján törölhetők; a 17 csonka `core.team` sor adatrevízióra vár (nem automatikus merge).
 
+## S119 — `scripts/backfill-day.sh` (egy nap = egy parancs)
+
+- [x] Új script: `scripts/backfill-day.sh [--fetch] YYYY-MM-DD`. Módok: `--fetch` nélkül = v2-lánc (export → job → worker várakozás → match-insight/player import → integrity/coverage); `--fetch`-el = backfill + ugyanez. Fail-closed: bármely lépés hibája → exit 1/2.
+- [x] Tesztek (részletes): `bash -n` 0, `shellcheck` 0; hibás dátum (`2026-99-99`) → exit 2; érvényes de hiányzó nap → exit 1; **pozitív teszt 10-27** (EXIT 0: 219 insight, 928 játékos, integrity OK); **teljes `--fetch` teszt 10-26** (EXIT 0: 115 backfill detail → 103 insight, 166 játékos, integrity OK). Közben talált bug: dupla export → javítva (egyszer fut).
+- [x] 10-27: 227 meccs / 219 insight; 10-26: 109 meccs / 103 insight (5 `fm:` ref-kimaradás), mindkettő integrity OK.
+
