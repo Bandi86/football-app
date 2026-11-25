@@ -6,7 +6,11 @@ az adatfeldolgozást, de külön döntést vagy későbbi kutatást igényelnek.
 
 ## 1. Adatintegritás — ismert, nem javított
 
-### Téves provenance-linkek (S140)
+### Téves provenance-linkek (S140 — S149-ben rendezve)
+
+**Állapot: megoldva.** A 70 téves provenance-sort (5 + 35 + 30, mind
+`is_selected=false`) S149-ben töröltük, 3 audit eseménnyel. A megjelenített
+adat változatlan maradt; integritás `OK`.
 
 A research obszervációk néha tévesen kerülnek másik kanonikus meccshez:
 
@@ -20,9 +24,17 @@ A megjelenített adat ezeknél helyes (más forrásból / revízióval), csak az
 audit-nyom téves. Tisztítás: a rossz `fact.provenance` sorok archiválása és
 újra-linkelés — külön döntés, mert érintheti a field-level selectiont.
 
-### `is_selected` mezőalapú frissítés (S140)
+### `is_selected` mezőalapú frissítés (S140 — S149-ben javítva)
 
-A kanonikus mezőket a **legrégebbi** obszerváció határozza meg
+**Állapot: a kód javítva.** A canonicalize most a **legfrissebb** obszervációt
+választja mezőnként (előbb kijelöli a régit az
+`uq_provenance_selected_field` miatt, majd UPSERT-tel beállítja az újat).
+Új teszt: `newer_observation_takes_over_selected_provenance`; Rust 591 zöld.
+Valós ellenőrzés: 11-24 újra-ingestelése után a Shahin Bandar Ameri meccs
+`kickoff_at` provenance-a a 07:39-as (14:00) obszervációra mutat, a régi
+13:15-ös nem kiválasztott.
+
+A kanonikus mezőket régen a **legrégebbi** obszerváció határozza meg
 (`is_selected=true`), a frissebbek `false`-val kerülnek be. Emiatt a
 státusz frissül (UPSERT), de a **kezdési idő nem**: két konkrét esetet
 kellett kézi revízióval javítani (Shahin Bandar Ameri 13:15→14:00,

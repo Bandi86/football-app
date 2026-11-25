@@ -99,6 +99,14 @@
 - [x] **Dokumentum**: `docs/operations/remaining-gaps.md` — a hátralévő hézagok nyilvántartása (téves provenance-linkek, `is_selected` szabály, Sofascore-lefedettség, élő eredmények, S131 szűrő, soccerway, failed job, emberi VoiceOver/Tab).
 - [x] **Kapuk**: Rust **590** (1 új teszt), clippy 0, fmt 0, Core 125, UI **TEST SUCCEEDED**, daily-check 11-24 és 11-25 **EXIT=0**, git diff 0.
 
+## S149 — Integritási hézagok: provenance-linkek és `is_selected`
+
+- [x] **Téves provenance-linkek tisztítása**: 70 sor (5 + 35 + 30; mind `is_selected=false`) törölve tranzakcióban, 3 `provenance_link_cleanup` audit eseménnyel. Érintett meccsek: felnőtt Real Madrid–PSV (U19 UID), Bandari–Kakamega (Bandari–Mathare UID), Fleetwood–Charlton U21 (Fleetwood–Leeds UID). Az obszervációk megmaradtak; a megjelenített adat változatlan. Ellenőrzés: 0 maradék sor, integritás `OK`, API 11-24 185 / 11-25 171 meccs.
+- [x] **`is_selected` szabály** (`canonicalize.rs`): a legfrissebb obszerváció veszi át a kiválasztást mezőnként. Az `uq_provenance_selected_field` miatt két lépés (UPDATE deselect + UPSERT), az újrafeldolgozás stabil. Új teszt `newer_observation_takes_over_selected_provenance`; Rust **591** (1 új), clippy 0, fmt 0.
+- [x] **Valós ellenőrzés**: 11-24 újra-ingestelve az új daemonnal; a Shahin Bandar Ameri `kickoff_at` provenance-a most a 2026-11-25 07:39-as (14:00) obszerváció (`is_selected=t`), a régi 13:15-ös már nem kiválasztott (0 találat).
+- [x] **Dokumentum**: `docs/operations/remaining-gaps.md` frissítve — az 1. és 2. pont megoldva, a többi nyitva marad.
+- [x] **Kapuk**: daily-check 11-24 és 11-25 **EXIT=0**, Core zöld, UI **TEST SUCCEEDED**, git diff 0. Új daemon telepítve.
+
 ## Következő lépés
 
-- A `docs/operations/remaining-gaps.md` pontjainak sorrendi feldolgozása: először a téves provenance-linkek és az `is_selected` szabály (integritás), majd az S131 szűrő kérdése.
+- A `docs/operations/remaining-gaps.md` hátralévő pontjai: S131 szűrő-kérdés, Sofascore-lefedettség (új forrás kell), élő eredmények, emberi VoiceOver/Tab.

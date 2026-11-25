@@ -54,6 +54,86 @@ async fn fixture_materializes_one_canonical_match_with_exact_identity_and_proven
     assert!(provenance >= 5);
 }
 
+/// S149: a mezőalapú provenance a legfrissebb obszervációra mutasson.
+/// Régen a legelső sor maradt `is_selected=true`, így pl. a kickoff egy
+/// elavult értékre hivatkozott, még ha a kanonikus érték frissült is.
+#[tokio::test]
+async fn newer_observation_takes_over_selected_provenance() {
+    let pool = test_pool().await;
+    let fixture_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../tests/fixtures/fixture_a_day.json");
+    let temp = tempfile::tempdir().unwrap();
+    let store = ObjectStore::new(temp.path()).unwrap();
+    let fixture: FixtureSource =
+        serde_json::from_slice(&std::fs::read(&fixture_path).unwrap()).unwrap();
+
+    FixtureAdapter::ingest(&pool, &store, &fixture_path)
+        .await
+        .unwrap();
+    Canonicalizer::materialize(
+        &pool,
+        &football_ingest::normalized::NormalizedDay::from(&fixture),
+    )
+    .await
+    .unwrap();
+
+    let first: Uuid = sqlx::query_scalar(
+        "SELECT observation_id FROM fact.provenance
+         WHERE subject_kind='match' AND field_key='kickoff_at' AND is_selected LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    // Ugyanaz a source_record_key, de frissebb observed_at — másoljuk a sort.
+    sqlx::query(
+        "INSERT INTO stage.observation
+         (id, source_id, capture_id, entity_kind, aspect, natural_key,
+          source_record_key, observed_at, normalized_payload, schema_version,
+          quality_flags, content_hash)
+         SELECT uuidv7(), source_id, capture_id, entity_kind, aspect, natural_key,
+                source_record_key, now() + interval '1 hour', normalized_payload,
+                schema_version, quality_flags, 's149-new'
+         FROM stage.observation WHERE id=$1",
+    )
+    .bind(first)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    Canonicalizer::materialize(
+        &pool,
+        &football_ingest::normalized::NormalizedDay::from(&fixture),
+    )
+    .await
+    .unwrap();
+
+    let selected: Uuid = sqlx::query_scalar(
+        "SELECT p.observation_id FROM fact.provenance p
+         WHERE p.subject_kind='match' AND p.field_key='kickoff_at' AND p.is_selected
+         ORDER BY p.valid_from DESC LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let selected_at: chrono::DateTime<Utc> =
+        sqlx::query_scalar("SELECT observed_at FROM stage.observation WHERE id=$1")
+            .bind(selected)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let first_at: chrono::DateTime<Utc> =
+        sqlx::query_scalar("SELECT observed_at FROM stage.observation WHERE id=$1")
+            .bind(first)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(
+        selected_at > first_at,
+        "a kiválasztott obszerváció nem frissült"
+    );
+}
+
 /// S2b-2 (Task 3 halasztott minor): újra-ingestnél az odds sor trust_state-je
 /// provisional-re áll vissza — a verified állapotot csak a gate utáni
 /// odds-kiértékelés adhatja vissza, a canonicalize nem őrizheti meg.

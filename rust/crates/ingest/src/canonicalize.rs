@@ -647,6 +647,30 @@ impl Canonicalizer {
             .filter(|_| !reversed)
             {
                 if let Some(observation_id) = observation_ids.first() {
+                    // S149: a mező értékét a legfrissebb obszerváció írta felül
+                    // (UPSERT), ezért az audit-kijelölésnek is hozzá kell igazodnia.
+                    // Régen a legelső sor maradt `is_selected=true`, így a
+                    // provenance elavult értékre mutatott (pl. kickoff 13:15,
+                    // mikor a forrás már 14:00-at adott). Két lépés: az
+                    // `uq_provenance_selected_field` miatt előbb ki kell
+                    // jelölni a régit, csak utána lehet az újat kiválasztani.
+                    sqlx::query(
+                        "UPDATE fact.provenance p
+                         SET is_selected=false
+                         WHERE p.subject_kind='match' AND p.subject_id=$1
+                           AND p.field_key=$2 AND p.is_selected
+                           AND p.observation_id <> $3
+                           AND (SELECT o.observed_at FROM stage.observation o
+                                WHERE o.id=p.observation_id)
+                               < (SELECT o.observed_at FROM stage.observation o
+                                  WHERE o.id=$3)",
+                    )
+                    .bind(match_id)
+                    .bind(field)
+                    .bind(observation_id)
+                    .execute(&mut *tx)
+                    .await?;
+
                     sqlx::query(
                         "INSERT INTO fact.provenance
                          (subject_kind, subject_id, field_key, observation_id,
@@ -657,11 +681,13 @@ impl Canonicalizer {
                              SELECT 1 FROM fact.provenance p
                              WHERE p.subject_kind='match' AND p.subject_id=$1
                                AND p.field_key=$2 AND p.is_selected
+                               AND p.observation_id <> $3
                            ),
                            'fixture-1.0',$4
                          )
                          ON CONFLICT (subject_kind, subject_id, field_key, observation_id)
-                         DO NOTHING",
+                         DO UPDATE SET is_selected=EXCLUDED.is_selected,
+                                       valid_from=EXCLUDED.valid_from",
                     )
                     .bind(match_id)
                     .bind(field)
