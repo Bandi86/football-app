@@ -1,5 +1,7 @@
 use chrono::{NaiveDate, TimeZone, Utc};
+use football_storage::object_store::StoredArtifact;
 use football_storage::repositories::day::{DayFilter, fetch_day};
+use football_storage::repositories::worker::{RawCapture, persist_raw};
 use football_storage::test_support::test_pool;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -242,6 +244,94 @@ async fn day_picks_verified_odds_row() {
     assert_eq!(row.odds_trust_state.as_deref(), Some("verified"));
     assert_eq!(row.odds_source.as_deref(), Some("Verified forrás"));
     assert_eq!(row.odds.as_ref().unwrap()["home"], 1.5);
+}
+
+/// S134: a research `status_minute` eljut a napi lekérdezésig. Valós
+/// observation → provenance láncon keresztül, migráció nélkül.
+#[tokio::test]
+async fn fetch_day_returns_research_live_minute() {
+    let pool = test_pool().await;
+    let base = seed_match_base(&pool).await;
+    let match_id = seed_match(
+        &pool,
+        &base,
+        "verified_publish",
+        Utc.with_ymd_and_hms(2026, 11, 9, 18, 0, 0).unwrap(),
+    )
+    .await;
+
+    let artifact = StoredArtifact {
+        sha256: "b".repeat(64),
+        storage_key: "00/00/minute-test.json.zst".into(),
+        byte_size: 2,
+        compression: "zstd",
+    };
+    let now = Utc::now();
+    let capture = RawCapture {
+        endpoint_key: "e",
+        request_url: "http://example.test/",
+        request_key: "minute-test",
+        requested_at: now,
+        received_at: now,
+        http_status: 200,
+        adapter_version: "1.0",
+        parser_version: "1.0",
+    };
+    let (source_id, capture_id) = persist_raw(
+        &pool,
+        "research",
+        "Research",
+        &artifact,
+        &capture,
+        "application/json",
+    )
+    .await
+    .unwrap();
+
+    let observation_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO stage.observation
+         (id, source_id, capture_id, entity_kind, aspect, natural_key,
+          source_record_key, observed_at, normalized_payload, schema_version,
+          quality_flags, content_hash)
+         VALUES ($1,$2,$3,'match','match_core','k','fm:1',now(),
+                 '{\"status_minute\":87}'::jsonb,'1.0','{}',$4)",
+    )
+    .bind(observation_id)
+    .bind(source_id)
+    .bind(capture_id)
+    .bind("hash-minute")
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO fact.provenance
+         (subject_kind, subject_id, field_key, observation_id, is_selected,
+          policy_version, valid_from)
+         VALUES ('match',$1,'status',$2,true,'1.0',now())",
+    )
+    .bind(match_id)
+    .bind(observation_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let rows = fetch_day(
+        &pool,
+        &DayFilter {
+            date: NaiveDate::from_ymd_opt(2026, 11, 9).unwrap(),
+            timezone: "Europe/Budapest".into(),
+            include_all: false,
+            competition_id: None,
+            window_days: 0,
+            team_id: None,
+        },
+    )
+    .await
+    .unwrap();
+    let row = rows.iter().find(|row| row.match_id == match_id).unwrap();
+    assert_eq!(row.minute, Some(87));
 }
 
 async fn seed_match_base(pool: &PgPool) -> MatchBase {

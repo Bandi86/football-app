@@ -84,6 +84,9 @@ public struct DayMatch: Decodable, Equatable, Identifiable, Sendable {
     public let competitionLogo: String?
     public let homeElo: Double?
     public let awayElo: Double?
+    /// Élő meccs játékideje percekben a research pillanatképből (S134).
+    /// Régi válaszokban hiányozhat — ilyenkor a kliens a kezdésből becsül.
+    public let minute: Int?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -120,6 +123,7 @@ public struct DayMatch: Decodable, Equatable, Identifiable, Sendable {
         case competitionLogo = "competition_logo"
         case homeElo = "home_elo"
         case awayElo = "away_elo"
+        case minute
     }
 }
 

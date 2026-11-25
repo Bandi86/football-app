@@ -122,6 +122,10 @@ struct Kickoff {
 #[derive(Debug, Deserialize)]
 struct Status {
     code: String,
+    /// Élő meccs játékideje a research pillanatképben (pl. 87). A kliens
+    /// ennek hiányában a kezdésből becsül — S134.
+    #[serde(default)]
+    minute: Option<i32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -516,6 +520,7 @@ impl ResearchAdapter {
                     "source_away_id": away_key,
                     "kickoff_at": kickoff_at,
                     "status": status,
+                    "status_minute": m.status.minute,
                     "result": result,
                     "round_label": m.competition.round,
                     "competition_timezone": m
@@ -1293,6 +1298,16 @@ mod tests {
 
     /// R1.1: a stabil esemény-ID-k eljutnak a match_events payloadba is, hogy
     /// a canonicalize a meglévő `player_source_id` oszlopokba írja őket.
+    /// S134: a research `status.minute` megérkezik az ingestbe; a kliens
+    /// ennek hiányában csak a kezdésből tud becsülni.
+    #[test]
+    fn status_minute_survives_deserialisation() {
+        let live: Status = serde_json::from_str(r#"{"code":"live","minute":87}"#).unwrap();
+        assert_eq!(live.minute, Some(87));
+        let finished: Status = serde_json::from_str(r#"{"code":"finished"}"#).unwrap();
+        assert_eq!(finished.minute, None);
+    }
+
     #[test]
     fn incident_payload_carries_stable_player_ids() {
         let substitution = DetailEvent {

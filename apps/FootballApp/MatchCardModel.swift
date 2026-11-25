@@ -321,7 +321,7 @@ struct MatchCardModel: Identifiable {
             awayEt: match.awayEt,
             homePens: match.homePens,
             awayPens: match.awayPens,
-            minute: nil,
+            minute: match.minute,
             odds: match.odds.map {
                 MatchOdds(home: $0.home, draw: $0.draw, away: $0.away,
                           bttsYes: $0.bttsYes, bttsNo: $0.bttsNo,

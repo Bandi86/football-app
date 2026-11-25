@@ -18,6 +18,45 @@ final class MatchCardModelTests: XCTestCase {
         return calendar.date(from: components)!
     }
 
+    /// S134: a research élő perce (`status.minute`) az API-n át a kártyáig jut,
+    /// és felülírja a kezdésből számolt becslést.
+    func testResearchMinuteReachesCardAndOverridesEstimate() throws {
+        let kickoff = ISO8601DateFormatter().string(
+            from: Date().addingTimeInterval(-20 * 60))
+        let matches = try decode("""
+        {"date":"2026-11-24","timezone":"Europe/Budapest","matches":[
+          {"id":"00000000-0000-0000-0000-000000000301","kickoff_at":"\(kickoff)",
+           "status":"live","home":"Algeria U17","away":"Montenegro U17",
+           "home_score":null,"away_score":null,"publish_state":"verified_publish","blockers":[],
+           "minute":87,
+           "competition_id":"00000000-0000-0000-0000-0000000000c1","competition_name":"U17-es VB",
+           "country_code":null,"country_name":null,"tier":0,"priority":30}
+        ]}
+        """)
+        XCTAssertEqual(matches[0].minute, 87)
+        let card = MatchCardModel.from(matches[0])
+        XCTAssertTrue(card.isLive)
+        XCTAssertEqual(card.minuteText, "87'")
+        XCTAssertEqual(card.livePhaseText, "2. félidő · 87'")
+    }
+
+    /// Régi válasz: nincs `minute` mező → a kártya a kezdésből becsül.
+    func testMissingMinuteFallsBackToKickoffEstimate() throws {
+        let kickoff = ISO8601DateFormatter().string(
+            from: Date().addingTimeInterval(-20 * 60))
+        let matches = try decode("""
+        {"date":"2026-11-24","timezone":"Europe/Budapest","matches":[
+          {"id":"00000000-0000-0000-0000-000000000302","kickoff_at":"\(kickoff)",
+           "status":"live","home":"A","away":"B",
+           "home_score":null,"away_score":null,"publish_state":"verified_publish","blockers":[],
+           "competition_id":"00000000-0000-0000-0000-0000000000c1","competition_name":"Teszt",
+           "country_code":null,"country_name":null,"tier":0,"priority":30}
+        ]}
+        """)
+        XCTAssertNil(matches[0].minute)
+        XCTAssertEqual(MatchCardModel.from(matches[0]).livePhaseText, "1. félidő · 20'")
+    }
+
     // MARK: - Kezdés formázása
 
     func testKickoffFormattingIsHungarianDayAndTime() {

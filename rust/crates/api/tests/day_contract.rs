@@ -63,6 +63,7 @@ fn full_match() -> DayMatch {
         competition_logo: Some("hu/nb1.png".into()),
         home_elo: Some(1650.5),
         away_elo: Some(1480.25),
+        minute: None,
         odds_captured_at: Some(timestamp("2026-11-20T17:20:00Z")),
         odds_trust_state: Some("trusted".into()),
     }
@@ -103,9 +104,35 @@ fn minimal_match() -> DayMatch {
         competition_logo: None,
         home_elo: None,
         away_elo: None,
+        minute: None,
         odds_captured_at: None,
         odds_trust_state: None,
     }
+}
+
+#[test]
+fn live_minute_is_serialized_when_present() {
+    let mut match_with_minute = full_match();
+    match_with_minute.status = "live".into();
+    match_with_minute.minute = Some(87);
+    let response = DayResponse {
+        date: NaiveDate::from_ymd_opt(2026, 11, 24).unwrap(),
+        timezone: "Europe/Budapest",
+        refreshed_at: None,
+        next_refresh_at: None,
+        gaps: football_api::routes::day::DayGaps {
+            missing_kickoff: 0,
+            open_past: 0,
+            missing_result: 0,
+            missing_team_logo: 0,
+            missing_competition_logo: 0,
+            missing_odds: 0,
+            withheld: 0,
+        },
+        matches: vec![match_with_minute],
+    };
+    let value = serde_json::to_value(&response).expect("szerializálható");
+    assert_eq!(value["matches"][0]["minute"], 87);
 }
 
 #[test]

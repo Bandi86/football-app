@@ -53,6 +53,8 @@ pub struct DayMatchRow {
     pub competition_logo: Option<String>,
     pub home_elo: Option<f64>,
     pub away_elo: Option<f64>,
+    /// A research élő játékideje (perc), ha van — S134.
+    pub minute: Option<i32>,
 }
 
 pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatchRow>> {
@@ -87,7 +89,8 @@ pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatch
             al.logo AS away_logo,
             cl.logo AS competition_logo,
             he.elo AS home_elo,
-            ae.elo AS away_elo
+            ae.elo AS away_elo,
+            sm.minute
          FROM core.match m
          JOIN core.team home ON home.id = m.home_team_id
          JOIN core.team away ON away.id = m.away_team_id
@@ -120,6 +123,18 @@ pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatch
              LIMIT 1
          ) o ON true
          LEFT JOIN ops.source os ON os.id = o.source_id
+         -- S134: a research pillanatkép játékideje a legfrissebb kiválasztott
+         -- match_core obszervációból. Nincs új oszlop a kanonikus meccsen.
+         LEFT JOIN LATERAL (
+             SELECT (o2.normalized_payload->>'status_minute')::int AS minute
+             FROM fact.provenance p
+             JOIN stage.observation o2 ON o2.id = p.observation_id
+             JOIN ops.source s ON s.id = o2.source_id
+             WHERE p.subject_id = m.id AND s.code = 'research'
+               AND o2.normalized_payload->>'status_minute' IS NOT NULL
+             ORDER BY o2.observed_at DESC
+             LIMIT 1
+         ) sm ON true
          LEFT JOIN LATERAL (
              SELECT CASE WHEN a.storage_key IS NOT NULL
                          THEN '/v1/asset/' || a.storage_key

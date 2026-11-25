@@ -119,6 +119,8 @@ pub struct DayMatch {
     pub competition_logo: Option<String>,
     pub home_elo: Option<f64>,
     pub away_elo: Option<f64>,
+    /// Élő meccs játékideje percekben a research pillanatképből (S134).
+    pub minute: Option<i32>,
     pub odds_captured_at: Option<chrono::DateTime<chrono::Utc>>,
     pub odds_trust_state: Option<String>,
 }
@@ -241,5 +243,6 @@ pub fn map_match(row: football_storage::repositories::day::DayMatchRow) -> DayMa
         competition_logo: row.competition_logo,
         home_elo: row.home_elo,
         away_elo: row.away_elo,
+        minute: row.minute,
     }
 }
