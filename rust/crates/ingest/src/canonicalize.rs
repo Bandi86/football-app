@@ -501,14 +501,21 @@ impl Canonicalizer {
                    round_label = EXCLUDED.round_label,
                    home_team_id = EXCLUDED.home_team_id,
                    away_team_id = EXCLUDED.away_team_id,
+                   -- S153: az `exact` nem ragadó — ha a tárolt érték maga
+                   -- éjfél UTC (placeholder) és a forrás `date_only`-ra javítja,
+                   -- azt át kell venni. A valódi, nem-éjféli időt továbbra sem
+                   -- írja felül egy bizonytalabb forrás.
                    kickoff_at = CASE
                      WHEN EXCLUDED.kickoff_precision = 'exact'
                        OR core.match.kickoff_precision = 'date_only'
+                       OR (core.match.kickoff_at AT TIME ZONE 'UTC')::time = '00:00:00'
                      THEN EXCLUDED.kickoff_at ELSE core.match.kickoff_at END,
                    kickoff_precision = CASE
-                     WHEN EXCLUDED.kickoff_precision = 'exact'
-                       OR core.match.kickoff_precision = 'exact'
-                     THEN 'exact' ELSE 'date_only' END,
+                     WHEN EXCLUDED.kickoff_precision = 'exact' THEN 'exact'
+                     WHEN core.match.kickoff_precision = 'date_only' THEN 'date_only'
+                     WHEN (core.match.kickoff_at AT TIME ZONE 'UTC')::time = '00:00:00'
+                       THEN 'date_only'
+                     ELSE 'exact' END,
                    status = EXCLUDED.status,
                    updated_at = now()",
                 )

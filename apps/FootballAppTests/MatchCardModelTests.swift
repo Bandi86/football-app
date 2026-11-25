@@ -323,6 +323,10 @@ final class MatchCardModelTests: XCTestCase {
             status: "finished", kickoffAt: now.addingTimeInterval(-4 * 3600), now: now))
         XCTAssertFalse(MatchCardModel.isOpenPast(
             status: "canceled", kickoffAt: now.addingTimeInterval(-4 * 3600), now: now))
+        // S153: a placeholder (00:00 UTC) kezdésű meccs nem „lejárt, nyitott".
+        XCTAssertFalse(MatchCardModel.isOpenPast(
+            status: "scheduled", kickoffAt: now.addingTimeInterval(-12 * 3600),
+            precision: "date_only", now: now))
     }
 
     func testLiveWindowIs150Minutes() {

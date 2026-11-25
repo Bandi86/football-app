@@ -82,7 +82,8 @@ enum MatchFilter: String, CaseIterable, Identifiable {
                                             kickoffAt: match.kickoffAt, now: now)
         case .openPast:
             return MatchCardModel.isOpenPast(status: match.status,
-                                             kickoffAt: match.kickoffAt, now: now)
+                                             kickoffAt: match.kickoffAt,
+                                             precision: match.kickoffPrecision, now: now)
         case .missingKickoff:
             return match.kickoffPrecision == "date_only"
         case .missingResult:
@@ -114,7 +115,8 @@ enum MatchFilter: String, CaseIterable, Identifiable {
                                             kickoffAt: card.kickoffAt, now: now)
         case .openPast:
             return MatchCardModel.isOpenPast(status: card.status,
-                                             kickoffAt: card.kickoffAt, now: now)
+                                             kickoffAt: card.kickoffAt,
+                                             precision: card.kickoffPrecision, now: now)
         case .missingKickoff:
             return card.kickoffPrecision == "date_only"
         case .missingResult:

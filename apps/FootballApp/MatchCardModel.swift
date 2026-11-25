@@ -130,8 +130,11 @@ struct MatchCardModel: Identifiable {
 
     /// Lejárt, de nyitott: a kezdés több mint 3 órával ezelőtt volt, és a
     /// meccs státusza még nyitott — a hiány-panel `open_past` fogalma.
-    static func isOpenPast(status: String, kickoffAt: Date, now: Date) -> Bool {
-        guard openStatuses.contains(status) else { return false }
+    static func isOpenPast(status: String, kickoffAt: Date,
+                           precision: String? = "exact", now: Date) -> Bool {
+        // S153: a `date_only` meccsek kezdési ideje placeholder (00:00 UTC),
+        // nem lehet belőle „lejárt, nyitott" következtetést vonni.
+        guard openStatuses.contains(status), precision != "date_only" else { return false }
         return kickoffAt < now.addingTimeInterval(-openPastThreshold)
     }
 

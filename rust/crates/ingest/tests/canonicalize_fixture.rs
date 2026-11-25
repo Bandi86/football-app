@@ -54,6 +54,41 @@ async fn fixture_materializes_one_canonical_match_with_exact_identity_and_proven
     assert!(provenance >= 5);
 }
 
+/// S153: a placeholder (éjfél UTC) `exact` értéket a forrás `date_only`-ra
+/// javíthatja — az `exact` nem ragadó.
+#[tokio::test]
+async fn midnight_exact_can_be_corrected_to_date_only() {
+    let pool = test_pool().await;
+    let temp = tempfile::tempdir().unwrap();
+    let store = ObjectStore::new(temp.path()).unwrap();
+    let fixture_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../tests/fixtures/fixture_a_day.json");
+    FixtureAdapter::ingest(&pool, &store, &fixture_path)
+        .await
+        .unwrap();
+    let fixture: FixtureSource =
+        serde_json::from_slice(&std::fs::read(&fixture_path).unwrap()).unwrap();
+    let mut day = football_ingest::normalized::NormalizedDay::from(&fixture);
+    let midnight = chrono::Utc.with_ymd_and_hms(2026, 11, 9, 0, 0, 0).unwrap();
+    day.matches[0].kickoff_at = midnight;
+    day.matches[0].kickoff_precision = "exact".into();
+    Canonicalizer::materialize(&pool, &day).await.unwrap();
+
+    let stored: String = sqlx::query_scalar("SELECT kickoff_precision FROM core.match LIMIT 1")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(stored, "exact");
+
+    day.matches[0].kickoff_precision = "date_only".into();
+    Canonicalizer::materialize(&pool, &day).await.unwrap();
+    let stored: String = sqlx::query_scalar("SELECT kickoff_precision FROM core.match LIMIT 1")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(stored, "date_only", "a javított placeholder átjutott");
+}
+
 /// S149: a mezőalapú provenance a legfrissebb obszervációra mutasson.
 /// Régen a legelső sor maradt `is_selected=true`, így pl. a kickoff egy
 /// elavult értékre hivatkozott, még ha a kanonikus érték frissült is.

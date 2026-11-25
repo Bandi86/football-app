@@ -121,6 +121,15 @@
 - [x] **S152b — kiemelt ligák prioritása**: a research adapter minden versenynek `tier=0 / priority=30`-at ír; a versenyszótárban csak a La Liga szerepelt. Hozzáadtuk a top-5 + NB I (tier 1 / priority 6) és a Championship + NB II (tier 2 / priority 12) ország-korlátozott bejegyzéseit, és felvettük őket a homonima-listába (a brazil Serie A / jamaicai Premier League változatlan marad). 2 új teszt. A meglévő **7 versenyt** (822 meccs) auditáltan frissítettük. Eredmény: 11-22-n **19 kiemelt meccs** (Serie A, NB I, La Liga, Premier League, Ligue 1, Bundesliga).
 - [x] **Kapuk**: Rust **593** (2 új szótár + 1 kliens teszt), clippy 0, fmt 0, Core zöld, UI **TEST SUCCEEDED**, daily-check 11-22 és 11-24 **EXIT=0**, git diff 0. Új daemon telepítve.
 
+## S153/S154 — Lejárt nyitott, odds, logók, dél-amerikai duplikátumok
+
+- [x] **S153a — `date_only` meccsek lejártnak számítása**: a kliens `isOpenPast` és a backend `fetch_day_gaps` most kizárja a `date_only` meccseket (placeholder 00:00 UTC alapján nem lehet „lejárt" következtetést vonni). Új teszt a kliensben; API 11-25 `open_past 13 → 7`, `missing_kickoff 7`.
+- [x] **S153b — az `exact` ragadóssága**: a canonicalize UPSERT korábban soha nem engedte `exact` → `date_only` átmenetet, így a forrás javítása nem jutott át (a 16:25-ös research obszerváció már `date_only`-t írt, de a DB `exact` maradt). Most az éjfél UTC-vel tárolt értéket a friss `date_only` felülírhatja. Új teszt `midnight_exact_can_be_corrected_to_date_only`; újra-ingestelés után a 7 meccs `date_only`.
+- [x] **S154 — paraguayi duplikátumok**: 3 meccs kétszer szerepelt (Luqueño–Olimpia, Nacional–Rubio Ñú, Trinidense–Recoleta) — azonos research UID-val, de `Paraguayan Primera` (21:00, valódi idő) és `Division Profesional: Clausura` (00:00 placeholder) verseny alatt. `dedupe pair`-vel a valódi idejű sor maradt; a 00:00Z meccsek száma 7 → 4.
+- [x] **Kivizsgált, nem hiba**: a 7 tegnapi lejárt nyitott meccsre a research sem ad eredményt (3 egyáltalán nincs benne) — valódi forrásgap. A mai presztizs meccsek (Sabah–Barcelona, Atlético–Viking, PSG–Roma) odds nélkül: a research `odds: false`-t ad rájuk (csak az U19 változatoknak van odds) — szintén forrásgap.
+- [x] **Logók**: 6411 csapatlogó-asset van; a hiányzók többségének nincs assetje. 755 hasonló nevű entitáspár található, de többségük külön csapat ((W), II, B, N) — automatikus összevonás tilos. Dokumentálva.
+- [x] **Kapuk**: Rust **594** (+1 teszt), clippy 0, fmt 0, Core zöld, UI **TEST SUCCEEDED**, daily-check 11-24/11-25 **EXIT=0**, integritás `OK`, git diff 0. Új daemon telepítve.
+
 ## Következő lépés
 
-- További hibakeresés: a hasonló női entitáspárok (UDG/UD Tenerife, Madrid CFF/CF, IFK Norrkoeping/Norrköping stb.) kézi elbírálása — ezeknél **nincs** azonos idejű meccs, ezért nem bizonyított duplikátum. Emellett az S131 szűrő-kérdés és az élő eredmények hiánya.
+- További hibakeresés és forráskutatás: az S131 szűrő-kérdés, az élő eredmények/odds hiánya (új forrás kellhet), és a bizonyítható entitásduplikátumok páronkénti elbírálása.
