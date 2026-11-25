@@ -130,6 +130,16 @@
 - [x] **Logók**: 6411 csapatlogó-asset van; a hiányzók többségének nincs assetje. 755 hasonló nevű entitáspár található, de többségük külön csapat ((W), II, B, N) — automatikus összevonás tilos. Dokumentálva.
 - [x] **Kapuk**: Rust **594** (+1 teszt), clippy 0, fmt 0, Core zöld, UI **TEST SUCCEEDED**, daily-check 11-24/11-25 **EXIT=0**, integritás `OK`, git diff 0. Új daemon telepítve.
 
+## S155 — Persebaya entitás és a napi munka rendbetétele
+
+- [x] **Persebaya entitás**: a v1-import `Persebaya` (0 logó, 1 meccs) és a research `Persebaya Surabaya` (1 logó, 13 meccs) — mindkettő male/senior/ID — összeolvasztva `identity merge-team --via-alias`-vel (1 meccs, 1 ref, 0 konfliktus, audit esemény). Az API-n a Persebaya meccs most **logóval** jelenik meg.
+- [x] **Teljes napi munka átvizsgálása**:
+  - `main` szinkronban `origin/main`-gyel (`0 0`), minden saját commit pusholva.
+  - Idegen munka ma: `feat/match-chain-compact-header` commit `14de60d` (15:23, 947 sor UI: követhető meccslánc + kompakt fejléc) — **már pusholva** originra. A worktree-ben azonban 16:53 óta újabb, nem commitolt munka folyik (Rust identity/canonicalize/dedupe + logó-import scriptek) — abba nem avatkoztam be, merge csak az író ágens befejezése után.
+  - Két régi `ahead 1` branch (`feat/homepage-visual-refresh` 900c480, `feat/real-data-wiring` 6ec5127) pusholva — most minden branch szinkronban.
+  - A három worktree (`estimated-match-clock`, `match-chain-compact-header`, `match-detail-navigation`) nem commitolt változásait **nem érintettem** — ezek más ágens munkái.
+  - `docs/superpowers/specs/2026-11-23-modern-predikcios-rendszer-terv.md` RFC tervezet — szándékosan nem commitolva, így marad.
+
 ## Következő lépés
 
-- További hibakeresés és forráskutatás: az S131 szűrő-kérdés, az élő eredmények/odds hiánya (új forrás kellhet), és a bizonyítható entitásduplikátumok páronkénti elbírálása.
+- A felhasználó által megadott utolsó napi feladat.
