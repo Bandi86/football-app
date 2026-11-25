@@ -45,6 +45,7 @@ async fn run_cycle(
         processed = outcome.processed,
         blocked = outcome.blocked,
         failed = outcome.failed,
+        deferred = outcome.deferred,
         "worker tick kész"
     );
     Ok(())

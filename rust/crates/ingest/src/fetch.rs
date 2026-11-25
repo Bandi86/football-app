@@ -140,6 +140,13 @@ impl LocalFileFetcher {
         }
         Ok(self.root.join(rel))
     }
+
+    /// A forrásfájl tényleges útja (S139). A frissesség-ellenőrzés használja:
+    /// a catch-up job csak akkor dolgozható fel, ha a napi envelope a job
+    /// létrehozása után frissült.
+    pub fn source_path(&self, rel: &str) -> Result<PathBuf, FetchError> {
+        self.resolve(rel)
+    }
 }
 
 #[async_trait]

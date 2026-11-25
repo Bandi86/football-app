@@ -73,6 +73,8 @@ pub struct TickOutcome {
     pub processed: usize,
     pub blocked: usize,
     pub failed: usize,
+    /// S139: forrásfrissesség miatt elhalasztott catch-up jobok száma.
+    pub deferred: usize,
 }
 
 /// Tranziens fetch-hiba maximális újrapróbálkozás-száma. Efölött a job
@@ -113,6 +115,22 @@ enum JobResult {
     Processed,
     Blocked,
     Failed,
+    /// A forrás még nem frissült — a job várakozik (S139).
+    Deferred,
+}
+
+/// S139: a catch-up akkor dolgozható fel, ha a forrásfájl a job létrehozása
+/// után frissült. Hiányzó fájl vagy 6 óránál régebbi job esetén a döntés:
+/// előbbi várakozás, utóbbi mégis feldolgozás (a forrás tartósan nem frissül).
+fn catchup_source_stale(
+    modified: Option<DateTime<Utc>>,
+    created_at: DateTime<Utc>,
+    now: DateTime<Utc>,
+) -> bool {
+    if now.signed_duration_since(created_at) >= Duration::hours(6) {
+        return false;
+    }
+    modified.map(|m| m <= created_at).unwrap_or(true)
 }
 
 pub async fn tick(
@@ -131,12 +149,14 @@ pub async fn tick(
         processed: 0,
         blocked: 0,
         failed: 0,
+        deferred: 0,
     };
     for job in &jobs {
         match process_job(pool, store, fetchers, adapters, job, now).await {
             Ok(JobResult::Processed) => outcome.processed += 1,
             Ok(JobResult::Blocked) => outcome.blocked += 1,
             Ok(JobResult::Failed) => outcome.failed += 1,
+            Ok(JobResult::Deferred) => outcome.deferred += 1,
             Err(err) => {
                 // Váratlan infrastruktúra-hiba: a jobot lezárjuk failed-re,
                 // a kör a többi jobbal folytatódik. A reserve óta számláló
@@ -194,6 +214,37 @@ async fn process_job(
     job: &FetchJob,
     now: DateTime<Utc>,
 ) -> Result<JobResult> {
+    // S139: a research catch-up csak akkor olvashat, ha a CÉL napi fájl a
+    // job létrehozása UTÁN frissült. A daemon 07:31-kor indult, a research
+    // fájl 07:38-kor frissül — régen a job elavult `scheduled` státuszokat
+    // olvasott be, és az egyszeri idempotencia miatt nem javult többé.
+    // 6 óra után mégis feldolgozzuk (a forrás tartósan nem frissül).
+    if job.source_slug == "research"
+        && job.event_type == "refresh"
+        && let Some(target) = job
+            .entity_key
+            .strip_prefix("catchup-")
+            .and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok())
+    {
+        let created_at = repo::job_created_at(pool, job.id).await?;
+        let rel = football_ingest::research::ResearchAdapter::daily_rel(target);
+        let modified = fetchers
+            .local_file
+            .as_ref()
+            .and_then(|fetcher| fetcher.source_path(&rel).ok())
+            .and_then(|path| {
+                std::fs::metadata(path)
+                    .and_then(|meta| meta.modified())
+                    .ok()
+            })
+            .map(DateTime::<Utc>::from);
+        if catchup_source_stale(modified, created_at, now) {
+            tracing::info!(%target, job_id = %job.id, "catch-up várakozik a research frissítésre");
+            repo::requeue_with_delay(pool, job.id, now + Duration::minutes(15)).await?;
+            return Ok(JobResult::Deferred);
+        }
+    }
+
     // 2. Policy-kapu: hiányzó vagy tiltott policy → cancelled.
     let Some(policy) = repo::get_policy(pool, &job.source_slug).await? else {
         scheduler::complete(
@@ -1168,8 +1219,31 @@ async fn auto_merge_pair(
 
 #[cfg(test)]
 mod tests {
-    use super::{BACKOFF_CAP_SECS, backoff_delay, next_quota_reset};
+    use super::{BACKOFF_CAP_SECS, backoff_delay, catchup_source_stale, next_quota_reset};
     use chrono::{TimeZone, Utc};
+
+    /// S139: a 07:31-es job nem olvashatja a 07:38-as frissítés előtti fájlt;
+    /// 07:46-kor viszont már igen. Hiányzó fájl és tartósan elavult forrás
+    /// szintén kezelt.
+    #[test]
+    fn catchup_waits_until_the_source_file_is_fresh() {
+        let created = Utc.with_ymd_and_hms(2026, 11, 25, 6, 31, 0).unwrap();
+        let early = Utc.with_ymd_and_hms(2026, 11, 25, 6, 32, 0).unwrap();
+        let late = Utc.with_ymd_and_hms(2026, 11, 25, 6, 46, 0).unwrap();
+        let old_file = Utc.with_ymd_and_hms(2026, 11, 24, 18, 0, 0).unwrap();
+        let fresh_file = Utc.with_ymd_and_hms(2026, 11, 25, 6, 38, 0).unwrap();
+
+        // A daemon 07:31-kor indult, a fájl még tegnapi → várakozás.
+        assert!(catchup_source_stale(Some(old_file), created, early));
+        // 07:46-kor a fájl már friss → feldolgozás.
+        assert!(!catchup_source_stale(Some(fresh_file), created, late));
+        // Hiányzó fájl → várakozás.
+        assert!(catchup_source_stale(None, created, late));
+        // Tartósan nem frissülő forrás: 6 óra után mégis feldolgozás.
+        let much_later = created + chrono::Duration::hours(7);
+        assert!(!catchup_source_stale(Some(old_file), created, much_later));
+        assert!(!catchup_source_stale(None, created, much_later));
+    }
 
     #[test]
     fn quota_blocked_job_waits_for_the_next_utc_midnight() {

@@ -163,6 +163,15 @@ pub async fn count_job_fetch_attempts(pool: &PgPool, job_id: Uuid) -> Result<i64
     Ok(count)
 }
 
+/// A job létrehozásának időpontja (S139 frissesség-kapuhoz).
+pub async fn job_created_at(pool: &PgPool, job_id: Uuid) -> Result<DateTime<Utc>> {
+    sqlx::query_scalar("SELECT created_at FROM ops.job WHERE id = $1")
+        .bind(job_id)
+        .fetch_one(pool)
+        .await
+        .context("job created_at lekérés")
+}
+
 /// A job visszasorolása pending állapotba késleltetett due_at-tel.
 pub async fn requeue_with_delay(pool: &PgPool, job_id: Uuid, due_at: DateTime<Utc>) -> Result<()> {
     sqlx::query(

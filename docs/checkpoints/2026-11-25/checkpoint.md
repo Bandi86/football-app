@@ -51,6 +51,21 @@
 
 - [x] Mind a 6 nap EXIT=0, `verdict: OK`. Meccs/eredmény/verified: 09-24 82/82/22 · 09-23 134/133/37 · 09-22 134/134/83 · 09-21 100/100/43 · 09-20 654/652/273 · 09-19 786/786/369.
 
+## S139 — A catch-up kockázatának végleges kezelése
+
+- [x] **Kockázat**: az 1 órás fix késleltetés csak becslés volt — ha a research gyűjtése később tolódik, újra versenyhelyzet állhat elő.
+- [x] **Megoldás**: a catch-up job most a **forrásfájl tényleges frissességétől** függ. Új `LocalFileFetcher::source_path`, új `repo::job_created_at`, és a `tick::catchup_source_stale(modified, created_at, now)` függvény: ha a napi envelope nem frissebb a job keletkezésénél, a job 15 perccel későbbre kerül (`requeue_with_delay`, `JobResult::Deferred`) — legfeljebb 6 órán át, utána mégis feldolgozás (tartósan nem frissülő forrás). A `TickOutcome` új `deferred` számlálója a worker-logban is megjelenik.
+- [x] Teszt: `catchup_waits_until_the_source_file_is_fresh` (07:31 elavult → várakozás; 07:46 friss → feldolgozás; hiányzó fájl → várakozás; 6 óra után → feldolgozás). Rust **589**, clippy 0, fmt 0. Új daemon telepítve.
+
+## S140 — Tegnapi és mai nap részletes, egyeséveli ellenőrzése
+
+- [x] **Teljes státusz+eredmény összevetés** (provenance-UID alapján, minden UID-val): 11-25 **166/166 pontos**; 11-24 **176/178**, a 2 látszólagos eltérés az ellenőrző script műterméke (egy UID két napi fájlban is szerepel elavult értékkel; illetve téves provenance-link) — a megjelenített adat mindenhol egyezik a research végeredményével.
+- [x] **Kezdési idők összevetése**: 5 eltérés; 3 téves provenance-link (pl. U19 UID a felnőtt meccsen, Fleetwood két külön meccse ugyanazzal az UID-val), 2 valódi elavult idő. A szisztémás ok: a **legrégebbi** obszerváció `is_selected=true`, a frissebbek `false` — ezért a kickoff nem frissül (a státusz viszont igen). A 2 konkrét idő auditáltan javítva (`kickoff_revision`): Shahin Bandar Ameri–Naft Masjed Soleyman 13:15Z → **14:00Z**, Al Sharkeyah–Ceramica Cleopatra 15:00Z → **18:00Z**; publish_date újraszámolva.
+- [x] **Téves provenance-link (dokumentált, nem javított)**: `fm:1000021160` (U19) a felnőtt Real Madrid–PSV-hez is be van linkelve; `livescore:1872665` (Bandari–Mathare) a Bandari–Kakamega meccshoz; `fm:6015575` két külön Fleetwood-meccshez. Ezek az audit-nyomot érintik, a megjelenített adatot nem. Külön döntés a link-tisztításról.
+- [x] **Tegnap (11-24)**: daily-check ZÖLD — 207 meccs, 178 lezárt, 178 eredmény, 105 verified, 0 duplikátum, 0 árva provenance, `open_past` 7. **Ma (11-25)**: ZÖLD — 171 meccs, 6 lezárt, `open_past` 8 (7 paraguayi meccs 00:00Z placeholder idővel + 1 mexikói; a research ezeket jövőbeli/Pontos idővel is adja — forrásminőségi kérdés).
+- [x] **Kliens AX**: „Mind: 171", „Következik: 129", „Élő: 0", „Befejezett: 6", „Lejárt, nyitott: 8", „Eredmény nélkül: 0" — az API-val egyezik.
+- [x] **Kapuk**: Rust **589**, clippy 0, fmt 0, UI **TEST SUCCEEDED**, daily-check mindkét nap **EXIT=0**, git diff 0.
+
 ## Következő lépés
 
-- Döntés a maradék 3 fordított orientációjú meccsről, majd a backfill folytatása 09-18 → 08-01-ig napi integritással és véletlen mintákkal.
+- A backfill folytatása 09-18 → 08-01-ig napi integritással és véletlen mintákkal; külön döntés a téves provenance-link tisztításáról és a `is_selected` mezőalapú frissítési szabályról.
