@@ -51,7 +51,8 @@
 
 - [x] **09-24 → 09-19** (háttérben lefutott): mind a 6 nap EXIT=0, `verdict: OK`. Meccs/eredmény/verified: 09-24 82/82/22 · 09-23 134/133/37 · 09-22 134/134/83 · 09-21 100/100/43 · 09-20 654/652/273 · 09-19 786/786/369.
 - [x] **09-18 → 09-13** (háttérben lefutott): mind a 6 nap EXIT=0, `verdict: OK`. Meccs/eredmény/verified: 09-18 267/264/97 · 09-17 130/130/34 · 09-16 243/242/79 · 09-15 172/171/89 · 09-14 159/159/56 · 09-13 678/675/262.
-- [ ] **Folyamatban**: 09-12 → 09-07 köteg háttérben fut. Hátralévő cél: 09-06 → 08-01.
+- [x] **09-12 → 09-07** (háttérben lefutott): mind a 6 nap EXIT=0, `verdict: OK`. Meccs/eredmény/verified: 09-12 797/797/351 · 09-11 301/300/100 · 09-10 127/127/53 · 09-09 164/164/63 · 09-08 198/197/108 · 09-07 177/177/58.
+- [ ] **Folyamatban**: 09-06 → 09-01 köteg háttérben fut (szeptember lezárása). Hátralévő cél: 08-31 → 08-01.
 
 ## S139 — A catch-up kockázatának végleges kezelése
 
