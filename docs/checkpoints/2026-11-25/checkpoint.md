@@ -40,6 +40,13 @@
 - [x] **Kapuk**: Rust **588**, clippy 0, fmt 0, UI **TEST SUCCEEDED**, daily-check (11-24, 11-25) **EXIT=0**, git diff 0.
 - [ ] **Maradék 10 nyitott meccs (11-24)**: 6-nál a forrás maga nem ad eredményt (Bhayangkara–Padang, Madura–Persela, Persiraja–Dewa, Niroye Zamini–Havadar, Bandari–Kakamega, Fleetwood–Charlton U21, AFC Portchester–Hayes); 3-nál (Aston Villa–Galatasaray, Lens–RB Leipzig, Real Betis–Slovan Bratislava) a research **finished** eredményt ad, de **fordított hazai/vendég orientációval**, és a friss obszerváció nincs provenance-hoz linkelve — tudatos identitás-/eredményrevízió kell, nem automatikus merge.
 
+## S138 — Fordított orientációjú meccsek javítása (felhasználói döntés)
+
+- [x] **Döntés**: a felhasználó a „research szerint javítani" opciót választotta a 3 felnőtt meccsre (Aston Villa–Galatasaray, Lens–RB Leipzig, Real Betis–Slovan Bratislava).
+- [x] **Végrehajtás**: egy tranzakcióban a `core.match.status` → `finished`, `core.match_result` beszúrása a research eredménnyel — a DB orientációhoz igazítva (Aston Villa 0:1 Galatasaray, Lens 1:3 RB Leipzig, Real Betis 2:0 Slovan Bratislava; félidők szintén fordítva). 3 audit esemény (`manual_result_revision`, research UID-val és visszaállítási útmutatóval). Az obszervációk és a soccerway-származású névorientáció érintetlenek.
+- [x] **Mérés**: API 11-24 `open_past` **10 → 7**, a 3 meccs `finished` helyes eredménnyel; `missing_result: 0`. daily-check **EXIT=0** (`[OK] soccerway tiltva`).
+- [x] Visszaállítás: `UPDATE core.match SET status='scheduled'` + a három `core.match_result` sor és az S138 audit események törlése.
+
 ## S135 folytatása — 09-24 → 09-19 (háttérben lefutott)
 
 - [x] Mind a 6 nap EXIT=0, `verdict: OK`. Meccs/eredmény/verified: 09-24 82/82/22 · 09-23 134/133/37 · 09-22 134/134/83 · 09-21 100/100/43 · 09-20 654/652/273 · 09-19 786/786/369.
