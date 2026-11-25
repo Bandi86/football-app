@@ -56,7 +56,7 @@
 - [x] **Integritás (09-07…09-30)**: `verdict: OK`, 0 duplikált kickoff/fixture, 0 árva provenance. Talált 2 cross-competition duplikátumot (`Fénix–Colón` 09-19, `River Plate–Colón` 09-26) — a research és a v1-import változat ugyanaz a meccs `Segunda División` / `LaLiga 2` verseny-entitás alatt, eredményük egyezett (1:1, 3:0). `dedupe pair`-vel összeolvasztva, research túlél; `azonos csapatpár azonos pillanatban: 2 → 0`.
 - [ ] Maradék 10 „azonos csapatpár azonos napon" (eltérő kickoff + verseny): többsége jogos — finn Veikkausliiga fáziscsoportjai (TPS/SJK, HJK/Inter Turku stb.) és NCAA férfi/női meccsek. Nem kerülnek összeolvasztásra.
 - [x] **09-06 → 09-01** (háttérben lefutott): mind a 6 nap EXIT=0, `verdict: OK`. Meccs/eredmény/verified: 09-06 684/680/278 · 09-05 821/820/396 · 09-04 311/305/104 · 09-03 114/113/40 · 09-02 201/200/83 · 09-01 159/159/50.
-- [x] **Szeptember lezárva**: 09-30 → 09-01, **30/30 nap zöld**, mind napi integritással/coverage-lal.
+- [x] **Szeptember lezárva**: 09-30 → 09-01, **30/30 nap zöld**, mind napi integritással/coverage-lal. Teljes hónap-integritás `verdict: OK` (0 duplikált kickoff/fixture, 0 azonos pillanatú pár, 0 árva provenance). Véletlen minták összesen **54/54 egyezés** (09-07…09-18: 36/36, 09-01…09-06: 18/18).
 - [ ] **Folyamatban**: 08-31 → 08-26 köteg (augusztus indítása). Hátralévő cél: 08-25 → 08-01.
 
 ## S139 — A catch-up kockázatának végleges kezelése
