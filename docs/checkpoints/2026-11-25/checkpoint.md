@@ -107,6 +107,13 @@
 - [x] **Dokumentum**: `docs/operations/remaining-gaps.md` frissítve — az 1. és 2. pont megoldva, a többi nyitva marad.
 - [x] **Kapuk**: daily-check 11-24 és 11-25 **EXIT=0**, Core zöld, UI **TEST SUCCEEDED**, git diff 0. Új daemon telepítve.
 
+## S150 — Forráskutatás és további hibakeresés
+
+- [x] **Forráskutatás**: a research FotMob napi JSON-ja nem tartalmazza a 11 hiányzó meccset. A forráskatalógus alapján a **BetExplorer** engedélyezett (robots üres, HTTP 200, 635 KB valós tartalom): a 11-ből **3 meccset** fed le eredménnyel (Ajman–Al Ettifaq 1:2, Al Duhail–Neom 3:2, Torreense U23–Vizela U23 2:1). Maldives, Liga TDP, Senegal Ligue 2 egyáltalán nincs a feedben. Részleges pótlás; új adapter + forrás-engedély kellene. Megjegyzés: a research a katalógusa által tiltott FotMob `/api/data/matches` végpontot használja (research-projektbeli kérdés).
+- [x] **Keresztforrás-eredményütközések**: a talált párok többsége fordított orientáció vagy elavult obszerváció; a kanonikus érték minden ellenőrzött esetben a helyes (Paris FC–Angers 4:0, Girona–Almería 0:1, Loto–Coton 4:0, Chivas–Necaxa 1:0). Nem hiba.
+- [x] **Anomáliakeresés átfedő meccsekre**: talált egy valódi **szemantikai duplikátumot** — Everton W–Brighton W (WSL, finished) és Everton W–Brighton & Hove Albion (Women's Super League, scheduled) ugyanabban az időben; mindkét Brighton-entitás női/senior/azonos ország. A `dedupe variants`/`aliases` dry-run nem fogta (1 csoport, 0 merge). További magas hasonlóságú női entitáspárok jelöltek, de sok hasonló név külön csapat — automatikus fuzzy merge tilos (AGENTS.md). Döntésre vár.
+- [x] `docs/operations/remaining-gaps.md` frissítve a BetExplorer- és identitás-eredményekkel.
+
 ## Következő lépés
 
-- A `docs/operations/remaining-gaps.md` hátralévő pontjai: S131 szűrő-kérdés, Sofascore-lefedettség (új forrás kell), élő eredmények, emberi VoiceOver/Tab.
+- A szemantikai duplikátum (Everton/Brighton) és a hasonló identitáspárok kézi, forrás-alapú elbírálása — külön döntés az entitás-összevonásról. Emellett az S131 szűrő-kérdés és az élő eredmények hiánya.

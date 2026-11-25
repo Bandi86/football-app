@@ -52,7 +52,23 @@ River Plate–Colón — S141). A maradékot nem olvasztjuk össze.
 
 ## 2. Forráslefedettség
 
-### Sofascore-referenciából hiányzó ligák (S132)
+### Sofascore-referenciából hiányzó ligák (S132 — S150 forráskutatás)
+
+**Forráskutatás (2026-11-25)**: a research pipeline FotMob napi JSON-ja
+(`fotmob-matches.json`) **nem tartalmazza** a hiányzó csapatokat. A
+`FORRASOK-KATALOGUS.md` alapján a **BetExplorer** engedélyezett (robots üres,
+nincs CF challenge): a `/football/results/?date=2026-11-24` oldal HTTP 200,
+635 KB, valós eredményekkel. A 11 hiányzó meccsből **3-at** fed le:
+`Ajman–Al Ettifaq 1:2`, `Al Duhail–Neom SC 3:2`, `Torreense U23–Vizela U23 2:1`.
+A többi (Buru SC, Halcones, Vitesse U21, ASFA Dakar, Teranga, Koper U19,
+Szaúd-U21 meccsek) nem szerepel — Maldives, Liga TDP, Senegal Ligue 2
+egyáltalán nincs a feedben. A BetExplorer tehát **részleges** pótlás, új
+adapter és külön forrás-engedély kellene hozzá.
+
+**Megjegyzés**: a research pipeline jelenleg a FotMob `/api/data/matches`
+végpontot használja, amit a saját forráskatalógusa kifejezetten tilt
+(csak a renderelt `/matches?date=` oldal engedélyezett) — ez a research
+projektben lévő, nem a v2-repo-beli kérdés, de érdemes külön napirendre tenni.
 
 ~11 meccs / 22 csapat nincs meg egyik engedélyezett forrásban sem
 (Buru SC, Vitesse U21, Torreense U23, ASFA Dakar, Koper U19, Ajman,
@@ -106,7 +122,28 @@ A forrás `enabled=f` 2026-11-17 óta. Egy egyszeri szivárgás történt
 `editorial_hold`-ban vannak, audit eseménnyel. A tiltás utáni soccerway-only
 publikált meccsek száma: **0**.
 
-## 5. Emberi ellenőrzésre vár
+## 5. Szemantikai duplikátumok / identitás (S150 — feltárva, döntésre vár)
+
+Példa: **Everton W – Brighton W** 2026-11-22 15:00, WSL:
+- `01a1fc04-b694-…` — `Everton W – Brighton W`, `WSL` (GB-ENG), `finished`
+- `01a202d6-60c0-…` — `Everton W – Brighton & Hove Albion`, `Women's Super League` (XX), `scheduled`, research forrás `espn:401902855`
+
+Mindkét Brighton-entitás `female`, `senior`, azonos ország — tehát az
+identitásfeloldás nem vette észre a teljes név és a rövidített „W" alak
+egyezését. A `dedupe variants` és `dedupe aliases` dry-run **nem** találta
+meg (1 névvariáns-csoport, 0 merge), ezért a két fixture a napi listában is
+külön szerepel.
+
+Hasonló, magas hasonlóságú női entitáspárok (csak **jelöltek**, nem
+összevonhatók automatikusan): `UDG Tenerife W` / `UD Tenerife (W)`,
+`Madrid CFF W` / `Madrid CF W`, `IFK Norrkoeping W` / `IFK Norrköping (W)`,
+`IFK Goeteborg W` / `IFK Göteborg (W)`, `Djurgaarden W` / `Djurgården (W)`.
+Ugyanakkor számos hasonló név **külön csapat** (pl. `Eastern Illinois` /
+`Western Illinois`, `Kansas State` / `Arkansas State`) — ezért az AGENTS.md
+által tiltott automatikus fuzzy merge helyett **kéntelen, forrás-alapú
+döntés** kell páronként. A teljes átvizsgálás hátralévő munka.
+
+## 6. Emberi ellenőrzésre vár
 
 - Tényleges VoiceOver-felolvasás (emberi fül kell hozzá).
 - Tab-kör kiterjesztése a natív menükre / naptár-popoverre / részletezőre.
