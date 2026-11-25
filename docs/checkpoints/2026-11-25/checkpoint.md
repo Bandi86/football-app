@@ -140,6 +140,13 @@
   - A három worktree (`estimated-match-clock`, `match-chain-compact-header`, `match-detail-navigation`) nem commitolt változásait **nem érintettem** — ezek más ágens munkái.
   - `docs/superpowers/specs/2026-11-23-modern-predikcios-rendszer-terv.md` RFC tervezet — szándékosan nem commitolva, így marad.
 
+## S156 — Árva provenance a napi záróellenőrzésben
+
+- [x] A záró `daily-check` **PIROS** lett: `árva provenance: 210` (kemény integritási hiba). Az 5 érintett `subject_id` mind nem létező kanonikus meccsre mutatott, és dummy forrás-ID-kat hordozott (`fm:1`, `fm:2`, `espn:131556`, `espn:131554`) — auditált, de nem hasznosítható maradvány; a `TEST_DATABASE_URL` külön adatbázisban 0 árva sor volt.
+- [x] A 210 sort tranzakcióban töröltük, 1 `orphan_provenance_cleanup` audit eseménnyel (subjectek és sorok számával). Az obszervációk megmaradtak.
+- [x] Ellenőrzés: integritás `verdict: OK` (`árva provenance: 0`), `daily-check 2026-11-25 EXIT=0`, ZÖLD.
+- [x] `main` szinkronban `origin/main`-gyel (`0 0`); minden branch szinkronban (a két régi ahead branch pusholva S155-ben). Az RFC spec (`2026-11-23-modern-predikcios-rendszer-terv.md`) nem commitolt, szándékosan.
+
 ## Következő lépés
 
 - A felhasználó által megadott utolsó napi feladat.
