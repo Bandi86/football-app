@@ -147,6 +147,12 @@
 - [x] Ellenőrzés: integritás `verdict: OK` (`árva provenance: 0`), `daily-check 2026-11-25 EXIT=0`, ZÖLD.
 - [x] `main` szinkronban `origin/main`-gyel (`0 0`); minden branch szinkronban (a két régi ahead branch pusholva S155-ben). Az RFC spec (`2026-11-23-modern-predikcios-rendszer-terv.md`) nem commitolt, szándékosan.
 
+## S157 — Utolsó napi feladat: bővítési terv vázlat
+
+- [x] Megírtam a `docs/superpowers/specs/2026-11-25-app-oldalak-bovites-design.md` vázlatot a három hátralevő oldalról (Versenyek, Csapatok, **Üzemeltetés — kiemelt**).
+- [x] Tartalmazza: jelenlegi állapot, új adatmodellek (`ops.issue`, `ops.match_note`, `ops.asset` kiterjesztés), API-k, teljes meccs-szerkesztés, lokális logófeltöltés, hiány-összefoglaló és idővonal, meccs-jegyzetek (ügynök ↔ felhasználó), későbbi Gemma 4/SearXNG támogatás (javaslat-only, alapból ki), 8 szelet kapu-lánccal, 6 nyitott döntéssel és kockázatokkal.
+- [x] Csak dokumentum — nem változtat kódot vagy adatot; a döntések után szeletenként külön megvalósítási terv készül.
+
 ## Következő lépés
 
-- A felhasználó által megadott utolsó napi feladat.
+- A felhasználó döntései a vázlat 10. szakaszában, majd az S1 szelet (adatmodell + API alap) megvalósítási terve.
