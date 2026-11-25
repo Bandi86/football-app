@@ -18,6 +18,7 @@ trap cleanup EXIT
 python3 scripts/ui-fixture-server.py --port "$PORT_LOADED" \
     --fixture tests/fixtures/ui/loaded-day.json \
     --detail-fixture tests/fixtures/ui/match-detail.json \
+    --detail-map-fixture tests/fixtures/ui/match-chain-details.json \
     --search-fixture tests/fixtures/ui/search-results.json \
     --player-fixture tests/fixtures/ui/player-detail.json &
 pids+=("$!")

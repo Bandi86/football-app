@@ -339,7 +339,148 @@ final class FootballAppUITests: XCTestCase {
         XCTAssertTrue(waitForGone(sheet, timeout: 10), "Escape nem zárta be a részletezőt")
     }
 
+    func testHomeHeaderIsCompactAndKeepsEveryControl() throws {
+        let app = try launch(port: Self.loadedPort, windowWidth: 1040)
+        app.activate()
+
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 30), "az alkalmazás ablaka hiányzik")
+        XCTAssertEqual(window.frame.width, 1040, accuracy: 1, "a széles tesztablak nem 1040 pt szélességű")
+
+        let header = element("home.header", in: app)
+        XCTAssertTrue(header.waitForExistence(timeout: 30), "a főoldali fejléc hiányzik")
+        XCTAssertFalse(element("home.header.compactDate", in: app).exists,
+                       "a széles tesztablak a kompakt fejlécágra váltott")
+        print("HOME_HEADER_FRAME \(header.frame)")
+        XCTAssertLessThanOrEqual(header.frame.height, 76, "a fejléc magassága nem csökkent a fele akkorára")
+
+        for identifier in [
+            "home.stat.matches", "home.stat.live", "home.stat.odds",
+            "home.stat.weather", "home.stat.refresh",
+            "nav.chevron.left", "nav.today", "nav.chevron.right",
+            "nav.calendar", "nav.arrow.clockwise",
+        ] {
+            XCTAssertTrue(element(identifier, in: app).exists, "a fejlécből hiányzik: \(identifier)")
+        }
+    }
+
+    func testHomeHeaderCompactBranchFitsNarrowWindow() throws {
+        let app = try launch(port: Self.loadedPort, windowWidth: 820)
+        app.activate()
+
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 30), "az alkalmazás ablaka hiányzik")
+        XCTAssertEqual(window.frame.width, 820, accuracy: 1, "a szűk tesztablak nem 820 pt szélességű")
+
+        let compactDate = element("home.header.compactDate", in: app)
+        XCTAssertTrue(compactDate.waitForExistence(timeout: 10), "a szűk fejlécágra váltott dátumblokk hiányzik")
+        let header = element("home.header", in: app)
+        XCTAssertTrue(header.waitForExistence(timeout: 10), "a szűk fejléc hiányzik")
+        print("HOME_HEADER_COMPACT_FRAME \(header.frame)")
+        XCTAssertLessThanOrEqual(header.frame.height, 76, "a szűk fejléc magassága meghaladja a 76 pt-ot")
+
+        for identifier in [
+            "nav.chevron.left", "nav.today", "nav.chevron.right",
+            "nav.calendar", "nav.arrow.clockwise",
+        ] {
+            let control = element(identifier, in: app)
+            XCTAssertTrue(control.waitForExistence(timeout: 10), "a szűk fejlécből hiányzik: \(identifier)")
+            XCTAssertTrue(control.isHittable, "a szűk fejléc vezérlője nem érhető el: \(identifier)")
+        }
+        for identifier in [
+            "home.stat.matches", "home.stat.live", "home.stat.odds",
+            "home.stat.weather", "home.stat.refresh",
+        ] {
+            XCTAssertTrue(element(identifier, in: app).exists, "a szűk fejlécből hiányzik: \(identifier)")
+        }
+    }
+
+    func testMatchChainOpensFormMatchAndRestoresParent() throws {
+        let app = try openLoadedMatchDetail()
+        let link = element("match.detail.form.10000000-0000-0000-0000-000000000001", in: app)
+        XCTAssertTrue(link.waitForExistence(timeout: 10), "a forma-meccs gombja hiányzik")
+        XCTAssertTrue(link.label.contains("Meccs megnyitása"), link.label)
+        XCTAssertTrue(link.label.contains("Ferencváros"), link.label)
+        XCTAssertTrue(link.label.contains("győzelem"), link.label)
+
+        link.click()
+        assertChainTarget(id: "10000000-0000-0000-0000-000000000001", marker: "Lánc próba 001", in: app)
+    }
+
+    func testMatchChainOpensHeadToHeadWithoutInventingScore() throws {
+        let app = try openLoadedMatchDetail()
+        let link = element("match.detail.h2h.10000000-0000-0000-0000-000000000005", in: app)
+        XCTAssertTrue(link.waitForExistence(timeout: 10), "a H2H-meccs gombja hiányzik")
+        XCTAssertTrue(link.label.contains("Meccs megnyitása"), link.label)
+        XCTAssertTrue(link.label.contains("eredmény még nincs"), link.label)
+        XCTAssertFalse(link.label.contains("0 – 0"), link.label)
+        XCTAssertFalse(link.label.contains("0–0"), link.label)
+
+        link.click()
+        assertChainTarget(id: "10000000-0000-0000-0000-000000000005", marker: "Lánc próba 005", in: app)
+    }
+
+    func testMatchChainOpensNextMatchAndPreservesScrollAndFocus() throws {
+        let app = try openLoadedMatchDetail()
+        let link = element("match.detail.next.10000000-0000-0000-0000-000000000006", in: app)
+        XCTAssertTrue(link.waitForExistence(timeout: 10), "a következő meccs gombja hiányzik")
+        XCTAssertTrue(link.label.contains("Meccs megnyitása"), link.label)
+        XCTAssertTrue(link.label.contains("Győr"), link.label)
+        XCTAssertTrue(link.label.contains("hazai"), link.label)
+
+        XCTAssertTrue(focusByTabbing(link, in: app, timeout: 15), "Tabbal nem érhető el a következő meccs")
+        let originalY = link.frame.midY
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+        assertChainTarget(id: "10000000-0000-0000-0000-000000000006", marker: "Lánc próba 006", in: app)
+
+        XCTAssertTrue(link.waitForExistence(timeout: 10), "a szülő részletező eltűnt")
+        XCTAssertTrue(element("match.detail.form", in: app).exists, "a szülő tartalma újratöltődött")
+        XCTAssertEqual(link.frame.midY, originalY, accuracy: 2, "a szülő görgetése elállt")
+        XCTAssertTrue(waitForSelected(link, timeout: 10), "a fókusz nem állt vissza a kapcsolódó meccsre")
+    }
+
     // MARK: - Segédek
+
+    private func openLoadedMatchDetail() throws -> XCUIApplication {
+        let app = try launch(port: Self.loadedPort)
+        app.activate()
+        let card = element("match.card.22222222-2222-2222-2222-222222222222", in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: 30), "a nap nem töltődött be")
+        card.click()
+        XCTAssertTrue(element("match.detail", in: app).waitForExistence(timeout: 20),
+                      "a részletező nem nyílt meg")
+        XCTAssertTrue(element("match.detail.form", in: app).waitForExistence(timeout: 10),
+                      "a részletező forma szakasza hiányzik")
+        return app
+    }
+
+    private func assertChainTarget(id: String, marker: String, in app: XCUIApplication) {
+        let child = element("match.detail.\(id)", in: app)
+        XCTAssertTrue(child.waitForExistence(timeout: 20), "a kapcsolódó meccs részletezője nem nyílt meg")
+        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "match.detail").count, 1,
+                       "a szülő és a gyermek részletező azonosítója ütközik")
+        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "match.detail.\(id)").count, 1,
+                       "a gyermek részletező azonosítója nem egyedi")
+        let back = element("match.detail.back", in: app)
+        XCTAssertTrue(back.waitForExistence(timeout: 10), "a gyermek vissza-gombja hiányzik")
+        XCTAssertTrue(textElement(valueContains: marker, in: app).waitForExistence(timeout: 10),
+                      "a kért UUID helyett másik meccs töltődött be: \(marker)")
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(waitForGone(back, timeout: 10), "Escape nem a gyermek részletezőt zárta be")
+        XCTAssertTrue(waitForGone(child, timeout: 10), "a gyermek részletező Escape után is megmaradt")
+        XCTAssertTrue(element("match.detail.form", in: app).waitForExistence(timeout: 10),
+                      "Escape a teljes meccsláncot bezárta")
+    }
+
+    private func focusByTabbing(_ element: XCUIElement, in app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if element.isSelected { return true }
+            app.typeKey("\t", modifierFlags: [])
+            _ = element.waitForExistence(timeout: 0.2)
+        } while Date() < deadline
+        return element.isSelected
+    }
 
     /// A fókuszált kártya az AX-fában `selected` jelzést kap (ezt hirdeti a VoiceOver is).
     private func waitForSelected(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
@@ -391,7 +532,11 @@ final class FootballAppUITests: XCTestCase {
 
     /// A futtató környezet (runner) sandboxja miatt a runtime.json-t a runner
     /// saját temp könyvtárába írjuk; az app (nincs sandboxban) onnan olvassa.
-    private func launch(port: UInt16, playerID: String? = nil) throws -> XCUIApplication {
+    private func launch(
+        port: UInt16,
+        playerID: String? = nil,
+        windowWidth: CGFloat? = nil
+    ) throws -> XCUIApplication {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("football-ui-fixture-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -404,7 +549,11 @@ final class FootballAppUITests: XCTestCase {
         if let playerID {
             app.launchEnvironment["FOOTBALL_UI_PLAYER_ID"] = playerID
         }
+        if let windowWidth {
+            app.launchEnvironment["FOOTBALL_UI_WINDOW_WIDTH"] = String(Int(windowWidth))
+        }
         app.launch()
+        app.activate()
         return app
     }
 

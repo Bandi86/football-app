@@ -6,8 +6,16 @@ import FootballAppCore
 /// nincs benne kép- vagy hálózati függőség. A `reduceMotion` teljesen
 /// kikapcsolja a mozgást: ilyenkor egyetlen statikus képkocka látszik.
 struct HeaderAtmosphere: View {
+    @Environment(\.controlActiveState) private var controlActiveState
+
     let palette: HeaderPalette
     let reduceMotion: Bool
+
+    /// Csak aktív ablaknál animálunk: háttérben álló képkocka nem pörgeti
+    /// folyamatosan a kijelzőfrissítést (CPU/GPU/WindowServer).
+    private var animating: Bool {
+        !reduceMotion && controlActiveState == .key
+    }
 
     var body: some View {
         ZStack {
@@ -17,13 +25,13 @@ struct HeaderAtmosphere: View {
                 endPoint: .bottomTrailing
             )
 
-            if reduceMotion {
+            if !animating {
                 Canvas { context, size in
                     paint(context: &context, size: size, time: 0)
                 }
                 .opacity(0.55)
             } else {
-                TimelineView(.animation(minimumInterval: 1.0 / 30)) { timeline in
+                TimelineView(.animation(minimumInterval: 1.0 / 12)) { timeline in
                     Canvas { context, size in
                         paint(context: &context, size: size,
                               time: timeline.date.timeIntervalSinceReferenceDate)

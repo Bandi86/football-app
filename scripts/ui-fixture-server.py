@@ -18,6 +18,7 @@ def main() -> int:
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--fixture", required=True)
     parser.add_argument("--detail-fixture", help="opcionális meccs-részletező JSON")
+    parser.add_argument("--detail-map-fixture", help="UUID szerinti meccs-részletező JSON-térkép")
     parser.add_argument("--search-fixture", help="opcionális globális keresési JSON")
     parser.add_argument("--player-fixture", help="opcionális játékosadatlap JSON")
     args = parser.parse_args()
@@ -31,6 +32,13 @@ def main() -> int:
         with open(args.detail_fixture, "rb") as handle:
             detail_payload = handle.read()
         json.loads(detail_payload)
+
+    detail_map = {}
+    if args.detail_map_fixture:
+        with open(args.detail_map_fixture, "rb") as handle:
+            detail_map = json.load(handle)
+        if not isinstance(detail_map, dict):
+            raise ValueError("--detail-map-fixture must contain a JSON object")
 
     search_payload = None
     if args.search_fixture:
@@ -50,8 +58,15 @@ def main() -> int:
         def do_GET(self):  # noqa: N802 - http.server API
             if self.path.startswith("/v1/day/"):
                 body, status = payload, 200
-            elif self.path.startswith("/v1/match/") and detail_payload is not None:
-                body, status = detail_payload, 200
+            elif self.path.startswith("/v1/match/"):
+                match_id = self.path.removeprefix("/v1/match/").split("?", 1)[0].lower()
+                if match_id in detail_map:
+                    body = json.dumps(detail_map[match_id], ensure_ascii=False).encode("utf-8")
+                    status = 200
+                elif detail_payload is not None:
+                    body, status = detail_payload, 200
+                else:
+                    body, status = b'{"error":"not found"}', 404
             elif self.path.startswith("/v1/search") and search_payload is not None:
                 body, status = search_payload, 200
             elif self.path.startswith("/v1/player/") and player_payload is not None:

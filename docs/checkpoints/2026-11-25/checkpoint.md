@@ -17,6 +17,17 @@
 - [x] **Telepítés**: az új `footballd` bináris telepítve (`scripts/install-footballd-agent.sh`, felhasználói jóváhagyással a launchd restarthoz), a frissített kliens is telepítve.
 - [x] **Kapuk**: Rust **588** (2 új + 1 integrációs teszt), clippy 0, fmt 0, Core **125**, app unit **TEST SUCCEEDED**, UI **TEST SUCCEEDED**, daily-check **EXIT=0**, git diff 0.
 
+## Frontend — követhető meccslánc és kompakt főoldali fejléc
+
+- [x] **Meccslánc**: a forma, H2H és következő-meccs sorok a meglévő `matchId`-vel beágyazott részletezőt nyitnak; backend, API-szerkezet, adatbázis, daemon és ingest nem változott.
+- [x] **Szülő állapot**: a gyermek részletező Escape/Tab/Return viselkedése után a szülő görgetése és fókusza megmarad; a gyökér `match.detail`, a gyermeklap és szakaszai owner-UUID prefixet kapnak.
+- [x] **Fejléc**: a széles 1040 pt-es tesztablakban 394 → 48 pt, a szűk 820 pt-es tesztablakban 71 pt; dátum, időjárás, frissítés, meccs/élő/odds-számlálók és minden vezérlő megmaradt. A szűk statisztikasáv vízszintosan görgethető.
+- [x] **Vizuális és AX ellenőrzés**: valódi 820 pt-es ablak képernyőmentése és AX-fája ellenőrizve; a statisztikagörgetés működik. A tényleges VoiceOver-felolvasást a felhasználó korábban kihagyta.
+- [x] **Core-kapu**: 128 Swift Testing + 2 XCTest = 130 teszt, 0 hiba.
+- [x] **Zárókapu**: app-unit **81**, UI **16**, mind **0 hiba**; a széles 1040 pt-es fejléc **48 pt**, a szűk 820 pt-es fejléc **71 pt**.
+- [x] **Review-zárás**: a korábbi P1 fixture-hiány a stagingben szerepel; a P2 gyermekazonosító-ütközés és a P2 hiányzó kompakt-ág lefedettség célzott UI-tesztekkel visszaellenőrizve.
+- [x] **Korlátok**: a `football_v2_test` továbbra is 36 üzleti/0 worker sort tartalmaz; nem történt reset, törlés vagy migráció, ezért a foundation-check nem futott.
+
 ## Döntések / korlátok
 
 - [x] **2. pont (lefedettségi hézag) — kivizsgálva, blokkolt**: a Sofascore referencia ~11 meccse / 22 csapata (Buru SC, Vitesse U21, Torreense U23, ASFA Dakar, Koper U19, Ajman, Al Duhail, Halcones stb.) **nincs meg** a research nyers adatában és egyik engedélyezett forrás (research, openfoot, tipplap, footballdata) obszervációiban sem — csak csapatidentitások vannak. A `footballdata` 22+15 rögzített ligát követ, ezek nincsenek köztük. Sofascore adapter kifejezetten tiltott. Új forrás vagy ligakonfig csak külön döntéssel.
