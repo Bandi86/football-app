@@ -65,7 +65,16 @@
 - [x] **S145 (scriptjavítás)**: `scripts/backfill-day.sh` most **közvetlenül SQL-lel** szúrja be a discovery jobot (idempotens: ha van pending/leased job, azt használja) — nem múlik a research-sync lockján. 08-17 újrafuttatva: EXIT=0, 152 meccs / 150 eredmény / 44 verified, `verdict: OK`.
 - [x] **08-16 → 08-11** (háttérben lefutott): mind a 6 nap EXIT=0, `verdict: OK`. Meccs/eredmény/verified: 08-16 510/508/180 · 08-15 628/624/329 · 08-14 246/245/132 · 08-13 175/173/38 · 08-12 104/101/44 · 08-11 147/144/90. A közvetlen SQL-job (S145) minden napon hibamentesen működött.
 - [x] **Ellenőrzés (08-11…08-16)**: integritás `verdict: OK` (0 duplikátum, 0 árva; 2 azonos napi pár jogos eltérő idővel), véletlen minták **18/18 egyezés**.
-- [ ] **Folyamatban**: 08-10 → 08-05 köteg. Hátralévő cél: 08-04 → 08-01.
+- [x] **08-10 → 08-05**: mind a 6 nap EXIT=0. 08-10 79/79/39 · 08-09 377/377/184 · 08-08 842/835/446 · 08-07 187/186/109 · 08-06 102/100/52 · 08-05 97/97/27.
+- [x] **08-04 → 08-01** (a kitűzött cél): mind a 4 nap EXIT=0, `verdict: OK`. 08-04 68/68/31 · 08-03 99/99/39 · 08-02 304/304/137 · 08-01 380/380/177.
+
+## S147 — BACKFILL CÉL ELÉRVE (2026-08-01)
+
+- [x] **Állapot**: a research `backfill-state.json` szerint **108 kész nap**, legkorábbi **2026-08-01**, legkésőbbi 2026-11-19, `failed: []`. Ebből augusztus **31/31**, szeptember **30/30** nap. A cél (2026-08-01, 26/27-es szezonkezdés) teljesült.
+- [x] **Teljes backfill-tartomány integritás** (08-01…09-30): `verdict: OK` — 0 duplikált kickoff/fixture, 0 azonos pillanatú pár, 0 árva provenance, 0 failed job, 0 nyitott breaker. (16 azonos napi pár jogos, eltérő idővel/versennyel.)
+- [x] **Véletlen minták összesen: 138/138 egyezés** a research forrással (státusz+eredmény, UID alapján): szeptember 54/54, augusztus 84/84 (18+18+18+18+30).
+- [x] **Napi check**: 11-25 **EXIT=0**, `verified gate: 64`, `[OK] soccerway tiltva`.
+- [ ] **Nyitva maradt döntések** (nem backfill-blokkolók): téves provenance-linkek tisztítása (S140), `is_selected` mezőalapú frissítési szabály, 11-25-i 8 darab 00:00Z placeholder-időjű meccs forrásminősége.
 
 ## S139 — A catch-up kockázatának végleges kezelése
 
