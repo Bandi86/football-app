@@ -74,12 +74,24 @@ log "api-export: $DATE"
 [[ -d "$MATCH_DIR" ]] || fail "nincs research dokumentum: $MATCH_DIR (előbb --fetch)"
 
 # 3. Discovery job + várakozás a workerre.
+# S145: nem a research-sync.sh-t hívjuk — az időzített 14:15/16:15/… kör
+# hosszabban tartja a lockot, és a script ilyenkor job nélkül, 0-val lép ki.
+# A backfillnek csak egy discovery job kell a már lokálisan elkészült napra,
+# ezért közvetlenül, lock nélkül szúrjuk be (idempotens: ha már van pending/
+# leased job erre a napra, azt használjuk).
 log "discovery job: $DATE"
-"$ROOT/scripts/research-sync.sh" "$DATE" --enqueue-only || fail "research-sync $DATE"
-
 JOB_ID="$(psql "$DATABASE_URL" -X -q -tA -c \
   "SELECT id FROM ops.job WHERE source_slug='research' AND event_type='discovery' \
-   AND time_window='$DATE' ORDER BY created_at DESC LIMIT 1")"
+   AND time_window='$DATE' AND status IN ('pending','leased') \
+   ORDER BY created_at DESC LIMIT 1")"
+if [[ -z "$JOB_ID" ]]; then
+  ENTITY_KEY="backfill-${DATE}-$(date +%H%M%S)"
+  JOB_ID="$(psql "$DATABASE_URL" -X -q -tA -c \
+    "INSERT INTO ops.job (id, source_slug, domain, entity_key, event_type,
+                          time_window, due_at, priority, status)
+     VALUES (gen_random_uuid(),'research','day','$ENTITY_KEY','discovery',
+             '$DATE',now(),5,'pending') RETURNING id")"
+fi
 [[ -n "$JOB_ID" ]] || fail "nem található discovery job a napra: $DATE"
 
 log "worker várakozás: $JOB_ID"

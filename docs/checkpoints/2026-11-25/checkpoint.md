@@ -61,7 +61,9 @@
 - [x] **Ellenőrzés (08-26…08-31)**: integritás `verdict: OK` (0 duplikátum, 0 azonos pár, 0 árva provenance), véletlen minták **18/18 egyezés**.
 - [x] **08-25 → 08-20** (háttérben lefutott): mind a 6 nap EXIT=0, `verdict: OK`. Meccs/eredmény/verified: 08-25 192/192/107 · 08-24 183/183/49 · 08-23 535/534/182 · 08-22 810/809/428 · 08-21 387/382/115 · 08-20 173/171/57.
 - [x] **Ellenőrzés (08-20…08-25)**: integritás `verdict: OK` (0 duplikátum, 0 árva provenance; 1 azonos napi pár jogos eltérő idővel), véletlen minták **18/18 egyezés**.
-- [ ] **Folyamatban**: 08-19 → 08-14 köteg. Hátralévő cél: 08-13 → 08-01.
+- [x] **08-19 → 08-18** kész (mind zöld: 08-19 124/121/53, 08-18 131/130/84). A **08-17** első próbálkozása elhasalt: a 14:15-ös időzített research-sync tartotta a `.research-sync.lock`-ot, és a `research-sync.sh --enqueue-only` 0-val, job nélkül lépett ki.
+- [x] **S145 (scriptjavítás)**: `scripts/backfill-day.sh` most **közvetlenül SQL-lel** szúrja be a discovery jobot (idempotens: ha van pending/leased job, azt használja) — nem múlik a research-sync lockján. 08-17 újrafuttatva: EXIT=0, 152 meccs / 150 eredmény / 44 verified, `verdict: OK`.
+- [ ] **Folyamatban**: 08-16 → 08-11 köteg. Hátralévő cél: 08-10 → 08-01.
 
 ## S139 — A catch-up kockázatának végleges kezelése
 
