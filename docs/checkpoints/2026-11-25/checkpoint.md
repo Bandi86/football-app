@@ -23,6 +23,14 @@
 - [ ] **S131 nyitott döntés**: a 6 darab, 5 percnél régebben kezdődött de még `scheduled` meccs egyik státusz-szűrőben sincs (a `lejárt, nyitott` 3 órás küszöb alatt). „Mind"-ben láthatók.
 - [ ] **Backfill**: a szeptemberi backfill 2026-09-30-tól visszafelé 2026-08-01-ig még hátra van.
 
+## S135 — Szeptemberi backfill (foldálásban)
+
+- [x] **2026-09-30**: research 124 (closed=124, open=0) → DB 119 meccs / 117 eredmény / 34 odds / 35 verified; integritás OK (0 duplikátum, 0 árva provenance). 3 insight/player fájl kihagyva „nincs kanonikus meccs-ref" — az ok: **nyílt identitás-review** (Andorra, South Korea U23, Brunei/Hong Kong), a biztonsági kapu működik, nem hiba.
+- [x] **Véletlen minták (6 nap, 18 meccs)**: 17/18 közvetlen egyezés, a 18. egy névváltozat volt (`Crystal Palace W` vs `Crystal Palace (W)`, eredmény 3:0 mindkét forrásban) → **18/18 egyezés**. Külön ellenőrzés: Ethiopia–Seychelles 16:0 (női barátságos) — nyers ESPN + web (ESPN/Wikipedia) szerint valós rekordgyőzelem, nem parser-hiba.
+- [x] **2026-09-29 → 09-25**: mind az 5 nap zöld EXIT=0, minden nap `verdict: OK`, 0 duplikált kickoff-csoport. Meccs/eredmény/verified számok: 09-29 135/135/80 · 09-28 85/84/26 · 09-27 475/472/163 · 09-26 520/511/246 · 09-25 168/167/45.
+- [ ] **Folyamatban**: 09-24 → 09-19 köteg háttérben fut (a shell timeout miatt háttérbe került); az eredményt a következő checkpoint rögzíti.
+- [ ] Hátralévő: 09-18 → 09-01, majd 08-31 → 08-01 (a cél 2026-08-01).
+
 ## Következő lépés
 
-- A szeptemberi backfill folytatása: `./scripts/backfill-day.sh --fetch 2026-09-30`, majd napi integritás/coverage és véletlen minták 2026-08-01-ig.
+- A háttérben futó 09-24 → 09-19 köteg eredményének rögzítése, majd a backfill folytatása 2026-08-01-ig napi integritással és véletlen mintákkal.
