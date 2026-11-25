@@ -47,9 +47,11 @@
 - [x] **Mérés**: API 11-24 `open_past` **10 → 7**, a 3 meccs `finished` helyes eredménnyel; `missing_result: 0`. daily-check **EXIT=0** (`[OK] soccerway tiltva`).
 - [x] Visszaállítás: `UPDATE core.match SET status='scheduled'` + a három `core.match_result` sor és az S138 audit események törlése.
 
-## S135 folytatása — 09-24 → 09-19 (háttérben lefutott)
+## S135 folytatása — 09-24 → 09-13
 
-- [x] Mind a 6 nap EXIT=0, `verdict: OK`. Meccs/eredmény/verified: 09-24 82/82/22 · 09-23 134/133/37 · 09-22 134/134/83 · 09-21 100/100/43 · 09-20 654/652/273 · 09-19 786/786/369.
+- [x] **09-24 → 09-19** (háttérben lefutott): mind a 6 nap EXIT=0, `verdict: OK`. Meccs/eredmény/verified: 09-24 82/82/22 · 09-23 134/133/37 · 09-22 134/134/83 · 09-21 100/100/43 · 09-20 654/652/273 · 09-19 786/786/369.
+- [x] **09-18 → 09-13** (háttérben lefutott): mind a 6 nap EXIT=0, `verdict: OK`. Meccs/eredmény/verified: 09-18 267/264/97 · 09-17 130/130/34 · 09-16 243/242/79 · 09-15 172/171/89 · 09-14 159/159/56 · 09-13 678/675/262.
+- [ ] **Folyamatban**: 09-12 → 09-07 köteg háttérben fut. Hátralévő cél: 09-06 → 08-01.
 
 ## S139 — A catch-up kockázatának végleges kezelése
 
