@@ -52,6 +52,9 @@
 - [x] **09-24 → 09-19** (háttérben lefutott): mind a 6 nap EXIT=0, `verdict: OK`. Meccs/eredmény/verified: 09-24 82/82/22 · 09-23 134/133/37 · 09-22 134/134/83 · 09-21 100/100/43 · 09-20 654/652/273 · 09-19 786/786/369.
 - [x] **09-18 → 09-13** (háttérben lefutott): mind a 6 nap EXIT=0, `verdict: OK`. Meccs/eredmény/verified: 09-18 267/264/97 · 09-17 130/130/34 · 09-16 243/242/79 · 09-15 172/171/89 · 09-14 159/159/56 · 09-13 678/675/262.
 - [x] **09-12 → 09-07** (háttérben lefutott): mind a 6 nap EXIT=0, `verdict: OK`. Meccs/eredmény/verified: 09-12 797/797/351 · 09-11 301/300/100 · 09-10 127/127/53 · 09-09 164/164/63 · 09-08 198/197/108 · 09-07 177/177/58.
+- [x] **Véletlen minták (09-07…09-18, 12 nap, 36 meccs)**: **36/36 pontos egyezés** státuszban és eredményben (research UID alapján).
+- [x] **Integritás (09-07…09-30)**: `verdict: OK`, 0 duplikált kickoff/fixture, 0 árva provenance. Talált 2 cross-competition duplikátumot (`Fénix–Colón` 09-19, `River Plate–Colón` 09-26) — a research és a v1-import változat ugyanaz a meccs `Segunda División` / `LaLiga 2` verseny-entitás alatt, eredményük egyezett (1:1, 3:0). `dedupe pair`-vel összeolvasztva, research túlél; `azonos csapatpár azonos pillanatban: 2 → 0`.
+- [ ] Maradék 10 „azonos csapatpár azonos napon" (eltérő kickoff + verseny): többsége jogos — finn Veikkausliiga fáziscsoportjai (TPS/SJK, HJK/Inter Turku stb.) és NCAA férfi/női meccsek. Nem kerülnek összeolvasztásra.
 - [ ] **Folyamatban**: 09-06 → 09-01 köteg háttérben fut (szeptember lezárása). Hátralévő cél: 08-31 → 08-01.
 
 ## S139 — A catch-up kockázatának végleges kezelése
