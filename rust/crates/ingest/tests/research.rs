@@ -122,6 +122,49 @@ const DETAIL_FULL: &str = r#"{
   }
 }"#;
 
+/// S148: a research éjfél UTC-vel jelölt kezdései valójában csak dátumot
+/// hordoznak — `date_only` precízióval kell bejutniuk, hogy a kliens ne
+/// mutasson hamis 01:00-as kezdést.
+#[test]
+fn midnight_kickoff_is_marked_date_only() {
+    let daily = r#"{
+      "meta": { "generated_at": "2026-11-25T08:00:00Z" },
+      "data": [{
+        "uid": "fm:1",
+        "kickoff": { "utc": "2026-11-25T00:00:00Z", "timezone": "Europe/Budapest" },
+        "status": { "code": "scheduled" },
+        "competition": { "name": "Paraguayan Primera", "country": "PAR" },
+        "teams": { "home": { "id": "1", "name": "Cerro Porteño" },
+                   "away": { "id": "2", "name": "Guaraní" } }
+      }, {
+        "uid": "fm:2",
+        "kickoff": { "utc": "2026-11-25T20:00:00Z", "timezone": "Europe/Budapest" },
+        "status": { "code": "scheduled" },
+        "competition": { "name": "Copa", "country": "PAR" },
+        "teams": { "home": { "id": "3", "name": "Libertad" },
+                   "away": { "id": "4", "name": "Olimpia" } }
+      }]
+}"#;
+    let adapter = ResearchAdapter::default();
+    let observations = adapter.parse(&raw(daily), &ctx("day:2026-11-25")).unwrap();
+    let cores: Vec<_> = observations
+        .iter()
+        .filter(|o| o.aspect == "match_core")
+        .collect();
+    assert_eq!(cores.len(), 2);
+    let precision = |source_key: &str| {
+        cores
+            .iter()
+            .find(|o| o.source_record_key == source_key)
+            .unwrap()
+            .payload["kickoff_precision"]
+            .as_str()
+            .unwrap()
+    };
+    assert_eq!(precision("fm:1"), "date_only");
+    assert_eq!(precision("fm:2"), "exact");
+}
+
 #[test]
 fn day_parse_emits_teams_matches_and_referee() {
     let adapter = ResearchAdapter::default();

@@ -11,7 +11,7 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use chrono::{DateTime, Datelike, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, Timelike, Utc};
 use football_domain::error::ParseError;
 use football_domain::identity::normalize_country_code;
 use football_domain::policy::{FetchJob, Transport};
@@ -496,6 +496,15 @@ impl ResearchAdapter {
             let Some(kickoff_at) = m.kickoff.utc else {
                 continue;
             };
+            // S148: a research éjfél UTC-t ír, ha a forrás csak dátumot ismer.
+            // A kliens `exact`ként hamis 01:00-at mutatna — `date_only`-ként
+            // helyette „időpont egyeztetés alatt"-ot jelenít meg (AGENTS.md §6).
+            let kickoff_precision =
+                if kickoff_at.hour() == 0 && kickoff_at.minute() == 0 && kickoff_at.second() == 0 {
+                    "date_only"
+                } else {
+                    "exact"
+                };
             let status = match m.status.code.as_str() {
                 "finished" => "finished",
                 "live" => "live",
@@ -519,6 +528,7 @@ impl ResearchAdapter {
                     "source_home_id": home_key,
                     "source_away_id": away_key,
                     "kickoff_at": kickoff_at,
+                    "kickoff_precision": kickoff_precision,
                     "status": status,
                     "status_minute": m.status.minute,
                     "result": result,

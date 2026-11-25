@@ -91,6 +91,14 @@
 - [x] **Kliens AX**: „Mind: 171", „Következik: 129", „Élő: 0", „Befejezett: 6", „Lejárt, nyitott: 8", „Eredmény nélkül: 0" — az API-val egyezik.
 - [x] **Kapuk**: Rust **589**, clippy 0, fmt 0, UI **TEST SUCCEEDED**, daily-check mindkét nap **EXIT=0**, git diff 0.
 
+## S148 — Validáció, anomáliakeresés, placeholder-idők (backfill után)
+
+- [x] **Rétegzett véletlen minta + webes valóság-ellenőrzés**: 4 réteg (alsóbb liga / ifjúsági / kupa / női) mintája; webes források megerősítették: Arsenal W 0:2 Lyon (BBC/ESPN/Guardian), Chelsea W 1:1 Aston Villa W (BBC/Sky), Everton U18 0:3 Man Utd U18 (premierleague.com), Koninklijke HFC 0:5 Go Ahead Eagles (ESPN), Delfín 0:1 U. Católica (ESPN/Flashscore), Neretva 3:0 Šibenik (Wikipedia/HRT — visszalépés), Ethiopia 16:0 Seychelles (ESPN/Wikipedia). Mindegyik egyezik az adatbázissal.
+- [x] **Anomáliakeresés (08-01…11-24)**: 0 lezárt meccs eredmény nélkül, 0 eredmény nem-lezárt státusszal. 15 extrém eredmény (8+ gól) — mindegyik research-forrásból, többségük NCAA/kupa/ifjúsági (pl. Ethiopia 16:0, NK Slatina 0:18 Segesta) — nem hiba.
+- [x] **843 placeholder kezdési idő**: a research éjfél UTC-t ír, ha csak dátumot ismer; az ingest `exact`-ként vette át, így a kliens hamis 01:00-at mutatott. `research.rs` most `kickoff_precision='date_only'`-t ír 00:00 UTC-re (új teszt `midnight_kickoff_is_marked_date_only`); a meglévő **843 sort** auditáltan átállítottuk. Egy 14:15-ös sync a régi binárissal visszaírta 7 ma-i sort — az új daemon telepítése után újra javítva. API: 11-25 `missing_kickoff 0 → 7`, 09-01 `7`; AX: „Idő nélkül: 7".
+- [x] **Dokumentum**: `docs/operations/remaining-gaps.md` — a hátralévő hézagok nyilvántartása (téves provenance-linkek, `is_selected` szabály, Sofascore-lefedettség, élő eredmények, S131 szűrő, soccerway, failed job, emberi VoiceOver/Tab).
+- [x] **Kapuk**: Rust **590** (1 új teszt), clippy 0, fmt 0, Core 125, UI **TEST SUCCEEDED**, daily-check 11-24 és 11-25 **EXIT=0**, git diff 0.
+
 ## Következő lépés
 
-- A backfill folytatása 09-18 → 08-01-ig napi integritással és véletlen mintákkal; külön döntés a téves provenance-link tisztításáról és a `is_selected` mezőalapú frissítési szabályról.
+- A `docs/operations/remaining-gaps.md` pontjainak sorrendi feldolgozása: először a téves provenance-linkek és az `is_selected` szabály (integritás), majd az S131 szűrő kérdése.
