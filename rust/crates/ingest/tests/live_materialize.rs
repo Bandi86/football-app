@@ -92,7 +92,10 @@ fn live_day(teams: &[(&str, &str)], home: &str, away: &str) -> NormalizedDay {
         competition: NormalizedCompetition {
             id: None,
             source_entity_id: None,
-            name: "Premier League".into(),
+            // S152: semleges név — a versenyszótár most GB-ENG-re kötötte a
+            // „Premier League"-t, ez a teszt viszont az ország NULL kezelését
+            // vizsgálja, függetlenül a verseny névtől.
+            name: "Test Liga".into(),
             country_code: "HU".into(),
             country_name: "Hungary".into(),
             tier: 1,

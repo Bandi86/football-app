@@ -114,6 +114,13 @@
 - [x] **Anomáliakeresés átfedő meccsekre**: talált egy valódi **szemantikai duplikátumot** — Everton W–Brighton W (WSL, finished) és Everton W–Brighton & Hove Albion (Women's Super League, scheduled) ugyanabban az időben; mindkét Brighton-entitás női/senior/azonos ország. A `dedupe variants`/`aliases` dry-run nem fogta (1 csoport, 0 merge). További magas hasonlóságú női entitáspárok jelöltek, de sok hasonló név külön csapat — automatikus fuzzy merge tilos (AGENTS.md). Döntésre vár.
 - [x] `docs/operations/remaining-gaps.md` frissítve a BetExplorer- és identitás-eredményekkel.
 
+## S151/S152 — Duplikátum, forduló-címke és kiemelt ligák
+
+- [x] **S151 — Everton W–Brighton W duplikátum**: a `Brighton & Hove Albion` (női, ESPN) entitást auditáltan összeolvasztottuk a `Brighton W` (FotMob) entitásba (`identity merge-team --via-alias`, 2 meccs, 2 alias, 1 ref, 2 asset), majd a két fixture-t `dedupe pair`-vel (a `finished` 0:1 maradt). Az API-n 11-22-n most **1** Everton–Brighton meccs. Ellenőriztem, hogy a **férfi** `Brighton & Hove Albion` (EFL Cup) külön entitás maradt — nem olvasztottuk össze.
+- [x] **S152a — forduló-címke normálizálás** (`MatchCardModel.foldedRoundLabel`): a `Round 15` / `Forduló 15` címkéket most `15`-refoldoljuk (csak szám előtti előtag), így nem külön címkék és nem rejtjük el a fordulót; a `Round of 16` változatlanul nyolcaddöntő marad. Új teszt `testRoundPrefixIsFoldedOnlyBeforeDigits`.
+- [x] **S152b — kiemelt ligák prioritása**: a research adapter minden versenynek `tier=0 / priority=30`-at ír; a versenyszótárban csak a La Liga szerepelt. Hozzáadtuk a top-5 + NB I (tier 1 / priority 6) és a Championship + NB II (tier 2 / priority 12) ország-korlátozott bejegyzéseit, és felvettük őket a homonima-listába (a brazil Serie A / jamaicai Premier League változatlan marad). 2 új teszt. A meglévő **7 versenyt** (822 meccs) auditáltan frissítettük. Eredmény: 11-22-n **19 kiemelt meccs** (Serie A, NB I, La Liga, Premier League, Ligue 1, Bundesliga).
+- [x] **Kapuk**: Rust **593** (2 új szótár + 1 kliens teszt), clippy 0, fmt 0, Core zöld, UI **TEST SUCCEEDED**, daily-check 11-22 és 11-24 **EXIT=0**, git diff 0. Új daemon telepítve.
+
 ## Következő lépés
 
-- A szemantikai duplikátum (Everton/Brighton) és a hasonló identitáspárok kézi, forrás-alapú elbírálása — külön döntés az entitás-összevonásról. Emellett az S131 szűrő-kérdés és az élő eredmények hiánya.
+- További hibakeresés: a hasonló női entitáspárok (UDG/UD Tenerife, Madrid CFF/CF, IFK Norrkoeping/Norrköping stb.) kézi elbírálása — ezeknél **nincs** azonos idejű meccs, ezért nem bizonyított duplikátum. Emellett az S131 szűrő-kérdés és az élő eredmények hiánya.

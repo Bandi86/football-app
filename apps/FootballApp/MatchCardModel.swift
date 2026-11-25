@@ -214,9 +214,20 @@ struct MatchCardModel: Identifiable {
     static func foldedRoundLabel(_ raw: String?) -> String? {
         guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
               !raw.isEmpty else { return nil }
-        return raw.folding(options: [.diacriticInsensitive, .caseInsensitive],
-                           locale: Locale(identifier: "hu_HU"))
+        let folded = raw.folding(options: [.diacriticInsensitive, .caseInsensitive],
+                                 locale: Locale(identifier: "hu_HU"))
             .trimmingCharacters(in: .whitespaces)
+        // S152: a research egyes forrásai „Round 15"-öt, mások „15"-öt írnak.
+        // Csak akkor vonjuk le az előtagot, ha utána kizárólag szám áll —
+        // így a „round of 16" (nyolcaddöntő) változatlan marad.
+        for prefix in ["round ", "forduló ", "fordulo "] {
+            if folded.hasPrefix(prefix) {
+                let rest = String(folded.dropFirst(prefix.count))
+                    .trimmingCharacters(in: .whitespaces)
+                if !rest.isEmpty && rest.allSatisfy({ $0.isNumber }) { return rest }
+            }
+        }
+        return folded
     }
 
     /// Tisztán női-markert tartalmazó címke-e (pl. „női", „women", „(W)"):

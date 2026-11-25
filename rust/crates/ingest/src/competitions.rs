@@ -441,6 +441,59 @@ const ENTRIES: &[Entry] = &[
         tier: 2,
         priority: 12,
     },
+    // S152: a kiemelt kör (priority <= 10) eddig csak a La Ligát tartalmazta,
+    // mert a research adapter minden versenynek tier=0 / priority=30-at ír.
+    // A top-5 + NB I és a két másodosztály ország-korlátozott bejegyzései;
+    // a homonimákat (Premier League, Serie A, Ligue 1) az ország szűri.
+    Entry {
+        observed: "premier league",
+        name: "Premier League",
+        country: Some(("GB-ENG", "England")),
+        tier: 1,
+        priority: 6,
+    },
+    Entry {
+        observed: "serie a",
+        name: "Serie A",
+        country: Some(("IT", "Italy")),
+        tier: 1,
+        priority: 6,
+    },
+    Entry {
+        observed: "bundesliga",
+        name: "Bundesliga",
+        country: Some(("DE", "Germany")),
+        tier: 1,
+        priority: 6,
+    },
+    Entry {
+        observed: "ligue 1",
+        name: "Ligue 1",
+        country: Some(("FR", "France")),
+        tier: 1,
+        priority: 6,
+    },
+    Entry {
+        observed: "nb i",
+        name: "NB I",
+        country: Some(("HU", "Hungary")),
+        tier: 1,
+        priority: 6,
+    },
+    Entry {
+        observed: "championship",
+        name: "Championship",
+        country: Some(("GB-ENG", "England")),
+        tier: 2,
+        priority: 12,
+    },
+    Entry {
+        observed: "nb ii",
+        name: "NB II",
+        country: Some(("HU", "Hungary")),
+        tier: 2,
+        priority: 12,
+    },
     Entry {
         observed: "laliga 2",
         name: "LaLiga 2",
@@ -671,6 +724,14 @@ const COUNTRY_SCOPED_OBSERVED_TITLES: &[&str] = &[
     "superleague",
     "greeksuperleague",
     "superleaguegreece",
+    // S152: az új kiemelt-címek is homonimák több országban.
+    "premierleague",
+    "seriea",
+    "bundesliga",
+    "ligue1",
+    "nbi",
+    "championship",
+    "nbii",
 ];
 
 /// A megfigyelt verseny-meta kanonizált változata (ismeretlen cím → változatlan).
@@ -1048,6 +1109,60 @@ mod tests {
         // Nem első osztály: nincs felülírás.
         assert_eq!(country_specific_name("CL", "Copa Chile"), None);
         assert_eq!(country_specific_name("BO", "Copa Bolivia"), None);
+    }
+}
+
+#[cfg(test)]
+mod featured_probe {
+    use super::*;
+
+    fn comp(name: &str, code: &str, country: &str) -> NormalizedCompetition {
+        NormalizedCompetition {
+            id: None,
+            source_entity_id: None,
+            name: name.into(),
+            country_code: code.into(),
+            country_name: country.into(),
+            // A research adapter ezt adja minden versenyre.
+            tier: 0,
+            priority: 30,
+        }
+    }
+
+    /// S152: a kiemelt kör (priority <= 10) a top-5 + NB I legyen.
+    #[test]
+    fn top_leagues_get_featured_priority() {
+        for (name, code, country) in [
+            ("Premier League", "GB-ENG", "England"),
+            ("Serie A", "IT", "Italy"),
+            ("Bundesliga", "DE", "Germany"),
+            ("Ligue 1", "FR", "France"),
+            ("NB I", "HU", "Hungary"),
+        ] {
+            let result = canonicalize(&comp(name, code, country));
+            assert_eq!(result.priority, 6, "{name}");
+            assert_eq!(result.tier, 1, "{name}");
+        }
+        for (name, code, country) in [
+            ("Championship", "GB-ENG", "England"),
+            ("NB II", "HU", "Hungary"),
+        ] {
+            let result = canonicalize(&comp(name, code, country));
+            assert_eq!(result.priority, 12, "{name}");
+            assert_eq!(result.tier, 2, "{name}");
+        }
+    }
+
+    /// A homonimák más országban változatlanok (nem lesznek kiemeltek).
+    #[test]
+    fn homonyms_in_other_countries_are_untouched() {
+        for (code, country) in [("BR", "Brazil"), ("EC", "Ecuador"), ("GHA", "Ghana")] {
+            let result = canonicalize(&comp("Serie A", code, country));
+            assert_eq!(result.priority, 30, "{code}");
+            assert_eq!(result.tier, 0, "{code}");
+        }
+        let result = canonicalize(&comp("Premier League", "GHA", "Ghana"));
+        assert_eq!(result.priority, 30);
     }
 }
 

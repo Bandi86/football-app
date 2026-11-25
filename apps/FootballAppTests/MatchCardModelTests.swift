@@ -288,6 +288,19 @@ final class MatchCardModelTests: XCTestCase {
         XCTAssertEqual(MatchCardModel.from(matches[1]).roundText, "Döntő")
     }
 
+    /// S152: a „Round 15" és a „15" ugyanazt a fordulót jelenti — a kliens
+    /// korábban két külön címkének nézte és ezért elrejtette a fordulót.
+    /// A „round of 16" viszont nyolcaddöntő marad.
+    func testRoundPrefixIsFoldedOnlyBeforeDigits() {
+        XCTAssertEqual(MatchCardModel.foldedRoundLabel("Round 15"), "15")
+        XCTAssertEqual(MatchCardModel.foldedRoundLabel("15"), "15")
+        XCTAssertEqual(MatchCardModel.roundText(for: "Round 15"), "15. forduló")
+        XCTAssertEqual(MatchCardModel.foldedRoundLabel("Forduló 15"), "15")
+        XCTAssertEqual(MatchCardModel.foldedRoundLabel("Round of 16"), "round of 16")
+        XCTAssertEqual(MatchCardModel.roundText(for: "Round of 16"), "Nyolcaddöntő")
+        XCTAssertEqual(MatchCardModel.foldedRoundLabel("Group A / 2"), "group a / 2")
+    }
+
     // MARK: - Hiány- és élő-állapot szabályai
 
     func testMissingResultMeansFinishedWithoutFinalScore() {
