@@ -28,6 +28,11 @@ const MAX_PROXIMITY_MINUTES: i64 = 1440;
 /// ablaka napokban. A research projekt napi 08:00-s köre az előző napokat is
 /// újratölti, ezért a v2-nek is naponta egyszer újra be kell olvasnia őket.
 const RESEARCH_CATCHUP_DAYS: i64 = 7;
+/// S136: a catch-up nem indulhat azonnal a daemon indításakor (07:31), mert
+/// a research napi fájlja csak kb. 07:38-kor frissül — a job így elavult
+/// `scheduled` státuszokat olvasott be, és naponta egyszeri idempotencia
+/// miatt nem futott újra. Egy órás késleltetés biztosítja a friss forrást.
+const RESEARCH_CATCHUP_DELAY_MINUTES: i64 = 60;
 
 /// Engedett interval: napi (1440), heti (10080), vagy a napot egyenlő
 /// sávokra osztó napon belüli frissítés (pl. 240 → napi 6 sáv).
@@ -205,7 +210,7 @@ pub async fn generate_jobs(
                             entity_key: format!("catchup-{target}"),
                             event_type: "refresh".into(),
                             time_window: now.date_naive().to_string(),
-                            due_at: now,
+                            due_at: now + Duration::minutes(RESEARCH_CATCHUP_DELAY_MINUTES),
                             priority: event_base("backfill") + days_back as i32,
                         },
                     )

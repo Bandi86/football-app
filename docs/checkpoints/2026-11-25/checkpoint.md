@@ -31,6 +31,19 @@
 - [ ] **Folyamatban**: 09-24 → 09-19 köteg háttérben fut (a shell timeout miatt háttérbe került); az eredményt a következő checkpoint rögzíti.
 - [ ] Hátralévő: 09-18 → 09-01, majd 08-31 → 08-01 (a cél 2026-08-01).
 
+## S136 — Elavult „lejárt, nyitott" tömeges hiba (felhasználói észrevétel)
+
+- [x] **Probléma**: 11-24-en 133–154 meccs volt `lejárt, nyitott` / `scheduled`, miközben a research forrás már **178 lezártat** írt. A DB-ben csak 50 `finished` volt, 147 `scheduled` + 7 `live`.
+- [x] **Gyökér**: a research napi fájlja **07:38–07:39-kor** frissül, de a worker S45 catch-up jobja a daemon indulásakor, **07:31-kor** futott — 7 perccel a frissítés előtt. A job `(entity_key, time_window)` páronként naponta egyszeri, így elavult adatot olvasott és nem futott újra. Ugyanez 11-25-ön is (research 6 finished, DB 1).
+- [x] **Adatjavítás**: `research-sync.sh <dátum> --enqueue-only` a friss fájlokra 11-24 és 11-25 — mindkét job `done`. Eredmény: 11-24 **finished 50 → 175**, `scheduled 147 → 31`, `live 7 → 0`; az API `open_past` **154 → 10**. 11-25 finished 1 → 6, `open_past` 14 → 8. Napi check mindkét napra ZÖLD.
+- [x] **Ütemezési javítás** (`scheduler.rs`): a catch-up `due_at`-je `now + 60 perc` (új `RESEARCH_CATCHUP_DELAY_MINUTES`), így a job mindenképpen a research frissítés után olvas. Teszt: `research_policy_enqueues_daily_catchup_refreshes` kiegészítve a `due_at > now` ellenőrzéssel. Új daemon telepítve (jóváhagyott launchd restart).
+- [x] **Kapuk**: Rust **588**, clippy 0, fmt 0, UI **TEST SUCCEEDED**, daily-check (11-24, 11-25) **EXIT=0**, git diff 0.
+- [ ] **Maradék 10 nyitott meccs (11-24)**: 6-nál a forrás maga nem ad eredményt (Bhayangkara–Padang, Madura–Persela, Persiraja–Dewa, Niroye Zamini–Havadar, Bandari–Kakamega, Fleetwood–Charlton U21, AFC Portchester–Hayes); 3-nál (Aston Villa–Galatasaray, Lens–RB Leipzig, Real Betis–Slovan Bratislava) a research **finished** eredményt ad, de **fordított hazai/vendég orientációval**, és a friss obszerváció nincs provenance-hoz linkelve — tudatos identitás-/eredményrevízió kell, nem automatikus merge.
+
+## S135 folytatása — 09-24 → 09-19 (háttérben lefutott)
+
+- [x] Mind a 6 nap EXIT=0, `verdict: OK`. Meccs/eredmény/verified: 09-24 82/82/22 · 09-23 134/133/37 · 09-22 134/134/83 · 09-21 100/100/43 · 09-20 654/652/273 · 09-19 786/786/369.
+
 ## Következő lépés
 
-- A háttérben futó 09-24 → 09-19 köteg eredményének rögzítése, majd a backfill folytatása 2026-08-01-ig napi integritással és véletlen mintákkal.
+- Döntés a maradék 3 fordított orientációjú meccsről, majd a backfill folytatása 09-18 → 08-01-ig napi integritással és véletlen mintákkal.

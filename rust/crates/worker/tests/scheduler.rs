@@ -424,6 +424,21 @@ async fn research_policy_enqueues_daily_catchup_refreshes() {
     .unwrap();
     assert_eq!(catchups, 7);
 
+    // S136: a catch-up csak a research frissítés után futhat — a due_at legyen
+    // a generálás időpontjánál későbbi, különben elavult napi fájlt olvas.
+    let earliest_due: chrono::DateTime<chrono::Utc> = sqlx::query_scalar(
+        "SELECT min(due_at) FROM ops.job
+         WHERE source_slug='research' AND entity_key LIKE 'catchup-%' AND time_window=$1",
+    )
+    .bind(now.date_naive().to_string())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        earliest_due > now,
+        "a catch-up túl korán futna: {earliest_due}"
+    );
+
     // Ugyanazon a napon belül nem duplikálódik.
     let n2 = scheduler::generate_jobs(&pool, std::slice::from_ref(&policy), now)
         .await
