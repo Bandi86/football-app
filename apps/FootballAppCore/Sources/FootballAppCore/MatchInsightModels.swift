@@ -15,6 +15,8 @@ public struct MatchInsight: Codable, Equatable, Sendable {
     public let fanPoll: FanPoll?
     public let oddsMarkets: InsightOdds?
     public let venueDetails: InsightVenue?
+    /// S181: magyar nyelvű, generált meccsriport — tényként nem jeleníthető meg.
+    public let matchReportHu: MatchReport?
 
     enum CodingKeys: String, CodingKey {
         case capturedAt = "captured_at"
@@ -28,6 +30,22 @@ public struct MatchInsight: Codable, Equatable, Sendable {
         case fanPoll = "fan_poll"
         case oddsMarkets = "odds_markets"
         case venueDetails = "venue_details"
+        case matchReportHu = "match_report_hu"
+    }
+}
+
+public struct MatchReport: Codable, Equatable, Sendable {
+    public let title: String?
+    public let text: String?
+    public let language: String?
+    public let generated: Bool?
+    public let verified: Bool?
+    public let source: String?
+    public let generatedAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case title, text, language, generated, verified, source
+        case generatedAt = "generated_at"
     }
 }
 

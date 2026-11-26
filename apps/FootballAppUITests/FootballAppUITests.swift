@@ -363,6 +363,27 @@ final class FootballAppUITests: XCTestCase {
         XCTAssertTrue(waitForGone(sheet, timeout: 10), "Escape nem zárta be a részletezőt")
     }
 
+    /// A research szekció mutatja a generált riportot és a tárolt forráslinkeket.
+    func testMatchDetailShowsReportAndSourceLinks() throws {
+        let app = try launch(port: Self.loadedPort)
+        app.activate()
+
+        let card = element("match.card.22222222-2222-2222-2222-222222222222", in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: 30), "a nap nem töltődött be")
+        card.click()
+        app.buttons.matching(identifier: "match.detail.section.research").firstMatch.click()
+
+        let report = element("match.insight.report", in: app)
+        XCTAssertTrue(report.waitForExistence(timeout: 10), "a magyar riport hiányzik")
+        XCTAssertTrue(report.label.contains("Magyar riport") || (report.value as? String ?? "").contains("Magyar riport"))
+
+        let source = app.buttons.matching(identifier: "match.link.source").firstMatch
+        XCTAssertTrue(source.waitForExistence(timeout: 10), "a forráslink hiányzik")
+        XCTAssertTrue(source.label.contains("Forrás megnyitása"), source.label)
+        XCTAssertTrue(app.buttons.matching(identifier: "match.link.reference").firstMatch.exists,
+                      "a hivatkozás-link hiányzik")
+    }
+
     /// A meccsrészletezőből a csapat- és versenylinkek a konkrét entitásra vezetnek.
     func testMatchDetailEntityLinksOpenSheets() throws {
         let app = try launch(port: Self.loadedPort)

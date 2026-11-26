@@ -375,6 +375,20 @@
       "score_after_away": null
     }
   ],
+  "links": [
+    {
+      "kind": "source",
+      "label": "Meccs forrása",
+      "url": "https://www.fotmob.com/match/6015575",
+      "captured_at": "2026-11-22T11:44:31Z"
+    },
+    {
+      "kind": "reference",
+      "label": "Hivatkozás",
+      "url": "https://www.thefa.com",
+      "captured_at": "2026-11-22T11:44:31Z"
+    }
+  ],
   "insight": {
     "captured_at": "2026-11-22T11:44:31Z",
     "source": "research",
@@ -415,6 +429,15 @@
       "name": "Sepsi Duna Aréna",
       "capacity": 8400,
       "surface": "grass"
+    },
+    "match_report_hu": {
+      "title": "Mérkőzésriport",
+      "text": "A hazai csapat kezdett jobban.",
+      "language": "hu",
+      "generated": true,
+      "verified": false,
+      "source": "derived:api/v1",
+      "generated_at": "2026-11-22T11:44:31Z"
     }
   }
 }

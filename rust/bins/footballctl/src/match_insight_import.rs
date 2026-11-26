@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
-use football_ingest::research_insight::insight_payload;
+use football_ingest::research_insight::{insight_payload, link_payload};
 use football_storage::repositories::match_insight;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -95,6 +95,16 @@ pub async fn run(
             report.matches += 1;
             if apply {
                 match_insight::upsert(pool, match_id, source_id, captured_at, &payload).await?;
+                if let Some(links) = link_payload(&doc) {
+                    football_storage::repositories::match_link::upsert(
+                        pool,
+                        match_id,
+                        source_id,
+                        captured_at,
+                        &links,
+                    )
+                    .await?;
+                }
                 report.written += 1;
             }
         }

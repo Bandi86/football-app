@@ -189,6 +189,7 @@ fn referee_day(country_code: &str, country_name: &str, referee: Option<&str>) ->
             environment: None,
             incidents: Vec::new(),
             insight: None,
+            links: None,
         }],
         standings: None,
     }

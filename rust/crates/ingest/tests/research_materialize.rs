@@ -118,6 +118,7 @@ fn research_day(
             environment: None,
             incidents,
             insight: None,
+            links: None,
         }],
         standings: None,
     }

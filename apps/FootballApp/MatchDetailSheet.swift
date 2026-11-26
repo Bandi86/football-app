@@ -660,7 +660,7 @@ struct MatchDetailContent: View {
         case .odds:
             return detail.odds?.hasAnyValue == true
         case .research:
-            return detail.insight != nil
+            return detail.insight != nil || !(detail.links ?? []).isEmpty
         }
     }
 
@@ -789,6 +789,9 @@ struct MatchDetailContent: View {
     private var researchContent: some View {
         if let insight = detail.insight {
             MatchInsightView(insight: insight)
+        }
+        if let links = detail.links, !links.isEmpty {
+            SourceLinkList(links: links)
         }
     }
 

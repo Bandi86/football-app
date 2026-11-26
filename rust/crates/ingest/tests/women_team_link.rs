@@ -158,6 +158,7 @@ fn named_team_day(women: bool, home_name: &str, away_name: &str) -> NormalizedDa
             environment: None,
             incidents: Vec::new(),
             insight: None,
+            links: None,
         }],
         standings: None,
     }

@@ -135,6 +135,7 @@ fn live_day(teams: &[(&str, &str)], home: &str, away: &str) -> NormalizedDay {
             environment: None,
             incidents: Vec::new(),
             insight: None,
+            links: None,
         }],
         standings: None,
     }

@@ -76,6 +76,8 @@ pub struct NormalizedMatch {
     pub incidents: Vec<NormalizedIncident>,
     /// S113: research gazdag szekciói (preview, predikció, piacok stb.).
     pub insight: Option<serde_json::Value>,
+    /// S181: a research detail http(s) forráslinkjei.
+    pub links: Option<serde_json::Value>,
 }
 
 /// Meccs-környezet (S90): a forrás venue- és weather-blokkja együtt.
@@ -447,6 +449,7 @@ impl NormalizedDay {
         let mut incidents_by_key: Vec<(String, Vec<NormalizedIncident>)> = Vec::new();
         let mut referee_by_key: Vec<(String, String, Option<String>)> = Vec::new();
         let mut insight_by_key: Vec<(String, serde_json::Value)> = Vec::new();
+        let mut links_by_key: Vec<(String, serde_json::Value)> = Vec::new();
         let mut environment_by_key: Vec<(String, NormalizedEnvironment)> = Vec::new();
         let mut meta: Option<(
             NormalizedCompetition,
@@ -519,6 +522,7 @@ impl NormalizedDay {
                         referee_country: None,
                         environment: None,
                         insight: None,
+                        links: None,
                         incidents: Vec::new(),
                     });
                 }
@@ -609,6 +613,9 @@ impl NormalizedDay {
                 "match_insight" => {
                     insight_by_key.push((obs.source_record_key.clone(), obs.payload.clone()));
                 }
+                "match_link" => {
+                    links_by_key.push((obs.source_record_key.clone(), obs.payload.clone()));
+                }
                 "match_environment" => {
                     let p: EnvironmentPayload = serde_json::from_value(obs.payload.clone())
                         .context("match_environment payload")?;
@@ -671,6 +678,12 @@ impl NormalizedDay {
                 .find(|(key, _)| *key == m.source_match_id)
             {
                 m.insight = Some(insight.clone());
+            }
+            if let Some((_, links)) = links_by_key
+                .iter()
+                .find(|(key, _)| *key == m.source_match_id)
+            {
+                m.links = Some(links.clone());
             }
             if let Some((_, environment)) = environment_by_key
                 .iter()
@@ -880,6 +893,7 @@ impl From<&FixtureSource> for NormalizedDay {
                     referee_country: None,
                     environment: None,
                     insight: None,
+                    links: None,
                     incidents: Vec::new(),
                 })
                 .collect(),

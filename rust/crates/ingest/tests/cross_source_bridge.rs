@@ -115,6 +115,7 @@ fn day(
             environment: None,
             incidents: Vec::new(),
             insight: None,
+            links: None,
         }],
         standings: None,
     }

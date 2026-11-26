@@ -24,7 +24,7 @@ pub async fn test_pool() -> PgPool {
          identity.review_queue, identity.alias, identity.crosswalk,
          identity.source_entity_ref, core.match_result, core.match, core.team,
          core.season, core.competition, core.country, core.entity, core.player, core.player_team_spell,
-          fact.match_insight,
+          fact.match_insight, fact.match_link,
          stage.observation, raw.capture, raw.artifact, ops.source_trust, ops.source,
          ops.validation_finding, ops.validation_run, ops.validation_rule,
          ops.issue, ops.match_note,

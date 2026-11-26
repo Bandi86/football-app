@@ -1,6 +1,9 @@
 //! `fact.match_insight` integrációs teszt: idempotens upsert, as-of, NULL-kezelés.
 
-use football_storage::{repositories::match_insight, test_support::test_pool};
+use football_storage::{
+    repositories::{match_insight, match_link},
+    test_support::test_pool,
+};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -73,7 +76,8 @@ async fn insight_upsert_is_idempotent_and_tracks_captured_at() {
         "captured_at": "2026-11-23T11:00:00Z",
         "preview_hu": {"generated": true, "verified": false, "title": "Friss"},
         "prediction": {"model": "poisson_v2"},
-        "injuries": [{"player_id": 1, "name": "X"}]
+        "injuries": [{"player_id": 1, "name": "X"}],
+        "match_report_hu": {"title": "Riport", "generated": true, "verified": false}
     });
     match_insight::upsert(&pool, match_id, source_id, chrono::Utc::now(), &second)
         .await
@@ -92,4 +96,28 @@ async fn insight_upsert_is_idempotent_and_tracks_captured_at() {
     assert_eq!(fetched["preview_hu"]["title"], "Friss");
     assert!(fetched["standings"].is_null(), "a hiány NULL marad");
     assert_eq!(fetched["source"], "research");
+    assert_eq!(fetched["match_report_hu"]["title"], "Riport");
+
+    let links = json!([
+        {"kind": "source", "label": "Meccs forrása", "url": "https://www.fotmob.com/match/1"},
+        {"kind": "reference", "label": "Hivatkozás", "url": "https://www.thefa.com"}
+    ]);
+    let now = chrono::Utc::now();
+    assert_eq!(
+        match_link::upsert(&pool, match_id, source_id, now, &links)
+            .await
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        match_link::upsert(&pool, match_id, source_id, now, &links)
+            .await
+            .unwrap(),
+        2,
+        "az azonos URL nem duplikálódik"
+    );
+    let stored = match_link::fetch(&pool, match_id).await.unwrap();
+    assert_eq!(stored.len(), 2);
+    assert_eq!(stored[0].kind, "reference");
+    assert_eq!(stored[1].url, "https://www.fotmob.com/match/1");
 }

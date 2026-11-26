@@ -62,6 +62,23 @@ struct MatchInsightView: View {
                 }
             }
 
+            if let report = insight.matchReportHu, let text = report.text, !text.isEmpty {
+                section("Magyar riport") {
+                    if let title = report.title, !title.isEmpty {
+                        Text(title)
+                            .font(.appText(13, weight: .semibold))
+                            .foregroundStyle(AppTheme.primaryText)
+                    }
+                    Text(text)
+                        .font(.appText(12))
+                        .foregroundStyle(AppTheme.secondaryText)
+                    Text("Generált összefoglaló — nem ellenőrzött forrásállítás.")
+                        .font(.appText(10))
+                        .foregroundStyle(AppTheme.warning)
+                }
+                .accessibilityIdentifier("match.insight.report")
+            }
+
             if let prediction = insight.prediction {
                 section("Előrejelzés") {
                     if let p = prediction.winProbabilityPct {

@@ -103,5 +103,18 @@ import Testing
         #expect(insight.injuries?.items.first?.name == "Antoine Baroan")
         #expect(insight.oddsMarkets?.marketsSource == "tipplap")
         #expect(insight.venueDetails?.capacity == 8400)
+        let report = try #require(insight.matchReportHu)
+        #expect(report.generated == true)
+        #expect(report.verified == false)
+        #expect(report.text == "A hazai csapat kezdett jobban.")
+    }
+
+    @Test func sourceLinksDecodeFromMappedKeys() throws {
+        let detail = try decodeContract()
+        let links = try #require(detail.links)
+        #expect(links.count == 2)
+        #expect(links.first?.kind == "source")
+        #expect(links.first?.url == "https://www.fotmob.com/match/6015575")
+        #expect(links.last?.kind == "reference")
     }
 }

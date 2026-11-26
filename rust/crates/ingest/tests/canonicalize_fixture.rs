@@ -371,6 +371,7 @@ fn create_on_miss_day(source_code: &str) -> NormalizedDay {
             environment: None,
             incidents: Vec::new(),
             insight: None,
+            links: None,
         }],
         standings: None,
     }

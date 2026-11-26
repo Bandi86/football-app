@@ -91,6 +91,8 @@ public struct MatchDetail: Decodable, Equatable, Sendable {
     public let incidents: [MatchIncident]?
     /// S113: research gazdag szekciói. Régi válaszokban a kulcs hiányozhat.
     public let insight: MatchInsight?
+    /// S181: a forrásból eltárolt kattintható linkek; régi válaszokból hiányozhat.
+    public let links: [MatchLink]?
 
     enum CodingKeys: String, CodingKey, CaseIterable {
         case id
@@ -161,6 +163,7 @@ public struct MatchDetail: Decodable, Equatable, Sendable {
         case tableSlice = "table_slice"
         case incidents
         case insight
+        case links
     }
 }
 
@@ -303,5 +306,21 @@ public struct HeadToHeadEntry: Decodable, Equatable, Sendable, Identifiable {
         case awayName = "away_name"
         case homeGoals = "home_goals"
         case awayGoals = "away_goals"
+    }
+}
+
+/// Egy kattintható, forrásból származó URL a meccshez. A felhasználó nem
+/// adhat meg URL-t; a `Link` csak http(s) sémát engedélyez a nézetben.
+public struct MatchLink: Codable, Equatable, Sendable, Identifiable {
+    public let kind: String
+    public let label: String
+    public let url: String
+    public let capturedAt: Date
+
+    public var id: String { "\(kind)|\(url)" }
+
+    enum CodingKeys: String, CodingKey {
+        case kind, label, url
+        case capturedAt = "captured_at"
     }
 }

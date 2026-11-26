@@ -111,6 +111,7 @@ use crate::error::ApiError;
         football_storage::repositories::team::TeamListRow,
         football_storage::repositories::team::TeamDetailRow,
         football_storage::repositories::match_detail::MatchDetailRow,
+        football_storage::repositories::match_link::MatchLinkRow,
         football_storage::repositories::match_detail::MatchIncidentRow,
         football_storage::repositories::match_detail::VenueRow,
         football_storage::repositories::match_detail::WeatherRow,

@@ -22,15 +22,17 @@ where
     sqlx::query(
         "INSERT INTO fact.match_insight
            (match_id, source_id, captured_at, preview_hu, prediction, h2h_streaks,
-            standings, season_stats, injuries, fan_poll, odds_markets, venue_details)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+            standings, season_stats, injuries, fan_poll, odds_markets, venue_details,
+           match_report_hu)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
          ON CONFLICT (match_id, source_id) DO UPDATE SET
            captured_at=EXCLUDED.captured_at,
            preview_hu=EXCLUDED.preview_hu, prediction=EXCLUDED.prediction,
            h2h_streaks=EXCLUDED.h2h_streaks, standings=EXCLUDED.standings,
            season_stats=EXCLUDED.season_stats, injuries=EXCLUDED.injuries,
            fan_poll=EXCLUDED.fan_poll, odds_markets=EXCLUDED.odds_markets,
-           venue_details=EXCLUDED.venue_details",
+           venue_details=EXCLUDED.venue_details,
+            match_report_hu=EXCLUDED.match_report_hu",
     )
     .bind(match_id)
     .bind(source_id)
@@ -44,6 +46,7 @@ where
     .bind(payload.get("fan_poll").cloned())
     .bind(payload.get("odds_markets").cloned())
     .bind(payload.get("venue_details").cloned())
+    .bind(payload.get("match_report_hu").cloned())
     .execute(executor)
     .await?;
     Ok(())
@@ -63,7 +66,8 @@ pub async fn fetch_json(pool: &PgPool, match_id: Uuid) -> Result<Option<Value>> 
             'injuries', mi.injuries,
             'fan_poll', mi.fan_poll,
             'odds_markets', mi.odds_markets,
-            'venue_details', mi.venue_details
+            'venue_details', mi.venue_details,
+             'match_report_hu', mi.match_report_hu
          )
            FROM fact.match_insight mi
            JOIN ops.source src ON src.id = mi.source_id

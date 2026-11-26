@@ -451,3 +451,57 @@
 - `git revert <S1 commit>`; a `MatchDetailRow` két új mezője és a fixture-ök visszaállnak.
 - Az éles adatot a szelet nem módosította; a daemon és az app binárisa git-commitből
   újraépíthető és telepíthető. A worktree-k érintetlenek.
+
+## S181 — S2: magyar riport és kattintható forráslinkek
+
+- [x] **Döntés:** a felhasználó 2026-11-26-on „mehet minden sorban egymás után … és
+      intézd a gitet" felhatalmazása az S2-re is vonatkozik; az S1b (becsült óra) átvétele
+      **nem** történt meg: a worktree `MatchCardModel`-je ütközik a `main` újabb
+      `livePhaseText`/`isResultPending` viselkedésével, ezért külön döntésre hagytuk,
+      nem írtuk felül a `main`-t.
+- [x] **Migráció `0029_source_links_report.sql`:** `fact.match_insight.match_report_hu jsonb`
+      (opcionális, hiány `NULL`) + `fact.match_link(id, match_id, kind, label, url,
+      source_id, captured_at)` natural-key unique-vel és indexszel. Rollback megírva.
+      Táblaszám 56 → **57** (`db-check.sh`, `test_support.rs`, `connection.rs`).
+      Migráció **előbb a teszt-, majd a dev DB-re**; `db-check` mindkettőn ZÖLD.
+- [x] **Ingest:** `research_insight.rs` `SECTIONS` 9 → 10 (`match_report_hu`),
+      + `link_payload()` — csak http(s), duplikátum-szűrés, forrás/címke/`generated_at`.
+      4 új egységteszt (riport megőrzi a `generated`/`verified` jelzőt; linkek http-only,
+      deduplikáltak). `research.rs` új `match_link` observation; `normalized.rs` és
+      `canonicalize.rs` tranzakciós upsert; `match_insight_import` offline import is írja.
+- [x] **Storage/API:** `match_link.rs` (`upsert` egy `jsonb_array_elements` lekérdezéssel,
+      idempotens; `fetch`), `MatchDetailRow.links[]`, `match_insight.rs` riport-oszlop,
+      `openapi.rs` új `MatchLinkRow` séma; kontrakt 69 → **70** kulcs, Rust round-trip +
+      Swift `DetailContractTests` + 3 új teszt zöld.
+- [x] **UI:** `DataViews.swift` `SourceLinkList` (csak eltárolt URL, `openURL`,
+      `http(s)` séma-ellenőrzés), a `Research` fülben; a magyar riport a
+      `MatchInsightView`-ben „Generált összefoglaló — nem ellenőrzött” jelöléssel.
+      Új XCUITest a riport + két forráslink megjelenésére. A Link-placeHolder
+      AX-problémája miatt `Button + openURL` (.borderless) a megoldás; az identifier
+      a gombon van, a címkényi `match.detail.links` összeolvasztotta volna a gyerekeket.
+- [x] **Adatfeltöltés (dev DB):** `match-insight-import --from 2026-11-24 --to 2026-11-24`
+      dry-run 155 fájl/155 meccs, majd `--apply` **155 írt sor**; mérés:
+      `fact.match_insight.match_report_hu IS NOT NULL` **153** sor (26 660 összesen),
+      `fact.match_link` **438** sor (source 155 / reference 119 / standing 142 /
+      weather 22). Idempotens upsert, nem kézi revízió.
+- [x] **Kapu (mért):** `db-reset` → `check-foundation` OK · Rust **628 passed, 0 failed**,
+      clippy 0, fmt 0, build `--features obscura` OK · Core **148 passed / 25 suite** ·
+      app unit **94/0** · `run-ui-tests.sh` **27/27, 0 hiba** · `daily-check 2026-11-25`
+      **EXIT=0 ZÖLD** (195 jel, 0 lezárás) · `integrity` **verdict OK** · `git diff --check` 0.
+- [x] **Éles:** daemon újratelepítve, `/v1/health` OK; élő `/v1/match` **70** kulcs,
+      egy 11-24-es meccsen **3 link + riport** megjelenik (`01a1e9ed…`). App újratelepítve.
+- [ ] **Nem ellenőrzött:** a külső linkek tényleges böngészőben nyitását az XCUITest
+      nem kattintja végig (csak a megjelenést és az AX-címkét ellenőrzi); a worktree
+      `estimated-match-clock` becsült órája továbbra is átvételre vár; a tényleges
+      VoiceOver-hang emberi füllel nyitott.
+- [ ] **Következő:** S3 (meccs-szintű játékosadat-végpontok a `0009` táblákból), majd
+      S4 (felállás/játékosmetrika/lövéstérkép UI) — a felhasználó felhatalmazása szerint
+      folyamatosan, zöld kapu után commit.
+
+### Visszaállás (S181)
+
+- `git revert <S2 commit>`; a `0029` migráció visszaállítása külön egyeztetett lépés:
+  `DROP TABLE fact.match_link; ALTER TABLE fact.match_insight DROP COLUMN match_report_hu;`
+  + a `_sqlx_migrations` 0029-es sorának törlése. Az import upsert idempotens,
+  az audit-események megmaradnak. A `match-insight-import` újrafuttatása visszaállítja
+  a riport/link tartalmat a research JSON-ekből.

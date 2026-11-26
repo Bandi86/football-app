@@ -652,6 +652,19 @@ impl ResearchAdapter {
                 payload,
             });
         }
+        // S181: a research detailben szereplő http(s) forráslinkek.
+        if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&raw.bytes)
+            && let Some(payload) = crate::research_insight::link_payload(&value)
+        {
+            observations.push(Observation {
+                entity_kind: "match".into(),
+                aspect: "match_link".into(),
+                natural_key: match_key.clone(),
+                source_record_key: match_key.clone(),
+                observed_at: captured_at,
+                payload,
+            });
+        }
         Ok(observations)
     }
 

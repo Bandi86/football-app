@@ -762,6 +762,27 @@ impl Canonicalizer {
                 )
                 .await?;
             }
+            // S181: kattintható forráslinkek, ugyanazzal az as-of idővel.
+            if let Some(links) = &fixture_match.links
+                && links.is_array()
+            {
+                let captured_at = links
+                    .as_array()
+                    .and_then(|items| items.first())
+                    .and_then(|item| item.get("captured_at"))
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                    .map(|d| d.with_timezone(&Utc))
+                    .unwrap_or(day.captured_at);
+                football_storage::repositories::match_link::upsert(
+                    &mut *tx,
+                    match_id,
+                    source_id,
+                    captured_at,
+                    links,
+                )
+                .await?;
+            }
             if !reversed {
                 if let Some(stats) = &fixture_match.stats {
                     write_stats(&mut tx, match_id, source_id, day.captured_at, stats).await?;
