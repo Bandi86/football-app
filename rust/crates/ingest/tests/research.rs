@@ -436,6 +436,12 @@ fn plan_requests_detail_for_enriched_or_detail_matches() {
     let daily_path = dir.join("daily/2026/11/2026-11-20.json");
     std::fs::create_dir_all(daily_path.parent().unwrap()).unwrap();
     std::fs::write(&daily_path, daily).unwrap();
+    // S179: a plan csak a létező detail-fájlokat kérdí; a tesztben létre kell hozni őket.
+    for name in ["a.json", "c.json"] {
+        let detail_path = dir.join(format!("matches/2026/11/20/{name}"));
+        std::fs::create_dir_all(detail_path.parent().unwrap()).unwrap();
+        std::fs::write(&detail_path, "{}").unwrap();
+    }
 
     let adapter = ResearchAdapter::new(dir.clone());
     let requests = adapter.plan(&job("2026-11-20"));
@@ -468,6 +474,9 @@ fn plan_requests_day_then_only_detail_matches() {
     let daily_path = dir.join("daily/2026/11/2026-11-20.json");
     std::fs::create_dir_all(daily_path.parent().unwrap()).unwrap();
     std::fs::write(&daily_path, DAILY).unwrap();
+    let detail_path = dir.join("matches/2026/11/20/bayern.json");
+    std::fs::create_dir_all(detail_path.parent().unwrap()).unwrap();
+    std::fs::write(&detail_path, DETAIL).unwrap();
 
     let adapter = ResearchAdapter::new(dir.clone());
     let requests = adapter.plan(&job("2026-11-20"));
@@ -487,6 +496,45 @@ fn plan_requests_day_then_only_detail_matches() {
 }
 
 #[test]
+// S179: a napi index elavult detail-hivatkozása nem buktathatja az egész
+// napi kört — a hiányzó detail kimarad, a többi meccs eredménye betöltődik.
+fn plan_skips_missing_detail_file() {
+    let daily = r#"{
+      "meta": { "generated_at": "2026-11-20T16:41:32Z" },
+      "data": [
+        { "uid": "espn:1", "kickoff": { "utc": "2026-11-20T18:00:00Z", "timezone": "Europe/Budapest" },
+          "status": { "code": "finished" }, "competition": { "name": "Bundesliga", "country": "GER" },
+          "teams": { "home": { "id": "1", "name": "A" }, "away": { "id": "2", "name": "B" } },
+          "links": { "self": "/api/v1/matches/2026/11/20/a.json" },
+          "coverage": { "odds": true } },
+        { "uid": "espn:2", "kickoff": { "utc": "2026-11-20T19:00:00Z", "timezone": "Europe/Budapest" },
+          "status": { "code": "finished" }, "competition": { "name": "Bundesliga", "country": "GER" },
+          "teams": { "home": { "id": "3", "name": "C" }, "away": { "id": "4", "name": "D" } },
+          "links": { "self": "/api/v1/matches/2026/11/20/b.json" },
+          "coverage": { "odds": true } }
+      ]
+    }"#;
+    let dir = std::env::temp_dir().join(format!("research-plan-missing-{}", Uuid::now_v7()));
+    let daily_path = dir.join("daily/2026/11/2026-11-20.json");
+    std::fs::create_dir_all(daily_path.parent().unwrap()).unwrap();
+    std::fs::write(&daily_path, daily).unwrap();
+    let detail_path = dir.join("matches/2026/11/20/b.json");
+    std::fs::create_dir_all(detail_path.parent().unwrap()).unwrap();
+    std::fs::write(&detail_path, DETAIL).unwrap();
+
+    let adapter = ResearchAdapter::new(dir.clone());
+    let requests = adapter.plan(&job("2026-11-20"));
+    assert_eq!(
+        requests.len(),
+        2,
+        "1 napi + a létező detail; a hiányzó a.json kimarad"
+    );
+    assert_eq!(requests[1].url, "matches/2026/11/20/b.json");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn plan_is_empty_for_invalid_window() {
     let adapter = ResearchAdapter::default();
     assert!(adapter.plan(&job("tegnap")).is_empty());
@@ -498,6 +546,9 @@ fn catchup_job_reads_target_day_from_entity_key() {
     let daily_path = dir.join("daily/2026/11/2026-11-20.json");
     std::fs::create_dir_all(daily_path.parent().unwrap()).unwrap();
     std::fs::write(&daily_path, DAILY).unwrap();
+    let detail_path = dir.join("matches/2026/11/20/bayern.json");
+    std::fs::create_dir_all(detail_path.parent().unwrap()).unwrap();
+    std::fs::write(&detail_path, DETAIL).unwrap();
 
     let adapter = ResearchAdapter::new(dir.clone());
     let mut catchup = job("2026-11-24"); // time_window = ma, mint a schedulerben

@@ -151,6 +151,18 @@ fn research_refresh_target(job: &FetchJob) -> Option<NaiveDate> {
     None
 }
 
+/// S179: a `slot-NN` job a `time_window` napját kérdei a forrástól. Hálózati
+/// forrásnál a site csak az aktuális napot szolgálja, így a tegnapi slot már
+/// soha nem teljesíthető. A helyi fájl-forrásnál (research) a régi nap is
+/// olvasható, ezért ott nem érvénytelenítünk.
+fn stale_slot_job(job: &FetchJob, transport: Transport, now: DateTime<Utc>) -> bool {
+    if !job.entity_key.starts_with("slot-") || transport == Transport::LocalFile {
+        return false;
+    }
+    NaiveDate::parse_from_str(&job.time_window, "%Y-%m-%d")
+        .is_ok_and(|date| date < now.date_naive())
+}
+
 pub async fn tick(
     pool: &PgPool,
     store: &ObjectStore,
@@ -289,6 +301,21 @@ async fn process_job(
         .await?;
         return Ok(JobResult::Failed);
     };
+
+    // S179: a napon belüli slot jobok a `time_window` napját kérdik a
+    // forrástól. Ha a nap átfordult, a régi slot már nem teljesíthető (a site
+    // mindig az aktuális napot szolgálja) — dátum-guard hiba helyett
+    // érvénytelenítjük, hogy ne pazarolja a kvótát és ne szennyezze a jelzéseket.
+    if stale_slot_job(job, policy.transport, now) {
+        scheduler::complete(
+            pool,
+            job.id,
+            JobStatus::Cancelled,
+            Some("elavult slot: a forrás csak az aktuális napot szolgálja"),
+        )
+        .await?;
+        return Ok(JobResult::Blocked);
+    }
 
     // S9: a job a forrás egy napi körét képviseli; a terv MINDEN kérését
     // feldolgozzuk (a korábbi kód csak az elsőt használta).
@@ -1234,10 +1261,10 @@ async fn auto_merge_pair(
 mod tests {
     use super::{
         BACKOFF_CAP_SECS, backoff_delay, catchup_source_stale, next_quota_reset,
-        research_refresh_target,
+        research_refresh_target, stale_slot_job,
     };
     use chrono::{NaiveDate, TimeZone, Utc};
-    use football_domain::policy::FetchJob;
+    use football_domain::policy::{FetchJob, Transport};
     use uuid::Uuid;
 
     /// S139: a 07:31-es job nem olvashatja a 07:38-as frissítés előtti fájlt;
@@ -1261,6 +1288,32 @@ mod tests {
         let much_later = created + chrono::Duration::hours(7);
         assert!(!catchup_source_stale(Some(old_file), created, much_later));
         assert!(!catchup_source_stale(None, created, much_later));
+    }
+
+    /// S179: a tegnapi slot hálózati forrásnál érvénytelen, de a research
+    /// (helyi fájl) régi napja továbbra is olvasható marad.
+    #[test]
+    fn stale_slot_job_only_invalidates_network_sources() {
+        let now = Utc.with_ymd_and_hms(2026, 11, 26, 14, 0, 0).unwrap();
+        let mut job = FetchJob {
+            id: Uuid::now_v7(),
+            source_slug: "tipplap".into(),
+            domain: "day".into(),
+            entity_key: "slot-03".into(),
+            event_type: "refresh".into(),
+            time_window: "2026-11-25".into(),
+            due_at: now,
+            priority: 0,
+        };
+        assert!(stale_slot_job(&job, Transport::RustHttp, now));
+        assert!(!stale_slot_job(&job, Transport::LocalFile, now));
+
+        job.time_window = "2026-11-26".into();
+        assert!(!stale_slot_job(&job, Transport::RustHttp, now));
+
+        job.entity_key = "all".into();
+        job.time_window = "2026-11-25".into();
+        assert!(!stale_slot_job(&job, Transport::RustHttp, now));
     }
 
     #[test]

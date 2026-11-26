@@ -417,6 +417,14 @@ impl SourceAdapter for ResearchAdapter {
                 if !seen.insert(rel.clone()) {
                     continue;
                 }
+                // S179: a napi index elavult detail-hivatkozást is hordozhat —
+                // a meccs más napra került, de a `links.self` a régi útra mutat.
+                // Egy hiányzó detail nem buktathatja az egész napi kört (a
+                // catch-up így soha nem jutna el a többi meccs eredményéhez).
+                if !self.api_root.join(&rel).is_file() {
+                    tracing::warn!(%rel, "research detail-fájl hiányzik, kihagyva a tervből");
+                    continue;
+                }
                 requests.push(FetchRequest {
                     url: rel,
                     request_key: format!("detail:{}", m.uid),
