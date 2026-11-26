@@ -213,6 +213,10 @@ A végpontok felülírhatók a `FOOTBALL_AI_MAGNITUDE_URL`, `FOOTBALL_AI_MODEL`,
 A 16 GB-os M4-en a kisebb `lfm3-1.7b:gguf:q4-qat` modell a megbízható
 (`FOOTBALL_AI_REASONING_EFFORT=none` — különben a reasoning modell a választokenjeit
 használja el); döntés: [docs/decisions/2026-11-26-helyi-modell-memoria.md](docs/decisions/2026-11-26-helyi-modell-memoria.md).
+A keresési találatokat a `football-ai` szűri: felnőtt/spam domainek, hibás
+URL-ek, keresési zaj és a kérdéshez nem kapcsolódó eredmények nem kerülnek
+a modellhez vagy a forráslistába.
+
 A worker-oldali háttér-job bekötése külön szelet. Részletek:
 [docs/decisions/2026-11-20-local-ai.md](docs/decisions/2026-11-20-local-ai.md).
 

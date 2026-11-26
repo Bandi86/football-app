@@ -341,6 +341,47 @@
       sorolta. A `football-ai` jelenleg nem szűr domaineket — külön döntés
       (SearXNG blocklist vagy kliens-oldali engedélyezett-domain szűrő).
 
+## S173 — A ma felmerült hibák lezárása
+
+- [x] **SearXNG/spam**: `football-ai` keresési találataira szűrés került
+      (`searxng.rs`): felnőtt/spam tokenek a domain/cím/útvonal alapján,
+      érvénytelen (`http:///go/...`) URL-ek, keresési zaj (earth/scholar/
+      translate), és enyhe relevanciaszűrő (a kérdés érdemi szavai közül
+      egy szerepeljen a találatban). 4 új unit teszt + a 2 meglévő
+      integrációs teszt fixture-je a való viselkedéshez igazítva.
+      Mérés: `ai ask` forráslistája kizárólag releváns focis URL
+      (eredmenyek.com, paksifc.hu, fradi.hu, sofascore.com, onefootball).
+- [x] **XCUITest-harness**: a 6 régi teszt hibája nem regresszió, hanem az,
+      hogy a scheme a unit ÉS UI teszteket egy futásban indította — ilyenkor
+      a runner elvesztette az app vezérlését. `run-ui-tests.sh` most alapból
+      `-only-testing:FootballAppUITests`-t ad át (a unit tesztek külön
+      `FootballAppTests` targetben futnak). Mérés: alap futtatás
+      **22 teszt, 0 hiba, TEST SUCCEEDED**.
+- [x] **Teljes DB-integritás**: 4 duplikált pár összeolvasztása webes
+      bizonyítékkal — Paris FC–Auxerre (08-12 canceled), La Salle–Drexel
+      (08-28 1:1), Stetson–FIU (09-11 0:3): mindegyiknél az éjfél-UTC
+      placeholder sort olvasztottuk a valódi idejű/eredményes sorba;
+      Uruguay Montevideo–Colón 1:3 (10-10, Segunda División 22. forduló):
+      a v1 „LaLiga 2" sorát a research sorba. Források: ESPN 401906431 /
+      401914460 / 401919490, goexplorers.com, FIU boxscore 15025,
+      Sofascore dqddsItid, Transfermarkt 41308. Mérés: teljes `integrity`
+      **verdict OK** (0 duplikált kickoff/fixture, 0 azonos pillanatú pár,
+      0 árva, 0 aktív ref összevontra; 24 „azonos nap" jogos csoportkörök).
+- [x] **Összefoglaló dátumválasztó**: egy másik ágens már bevezette
+      (`6d93ba6`, S174) — az én párhuzamos OpsModel-módosításomat visszavontam,
+      így nem keletkezett duplikált state.
+- [x] **Kapuk**: `check-foundation` OK, `cargo test --workspace` **619 passed,
+      0 failed**, `clippy -D warnings` **0**, `fmt --check` **0**,
+      `--features obscura` build **OK**, `run-ui-tests.sh` **22/22**,
+      `daily-check 11-25` **EXIT=0 ZÖLD**, `integrity` **OK**,
+      `git diff --check` **0**.
+- [ ] **Nem javítható új forrás nélkül**: a mai 23 logó nélküli csapat
+      (AC Taipei, Al Nasr, KCB, SJK-J, U19/női válogatottak…) egyik
+      engedélyezett forrásban (v1 megapack, luukhopman, FotMob CDN) sincs
+      benne; a v1 manifestben talált SJK/Kaizer Chiefs külön entitás, a
+      hozzárendelés fuzzy lenne (AGENTS.md §6 tiltja). A kliens monogramot
+      és „nincs logó" jelzést mutat — új forrásengedély kellene.
+
 ## Döntések / korlátok
 
 - [ ] **Maradék hézag = forrás, nem pipeline**: 11-25-ön 21 scheduled és 52 odds nélküli meccs; 11-26-on 92 scheduled (délelőtti mérésnél normális) és 57 odds nélküli meccs. Az odds egy része a 14:15-ös `research-sync` körben érkezik — **nem indítottuk kézzel**, a felhasználói döntés szerint az ütemezett körre marad.

@@ -49,8 +49,25 @@ for _ in $(seq 1 100); do
 done
 
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
+
+# S173: a scheme unit + UI teszteket is futtatna; együttes futtatáskor a
+# teszt-runner elveszíti az app ablakának vezérlését (6 régi teszt hamisan bukott).
+# Az unit tesztek külön xcodebuild -only-testing:FootballAppTests paranccsal futnak.
+has_only_testing=0
+for arg in "$@"; do
+    case "$arg" in
+        -only-testing*) has_only_testing=1 ;;
+    esac
+done
+# A macOS bash 3.2 `set -u` mellett nem engedi az üres tömb bontását, ezért
+# szövegként építjük (a argumentumok űr nélküli tokenek).
+extra_args="$*"
+if [ "$has_only_testing" -eq 0 ]; then
+    extra_args="-only-testing:FootballAppUITests $extra_args"
+fi
+
 xcodebuild test \
     -project apps/FootballApp.xcodeproj \
     -scheme FootballApp \
     -destination 'platform=macOS' \
-    "$@"
+    $extra_args

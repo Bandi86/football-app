@@ -47,8 +47,8 @@ async fn searxng_maps_results_and_trims_to_limit() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "query": "Debrecen Paks",
             "results": [
-                { "title": "A találat", "url": "https://a.example/1", "content": "első" },
-                { "title": "B találat", "url": "https://b.example/2", "content": "második" },
+                { "title": "Debrecen találat", "url": "https://a.example/1", "content": "első" },
+                { "title": "Paks találat", "url": "https://b.example/2", "content": "második" },
                 { "title": "C találat", "url": "https://c.example/3", "content": "harmadik" }
             ]
         })))
@@ -62,7 +62,7 @@ async fn searxng_maps_results_and_trims_to_limit() {
 
     assert_eq!(results.len(), 2, "a limit levágja a találatokat");
     assert_eq!(results[0].url, "https://a.example/1");
-    assert_eq!(results[1].title, "B találat");
+    assert_eq!(results[1].title, "Paks találat");
     server.verify().await;
 }
 
@@ -93,7 +93,7 @@ async fn agent_calls_web_search_and_returns_sources() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "results": [
                 { "title": "Debrecen–Paks", "url": "https://a.example/meccs", "content": "19:00" },
-                { "title": "NB I forduló", "url": "https://b.example/fordulo", "content": "program" }
+                { "title": "NB I Paks forduló", "url": "https://b.example/fordulo", "content": "program" }
             ]
         })))
         .expect(1)
