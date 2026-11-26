@@ -125,12 +125,14 @@ struct HomeView: View {
                 await weather.load()
             }
         }
-        // Élő meccseknél percenként csendben frissítünk; a háttér-kör nem
-        // villantja fel a betöltés-jelzőt, és hiba esetén megtartja a listát.
+        // A napi lista háttérben is frissül: élő meccseknél percenként,
+        // egyébként 5 percenként. A kör nem villantja fel a betöltés-jelzőt,
+        // és hiba esetén megtartja a listát. Régen csak élő meccseknél indult,
+        // ezért a tegnapi (vagy élő nélküli mai) nap elavult maradt.
         .task(id: autoRefreshKey) {
-            guard liveMatchCount > 0 else { return }
+            let seconds = AutoRefreshPolicy.intervalSeconds(liveMatchCount: liveMatchCount)
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(60))
+                try? await Task.sleep(for: .seconds(seconds))
                 if Task.isCancelled { return }
                 await model.refresh()
             }

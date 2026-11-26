@@ -41,6 +41,15 @@
   - `[OK] soccerway tiltva`, `verified gate (11-25): 65`.
 - [x] `git diff --check` 0; a két régi failed job (`catchup-2026-11-22` hiányzó fájl, `slot-03` 11-24/25 dátum-guard) nem mai adat, nincs elnyomva.
 
+## S161 — A kliens elavult pillanatképe (felhasználói észrevétel)
+
+- [x] **Probléma**: a felhasználó az appban továbbra is a régi számokat látta (Mind 170 / Befejezett 58 / Lejárt nyitott 111), ezért azt gondolta, hogy a build nem történt meg. Az API ellenőrzése viszont friss volt (147 lezárt mindkét napra). A kézi `Frissítés` gomb megnyomása után az app azonnal a friss adatot mutatta (147 lezárt / 21 lejárt nyitott) — tehát **nem build-hiba, hanem kliens-frissítési hiány**.
+- [x] **Gyökér** (`HomeView.swift`): a napi lista csak `.task(id: model.selectedDate)` esetén tölt adatot; a csendes háttér-körnek volt egy `guard liveMatchCount > 0` feltétele, és csak a **mai** napra indult. Tegnapra (vagy élő meccs nélküli ma-i napra) tehát **egyszer sem frissített**, amíg a felhasználó nem váltott napot vagy nem nyomott Frissítést.
+- [x] **Javítás**: a háttér-kör ezentúl minden kiválasztott napon fut; az intervallumot a Core `AutoRefreshPolicy` számítja — élő meccsek esetén **60 mp**, egyébként **300 mp**. A `.task(id: autoRefreshKey)` változatlanul újraindul napváltáskor és az élő meccsek számának változásakor, tehát az intervallum is követi az állapotot. Új fájl: `apps/FootballAppCore/Sources/FootballAppCore/AutoRefreshPolicy.swift` + 3 teszt.
+- [x] **Kapuk**: Core **128/128** (3 új teszt: 0 élő → 300, 1/12 élő → 60, negatív → 300); app unit **82/82 TEST SUCCEEDED**; `xcodegen generate` + `xcodebuild … -only-testing:FootballAppTests` zöld; `git diff --check` 0.
+- [x] **Telepítés / valódi macOS ellenőrzés**: `./scripts/install-football-app.sh` → **BUILD SUCCEEDED**, az app binárisa 11-25 17:14-ről **11-26 09:21:53**-ra frissült; az app újraindítva (PID 11126). AX: ma (11-26) **Mind 102 / Befejezett 9 / Lejárt nyitott 0 / Odds nélkül 57**, tegnap (11-25) **Mind 171 / Befejezett 147 / Lejárt nyitott 14 / Idő nélkül 7 / Odds nélkül 52** — mindkettő pontosan egyezik az API-val.
+- [ ] A 5 perces időzítő **élőben nem lett végigvárt**; a viselkedést a Core egységtesztje és a telepített kód igazolja, a hosszú wait nem futott le.
+
 ## Döntések / korlátok
 
 - [ ] **Maradék hézag = forrás, nem pipeline**: 11-25-ön 21 scheduled és 52 odds nélküli meccs; 11-26-on 92 scheduled (délelőtti mérésnél normális) és 57 odds nélküli meccs. Az odds egy része a 14:15-ös `research-sync` körben érkezik — **nem indítottuk kézzel**, a felhasználói döntés szerint az ütemezett körre marad.
