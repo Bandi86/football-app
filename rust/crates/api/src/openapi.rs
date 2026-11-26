@@ -12,7 +12,10 @@ use utoipa::{Modify, OpenApi};
 use crate::routes::competition::CompetitionDetailResponse;
 use crate::routes::day::{DayMatch, DayResponse};
 use crate::routes::health::HealthResponse;
+use crate::routes::history::HistoryResponse;
+use crate::routes::issues::IssuesResponse;
 use crate::routes::manual::{ManualResultRequest, ManualResultResponse};
+use crate::routes::notes::{NoteCreateRequest, NotePatchRequest, NotesResponse};
 use crate::routes::ops::{OpsIntegrity, OpsSource, OpsStatus};
 use crate::routes::player::PlayerResponse;
 use crate::routes::search::SearchResponse;
@@ -30,7 +33,7 @@ use crate::error::ApiError;
         version = env!("CARGO_PKG_VERSION"),
         description = "Helyi API az ellenőrzött napi meccslistához. \
                        Minden adat forrás- és ellenőrzési állapottal érkezik; a hiányzó érték null, nem nulla. \
-                       Az egyetlen írási művelet a kézi eredménybevitel (PUT, ops token, auditált). \
+                       Az írási műveletek (kézi eredmény, jegyzetek) ops tokent igényelnek és auditáltak. \
                        A token `Authorization: Bearer <read|ops token>` fejlécben megy."
     ),
     paths(
@@ -39,6 +42,11 @@ use crate::error::ApiError;
         crate::routes::search::search,
         crate::routes::match_detail::match_detail,
         crate::routes::manual::manual_result,
+        crate::routes::notes::list_notes,
+        crate::routes::notes::create_note,
+        crate::routes::notes::edit_note,
+        crate::routes::history::history,
+        crate::routes::issues::issues,
         crate::routes::asset::asset,
         crate::routes::competition::competitions,
         crate::routes::competition::competition_detail,
@@ -55,6 +63,14 @@ use crate::error::ApiError;
         HealthResponse,
         ManualResultRequest,
         ManualResultResponse,
+        NoteCreateRequest,
+        NotePatchRequest,
+        NotesResponse,
+        IssuesResponse,
+        HistoryResponse,
+        football_storage::repositories::issue::IssueRow,
+        football_storage::repositories::note::MatchNoteRow,
+        football_storage::repositories::history::HistoryEntry,
         DayResponse,
         DayMatch,
         CompetitionDetailResponse,
@@ -97,6 +113,8 @@ use crate::error::ApiError;
         (name = "játékos", description = "Játékosadatlap: tagság, fellépések, statisztika, események"),
         (name = "asset", description = "Tartalom-címzett blobok"),
         (name = "ops", description = "Üzemeltetési és publikálási kapu"),
+        (name = "hiány", description = "Tartós hiányjelek idővonallal"),
+        (name = "jegyzet", description = "Ügynök és felhasználó közös meccsjegyzetei"),
         (name = "időjárás", description = "A fejléc időjárása a helyi cache-ből"),
     )
 )]
@@ -136,19 +154,19 @@ mod tests {
         let version = doc["openapi"].as_str().unwrap();
         assert!(version.starts_with("3.1"), "openapi verzió: {version}");
         let paths = doc["paths"].as_object().unwrap();
-        assert_eq!(paths.len(), 15, "dokumentált útvonalak: {paths:?}");
+        assert_eq!(paths.len(), 19, "dokumentált útvonalak: {paths:?}");
         for (path, item) in paths {
-            let method = if item.get("get").is_some() {
-                "get"
-            } else if item.get("put").is_some() {
-                "put"
-            } else {
-                panic!("a {path} útvonalon nincs GET vagy PUT művelet");
-            };
-            assert!(
-                item[method].get("responses").is_some(),
-                "a {path} {method} műveletének nincs válaszleírása"
-            );
+            let methods: Vec<(&str, &serde_json::Value)> = ["get", "post", "put", "patch"]
+                .into_iter()
+                .filter_map(|method| item.get(method).map(|operation| (method, operation)))
+                .collect();
+            assert!(!methods.is_empty(), "a {path} útvonalon nincs művelet");
+            for (method, operation) in methods {
+                assert!(
+                    operation.get("responses").is_some(),
+                    "a {path} {method} műveletének nincs válaszleírása"
+                );
+            }
         }
     }
 
@@ -161,23 +179,23 @@ mod tests {
 
         let paths = doc["paths"].as_object().unwrap();
         for (path, item) in paths {
-            let method = if item.get("get").is_some() {
-                "get"
-            } else {
-                "put"
-            };
-            let security = &item[method]["security"];
-            if path == "/v1/health" {
-                assert!(
-                    security.is_null() || security.as_array().is_some_and(|a| a.is_empty()),
-                    "a health végpont nem lehet tokenhez kötve: {security}"
-                );
-            } else {
-                assert_eq!(
-                    security[0]["bearer"],
-                    serde_json::json!([]),
-                    "a {path} végpont nem hivatkozik a bearer sémára"
-                );
+            for method in ["get", "post", "put", "patch"] {
+                let Some(operation) = item.get(method) else {
+                    continue;
+                };
+                let security = &operation["security"];
+                if path == "/v1/health" {
+                    assert!(
+                        security.is_null() || security.as_array().is_some_and(|a| a.is_empty()),
+                        "a health végpont nem lehet tokenhez kötve: {security}"
+                    );
+                } else {
+                    assert_eq!(
+                        security[0]["bearer"],
+                        serde_json::json!([]),
+                        "a {path} {method} végpont nem hivatkozik a bearer sémára"
+                    );
+                }
             }
         }
     }

@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use axum::{
     Router,
-    routing::{get, put},
+    routing::{get, patch, put},
 };
 use sqlx::PgPool;
 
@@ -33,6 +33,13 @@ pub fn router(state: AppState) -> Router {
             "/v1/match/{id}/manual-result",
             put(routes::manual::manual_result),
         )
+        .route(
+            "/v1/match/{id}/notes",
+            get(routes::notes::list_notes).post(routes::notes::create_note),
+        )
+        .route("/v1/note/{id}", patch(routes::notes::edit_note))
+        .route("/v1/match/{id}/history", get(routes::history::history))
+        .route("/v1/issues", get(routes::issues::issues))
         .route("/v1/competitions", get(routes::competition::competitions))
         .route(
             "/v1/competition/{id}",

@@ -27,6 +27,7 @@ pub async fn test_pool() -> PgPool {
           fact.match_insight,
          stage.observation, raw.capture, raw.artifact, ops.source_trust, ops.source,
          ops.validation_finding, ops.validation_run, ops.validation_rule,
+         ops.issue, ops.match_note,
          ops.robots_cache, ops.coverage_slot, ops.job, ops.breaker_state,
          ops.fetch_ledger, ops.source_policy,
          ops.audit_event, ops.weather_cache RESTART IDENTITY CASCADE",

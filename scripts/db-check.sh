@@ -10,11 +10,12 @@ fi
 : "${DATABASE_URL:?DATABASE_URL hiányzik}"
 : "${TEST_DATABASE_URL:?TEST_DATABASE_URL hiányzik}"
 
-# Elvárt táblaszám: mindkét DB a 0001–0027 migrációk után 54 tábla.
+# Elvárt táblaszám: mindkét DB a 0001–0028 migrációk után 56 tábla.
 # A 0013 adja a fact.club_elo-t, a 0017 az ops.editorial_hold-ot,
 # a 0021 a fact.match_environment-et, a 0022 a fact.match_official-t;
-# a 0018–0020 csak függvényt/indexet/módoslót hoz létre, nem új táblát.
-expected_tables=54
+# a 0018–0020 csak függvényt/indexet/módoslót hoz létre, nem új táblát;
+# a 0028 az ops.issue-t és az ops.match_note-ot.
+expected_tables=56
 
 for name in DATABASE_URL TEST_DATABASE_URL; do
   url="${!name}"
@@ -25,6 +26,7 @@ for name in DATABASE_URL TEST_DATABASE_URL; do
     (SELECT count(*) FROM raw.artifact) + (SELECT count(*) FROM raw.capture) +
     (SELECT count(*) FROM stage.observation) + (SELECT count(*) FROM ops.source) +
     (SELECT count(*) FROM ops.validation_run) + (SELECT count(*) FROM ops.validation_finding) +
+    (SELECT count(*) FROM ops.issue) + (SELECT count(*) FROM ops.match_note) +
     (SELECT count(*) FROM ops.audit_event) + (SELECT count(*) FROM core.entity) +
     (SELECT count(*) FROM core.country) + (SELECT count(*) FROM core.competition) +
     (SELECT count(*) FROM core.season) + (SELECT count(*) FROM core.team) +

@@ -1,0 +1,19 @@
+{
+  "issues": [
+    {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "subject_kind": "match",
+      "subject_id": "00000000-0000-0000-0000-000000000002",
+      "code": "missing_odds",
+      "severity": "warning",
+      "detail": {
+        "source": "research"
+      },
+      "first_seen_at": "2026-11-26T08:00:00Z",
+      "last_seen_at": "2026-11-26T09:30:00Z",
+      "resolved_at": null,
+      "source": "daily-check"
+    }
+  ],
+  "count": 1
+}

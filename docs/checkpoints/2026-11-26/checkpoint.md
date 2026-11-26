@@ -103,6 +103,61 @@
 - [ ] A slot-kapu **élőben** csak a következő daemon-induláskor (holnap 07:31) fog működni; a jobok naponta egyszer keletkeznek, ezért most nem volt frissíthető slot-job. A viselkedést az egységteszt igazolja.
 - [ ] A `fair_odds` megjelenítése külön termékdöntés (jelenleg nem mutatjuk, mert nem valódi bookmaker-ár).
 
+## S168 — Bővítési terv döntései + S1 (adatmodell és API alap)
+
+- [x] **Döntések**: a `2026-11-25-app-oldalak-bovites-design.md` 10. szakaszának
+      mind a 6 döntését a felhasználó elfogadta (ajánlott alapértelmezések):
+      írás csak ops token; új egységes `edit` végpont a régi megőrzésével
+      (S4); az `ops.issue` perzisztens, a detektor írja (S3); jegyzetek
+      read tokennel olvashatók, de nem a napi feedben; WebP/PNG csak az
+      első szeletben; AI-gomb alapból ki. Rögzítve:
+      `docs/decisions/2026-11-26-app-oldalak-bovites.md`.
+- [x] **Terv**: `docs/superpowers/plans/2026-11-26-app-oldalak-s1.md` — S1
+      (adatmodell + API alap), és kifejezett korlát: **S1 után megállok,
+      jelzem**, S2-re nem lépek tovább.
+- [x] **Séma**: `db/migrations/0028_ops_issues_notes.sql` — `ops.issue`
+      (natural-key részleges unique, first/last_seen, resolved, source),
+      `ops.match_note` (FK `core.match`, típusok, audit), `ops.asset` új
+      oszlopai (`origin/uploaded_by/original_filename/mime_type`). Indoklás:
+      az `ops.validation_finding` futásonkénti nyers eredmény, az `issue`
+      futásokon átívelő életciklus — nem duplikáljuk a séma táblát.
+- [x] **Infrastruktúra**: `scripts/db-check.sh` 54 → **56** tábla + a teszt-DB
+      üresség-ellenőrzése a két új táblára; `test_support.rs` TRUNCATE-listája;
+      `rust/crates/storage/tests/connection.rs` 54 → 56.
+- [x] **Domain/storage**: `domain/src/ops.rs` (4 enum + `validate_note_*`,
+      4 teszt), `repositories/{issue,note,history}.rs`, 5 storage-integrációs
+      teszt (upsert-idempotencia, first/last_seen, resolve/újranyitás, day/
+      code/severity szűrés, jegyzet-CRUD, audit+provenance történet).
+- [x] **API**: 5 új művelet 4 új útvonalon — `GET /v1/issues` (Read),
+      `GET|POST /v1/match/{id}/notes` (Read/Ops), `PATCH /v1/note/{id}` (Ops),
+      `GET /v1/match/{id}/history` (Read). Magyar 400/401/404/500, minden
+      írás `note_added`/`note_edited` audit-eseménnyel. OpenAPI 15 → **19**
+      dokumentált útvonal, új `hiány`/`jegyzet` tag-ek; a bearer-teszt és a
+      route-oracle POST/PATCH-ra is kiterjesztve. Új közös kontrakt-fixture
+      `tests/fixtures/contract/issues-response.json` + Rust round-trip.
+- [x] **Migráció sorrend**: előbb a teszt DB (`sqlx migrate run` → 56 tábla,
+      zöld célzott tesztek), csak utána a dev DB (56 tábla, `integrity OK`).
+- [x] **Kapuk (mért)**: `db-reset.sh` + `check-foundation.sh` **OK**
+      (dev 56 tábla/6 szabály, test 56/6/0 üzleti sor);
+      `cargo test --workspace -- --test-threads=1` → **609 passed, 0 failed,
+      112 suite**; `cargo clippy --workspace --all-targets -- -D warnings`
+      **0 hiba**; `cargo fmt --all --check` **0**;
+      `cargo build -p footballd -p footballctl --features obscura` **OK**;
+      `./scripts/daily-check.sh 2026-11-25` **EXIT=0, ZÖLD** (élő adat:
+      171 meccs, 147 lezárt, 65 verified, `open_past 9`, `missing_odds 44`,
+      `[OK] soccerway tiltva`); `footballctl integrity --from 2026-11-25
+      --to 2026-11-26` → **verdict OK** (0 duplikátum, 0 árva, 0 aktív ref
+      összevontra); `git diff --check` **0**.
+- [ ] **Nem ellenőrzött**: a hiányjelek detektora még nem ír — élesben a
+      `GET /v1/issues` jelenleg üres listát ad, ez **nem** működő hiányjelzés.
+      A telepített daemon nincs újratelepítve (S1-ben nincs UI, S2-ben
+      kötelező az `install-footballd-agent.sh`). Swift DTO/kliens nem
+      változott. A napi check számai a reggeli checkpoint óta élő adattól
+      függetlenül változtak (`open_past 3 → 9`, `missing_odds 44`) — ez nem
+      a séma-változás mellékhatása, a napi ciklerek írták át.
+- [ ] **Következő lépés**: a felhasználó döntése az S2 (Üzemeltetés UI) indulásáról;
+      a detektor bekötése S3, a teljes meccs-szerkesztés S4, logófeltöltés S5.
+
 ## Döntések / korlátok
 
 - [ ] **Maradék hézag = forrás, nem pipeline**: 11-25-ön 21 scheduled és 52 odds nélküli meccs; 11-26-on 92 scheduled (délelőtti mérésnél normális) és 57 odds nélküli meccs. Az odds egy része a 14:15-ös `research-sync` körben érkezik — **nem indítottuk kézzel**, a felhasználói döntés szerint az ütemezett körre marad.
@@ -116,6 +171,12 @@
 
 ## Következő döntési pont
 
-- 14:15 után újra mérni a 11-26-os odds-lefedettséget; ha a `research-sync` nem fut vagy nem hoz odds-ot, akkor forrás-oldali kivizsgálás.
-- Döntés a `slot-00/01` frissesség-kapujáról (l. fennmaradó strukturális rés), majd a `docs/operations/remaining-gaps.md` frissítése.
-- A `2026-11-25-app-oldalak-bovites-design.md` vázlat 10. szakaszának döntései változatlanul nyitva.
+- **S2 (Üzemeltetés UI) indítása — a felhasználó döntése.** Az S168-as S1 zöld
+  kapu után megálltam, S2-be nem léptem tovább. S2-ben kötelező a daemon
+  újratelepítése, hogy az 5 új endpoint éljen a kliens számára.
+- A hiányjelek detektorának bekötése (S3): `daily-check`/`integrity` írja az
+  `ops.issue` sorokat a most elkészült `upsert_seen` úton.
+- Változatlanul nyitva: 14:15 utáni odds-lefedettség mérése, a `slot-00/01`
+  frissességi kapu, a `docs/operations/remaining-gaps.md` frissítése.
+- A `2026-11-25-app-oldalak-bovites-design.md` vázlat 10. szakaszának döntései
+  **lezarásra kerültek** (`docs/decisions/2026-11-26-app-oldalak-bovites.md`).

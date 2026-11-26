@@ -2,6 +2,7 @@ pub mod error;
 pub mod identity;
 pub mod manual_edit;
 pub mod match_state;
+pub mod ops;
 pub mod policy;
 pub mod trust;
 pub mod verification;

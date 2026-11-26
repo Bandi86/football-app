@@ -36,13 +36,21 @@ fn contract_keys(value: &Value) -> Vec<String> {
     keys
 }
 
-/// A dokumentált művelet (GET vagy PUT) és a hozzá tartozó minta-body.
+/// A dokumentált művelet és a hozzá tartozó minta-body. A POST/PATCH útvonalak
+/// csak ezen a módon kérhetők — különben a router 405-öt adna.
 fn sample_method(item: &Value) -> (&'static str, String) {
     if item.get("put").is_some() {
         (
             "PUT",
             r#"{"home_ft":1,"away_ft":0,"note":"openapi kontrakt-teszt"}"#.to_string(),
         )
+    } else if item.get("post").is_some() {
+        (
+            "POST",
+            r#"{"author":"ui","body":"openapi kontrakt-teszt","kind":"info"}"#.to_string(),
+        )
+    } else if item.get("patch").is_some() {
+        ("PATCH", r#"{"body":"openapi kontrakt-teszt"}"#.to_string())
     } else {
         ("GET", String::new())
     }
@@ -255,7 +263,7 @@ async fn openapi_json_is_served_without_token() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let doc: Value = serde_json::from_slice(&body).expect("a válasz JSON");
-    assert_eq!(doc["paths"].as_object().unwrap().len(), 15);
+    assert_eq!(doc["paths"].as_object().unwrap().len(), 19);
     assert!(
         doc["info"]["title"]
             .as_str()
