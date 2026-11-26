@@ -133,6 +133,24 @@ fn catchup_source_stale(
     modified.map(|m| m <= created_at).unwrap_or(true)
 }
 
+/// S163: a research refresh cél-napja. A `catchup-<dátum>` job a cél napot az
+/// `entity_key`-ben hordozza (a `time_window` ekkor a mai nap), a `slot-NN`
+/// job viszont a `time_window`-ban. Minden más jobra a frissesség-kapu nem
+/// vonatkozik → `None`. A hibásan formázott dátum szintén `None`: a catchup-ág
+/// nem esik vissza a `time_window`-ra.
+fn research_refresh_target(job: &FetchJob) -> Option<NaiveDate> {
+    if job.source_slug != "research" || job.event_type != "refresh" {
+        return None;
+    }
+    if let Some(value) = job.entity_key.strip_prefix("catchup-") {
+        return NaiveDate::parse_from_str(value, "%Y-%m-%d").ok();
+    }
+    if job.entity_key.starts_with("slot-") {
+        return NaiveDate::parse_from_str(&job.time_window, "%Y-%m-%d").ok();
+    }
+    None
+}
+
 pub async fn tick(
     pool: &PgPool,
     store: &ObjectStore,
@@ -214,18 +232,13 @@ async fn process_job(
     job: &FetchJob,
     now: DateTime<Utc>,
 ) -> Result<JobResult> {
-    // S139: a research catch-up csak akkor olvashat, ha a CÉL napi fájl a
-    // job létrehozása UTÁN frissült. A daemon 07:31-kor indult, a research
-    // fájl 07:38-kor frissül — régen a job elavult `scheduled` státuszokat
-    // olvasott be, és az egyszeri idempotencia miatt nem javult többé.
+    // S139/S163: a research refresh csak akkor olvashat, ha a CÉL napi fájl a
+    // job létrehozása UTÁN frissült (catchup: entity_key, slot: time_window).
+    // A daemon 07:31-kor indult, a research fájl 07:38-kor frissül — régen a
+    // job elavult `scheduled` státuszokat olvasott be, és az egyszeri
+    // idempotencia miatt nem javult többé.
     // 6 óra után mégis feldolgozzuk (a forrás tartósan nem frissül).
-    if job.source_slug == "research"
-        && job.event_type == "refresh"
-        && let Some(target) = job
-            .entity_key
-            .strip_prefix("catchup-")
-            .and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok())
-    {
+    if let Some(target) = research_refresh_target(job) {
         let created_at = repo::job_created_at(pool, job.id).await?;
         let rel = football_ingest::research::ResearchAdapter::daily_rel(target);
         let modified = fetchers
@@ -1219,8 +1232,13 @@ async fn auto_merge_pair(
 
 #[cfg(test)]
 mod tests {
-    use super::{BACKOFF_CAP_SECS, backoff_delay, catchup_source_stale, next_quota_reset};
-    use chrono::{TimeZone, Utc};
+    use super::{
+        BACKOFF_CAP_SECS, backoff_delay, catchup_source_stale, next_quota_reset,
+        research_refresh_target,
+    };
+    use chrono::{NaiveDate, TimeZone, Utc};
+    use football_domain::policy::FetchJob;
+    use uuid::Uuid;
 
     /// S139: a 07:31-es job nem olvashatja a 07:38-as frissítés előtti fájlt;
     /// 07:46-kor viszont már igen. Hiányzó fájl és tartósan elavult forrás
@@ -1280,5 +1298,66 @@ mod tests {
         assert_eq!(delay.num_milliseconds(), BACKOFF_CAP_SECS * 1000 + 499);
         let no_jitter = backoff_delay(10, 0, &mut || 499);
         assert_eq!(no_jitter.num_milliseconds(), BACKOFF_CAP_SECS * 1000);
+    }
+
+    /// S163 regresszió-őr: a `slot-NN` refresh a `time_window`-ból olvas, a
+    /// `catchup-` az `entity_key`-ból — a kettő felcserélése elavult napot
+    /// olvasna be, és a 07:30-as zárás utáni eredmények soha nem jutnának el.
+    #[test]
+    fn research_refresh_target_reads_slot_from_time_window_catchup_from_key() {
+        let slot = FetchJob {
+            id: Uuid::nil(),
+            source_slug: "research".into(),
+            domain: "day".into(),
+            entity_key: "slot-00".into(),
+            event_type: "refresh".into(),
+            time_window: "2026-11-26".into(),
+            due_at: Utc::now(),
+            priority: 0,
+        };
+
+        // slot: a cél dátum a time_window, nem az entity_key sorszáma.
+        assert_eq!(
+            research_refresh_target(&slot),
+            Some(NaiveDate::from_ymd_opt(2026, 11, 26).unwrap())
+        );
+
+        // catchup: a time_window a mai nap marad, a cél az entity_key-ben van.
+        let catchup = FetchJob {
+            entity_key: "catchup-2026-11-25".into(),
+            ..slot.clone()
+        };
+        assert_eq!(
+            research_refresh_target(&catchup),
+            Some(NaiveDate::from_ymd_opt(2026, 11, 25).unwrap())
+        );
+
+        // Nem research forrás: None, még slot + refresh mellett is.
+        let other_source = FetchJob {
+            source_slug: "soccerway".into(),
+            ..slot.clone()
+        };
+        assert_eq!(research_refresh_target(&other_source), None);
+
+        // Nem refresh esemény: None.
+        let other_event = FetchJob {
+            event_type: "collect".into(),
+            ..slot.clone()
+        };
+        assert_eq!(research_refresh_target(&other_event), None);
+
+        // Ismeretlen entity_key: None (pl. az "all" interval job).
+        let all = FetchJob {
+            entity_key: "all".into(),
+            ..slot.clone()
+        };
+        assert_eq!(research_refresh_target(&all), None);
+
+        // Hibás catchup-dátum: None, nem esik vissza a time_window-ra.
+        let broken = FetchJob {
+            entity_key: "catchup-nem-datum".into(),
+            ..slot
+        };
+        assert_eq!(research_refresh_target(&broken), None);
     }
 }

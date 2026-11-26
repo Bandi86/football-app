@@ -275,9 +275,14 @@ pub async fn fetch_day_gaps(pool: &PgPool, filter: &DayFilter) -> Result<DayGaps
         )
         SELECT
             count(*) FILTER (WHERE kickoff_precision = 'date_only') AS missing_kickoff,
-            count(*) FILTER (WHERE kickoff_at < now() - interval '3 hours'
-                AND kickoff_precision <> 'date_only'
-                AND status NOT IN ('finished','postponed','canceled','abandoned','awarded')) AS open_past,
+            -- S163: a kliens szűrőjével azonos küszöb. Az elo/felidos sorok
+            -- addig az Elo csoportban vannak (150 perc), csak utana szamitanak
+            -- lejartnak, kulonben ketszer jelennenek meg.
+            count(*) FILTER (WHERE kickoff_precision <> 'date_only'
+                AND status NOT IN ('finished','postponed','canceled','abandoned','awarded')
+                AND kickoff_at < now() - CASE
+                    WHEN status IN ('live','halftime') THEN interval '150 minutes'
+                    ELSE interval '10 minutes' END) AS open_past,
             count(*) FILTER (WHERE status = 'finished' AND home_ft IS NULL) AS missing_result,
             count(*) FILTER (WHERE NOT has_home_logo OR NOT has_away_logo) AS missing_team_logo,
             count(*) FILTER (WHERE NOT has_comp_logo) AS missing_competition_logo,
