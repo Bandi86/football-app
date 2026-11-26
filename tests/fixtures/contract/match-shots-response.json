@@ -1,0 +1,32 @@
+{
+  "shots": [
+    {
+      "shot_no": 1,
+      "side": "home",
+      "source_player_id": "900001",
+      "player_entity_id": "01a1fa06-82a2-7139-b52c-d420bd8533ee",
+      "player_name": "Kapus Játékos",
+      "minute": 12,
+      "x": 0.42,
+      "y": 0.61,
+      "xg": 0.18,
+      "xgot": 0.22,
+      "shot_type": "left",
+      "captured_at": "2026-11-24T18:00:00Z"
+    },
+    {
+      "shot_no": 2,
+      "side": "away",
+      "source_player_id": null,
+      "player_entity_id": null,
+      "player_name": null,
+      "minute": 55,
+      "x": 0.71,
+      "y": 0.48,
+      "xg": 0.07,
+      "xgot": null,
+      "shot_type": null,
+      "captured_at": "2026-11-24T18:00:00Z"
+    }
+  ]
+}

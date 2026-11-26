@@ -21,6 +21,10 @@ def main() -> int:
     parser.add_argument("--detail-map-fixture", help="UUID szerinti meccs-részletező JSON-térkép")
     parser.add_argument("--search-fixture", help="opcionális globális keresési JSON")
     parser.add_argument("--player-fixture", help="opcionális játékosadatlap JSON")
+    parser.add_argument(
+        "--match-micro-fixture",
+        help="opcionális meccs-mikro JSON (lineups/player_stats/shots kulcsokkal)",
+    )
     parser.add_argument("--team-fixture", help="opcionális csapatadatlap JSON")
     parser.add_argument("--competition-fixture", help="opcionális versenyadatlap JSON")
     parser.add_argument("--ops-status-fixture", help="opcionális üzemeltetési állapot JSON")
@@ -67,6 +71,7 @@ def main() -> int:
         json.loads(content)
         return content
 
+    micro_payload = read_fixture(args.match_micro_fixture)
     ops_status_payload = read_fixture(args.ops_status_fixture)
     issues_payload = read_fixture(args.issues_fixture)
     history_payload = read_fixture(args.history_fixture)
@@ -92,6 +97,14 @@ def main() -> int:
                 body, status = audit_payload, 200
             elif path.endswith("/history") and path.startswith("/v1/match/") and history_payload is not None:
                 body, status = history_payload, 200
+            elif micro_payload is not None and path.startswith("/v1/match/") and any(
+                path.endswith(suffix) for suffix in ("/lineups", "/player-stats", "/shots")
+            ):
+                key = path.rsplit("/", 1)[-1]
+                key = "player_stats" if key == "player-stats" else key
+                document = json.loads(micro_payload)
+                body = json.dumps(document[key], ensure_ascii=False).encode("utf-8")
+                status = 200
             elif path.startswith("/v1/match/"):
                 match_id = path.removeprefix("/v1/match/").lower()
                 if match_id in detail_map:

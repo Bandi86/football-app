@@ -505,3 +505,40 @@
   + a `_sqlx_migrations` 0029-es sorának törlése. Az import upsert idempotens,
   az audit-események megmaradnak. A `match-insight-import` újrafuttatása visszaállítja
   a riport/link tartalmat a research JSON-ekből.
+
+## S182 — S3+S4: meccs-szintű játékosadatok API és UI
+
+- [x] **Adatfelmérés (dev DB, read-only):** a 11-08…11-26 ablakban `match_lineups`
+      **1670**, `match_player_stats` **1077**, `match_shots` **498**, `match_incidents`
+      **2707** meccset fed le. Nincs új scraping; a `0009` táblákból olvasunk.
+- [x] **Storage/API:** `match_micro.rs` (`exists`, `fetch_lineups`, `fetch_player_stats`,
+      `fetch_shots` — research-első, legfrissebb `captured_at`, üres lista hiány esetén),
+      3 új read-only végpont (`/v1/match/{id}/lineups`, `/player-stats`, `/shots`),
+      OpenAPI 23 → **26** útvonal, 3 új `ToSchema` + 3 választípus; 3 közös
+      kontrakt-fixture, `match_micro_contract.rs`, `match_micro.rs` (auth-mátrix, 400/404,
+      üres lista). A kliens nem kerül közel az adatbázishoz.
+- [x] **Core/UI:** `MatchMicroModels.swift`, `HTTPMatchMicroService` (3 párhuzamos kérés),
+      `MatchDetailModel` új `micro` állapota (a fő részletező nem vár rá), a meccsrészletező
+      új `Felállás` és `Lövések` szekciói: `LineupPitch` (kattintható, feloldott játékosok),
+      `PlayerStatTable` (oldalszűrő, rendezés), `ShotMap` (x/y, xG). A játékossorok a
+      `PlayerView`-t nyitják. Új AX-azonosítók + 3 Core kontraktteszt + 1 XCUITest.
+- [x] **Kapu (mért):** Rust **633 passed, 0 failed**, clippy 0, fmt 0, build `--features
+      obscura` OK · Core **151 passed / 26 suite** · app unit **94/0** ·
+      `run-ui-tests.sh` **28/28, 0 hiba** · `daily-check 2026-11-25` ZÖLD · `integrity`
+      OK · `git diff --check` 0.
+- [x] **Éles:** daemon + app újratelepítve, `/v1/health` OK; az élő `/v1/match/{id}/lineups`
+      egy mintameccsen **35** sort ad, `/player-stats` és `/shots` üres listát (ez a meccs
+      csak felállással rendelkezik — nem hiba).
+- [ ] **Nem ellenőrzött:** a játékosadat-linkek tényleges navigációja `PlayerView`-re az
+      XCUITestben nincs külön kattintva (csak a megjelenés és az AX-címke van fedezve);
+      a szűrők `@State`-ben vannak, a `UserDefaults`-perzisztencia S7-re vár; a teljes
+      `match_shots` lefedettség (498/…) nem minden meccsre van meg — a szekció hiányállapota
+      nem volt élőben külön mérve.
+- [ ] **Következő:** S5 (verseny- és csapatoldal mélység, játékosoldal lapozás), S6
+      (jegyzetek/előzmények a meccsoldalon), S7 (közös szűrők, beállítások), S8
+      (logófeltöltés) — folyamatosan, zöld kapu után commit.
+
+### Visszaállás (S182)
+
+- `git revert <S3+S4 commit>`; a `0009` táblákat a szelet nem módosította, csak olvasta.
+- Az éles adatot a szelet nem írta; daemon/app git-commitből újraépíthető.

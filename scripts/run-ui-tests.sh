@@ -21,6 +21,7 @@ python3 scripts/ui-fixture-server.py --port "$PORT_LOADED" \
     --detail-map-fixture tests/fixtures/ui/match-chain-details.json \
     --search-fixture tests/fixtures/ui/search-results.json \
     --player-fixture tests/fixtures/ui/player-detail.json \
+    --match-micro-fixture tests/fixtures/ui/match-micro.json \
     --team-fixture tests/fixtures/ui/team-detail.json \
     --competition-fixture tests/fixtures/ui/competition-detail.json \
     --ops-status-fixture tests/fixtures/ui/ops-status.json \

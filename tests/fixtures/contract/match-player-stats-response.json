@@ -1,0 +1,22 @@
+{
+  "player_stats": [
+    {
+      "side": "home",
+      "source_player_id": "900001",
+      "player_entity_id": "01a1fa06-82a2-7139-b52c-d420bd8533ee",
+      "player_name": "Kapus Játékos",
+      "stat_key": "Minutes played",
+      "value": 90.0,
+      "captured_at": "2026-11-24T18:00:00Z"
+    },
+    {
+      "side": "away",
+      "source_player_id": "900002",
+      "player_entity_id": null,
+      "player_name": "Feloldatlan Játékos",
+      "stat_key": "Goals",
+      "value": 1.0,
+      "captured_at": "2026-11-24T18:00:00Z"
+    }
+  ]
+}

@@ -14,12 +14,14 @@ private enum DetailOverlay: Identifiable {
     case manual(ManualEditTarget)
     case match(SelectedMatch)
     case entity(EntityTarget)
+    case player(UUID)
 
     var id: UUID {
         switch self {
         case .manual(let target): return target.id
         case .match(let target): return target.id
         case .entity(let target): return target.id
+        case .player(let id): return id
         }
     }
 }
@@ -92,6 +94,8 @@ struct MatchDetailSheet: View {
                 } else {
                     TeamSheet(teamId: entity.id, name: entity.name)
                 }
+            case .player(let playerId):
+                PlayerView(id: playerId)
             }
         }
     }
@@ -111,6 +115,7 @@ struct MatchDetailSheet: View {
         case .loaded(let detail):
             MatchDetailContent(
                 detail: detail,
+                micro: model.micro,
                 logos: model.logos,
                 accessibilityPrefix: accessibilityPrefix,
                 onSelectMatch: { overlay = .match(SelectedMatch(id: $0)) },
@@ -119,7 +124,8 @@ struct MatchDetailSheet: View {
                 },
                 onSelectCompetition: { id, name in
                     overlay = .entity(EntityTarget(id: id, name: name, kind: "competition"))
-                }
+                },
+                onSelectPlayer: { overlay = .player($0) }
             )
         }
     }
@@ -474,12 +480,14 @@ struct ManualResultSheet: View {
 
 struct MatchDetailContent: View {
     let detail: MatchDetail
+    let micro: MatchMicro?
     let logos: LogoStore
     let accessibilityPrefix: String
     let onSelectMatch: (UUID) -> Void
     /// Entitáslinkek: a csapat és a verseny azonosítója a `MatchDetail`-ből jön.
     let onSelectTeam: (UUID, String) -> Void
     let onSelectCompetition: (UUID, String) -> Void
+    let onSelectPlayer: (UUID) -> Void
 
     private static let kickoff: DateFormatter = {
         let formatter = DateFormatter()
@@ -526,6 +534,8 @@ struct MatchDetailContent: View {
         case overview
         case events
         case stats
+        case lineups
+        case shots
         case odds
         case research
 
@@ -534,6 +544,8 @@ struct MatchDetailContent: View {
             case .overview: return "Áttekintés"
             case .events: return "Események"
             case .stats: return "Statisztika"
+            case .lineups: return "Felállás"
+            case .shots: return "Lövések"
             case .odds: return "Odds"
             case .research: return "Research"
             }
@@ -544,6 +556,8 @@ struct MatchDetailContent: View {
             case .overview: return "rectangle.grid.1x2"
             case .events: return "clock.arrow.circlepath"
             case .stats: return "chart.bar.xaxis"
+            case .lineups: return "sportsball"
+            case .shots: return "scope"
             case .odds: return "percent"
             case .research: return "sparkles"
             }
@@ -566,6 +580,12 @@ struct MatchDetailContent: View {
                         }
                         if isAvailable(.stats) {
                             detailSection(.stats) { statsContent }
+                        }
+                        if isAvailable(.lineups) {
+                            detailSection(.lineups) { lineupsContent }
+                        }
+                        if isAvailable(.shots) {
+                            detailSection(.shots) { shotsContent }
                         }
                         if isAvailable(.odds) {
                             detailSection(.odds) { oddsContent }
@@ -657,6 +677,10 @@ struct MatchDetailContent: View {
                 )
         case .stats:
             return hasStats || !(detail.tableSlice ?? []).isEmpty
+        case .lineups:
+            return !(micro?.lineups.isEmpty ?? true) || !(micro?.playerStats.isEmpty ?? true)
+        case .shots:
+            return !(micro?.shots.isEmpty ?? true)
         case .odds:
             return detail.odds?.hasAnyValue == true
         case .research:
@@ -764,6 +788,28 @@ struct MatchDetailContent: View {
                 source: detail.statsSource
             )
             .accessibilityIdentifier("\(accessibilityPrefix).stats")
+        }
+    }
+
+    @ViewBuilder
+    private var lineupsContent: some View {
+        if let micro, !micro.lineups.isEmpty {
+            LineupPitch(
+                lineups: micro.lineups,
+                homeName: detail.homeName,
+                awayName: detail.awayName,
+                onSelectPlayer: onSelectPlayer
+            )
+        }
+        if let micro, !micro.playerStats.isEmpty {
+            PlayerStatTable(stats: micro.playerStats)
+        }
+    }
+
+    @ViewBuilder
+    private var shotsContent: some View {
+        if let micro, !micro.shots.isEmpty {
+            ShotMap(shots: micro.shots)
         }
     }
 

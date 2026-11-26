@@ -363,6 +363,31 @@ final class FootballAppUITests: XCTestCase {
         XCTAssertTrue(waitForGone(sheet, timeout: 10), "Escape nem zárta be a részletezőt")
     }
 
+    /// A meccs-szintű mikro-adatok szekciói: felállás, játékosstatisztika, lövések.
+    func testMatchDetailShowsLineupsPlayerStatsAndShots() throws {
+        let app = try launch(port: Self.loadedPort)
+        app.activate()
+
+        let card = element("match.card.22222222-2222-2222-2222-222222222222", in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: 30), "a nap nem töltődött be")
+        card.click()
+
+        let lineupsButton = app.buttons.matching(identifier: "match.detail.section.lineups").firstMatch
+        XCTAssertTrue(lineupsButton.waitForExistence(timeout: 10), "a Felállás fül hiányzik")
+        lineupsButton.click()
+        let lineup = element("match.lineup.home.900001", in: app)
+        XCTAssertTrue(lineup.waitForExistence(timeout: 10), "a kezdő játékos hiányzik")
+        XCTAssertTrue(lineup.label.contains("Kapus Játékos"), lineup.label)
+        XCTAssertTrue(element("match.playerstat.row.0", in: app).exists, "a játékosstatisztika hiányzik")
+
+        let shotsButton = app.buttons.matching(identifier: "match.detail.section.shots").firstMatch
+        XCTAssertTrue(shotsButton.waitForExistence(timeout: 10), "a Lövések fül hiányzik")
+        shotsButton.click()
+        let shot = element("match.shot.1", in: app)
+        XCTAssertTrue(shot.waitForExistence(timeout: 10), "a lövéstérkép hiányzik")
+        XCTAssertTrue(shot.label.contains("xG 0.18"), shot.label)
+    }
+
     /// A research szekció mutatja a generált riportot és a tárolt forráslinkeket.
     func testMatchDetailShowsReportAndSourceLinks() throws {
         let app = try launch(port: Self.loadedPort)

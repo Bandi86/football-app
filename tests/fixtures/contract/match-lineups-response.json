@@ -1,0 +1,26 @@
+{
+  "lineups": [
+    {
+      "side": "home",
+      "role": "starter",
+      "source_player_id": "900001",
+      "player_entity_id": "01a1fa06-82a2-7139-b52c-d420bd8533ee",
+      "player_name": "Kapus Játékos",
+      "position": "Goalkeeper",
+      "shirt_number": 1,
+      "rating": 7.2,
+      "captured_at": "2026-11-24T18:00:00Z"
+    },
+    {
+      "side": "away",
+      "role": "sub",
+      "source_player_id": "900002",
+      "player_entity_id": null,
+      "player_name": "Feloldatlan Játékos",
+      "position": "Midfielder",
+      "shirt_number": 14,
+      "rating": null,
+      "captured_at": "2026-11-24T18:00:00Z"
+    }
+  ]
+}

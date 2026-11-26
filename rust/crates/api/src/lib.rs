@@ -30,6 +30,18 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/asset/{*key}", get(routes::asset::asset))
         .route("/v1/match/{id}", get(routes::match_detail::match_detail))
         .route(
+            "/v1/match/{id}/lineups",
+            get(routes::match_micro::match_lineups),
+        )
+        .route(
+            "/v1/match/{id}/player-stats",
+            get(routes::match_micro::match_player_stats),
+        )
+        .route(
+            "/v1/match/{id}/shots",
+            get(routes::match_micro::match_shots),
+        )
+        .route(
             "/v1/match/{id}/manual-result",
             put(routes::manual::manual_result),
         )
