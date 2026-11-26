@@ -158,6 +158,60 @@
 - [ ] **Következő lépés**: a felhasználó döntése az S2 (Üzemeltetés UI) indulásáról;
       a detektor bekötése S3, a teljes meccs-szerkesztés S4, logófeltöltés S5.
 
+## S169 — S2: Üzemeltetés — állapot, hiányjelek, meccs-idővonal
+
+- [x] **Döntések**: S2 megy S3 előtt (felhasználói „mehetünk"); a globális
+      audit-feed **nem** kerül S2-be (csak a meccs-szintű `/history`), S3-ban
+      jön. S2 után itt is megállok. Terv:
+      `docs/superpowers/plans/2026-11-26-uzemeltetes-ui.md`.
+- [x] **Core**: `OpsIssueModels.swift` (IssueSubjectKind/IssueSeverity/IssueCode/
+      HistoryOrigin/JSONValue + DTO-k, ismeretlen enum → `.unknown/.other`),
+      `OpsFormatting.swift` (magyar kód/súly/forrás/tárgy címkék, hu_HU idő),
+      `AccessibilityLabels` új címkék + azonosítók, `HTTPOpsService`
+      `issues(query:)` és `history(matchID:limit:)` query-paraméterekkel.
+      Tesztek: `IssuesContractTests` (közös fixture), `OpsIssueModelsTests`,
+      `HTTPOpsServiceTests` (saját stub protokollal, hogy ne ütközzön a másik
+      suite globális handlerjével), bővített `AccessibilityLabelsTests`.
+- [x] **App**: `OpsModel` új `issuesState`/`query`/`selectedIssue`/`historyState`
+      generációs versenyvédelemmel; `OperationsView` kattintható kártyákkal,
+      szűrőkkel (Picker + Toggle), hiánylistával és issue-ból nyitott
+      meccs-idővonal lappal (`before → after` megjelenítéssel). Üres/hiba/
+      betöltés állapotok külön szöveggel. `OpsModelTests` kibővítve (9 teszt).
+- [x] **UI-harness**: `ui-fixture-server.py` új útvonalai
+      (`/v1/ops/status`, `/v1/issues`, `/v1/match/{id}/history` a generic
+      detail elõtt), új fixture-ök `tests/fixtures/ui/ops-*.json`;
+      `run-ui-tests.sh` mindhárom portra átadja őket; a teszt `runtime.json`
+      most ops tokent is tartalmaz. Az UUID azonosítók NAGYBETŰSEK —
+      ezért kellett korrigálni a kereső azonosítókat.
+- [x] **Kapuk (mért)**: Core `swift test` → **143 passed, 0 failed, 24 suite**
+      (S1-ben 140); app unit `xcodebuild … -only-testing:FootballAppTests`
+      → **87 tests, 0 failures, TEST SUCCEEDED**; az új UI-tesztek izoláltan
+      **3/3 TEST SUCCEEDED**; `daily-check 2026-11-25` **EXIT=0, ZÖLD**;
+      `git diff --check` **0**.
+- [x] **Valódi macOS ellenőrzés (fixture-szerverrel)**: `ax-press` Üzemeltetés
+      fül → a kártyák és a két hiányjel magyar címkével megjelennek
+      (`/tmp/fb-s2-ops-history.png`); az első jel AXPress-szel megnyitotta az
+      idővonalat: `manual_match_edit` `status: scheduled → finished`, és
+      `mező kiválasztás` `kickoff_at / research` látszik. Telepített daemon
+      (pid **44797**, port **49372**): `/v1/health` OK, `GET /v1/issues`
+      `{"issues":[],"count":0}` — a detektor S3-ban jön. Telepített app:
+      BUILD SUCCEEDED, élő AX: kártyák + „Még nincs rögzített hiányjel. A napi
+      ellenőrzés a jeleket ide rögzíti." (`/tmp/fb-s2-live-ops.png`).
+- [ ] **PIROS kapu — nem regresszió**: a teljes `run-ui-tests.sh` **19 tesztből
+      13 zöld / 6 piros**. A hat bukás mind régi teszt (keresés, meccs-részletező,
+      játékosadatlap); A/B-vel ellenőrizve az S1-es `1e41241` worktree-ben
+      ugyanez a `testMatchDetailShowsRichSections` **ugyanazzal a hibával bukik**
+      (`az odds-mátrix nem jelent meg`) — tehát környezeti XCUITest-input probléma,
+      nem az S2 által okozott. Az S2 három új UI-tesztje izoláltan zöld.
+- [ ] **Nem ellenőrzött**: a szűrők billentyűzetes/egéres kattintása emberileg
+      nem végigkattintva (csak a fixture-teszt fedi); a tényleges VoiceOver-hang
+      (a felhasználó korábban kihagyta); a globális audit-feed (S3);
+      a teljes UI-harness zöldre hozása környezeti beavatkozást igényel.
+- [x] **Commit**: a felhasználó 2026-11-26-on kifejezetten engedélyezte a
+      commitot a részben PIROS régi UI-kapu ellenére (az A/B bizonyította,
+      hogy nem regresszió). A commit a zöld kapukkal commitolt kódot rögzíti;
+      a piros régi UI-teszt környezeti hibája továbbra is nyitva marad.
+
 ## Döntések / korlátok
 
 - [ ] **Maradék hézag = forrás, nem pipeline**: 11-25-ön 21 scheduled és 52 odds nélküli meccs; 11-26-on 92 scheduled (délelőtti mérésnél normális) és 57 odds nélküli meccs. Az odds egy része a 14:15-ös `research-sync` körben érkezik — **nem indítottuk kézzel**, a felhasználói döntés szerint az ütemezett körre marad.

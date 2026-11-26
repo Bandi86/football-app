@@ -439,6 +439,56 @@ final class FootballAppUITests: XCTestCase {
         XCTAssertTrue(waitForSelected(link, timeout: 10), "a fókusz nem állt vissza a kapcsolódó meccsre")
     }
 
+    // MARK: - Üzemeltetés: hiányjelek és idővonal (S2)
+
+    private func openOperations(_ port: UInt16) throws -> XCUIApplication {
+        let app = try launch(port: port)
+        let tab = element("nav.tab.ops", in: app)
+        XCTAssertTrue(tab.waitForExistence(timeout: 30), "a felső navigáció nem töltődött be")
+        tab.click()
+        let toggle = element("ops.issues.openOnly", in: app)
+        if !toggle.waitForExistence(timeout: 15) {
+            let found = app.descendants(matching: .any).allElementsBoundByIndex
+                .map { $0.identifier }.filter { !$0.isEmpty }
+            XCTFail("az Üzemeltetés oldal nem töltődött be; AX: \(found.prefix(60).joined(separator: ", "))")
+        }
+        return app
+    }
+
+    func testOperationsListsIssuesWithHungarianLabels() throws {
+        let app = try openOperations(Self.loadedPort)
+        let issue = element("ops.issue.AAAAAAAA-0000-0000-0000-000000000001", in: app)
+        XCTAssertTrue(issue.waitForExistence(timeout: 15), "a hiányjel nem jelenik meg")
+        XCTAssertTrue(issue.label.contains("Hiányzó odds"), issue.label)
+        XCTAssertTrue(issue.label.contains("Figyelmeztetés"), issue.label)
+        XCTAssertTrue(issue.label.contains("először"), issue.label)
+        XCTAssertTrue(issue.label.contains("utoljára"), issue.label)
+        XCTAssertTrue(issue.label.contains("megoldatlan"), issue.label)
+        XCTAssertFalse(issue.label.contains("null"), "a nyers null nem kerülhet a címkébe")
+    }
+
+    func testOperationsOpensMatchHistoryFromIssue() throws {
+        let app = try openOperations(Self.loadedPort)
+        let issue = element("ops.issue.AAAAAAAA-0000-0000-0000-000000000001", in: app)
+        XCTAssertTrue(issue.waitForExistence(timeout: 15), "a hiányjel nem jelenik meg")
+        issue.click()
+        let row = element("ops.history.row.0", in: app)
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "az idővonal részletező nem nyílt meg")
+        // A SwiftUI Text szövege az AX value-ban van, nem a labelben.
+        XCTAssertTrue(textElement(valueContains: "manual_match_edit", in: app).exists,
+                      "az audit akció nem jelenik meg")
+        XCTAssertTrue(textElement(valueContains: "kickoff_at", in: app).exists,
+                      "a provenance mező nem jelenik meg")
+        XCTAssertTrue(element("ops.history.row.1", in: app).exists, "a második esemény hiányzik")
+    }
+
+    func testOperationsShowsEmptyIssueState() throws {
+        let app = try openOperations(Self.emptyPort)
+        let empty = element("ops.issues.empty", in: app)
+        XCTAssertTrue(empty.waitForExistence(timeout: 15), "az üres hiánylista nem jelenik meg")
+        XCTAssertTrue(empty.label.contains("Még nincs rögzített hiányjel."), empty.label)
+    }
+
     // MARK: - Segédek
 
     private func openLoadedMatchDetail() throws -> XCUIApplication {
@@ -541,7 +591,8 @@ final class FootballAppUITests: XCTestCase {
             .appendingPathComponent("football-ui-fixture-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let runtimeURL = directory.appendingPathComponent("runtime.json")
-        let runtime = "{\"port\": \(port), \"read_token\": \"ui-test-token\"}"
+        // Az Üzemeltetés oldal ops tokent használ; a valódi runtime.json is tartalmazza.
+        let runtime = "{\"port\": \(port), \"read_token\": \"ui-test-token\", \"ops_token\": \"ui-test-ops-token\"}"
         try Data(runtime.utf8).write(to: runtimeURL)
 
         let app = XCUIApplication()

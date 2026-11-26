@@ -229,4 +229,62 @@ public enum AccessibilityLabels {
         }
         return parts.joined(separator: ", ")
     }
+
+    // MARK: - Üzemeltetés: hiányjelek és idővonal
+
+    public static let issuesEmptyIdentifier = "ops.issues.empty"
+    public static let issuesEmptyTitle = "Még nincs rögzített hiányjel."
+    public static let issuesEmptySubtitle = "A napi ellenőrzés a jeleket ide rögzíti."
+    public static func issuesEmptyLabel() -> String {
+        "\(issuesEmptyTitle) \(issuesEmptySubtitle)"
+    }
+
+    public static let issuesFilterIdentifier = "ops.issues.filter"
+    public static let issuesOpenOnlyIdentifier = "ops.issues.openOnly"
+
+    /// A jel teljes, felolvasható tartalma: mi a hiány, milyen súlyos,
+    /// mióta látszik, mikor látták utoljára, és megoldva-e.
+    public static func issueLabel(
+        code: String,
+        severity: String,
+        subject: String,
+        firstSeen: String,
+        lastSeen: String,
+        source: String,
+        resolved: Bool
+    ) -> String {
+        let state = resolved ? "megoldva" : "megoldatlan"
+        return "\(code), \(severity), \(subject), először \(firstSeen), utoljára \(lastSeen), "
+            + "forrás \(source), \(state)"
+    }
+
+    public static func issueIdentifier(for id: UUID) -> String {
+        "ops.issue.\(id.uuidString)"
+    }
+
+    /// Egy idővonal-bejegyzés: ki, mikor, mit írt/módosított, forrással.
+    public static func historyEntryLabel(
+        time: String,
+        actor: String,
+        action: String,
+        field: String?,
+        source: String?
+    ) -> String {
+        var parts = [time, actor, action]
+        if let field, !field.isEmpty { parts.append("mező: \(field)") }
+        if let source, !source.isEmpty { parts.append("forrás: \(source)") }
+        return parts.joined(separator: ", ")
+    }
+
+    public static func historyEntryIdentifier(for index: Int) -> String {
+        "ops.history.row.\(index)"
+    }
+
+    public static let historyEmptyIdentifier = "ops.history.empty"
+    public static let historyEmptyTitle = "Nincs rögzített változás ehhez a jelhez."
+    public static func historyEmptyLabel() -> String { historyEmptyTitle }
+
+    public static func issueDetailTitle(_ code: String) -> String {
+        "Változástörténet: \(code)"
+    }
 }

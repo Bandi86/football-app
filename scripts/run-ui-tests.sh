@@ -20,11 +20,19 @@ python3 scripts/ui-fixture-server.py --port "$PORT_LOADED" \
     --detail-fixture tests/fixtures/ui/match-detail.json \
     --detail-map-fixture tests/fixtures/ui/match-chain-details.json \
     --search-fixture tests/fixtures/ui/search-results.json \
-    --player-fixture tests/fixtures/ui/player-detail.json &
+    --player-fixture tests/fixtures/ui/player-detail.json \
+    --ops-status-fixture tests/fixtures/ui/ops-status.json \
+    --issues-fixture tests/fixtures/ui/ops-issues.json \
+    --history-fixture tests/fixtures/ui/ops-history.json &
 pids+=("$!")
-python3 scripts/ui-fixture-server.py --port "$PORT_EMPTY" --fixture tests/fixtures/ui/empty-day.json &
+python3 scripts/ui-fixture-server.py --port "$PORT_EMPTY" --fixture tests/fixtures/ui/empty-day.json \
+    --ops-status-fixture tests/fixtures/ui/ops-status.json \
+    --issues-fixture tests/fixtures/ui/ops-issues-empty.json &
 pids+=("$!")
-python3 scripts/ui-fixture-server.py --port "$PORT_PARTIAL" --fixture tests/fixtures/ui/partial-day.json &
+python3 scripts/ui-fixture-server.py --port "$PORT_PARTIAL" --fixture tests/fixtures/ui/partial-day.json \
+    --ops-status-fixture tests/fixtures/ui/ops-status.json \
+    --issues-fixture tests/fixtures/ui/ops-issues.json \
+    --history-fixture tests/fixtures/ui/ops-history.json &
 pids+=("$!")
 
 for _ in $(seq 1 100); do

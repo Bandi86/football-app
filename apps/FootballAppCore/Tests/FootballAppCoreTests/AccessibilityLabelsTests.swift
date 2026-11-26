@@ -200,4 +200,41 @@ import Testing
         #expect(label.contains(AccessibilityLabels.timelineEmptyTitle))
         #expect(label.contains(AccessibilityLabels.timelineEmptySubtitle))
     }
+
+    @Test func issueLabelSpeaksSeverityTimelineAndResolution() {
+        let label = AccessibilityLabels.issueLabel(
+            code: "Hiányzó odds", severity: "Figyelmeztetés", subject: "Meccs",
+            firstSeen: "2026. nov. 26. 8:00", lastSeen: "2026. nov. 26. 9:30",
+            source: "Napi ellenőrzés", resolved: false
+        )
+        #expect(label.contains("Hiányzó odds"))
+        #expect(label.contains("Figyelmeztetés"))
+        #expect(label.contains("először"))
+        #expect(label.contains("utoljára"))
+        #expect(label.contains("megoldatlan"))
+        let resolved = AccessibilityLabels.issueLabel(
+            code: "Hiányzó logó", severity: "Súlyos", subject: "Csapat",
+            firstSeen: "tegnap", lastSeen: "ma", source: "Ügynök", resolved: true
+        )
+        #expect(resolved.contains("megoldva"))
+    }
+
+    @Test func issueIdentifiersAreStable() {
+        let id = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        #expect(AccessibilityLabels.issueIdentifier(for: id) == "ops.issue.00000000-0000-0000-0000-000000000001")
+        #expect(AccessibilityLabels.historyEntryIdentifier(for: 3) == "ops.history.row.3")
+        #expect(AccessibilityLabels.issuesEmptyIdentifier == "ops.issues.empty")
+        #expect(AccessibilityLabels.issuesEmptyLabel().contains("Még nincs rögzített hiányjel."))
+    }
+
+    @Test func historyEntryLabelNamesActorActionFieldAndSource() {
+        let label = AccessibilityLabels.historyEntryLabel(
+            time: "2026. nov. 26. 9:30", actor: "ui", action: "kézi szerkesztés",
+            field: "kickoff_at", source: "research"
+        )
+        #expect(label.contains("ui"))
+        #expect(label.contains("kézi szerkesztés"))
+        #expect(label.contains("mező: kickoff_at"))
+        #expect(label.contains("forrás: research"))
+    }
 }

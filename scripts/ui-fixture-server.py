@@ -21,6 +21,9 @@ def main() -> int:
     parser.add_argument("--detail-map-fixture", help="UUID szerinti meccs-részletező JSON-térkép")
     parser.add_argument("--search-fixture", help="opcionális globális keresési JSON")
     parser.add_argument("--player-fixture", help="opcionális játékosadatlap JSON")
+    parser.add_argument("--ops-status-fixture", help="opcionális üzemeltetési állapot JSON")
+    parser.add_argument("--issues-fixture", help="opcionális hiányjel-listája JSON")
+    parser.add_argument("--history-fixture", help="opcionális meccs-idővonal JSON")
     args = parser.parse_args()
 
     with open(args.fixture, "rb") as handle:
@@ -52,14 +55,33 @@ def main() -> int:
             player_payload = handle.read()
         json.loads(player_payload)
 
+    def read_fixture(path):
+        if not path:
+            return None
+        with open(path, "rb") as handle:
+            content = handle.read()
+        json.loads(content)
+        return content
+
+    ops_status_payload = read_fixture(args.ops_status_fixture)
+    issues_payload = read_fixture(args.issues_fixture)
+    history_payload = read_fixture(args.history_fixture)
+
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
         def do_GET(self):  # noqa: N802 - http.server API
-            if self.path.startswith("/v1/day/"):
+            path = self.path.split("?", 1)[0]
+            if path.startswith("/v1/day/"):
                 body, status = payload, 200
-            elif self.path.startswith("/v1/match/"):
-                match_id = self.path.removeprefix("/v1/match/").split("?", 1)[0].lower()
+            elif path == "/v1/ops/status" and ops_status_payload is not None:
+                body, status = ops_status_payload, 200
+            elif path == "/v1/issues" and issues_payload is not None:
+                body, status = issues_payload, 200
+            elif path.endswith("/history") and path.startswith("/v1/match/") and history_payload is not None:
+                body, status = history_payload, 200
+            elif path.startswith("/v1/match/"):
+                match_id = path.removeprefix("/v1/match/").lower()
                 if match_id in detail_map:
                     body = json.dumps(detail_map[match_id], ensure_ascii=False).encode("utf-8")
                     status = 200

@@ -1,8 +1,8 @@
 import SwiftUI
 import FootballAppCore
 
-/// Üzemeltetés: worker-számlálók, függő review-k és forrásonkénti
-/// policy/breaker/kvóta állapot. Read-only, 30 mp-enként frissül.
+/// Üzemeltetés: worker-számlálók, hiányjelek, integritás és forrásállapot.
+/// A jeleket a napi ellenőrzés rögzíti; a kliens csak olvas (S2).
 struct OperationsView: View {
     @State private var model = OpsModel()
 
@@ -14,12 +14,21 @@ struct OperationsView: View {
         }
         .background(AppTheme.background)
         .task { await model.refreshLoop() }
+        .sheet(isPresented: Binding(
+            get: { model.selectedIssue != nil },
+            set: { if !$0 { model.closeIssue() } }
+        )) {
+            issueDetailSheet
+        }
     }
 
     private var header: some View {
-        PageHeader(title: "Üzemeltetés", subtitle: "worker · review · forrásállapot") {
+        PageHeader(title: "Üzemeltetés", subtitle: "worker · hiányjelek · forrásállapot") {
             RoundIconButton(systemName: "arrow.clockwise", help: "Frissítés") {
-                Task { await model.load() }
+                Task {
+                    await model.load()
+                    await model.loadIssues()
+                }
             }
         }
     }
@@ -38,6 +47,7 @@ struct OperationsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     statCards(status)
+                    issuesSection
                     if let integrity = status.integrity {
                         integritySection(integrity)
                     }
@@ -52,26 +62,50 @@ struct OperationsView: View {
     private func statCards(_ status: OpsStatus) -> some View {
         HStack(spacing: 12) {
             statCard("Függő jobok", value: status.pendingJobs,
-                     accent: status.pendingJobs > 0 ? AppTheme.accent : nil)
-            statCard("Lease-elt", value: status.leasedJobs, accent: nil)
+                     accent: status.pendingJobs > 0 ? AppTheme.accent : nil) {
+                model.query = IssuesQueryDTO(code: "stale_status", openOnly: true)
+            }
             statCard("Karantén", value: status.quarantined,
-                     accent: status.quarantined > 0 ? .red : nil)
+                     accent: status.quarantined > 0 ? .red : nil) {
+                model.query = IssuesQueryDTO(code: "source_conflict", openOnly: true)
+            }
             statCard("Függő review", value: status.pendingReviews,
-                     accent: status.pendingReviews > 0 ? .orange : nil)
+                     accent: status.pendingReviews > 0 ? .orange : nil) {
+                model.query = IssuesQueryDTO(code: "identity_review", openOnly: true)
+            }
+            statCard("Hiányjelek", value: issuesCount,
+                     accent: issuesCount > 0 ? AppTheme.accent : nil) {
+                model.query = IssuesQueryDTO(openOnly: true)
+            }
         }
     }
 
-    private func statCard(_ title: String, value: Int, accent: Color?) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("\(value)")
-                .font(.scoreboard(30))
-                .foregroundStyle(accent ?? AppTheme.primaryText)
-            Text(title.uppercased())
-                .font(.appLabel())
-                .tracking(1.2)
-                .foregroundStyle(AppTheme.secondaryText)
+    private var issuesCount: Int {
+        if case .loaded(let response) = model.issuesState { return response.count }
+        return 0
+    }
+
+    private func statCard(
+        _ title: String,
+        value: Int,
+        accent: Color?,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("\(value)")
+                    .font(.scoreboard(30))
+                    .foregroundStyle(accent ?? AppTheme.primaryText)
+                Text(title.uppercased())
+                    .font(.appLabel())
+                    .tracking(1.2)
+                    .foregroundStyle(AppTheme.secondaryText)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title): \(value). Szűrés erre a jelre.")
+        .accessibilityIdentifier("ops.card.\(title.lowercased().replacingOccurrences(of: " ", with: "."))")
         .padding(16)
         .background(AppTheme.surfaceElevated, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
@@ -79,6 +113,287 @@ struct OperationsView: View {
                 .strokeBorder(AppTheme.hairline)
         )
     }
+
+    // MARK: - Hiányjelek
+
+    private var issuesSection: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("HIÁNYJELEK")
+                    .font(.appLabel())
+                    .tracking(1.4)
+                    .foregroundStyle(AppTheme.secondaryText)
+                Spacer()
+                Text("\(issuesCount)")
+                    .font(.scoreboard(11, weight: .medium))
+                    .foregroundStyle(AppTheme.secondaryText)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            .background(AppTheme.surface)
+
+            Rectangle().fill(AppTheme.hairline).frame(height: 1)
+
+            filters
+            Rectangle().fill(AppTheme.hairline).frame(height: 1)
+
+            issueList
+        }
+        .background(AppTheme.surfaceElevated, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(AppTheme.hairline)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private var filters: some View {
+        HStack(spacing: 12) {
+            Picker("Hiány", selection: Binding(
+                get: { model.query.code ?? "" },
+                set: { model.query.code = $0.isEmpty ? nil : $0 }
+            )) {
+                Text("Minden hiány").tag("")
+                ForEach(["missing_logo", "missing_odds", "open_past", "duplicate_suspect",
+                         "identity_review", "stale_status", "source_conflict"], id: \.self) { code in
+                    Text(OpsFormatting.issueCodeLabel(issueCode(from: code))).tag(code)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(width: 190)
+            .accessibilityIdentifier(AccessibilityLabels.issuesFilterIdentifier)
+
+            Picker("Súlyosság", selection: Binding(
+                get: { model.query.severity ?? "" },
+                set: { model.query.severity = $0.isEmpty ? nil : $0 }
+            )) {
+                Text("Minden súlyosság").tag("")
+                ForEach(["info", "warning", "hard"], id: \.self) { value in
+                    Text(severityText(value)).tag(value)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(width: 180)
+
+            Toggle("Csak megoldatlan", isOn: Binding(
+                get: { model.query.openOnly },
+                set: { model.query.openOnly = $0 }
+            ))
+            .toggleStyle(.switch)
+            .accessibilityIdentifier(AccessibilityLabels.issuesOpenOnlyIdentifier)
+
+            Spacer()
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+    }
+
+    @ViewBuilder
+    private var issueList: some View {
+        switch model.issuesState {
+        case .idle, .loading:
+            ProgressView().padding(24)
+        case .error(let error):
+            ErrorStateView(message: error.userMessage, retry: { Task { await model.loadIssues() } })
+        case .loaded(let response):
+            if response.issues.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle").foregroundStyle(.secondary)
+                    Text(AccessibilityLabels.issuesEmptyTitle)
+                        .foregroundStyle(AppTheme.secondaryText)
+                    Text(AccessibilityLabels.issuesEmptySubtitle)
+                        .font(.appLabel())
+                        .foregroundStyle(AppTheme.tertiaryText)
+                }
+                .padding(24)
+                .accessibilityLabel(AccessibilityLabels.issuesEmptyLabel())
+                .accessibilityIdentifier(AccessibilityLabels.issuesEmptyIdentifier)
+            } else {
+                ForEach(Array(response.issues.enumerated()), id: \.element.id) { index, issue in
+                    issueRow(issue)
+                    if index < response.issues.count - 1 {
+                        Rectangle().fill(AppTheme.hairline).frame(height: 1).padding(.leading, 18)
+                    }
+                }
+            }
+        }
+    }
+
+    private func issueRow(_ issue: IssueRowDTO) -> some View {
+        let code = OpsFormatting.issueCodeLabel(issue.code)
+        let severity = OpsFormatting.severityLabel(issue.severity)
+        let subject = "\(OpsFormatting.subjectLabel(issue.subjectKind)): \(issue.subjectId.uuidString.prefix(8))"
+        let first = OpsFormatting.timestamp(issue.firstSeenAt)
+        let last = OpsFormatting.timestamp(issue.lastSeenAt)
+        let source = OpsFormatting.sourceLabel(issue.source)
+        return Button { model.selectIssue(issue) } label: {
+            HStack(spacing: 14) {
+                Image(systemName: issue.resolvedAt == nil ? "exclamationmark.triangle" : "checkmark.circle")
+                    .foregroundStyle(issue.resolvedAt == nil ? AppTheme.accent : AppTheme.liveGreen)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text(code).font(.appText(14)).foregroundStyle(AppTheme.primaryText)
+                        severityPill(issue.severity, text: severity)
+                    }
+                    Text("\(subject) · első: \(first) · utolsó: \(last) · \(source)")
+                        .font(.appLabel())
+                        .foregroundStyle(AppTheme.secondaryText)
+                }
+                Spacer()
+                if issue.resolvedAt != nil {
+                    Text("MEGOLDVA")
+                        .font(.appLabel(9))
+                        .foregroundStyle(AppTheme.liveGreen)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(AccessibilityLabels.issueLabel(
+            code: code, severity: severity, subject: subject,
+            firstSeen: first, lastSeen: last, source: source,
+            resolved: issue.resolvedAt != nil
+        ))
+        .accessibilityIdentifier(AccessibilityLabels.issueIdentifier(for: issue.id))
+    }
+
+    @ViewBuilder
+    private func severityPill(_ severity: IssueSeverity, text: String) -> some View {
+        let color: Color = switch severity {
+        case .hard: AppTheme.warning
+        case .warning: AppTheme.accent
+        case .info: AppTheme.secondaryText
+        case .unknown: AppTheme.secondaryText
+        }
+        Text(text.uppercased())
+            .font(.appLabel(9))
+            .tracking(0.6)
+            .foregroundStyle(color)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(color.opacity(0.14), in: Capsule())
+    }
+
+    private func severityText(_ raw: String) -> String {
+        let severity: IssueSeverity = switch raw {
+        case "info": .info
+        case "warning": .warning
+        case "hard": .hard
+        default: .unknown
+        }
+        return OpsFormatting.severityLabel(severity)
+    }
+
+    private func issueCode(from raw: String) -> IssueCode {
+        switch raw {
+        case "missing_logo": return .missingLogo
+        case "missing_odds": return .missingOdds
+        case "open_past": return .openPast
+        case "duplicate_suspect": return .duplicateSuspect
+        case "identity_review": return .identityReview
+        case "stale_status": return .staleStatus
+        case "source_conflict": return .sourceConflict
+        default: return .other(raw)
+        }
+    }
+
+    // MARK: - Meccs-szintű idővonal (a globális audit feed S3-ban jön)
+
+    @ViewBuilder
+    private var issueDetailSheet: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let issue = model.selectedIssue {
+                Text(AccessibilityLabels.issueDetailTitle(
+                    OpsFormatting.issueCodeLabel(issue.code)
+                ))
+                .font(.appText(17, weight: .semibold))
+                .foregroundStyle(AppTheme.primaryText)
+
+                if issue.subjectKind != .match {
+                    Text("A részletes idővonal meccsekhez érhető el.")
+                        .foregroundStyle(AppTheme.secondaryText)
+                        .accessibilityIdentifier(AccessibilityLabels.historyEmptyIdentifier)
+                } else {
+                    historyContent
+                }
+            }
+            Spacer()
+            HStack {
+                Spacer()
+                Button("Bezárás") { model.closeIssue() }
+                    .keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding(24)
+        .frame(minWidth: 560, minHeight: 320)
+        .background(AppTheme.background)
+    }
+
+    @ViewBuilder
+    private var historyContent: some View {
+        switch model.historyState {
+        case .idle, .loading:
+            ProgressView().frame(maxWidth: .infinity)
+        case .error(let error):
+            ErrorStateView(message: error.userMessage, retry: {
+                if let issue = model.selectedIssue { Task { await model.loadHistory(for: issue) } }
+            })
+        case .loaded(let response):
+            if response.entries.isEmpty {
+                Text(AccessibilityLabels.historyEmptyTitle)
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .accessibilityLabel(AccessibilityLabels.historyEmptyLabel())
+                    .accessibilityIdentifier(AccessibilityLabels.historyEmptyIdentifier)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(response.entries.enumerated()), id: \.offset) { index, entry in
+                            historyRow(index: index, entry: entry)
+                            if index < response.entries.count - 1 {
+                                Rectangle().fill(AppTheme.hairline).frame(height: 1)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func historyRow(index: Int, entry: HistoryEntryDTO) -> some View {
+        let time = OpsFormatting.timestamp(entry.at)
+        let source = entry.source ?? (entry.origin == .audit ? "kézi bejegyzés" : "forrás")
+        return VStack(alignment: .leading, spacing: 4) {
+            Text(entry.action).font(.appText(13)).foregroundStyle(AppTheme.primaryText)
+            HStack(spacing: 8) {
+                Text(time)
+                Text("·")
+                Text(entry.actor)
+                Text("·")
+                Text(source)
+            }
+            .font(.appLabel())
+            .foregroundStyle(AppTheme.secondaryText)
+            if let field = entry.fieldKey {
+                Text("mező: \(field)").font(.appLabel()).foregroundStyle(AppTheme.tertiaryText)
+            }
+            if let before = entry.before, let after = entry.after {
+                Text("\(before.displayText) → \(after.displayText)")
+                    .font(.appLabel())
+                    .foregroundStyle(AppTheme.secondaryText)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 10)
+        .accessibilityLabel(AccessibilityLabels.historyEntryLabel(
+            time: time, actor: entry.actor, action: entry.action,
+            field: entry.fieldKey, source: entry.source
+        ))
+        .accessibilityIdentifier(AccessibilityLabels.historyEntryIdentifier(for: index))
+    }
+
+    // MARK: - Integritás és források (változatlan)
 
     private func integritySection(_ integrity: OpsIntegrity) -> some View {
         let ok = integrity.verdict == "OK"
