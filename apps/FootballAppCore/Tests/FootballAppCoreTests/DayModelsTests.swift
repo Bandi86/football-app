@@ -171,6 +171,15 @@ import Testing
         #expect(match.oddsTrustState == nil)
     }
 
+    @Test func oddsSnapshotReportsWhetherItHasDisplayableValues() throws {
+        let decoder = APIDecoding.makeDecoder()
+        let empty = try decoder.decode(OddsSnapshot.self, from: Data("{}".utf8))
+        let partial = try decoder.decode(OddsSnapshot.self, from: Data(#"{"btts_yes":1.72}"#.utf8))
+
+        #expect(!empty.hasAnyValue)
+        #expect(partial.hasAnyValue)
+    }
+
     @Test func decodesRefreshTimeLogosAndElo() throws {
         let json = """
         {"date":"2026-11-13","timezone":"Europe/Budapest","refreshed_at":"2026-11-13T20:15:00Z","matches":[

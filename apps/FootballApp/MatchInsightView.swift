@@ -11,9 +11,14 @@ struct MatchInsightView: View {
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "hu_HU")
-        formatter.dateFormat = "yyyy. mm. dd. HH:mm"
+        formatter.dateFormat = "yyyy. MM. dd. HH:mm"
         return formatter
     }()
+
+    /// Az üres `markets_raw` nem számít adatnak — ilyenkor a szekciót elrejtjük.
+    var showsOddsMarkets: Bool {
+        !(insight.oddsMarkets?.marketsRaw?.isEmpty ?? true)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.m) {
@@ -26,9 +31,9 @@ struct MatchInsightView: View {
                 Text("Számított / nem ellenőrzött")
                     .font(.appLabel(9))
                     .foregroundStyle(AppTheme.warning)
+                    .accessibilityIdentifier("match.insight.trust")
             }
             .foregroundStyle(AppTheme.secondaryText)
-            .accessibilityIdentifier("match.insight.trust")
             .accessibilityIdentifier("match.insight")
             .accessibilityLabel("Research adat, rögzítve \(Self.timeFormatter.string(from: insight.capturedAt)). A számított tartalom nem ellenőrzött.")
 
@@ -108,9 +113,28 @@ struct MatchInsightView: View {
                         section("Tabella-pillanatkép") {
                             row(standings.home?.team ?? "Hazai", "\(standings.home?.position.map { "\($0)." } ?? "–") \(standings.home?.points.map(String.init) ?? "–") pont", identifier: "match.insight.standing")
                             row(standings.away?.team ?? "Vendég", "\(standings.away?.position.map { "\($0)." } ?? "–") \(standings.away?.points.map(String.init) ?? "–") pont", identifier: "match.insight.standing")
+                            if let played = standings.home?.played {
+                                row("Mérkőzés / forma", "\(played) · \(standings.home?.record ?? "–")", identifier: "match.insight.standing")
+                            }
+                            if let source = standings.source {
+                                row("Tabella forrása", source, identifier: "match.insight.standing.source")
+                            }
                         }
                     }
-                    if let markets = insight.oddsMarkets?.marketsRaw {
+                    if let stats = insight.seasonStats {
+                        section("Szezonstatisztika") {
+                            row("Hazai", Self.seasonText(stats.home), identifier: "match.insight.season")
+                            row("Vendég", Self.seasonText(stats.away), identifier: "match.insight.season")
+                        }
+                    }
+                    if let poll = insight.fanPoll, !(poll.questions ?? []).isEmpty {
+                        section("Szurfolói voksok") {
+                            ForEach(Array((poll.questions ?? []).prefix(3).enumerated()), id: \.offset) { _, question in
+                                row(question.question ?? "Kérdés", question.fact ?? "–", identifier: "match.insight.poll")
+                            }
+                        }
+                    }
+                    if showsOddsMarkets, let markets = insight.oddsMarkets?.marketsRaw {
                         section("Fogadási piacok (\(markets.count))") {
                             ForEach(markets.keys.sorted().prefix(8), id: \.self) { market in
                                 let items = markets[market] ?? [:]
@@ -165,5 +189,17 @@ struct MatchInsightView: View {
     private static func number(_ value: Double?) -> String {
         guard let value else { return "–" }
         return String(format: "%.2f", value)
+    }
+
+    private static func seasonText(_ stat: InsightSeasonStat?) -> String {
+        guard let stat else { return "–" }
+        var parts = [String]()
+        if let played = stat.matches { parts.append("\(played) m") }
+        if let wins = stat.wins, let draws = stat.draws, let losses = stat.losses {
+            parts.append("\(wins)/\(draws)/\(losses)")
+        }
+        if let gf = stat.goalsFor, let ga = stat.goalsAgainst { parts.append("\(gf):\(ga) gól") }
+        if let position = stat.position { parts.append("\(position). hely") }
+        return parts.isEmpty ? "–" : parts.joined(separator: " · ")
     }
 }

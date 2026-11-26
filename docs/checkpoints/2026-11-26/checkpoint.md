@@ -404,3 +404,50 @@
   frissességi kapu, a `docs/operations/remaining-gaps.md` frissítése.
 - A `2026-11-25-app-oldalak-bovites-design.md` vázlat 10. szakaszának döntései
   **lezarásra kerültek** (`docs/decisions/2026-11-26-app-oldalak-bovites.md`).
+
+## S180 — Adatmegjelenítési terv + S1 (navigáció és meglévő adatok)
+
+- [x] **Döntések (S0):** a felhasználó a spec §10 mind a hat pontjánál az ajánlott
+      alapértelmezést választotta: kis worktree-darabok review utáni átvétele, tárolt
+      `http(s)` forráslinkek engedélyezése, `match_report_hu` + linkek az S2-ben (`0029`),
+      első szelet S1, AI alapból ki, logófeltöltés S8. Rögzítve:
+      `docs/decisions/2026-11-26-adatmegjelenites.md`.
+- [x] **Terv:** `docs/superpowers/specs/2026-11-26-adatmegjelenites-fotmob-design.md`
+      (JÓVÁHAGYOTT) + `docs/superpowers/plans/2026-11-26-adatmegjelenites-fotmob.md`
+      (S0–S9, fájlszintű lépések, kapu-lánc, worktree-szabály).
+- [x] **Worktree-review:** a `match-detail-navigation` teljes diffje **nem** alkalmazható
+      (`git apply --check` bukik: a `main` 66 committal előrébb van); ezért a szekciónavigáció
+      kézzel, a mai `accessibilityPrefix`/`onSelectMatch` felülethez igazodva került be.
+      A dátumjavítás (`mm`→`MM`), a `hasAnyValue` és az üres `marketsRaw` védelem átvéve.
+      A `match-chain-compact-header` és az `estimated-match-clock` munkája érintetlen.
+- [x] **API/kontrakt:** `MatchDetailRow` + `home_team_id`, `away_team_id` (a `0009`-es
+      `core.match` ID-kból); `match-detail-response.json` 67 → **69** kulcs, valós UUID-kkal;
+      Rust round-trip + Swift kétoldalas kontrakt zöld. Éles daemon: `GET /v1/match/…`
+      **69** kulcs, a két új ID-val (`/v1/health` OK, port 49372).
+- [x] **UI:** `MatchDetailContent` 5 füles szekciónavigációvá alakult (`Áttekintés`,
+      `Események`, `Statisztika`, `Odds`, `Research`), `reduceMotion`-nal és AX-címkével;
+      a research-blokk most kirajzolja a `seasonStats`, `fanPoll`, tabella-forrás és piaci
+      adatokat; kattintható hazai/vendégcsapat- és versenylink a meccsről; a keresési
+      csapat-/versenytalálat a konkrét entitás adatlapját nyitja (nested sheet).
+- [x] **Kapu (mért):** `db-reset` → `check-foundation` OK · Rust `cargo test --workspace
+      -- --test-threads=1` **626 passed, 0 failed** · `clippy -D warnings` **0** ·
+      `fmt --check` **0** · `build --features obscura` OK · Core **147 passed / 25 suite** ·
+      app unit **94 tests, 0 failures** · `run-ui-tests.sh` **26/26, 0 hiba** ·
+      `daily-check 2026-11-25` **EXIT=0 ZÖLD** (195 jel, 0 lezárás) · `integrity
+      11-25…11-26` **verdict OK** · `git diff --check` **0**.
+- [x] **Telepítés:** `install-footballd-agent.sh` (pid 93478) + `install-football-app.sh`
+      BUILD SUCCEEDED; futó app képernyőképe `/private/var/folders/b1/…/fb-s1-live.png`.
+- [ ] **Nem ellenőrzött:** a worktree `estimated-match-clock` becsült órája még nincs
+      átportolva (külön commit + saját kapu tárgya); a keresési entitások és a meccs-link
+      kattintását a 26/26 XCUITest ellenőrzi, de `ax-press.swift` a napi kártyákon nem
+      váltja ki a megnyitást (harness-korlát, nem regresszió); a tényleges VoiceOver-hang
+      emberi ellenőrzése továbbra is nyitott. Az S2 (forráslinkek + riport) nem indult.
+- [ ] **Következő döntési pont:** S1b (becsült óra átvétele, külön commit) vagy az S2
+      (`0029` migráció + `match_report_hu` + `fact.match_link`) indítása. A terv szerint
+      S1 zöld kapuja után megállás.
+
+### Visszaállás (S180)
+
+- `git revert <S1 commit>`; a `MatchDetailRow` két új mezője és a fixture-ök visszaállnak.
+- Az éles adatot a szelet nem módosította; a daemon és az app binárisa git-commitből
+  újraépíthető és telepíthető. A worktree-k érintetlenek.

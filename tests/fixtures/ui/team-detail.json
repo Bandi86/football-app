@@ -1,0 +1,21 @@
+{
+  "detail": {
+    "team_id": "00000000-0000-0000-0000-000000000011",
+    "name": "Debrecen",
+    "country_code": "HU",
+    "country_name": "Magyarország",
+    "gender": "male",
+    "branch": "senior",
+    "logo": null,
+    "elo": 1512.4,
+    "played": 14,
+    "wins": 8,
+    "draws": 3,
+    "losses": 3,
+    "goals_for": 24,
+    "goals_against": 13
+  },
+  "matches": [],
+  "form": [],
+  "next": []
+}

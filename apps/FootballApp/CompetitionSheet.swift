@@ -26,6 +26,7 @@ struct CompetitionSheet: View {
                     .font(.system(size: 11, weight: .semibold))
                     .tracking(2)
                     .foregroundStyle(AppTheme.secondaryText)
+                    .accessibilityIdentifier("competition.detail")
                 Spacer()
                 Button("Bezárás") { dismiss() }
                     .keyboardShortcut(.cancelAction)

@@ -21,6 +21,8 @@ def main() -> int:
     parser.add_argument("--detail-map-fixture", help="UUID szerinti meccs-részletező JSON-térkép")
     parser.add_argument("--search-fixture", help="opcionális globális keresési JSON")
     parser.add_argument("--player-fixture", help="opcionális játékosadatlap JSON")
+    parser.add_argument("--team-fixture", help="opcionális csapatadatlap JSON")
+    parser.add_argument("--competition-fixture", help="opcionális versenyadatlap JSON")
     parser.add_argument("--ops-status-fixture", help="opcionális üzemeltetési állapot JSON")
     parser.add_argument("--issues-fixture", help="opcionális hiányjel-listája JSON")
     parser.add_argument("--history-fixture", help="opcionális meccs-idővonal JSON")
@@ -70,6 +72,8 @@ def main() -> int:
     history_payload = read_fixture(args.history_fixture)
     summary_payload = read_fixture(args.ops_summary_fixture)
     audit_payload = read_fixture(args.ops_audit_fixture)
+    team_payload = read_fixture(args.team_fixture)
+    competition_payload = read_fixture(args.competition_fixture)
 
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -101,6 +105,10 @@ def main() -> int:
                 body, status = search_payload, 200
             elif self.path.startswith("/v1/player/") and player_payload is not None:
                 body, status = player_payload, 200
+            elif path.startswith("/v1/team/") and team_payload is not None:
+                body, status = team_payload, 200
+            elif path.startswith("/v1/competition/") and competition_payload is not None:
+                body, status = competition_payload, 200
             elif self.path == "/v1/health":
                 body, status = b'{"status":"ok","service":"footballd"}', 200
             else:

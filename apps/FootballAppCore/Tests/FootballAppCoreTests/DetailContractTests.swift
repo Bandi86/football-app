@@ -37,6 +37,8 @@ import Testing
         #expect(detail.status == "finished")
         #expect(detail.homeName == "CD Recoleta")
         #expect(detail.competitionName == "Division Profesional: Clausura")
+        #expect(detail.homeTeamId?.uuidString == "01A1FA06-82A2-7139-B52C-D420BD8533EE")
+        #expect(detail.awayTeamId?.uuidString == "01A1FC05-0D31-71B7-9867-47F5D5A6A311")
         #expect(detail.homeFt != nil)
         #expect(detail.incidents?.count == 20)
         #expect(detail.gateState == .verifiedPublish)

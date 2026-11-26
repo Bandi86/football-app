@@ -1,0 +1,21 @@
+{
+  "detail": {
+    "competition_id": "00000000-0000-0000-0000-000000000012",
+    "name": "NB I",
+    "country_code": "HU",
+    "country_name": "Magyarország",
+    "tier": 1,
+    "priority": 1,
+    "logo": null,
+    "season_label": "2026/27",
+    "matches": 14,
+    "goals": 41,
+    "btts_matches": 8,
+    "home_wins": 6,
+    "draws": 4,
+    "away_wins": 4
+  },
+  "matches": [],
+  "teams": [],
+  "standings": []
+}

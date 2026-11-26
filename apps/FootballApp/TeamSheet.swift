@@ -17,6 +17,7 @@ struct TeamSheet: View {
                     .font(.system(size: 11, weight: .semibold))
                     .tracking(2)
                     .foregroundStyle(AppTheme.secondaryText)
+                    .accessibilityIdentifier("team.detail")
                 Spacer()
                 Button("Bezárás") { dismiss() }
                     .keyboardShortcut(.cancelAction)

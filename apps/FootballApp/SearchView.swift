@@ -17,6 +17,7 @@ struct SearchView: View {
     /// A játékosadatlap a keresési sheetből nyílik (nested sheet) — így nem
     /// két, ugyanahhoz a nézethez kötött sheet verseng a prezentációért.
     @State private var selectedPlayer: SelectedPlayerSheet?
+    @State private var selectedEntity: EntityTarget?
 
     var body: some View {
         VStack(spacing: 12) {
@@ -46,9 +47,16 @@ struct SearchView: View {
                     Section("\(feed.results.count) találat — \(feed.query)") {
                         ForEach(feed.results) { result in
                             Button {
-                                if result.kind == "player" {
+                                switch result.kind {
+                                case "player":
                                     selectedPlayer = SelectedPlayerSheet(id: result.id)
-                                } else {
+                                case "team", "competition":
+                                    // Ugyanaz a nested-sheet minta, mint a játékosnál:
+                                    // a szülő dismiss-e néha elveszítheti az új prezentációt.
+                                    selectedEntity = EntityTarget(
+                                        id: result.id, name: result.title, kind: result.kind
+                                    )
+                                default:
                                     onSelect(result)
                                     dismiss()
                                 }
@@ -70,7 +78,7 @@ struct SearchView: View {
                                     }
                                 }
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.borderless)
                             .accessibilityLabel(
                                 "\(result.kindLabel): \(result.title)\(result.subtitle.map { ", \($0)" } ?? "")"
                             )
@@ -84,6 +92,14 @@ struct SearchView: View {
         }
         .sheet(item: $selectedPlayer) { selected in
             PlayerView(id: selected.id)
+        }
+        .sheet(item: $selectedEntity) { entity in
+            // A név a keresési találatból jön; a részletadatot a sheet tölti be.
+            if entity.kind == "competition" {
+                CompetitionSheet(competitionId: entity.id, name: entity.name)
+            } else {
+                TeamSheet(teamId: entity.id, name: entity.name)
+            }
         }
         .padding(16)
         .frame(width: 640, height: 480)

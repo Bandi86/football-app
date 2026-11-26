@@ -8,6 +8,22 @@ private struct ManualEditTarget: Identifiable {
     var id: UUID { detail.id }
 }
 
+/// Egyetlen prezentációs pont: több `.sheet` ugyanahhoz a nézethez rendre
+/// elveszíti az újonnan beállított értéket (l. S1 UI-teszt tapasztalat).
+private enum DetailOverlay: Identifiable {
+    case manual(ManualEditTarget)
+    case match(SelectedMatch)
+    case entity(EntityTarget)
+
+    var id: UUID {
+        switch self {
+        case .manual(let target): return target.id
+        case .match(let target): return target.id
+        case .entity(let target): return target.id
+        }
+    }
+}
+
 /// Meccs-részletező panel: eredménytábla-fejléc, meta-rács, odds-mátrix,
 /// statisztika-párbaj és ellenőrzési sáv. Minden szakasz adatvezérelt:
 /// ami hiányzik, az nem jelenik meg, hamis értéket nem rajzolunk.
@@ -16,8 +32,7 @@ struct MatchDetailSheet: View {
     var isPresentedInChain = false
     @Environment(\.dismiss) private var dismiss
     @State private var model = MatchDetailModel()
-    @State private var manualEditTarget: ManualEditTarget?
-    @State private var selectedMatch: SelectedMatch?
+    @State private var overlay: DetailOverlay?
 
     private var accessibilityPrefix: String {
         isPresentedInChain ? "match.detail.\(matchId.uuidString)" : "match.detail"
@@ -27,11 +42,11 @@ struct MatchDetailSheet: View {
         VStack(spacing: 0) {
             HStack {
                 if isPresentedInChain {
-                    Button("Vissza") { selectedMatch = nil }
+                    Button("Vissza") { overlay = nil }
                         .buttonStyle(.plain)
                         .foregroundStyle(AppTheme.accent)
                         .accessibilityIdentifier("match.detail.back")
-                        .onExitCommand { selectedMatch = nil }
+                        .onExitCommand { overlay = nil }
                 }
                 Text("Meccs")
                     .font(.appLabel(11))
@@ -40,7 +55,7 @@ struct MatchDetailSheet: View {
                     .accessibilityIdentifier(accessibilityPrefix)
                 Spacer()
                 Button {
-                    manualEditTarget = model.detail.map(ManualEditTarget.init)
+                    overlay = model.detail.map { .manual(ManualEditTarget(detail: $0)) }
                 } label: {
                     Label("Meccs szerkesztése", systemImage: "square.and.pencil")
                 }
@@ -65,11 +80,19 @@ struct MatchDetailSheet: View {
         .frame(minWidth: 720, minHeight: 620)
         .background(AppTheme.background)
         .task(id: matchId) { await model.load(matchId: matchId) }
-        .sheet(item: $manualEditTarget) { target in
-            ManualResultSheet(model: model, detail: target.detail)
-        }
-        .sheet(item: $selectedMatch) { item in
-            MatchDetailSheet(matchId: item.id, isPresentedInChain: true)
+        .sheet(item: $overlay) { target in
+            switch target {
+            case .manual(let edit):
+                ManualResultSheet(model: model, detail: edit.detail)
+            case .match(let match):
+                MatchDetailSheet(matchId: match.id, isPresentedInChain: true)
+            case .entity(let entity):
+                if entity.kind == "competition" {
+                    CompetitionSheet(competitionId: entity.id, name: entity.name)
+                } else {
+                    TeamSheet(teamId: entity.id, name: entity.name)
+                }
+            }
         }
     }
 
@@ -90,7 +113,13 @@ struct MatchDetailSheet: View {
                 detail: detail,
                 logos: model.logos,
                 accessibilityPrefix: accessibilityPrefix,
-                onSelectMatch: { selectedMatch = SelectedMatch(id: $0) }
+                onSelectMatch: { overlay = .match(SelectedMatch(id: $0)) },
+                onSelectTeam: { id, name in
+                    overlay = .entity(EntityTarget(id: id, name: name, kind: "team"))
+                },
+                onSelectCompetition: { id, name in
+                    overlay = .entity(EntityTarget(id: id, name: name, kind: "competition"))
+                }
             )
         }
     }
@@ -448,6 +477,9 @@ struct MatchDetailContent: View {
     let logos: LogoStore
     let accessibilityPrefix: String
     let onSelectMatch: (UUID) -> Void
+    /// Entitáslinkek: a csapat és a verseny azonosítója a `MatchDetail`-ből jön.
+    let onSelectTeam: (UUID, String) -> Void
+    let onSelectCompetition: (UUID, String) -> Void
 
     private static let kickoff: DateFormatter = {
         let formatter = DateFormatter()
@@ -485,131 +517,315 @@ struct MatchDetailContent: View {
         return counters.contains { $0 != nil } || detail.homeXg != nil || detail.awayXg != nil
     }
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var selectedSection: Section = .overview
+
+    /// A részletező szekciói. A hiány maga is információ: a szekció akkor is
+    /// megjelenik a sávban, ha az adata nincs — ilyenkor letiltott, halvány gomb.
+    private enum Section: String, CaseIterable {
+        case overview
+        case events
+        case stats
+        case odds
+        case research
+
+        var title: String {
+            switch self {
+            case .overview: return "Áttekintés"
+            case .events: return "Események"
+            case .stats: return "Statisztika"
+            case .odds: return "Odds"
+            case .research: return "Research"
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .overview: return "rectangle.grid.1x2"
+            case .events: return "clock.arrow.circlepath"
+            case .stats: return "chart.bar.xaxis"
+            case .odds: return "percent"
+            case .research: return "sparkles"
+            }
+        }
+
+        func anchorID(prefix: String) -> String { "\(prefix).anchor.\(rawValue)" }
+        func controlID(prefix: String) -> String { "\(prefix).section.\(rawValue)" }
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: AppTheme.Spacing.l) {
-                ScoreboardHero(
-                    home: detail.homeName,
-                    away: detail.awayName,
-                    homeLogo: detail.homeLogo,
-                    awayLogo: detail.awayLogo,
-                    homeElo: detail.homeElo,
-                    awayElo: detail.awayElo,
-                    homePosition: detail.homePosition,
-                    awayPosition: detail.awayPosition,
-                    score: scoreText,
-                    note: scoreNote,
-                    statusLabel: MatchRowView.statusLabel(for: detail.status),
-                    isLive: isLive,
-                    gateState: detail.gateState,
-                    logos: logos
-                )
-
-                metaGrid
-
-                if detail.homeHt != nil || detail.homeEt != nil || detail.homePens != nil {
-                    periodChips
+        VStack(spacing: 0) {
+            ScrollViewReader { proxy in
+                sectionNavigation(proxy: proxy)
+                Rectangle().fill(AppTheme.hairline).frame(height: 1)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: AppTheme.Spacing.xl) {
+                        detailSection(.overview) { overviewContent }
+                        if isAvailable(.events) {
+                            detailSection(.events) { eventsContent }
+                        }
+                        if isAvailable(.stats) {
+                            detailSection(.stats) { statsContent }
+                        }
+                        if isAvailable(.odds) {
+                            detailSection(.odds) { oddsContent }
+                        }
+                        if isAvailable(.research) {
+                            detailSection(.research) { researchContent }
+                        }
+                    }
+                    .padding(AppTheme.Spacing.xl)
+                    .frame(maxWidth: 860, alignment: .leading)
+                    .frame(maxWidth: .infinity)
                 }
+            }
+        }
+    }
 
-                if let incidents = detail.incidents, !incidents.isEmpty {
-                    MatchTimeline(
-                        homeName: detail.homeName,
-                        awayName: detail.awayName,
-                        incidents: incidents
+    private func sectionNavigation(proxy: ScrollViewProxy) -> some View {
+        HStack(spacing: AppTheme.Spacing.s) {
+            ForEach(Section.allCases, id: \.self) { section in
+                Button {
+                    selectedSection = section
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) {
+                        proxy.scrollTo(section.anchorID(prefix: accessibilityPrefix), anchor: .top)
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: section.symbol)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(AppTheme.accent)
+                        Text(section.title)
+                            .font(.appLabel(10))
+                            .foregroundStyle(AppTheme.primaryText)
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(minHeight: 32)
+                    .background(
+                        selectedSection == section ? AppTheme.accent.opacity(0.18) : AppTheme.surface,
+                        in: RoundedRectangle(cornerRadius: AppTheme.Radius.chip, style: .continuous)
                     )
-                } else if TimelineEmptyStateRules.shouldShowTimelineEmptyState(
+                    .overlay {
+                        RoundedRectangle(cornerRadius: AppTheme.Radius.chip, style: .continuous)
+                            .stroke(
+                                selectedSection == section ? AppTheme.accent.opacity(0.5) : .clear,
+                                lineWidth: 1
+                            )
+                    }
+                    .opacity(isAvailable(section) ? 1 : 0.4)
+                }
+                .buttonStyle(.plain)
+                .disabled(!isAvailable(section))
+                .accessibilityIdentifier(section.controlID(prefix: accessibilityPrefix))
+                .accessibilityLabel(section.title)
+                .accessibilityAddTraits(selectedSection == section ? .isSelected : [])
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, AppTheme.Spacing.xl)
+        .padding(.vertical, 10)
+        .background(AppTheme.background)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Meccsrészletező szekciók")
+        .accessibilityIdentifier("\(accessibilityPrefix).sections")
+    }
+
+    private func detailSection<Content: View>(
+        _ section: Section,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.l) {
+            content()
+        }
+        .id(section.anchorID(prefix: accessibilityPrefix))
+    }
+
+    private func isAvailable(_ section: Section) -> Bool {
+        switch section {
+        case .overview:
+            return true
+        case .events:
+            return !(detail.incidents ?? []).isEmpty
+                || !(detail.homeForm ?? []).isEmpty
+                || !(detail.awayForm ?? []).isEmpty
+                || !(detail.headToHead ?? []).isEmpty
+                || !(detail.homeNext ?? []).isEmpty
+                || !(detail.awayNext ?? []).isEmpty
+                || TimelineEmptyStateRules.shouldShowTimelineEmptyState(
                     status: detail.status,
                     incidents: detail.incidents
-                ) {
-                    MatchTimelineEmptyState()
-                }
-
-                if !(detail.homeForm ?? []).isEmpty || !(detail.awayForm ?? []).isEmpty {
-                    FormStrip(
-                        homeName: detail.homeName,
-                        awayName: detail.awayName,
-                        homeForm: detail.homeForm ?? [],
-                        awayForm: detail.awayForm ?? [],
-                        accessibilityPrefix: accessibilityPrefix,
-                        onSelectMatch: onSelectMatch
-                    )
-                }
-
-                if let headToHead = detail.headToHead, !headToHead.isEmpty {
-                    HeadToHeadList(
-                        entries: headToHead,
-                        accessibilityPrefix: accessibilityPrefix,
-                        onSelectMatch: onSelectMatch
-                    )
-                }
-
-                if let tableSlice = detail.tableSlice, !tableSlice.isEmpty {
-                    StandingsSlice(
-                        homeName: detail.homeName,
-                        awayName: detail.awayName,
-                        rows: tableSlice,
-                        store: logos
-                    )
-                    .accessibilityIdentifier("\(accessibilityPrefix).table")
-                }
-
-                if !(detail.homeNext ?? []).isEmpty || !(detail.awayNext ?? []).isEmpty {
-                    NextMatchesStrip(
-                        homeName: detail.homeName,
-                        awayName: detail.awayName,
-                        homeNext: detail.homeNext ?? [],
-                        awayNext: detail.awayNext ?? [],
-                        accessibilityPrefix: accessibilityPrefix,
-                        onSelectMatch: onSelectMatch
-                    )
-                }
-
-                if hasStats {
-                    StatsDuel(
-                        homeName: detail.homeName,
-                        awayName: detail.awayName,
-                        rows: statRows,
-                        source: detail.statsSource
-                    )
-                    .accessibilityIdentifier("\(accessibilityPrefix).stats")
-                }
-
-                if let odds = detail.odds {
-                    OddsMatrix(
-                        home: odds.home,
-                        draw: odds.draw,
-                        away: odds.away,
-                        bttsYes: odds.bttsYes,
-                        bttsNo: odds.bttsNo,
-                        over25: odds.over25,
-                        under25: odds.under25,
-                        source: detail.oddsSource,
-                        capturedAt: detail.oddsCapturedAt
-                    )
-                    .accessibilityIdentifier("\(accessibilityPrefix).odds")
-                }
-
-                if let insight = detail.insight {
-                    MatchInsightView(insight: insight)
-                }
-
-                VerificationStrip(
-                    gateState: detail.gateState,
-                    ruleSetVersion: detail.gateRuleSetVersion,
-                    evaluatedAt: detail.gateEvaluatedAt,
-                    blockers: detail.gateBlockers
                 )
-                .accessibilityIdentifier("\(accessibilityPrefix).verification")
-            }
-            .padding(AppTheme.Spacing.xl)
-            .frame(maxWidth: 860, alignment: .leading)
-            .frame(maxWidth: .infinity)
+        case .stats:
+            return hasStats || !(detail.tableSlice ?? []).isEmpty
+        case .odds:
+            return detail.odds?.hasAnyValue == true
+        case .research:
+            return detail.insight != nil
+        }
+    }
+
+    @ViewBuilder
+    private var overviewContent: some View {
+        ScoreboardHero(
+            home: detail.homeName,
+            away: detail.awayName,
+            homeLogo: detail.homeLogo,
+            awayLogo: detail.awayLogo,
+            homeElo: detail.homeElo,
+            awayElo: detail.awayElo,
+            homePosition: detail.homePosition,
+            awayPosition: detail.awayPosition,
+            score: scoreText,
+            note: scoreNote,
+            statusLabel: MatchRowView.statusLabel(for: detail.status),
+            isLive: isLive,
+            gateState: detail.gateState,
+            logos: logos
+        )
+
+        metaGrid
+
+        if detail.homeHt != nil || detail.homeEt != nil || detail.homePens != nil {
+            periodChips
+        }
+
+        VerificationStrip(
+            gateState: detail.gateState,
+            ruleSetVersion: detail.gateRuleSetVersion,
+            evaluatedAt: detail.gateEvaluatedAt,
+            blockers: detail.gateBlockers
+        )
+        .accessibilityIdentifier("\(accessibilityPrefix).verification")
+    }
+
+    @ViewBuilder
+    private var eventsContent: some View {
+        if let incidents = detail.incidents, !incidents.isEmpty {
+            MatchTimeline(
+                homeName: detail.homeName,
+                awayName: detail.awayName,
+                incidents: incidents
+            )
+        } else if TimelineEmptyStateRules.shouldShowTimelineEmptyState(
+            status: detail.status,
+            incidents: detail.incidents
+        ) {
+            MatchTimelineEmptyState()
+        }
+
+        if !(detail.homeForm ?? []).isEmpty || !(detail.awayForm ?? []).isEmpty {
+            FormStrip(
+                homeName: detail.homeName,
+                awayName: detail.awayName,
+                homeForm: detail.homeForm ?? [],
+                awayForm: detail.awayForm ?? [],
+                accessibilityPrefix: accessibilityPrefix,
+                onSelectMatch: onSelectMatch
+            )
+        }
+
+        if let headToHead = detail.headToHead, !headToHead.isEmpty {
+            HeadToHeadList(
+                entries: headToHead,
+                accessibilityPrefix: accessibilityPrefix,
+                onSelectMatch: onSelectMatch
+            )
+        }
+
+        if !(detail.homeNext ?? []).isEmpty || !(detail.awayNext ?? []).isEmpty {
+            NextMatchesStrip(
+                homeName: detail.homeName,
+                awayName: detail.awayName,
+                homeNext: detail.homeNext ?? [],
+                awayNext: detail.awayNext ?? [],
+                accessibilityPrefix: accessibilityPrefix,
+                onSelectMatch: onSelectMatch
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var statsContent: some View {
+        if let tableSlice = detail.tableSlice, !tableSlice.isEmpty {
+            StandingsSlice(
+                homeName: detail.homeName,
+                awayName: detail.awayName,
+                rows: tableSlice,
+                store: logos
+            )
+            .accessibilityIdentifier("\(accessibilityPrefix).table")
+        }
+
+        if hasStats {
+            StatsDuel(
+                homeName: detail.homeName,
+                awayName: detail.awayName,
+                rows: statRows,
+                source: detail.statsSource
+            )
+            .accessibilityIdentifier("\(accessibilityPrefix).stats")
+        }
+    }
+
+    @ViewBuilder
+    private var oddsContent: some View {
+        if let odds = detail.odds, odds.hasAnyValue {
+            OddsMatrix(
+                home: odds.home,
+                draw: odds.draw,
+                away: odds.away,
+                bttsYes: odds.bttsYes,
+                bttsNo: odds.bttsNo,
+                over25: odds.over25,
+                under25: odds.under25,
+                source: detail.oddsSource,
+                capturedAt: detail.oddsCapturedAt
+            )
+            .accessibilityIdentifier("\(accessibilityPrefix).odds")
+        }
+    }
+
+    @ViewBuilder
+    private var researchContent: some View {
+        if let insight = detail.insight {
+            MatchInsightView(insight: insight)
         }
     }
 
     private var metaGrid: some View {
         VStack(spacing: 0) {
-            gridRow("Verseny", "\(detail.competitionName) · \(detail.seasonLabel)")
+            if let competitionId = detail.competitionId {
+                Button {
+                    onSelectCompetition(competitionId, detail.competitionName)
+                } label: {
+                    gridRow("Verseny", "\(detail.competitionName) · \(detail.seasonLabel)")
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Verseny megnyitása: \(detail.competitionName)")
+                .accessibilityIdentifier("\(accessibilityPrefix).link.competition")
+            } else {
+                gridRow("Verseny", "\(detail.competitionName) · \(detail.seasonLabel)")
+            }
+            if let homeId = detail.homeTeamId {
+                Button {
+                    onSelectTeam(homeId, detail.homeName)
+                } label: {
+                    gridRow("Hazai csapat", detail.homeName)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Csapat megnyitása: \(detail.homeName)")
+                .accessibilityIdentifier("\(accessibilityPrefix).link.home.team")
+            }
+            if let awayId = detail.awayTeamId {
+                Button {
+                    onSelectTeam(awayId, detail.awayName)
+                } label: {
+                    gridRow("Vendég csapat", detail.awayName)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Csapat megnyitása: \(detail.awayName)")
+                .accessibilityIdentifier("\(accessibilityPrefix).link.away.team")
+            }
             gridRow("Időpont", Self.kickoff.string(from: detail.kickoffAt) +
                     (detail.kickoffPrecision == "date_only" ? " (csak dátum)" : ""))
             if let round = detail.roundLabel {

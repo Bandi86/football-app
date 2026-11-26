@@ -14,6 +14,15 @@ struct SelectedPlayer: Identifiable {
     let id: UUID
 }
 
+/// Belső entitáslink célja: a keresés vagy a meccsrészletező csapat/verseny
+/// hivatkozása. A név a hivatkozásról jön, a részletadatot a sheet tölti be.
+struct EntityTarget: Identifiable {
+    let id: UUID
+    let name: String
+    /// `"team"` vagy `"competition"` — a nested sheet melyik adatlapot nyissa.
+    let kind: String
+}
+
 enum AppTab: Equatable {
     case day
     case ops
@@ -98,11 +107,9 @@ struct HomeView: View {
                 case "match":
                     tab = .day
                     selected = SelectedMatch(id: result.id)
-                case "team":
-                    tab = .teams
-                case "competition":
-                    tab = .competitions
                 default:
+                    // A csapat/verseny/játékos adatlapját a SearchView saját,
+                    // nested sheetje nyitja — l. ott a megjegyzést.
                     break
                 }
             }

@@ -206,6 +206,30 @@ final class FootballAppUITests: XCTestCase {
         XCTAssertTrue(waitForGone(field, timeout: 10), "Escape nem zárta be a keresést")
     }
 
+    /// A csapat-találat nem csak fülváltás: a konkrét entitás adatlapja nyílik meg.
+    func testSearchTeamResultOpensTheEntity() throws {
+        let app = try launch(port: Self.loadedPort)
+        app.activate()
+
+        let searchButton = element("nav.search", in: app)
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 10), "a keresőgomb hiányzik")
+        searchButton.click()
+        let field = element("search.field", in: app)
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "a keresés nem nyílt meg")
+        field.click()
+        app.typeText("ujpest")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        let result = element("search.result.team", in: app)
+        XCTAssertTrue(result.waitForExistence(timeout: 10), "a csapat-találat hiányzik")
+        let teamButton = app.buttons.matching(identifier: "search.result.team").firstMatch
+        XCTAssertTrue(teamButton.waitForExistence(timeout: 5), "a csapat-találat gombja hiányzik")
+        teamButton.click()
+        let team = element("team.detail", in: app)
+        XCTAssertTrue(team.waitForExistence(timeout: 10), "a csapat-adatlap nem nyílt meg")
+        XCTAssertTrue((team.value as? String ?? "").contains("ÚJPEST"), "a csapat-adatlap címe: \(team.value ?? "")")
+    }
+
     /// A keresés játékos-találatából megnyíló adatlap; a hiány szövegesen
     /// jelenik meg, az AX-azonosítók stabilak.
     func testPlayerDetailShowsDataAndMissingStates() throws {
@@ -335,6 +359,88 @@ final class FootballAppUITests: XCTestCase {
                       "a statisztika-párbaj nem jelent meg")
         XCTAssertTrue(element("match.detail.verification", in: app).waitForExistence(timeout: 10),
                       "az ellenőrzési sáv nem jelent meg")
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(waitForGone(sheet, timeout: 10), "Escape nem zárta be a részletezőt")
+    }
+
+    /// A meccsrészletezőből a csapat- és versenylinkek a konkrét entitásra vezetnek.
+    func testMatchDetailEntityLinksOpenSheets() throws {
+        let app = try launch(port: Self.loadedPort)
+        app.activate()
+
+        let card = element("match.card.22222222-2222-2222-2222-222222222222", in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: 30), "a nap nem töltődött be")
+        card.click()
+
+        let homeLink = element("match.detail.link.home.team", in: app)
+        XCTAssertTrue(homeLink.waitForExistence(timeout: 10), "a hazai csapat link hiányzik")
+        app.buttons.matching(identifier: "match.detail.link.home.team").firstMatch.click()
+        let team = element("team.detail", in: app)
+        XCTAssertTrue(team.waitForExistence(timeout: 10), "a csapat-adatlap nem nyílt meg")
+        XCTAssertTrue((team.value as? String ?? "").contains("DEBRECEN"), "a csapat-adatlap címe: \(team.value ?? "")")
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(waitForGone(team, timeout: 10), "a csapat-adatlap nem zárt be")
+
+        let competitionLink = element("match.detail.link.competition", in: app)
+        XCTAssertTrue(competitionLink.waitForExistence(timeout: 10), "a verseny link hiányzik")
+        app.buttons.matching(identifier: "match.detail.link.competition").firstMatch.click()
+        let competition = element("competition.detail", in: app)
+        XCTAssertTrue(competition.waitForExistence(timeout: 10), "a verseny-adatlap nem nyílt meg")
+        XCTAssertTrue((competition.value as? String ?? "").contains("NB I"), "a verseny-adatlap címe: \(competition.value ?? "")")
+    }
+
+    /// A research időbélyeg hónapot, nem percet ír ki (`MM` ≠ `mm`).
+    func testMatchDetailResearchTimestampUsesCalendarMonth() throws {
+        let app = try launch(port: Self.loadedPort)
+        app.activate()
+
+        let card = element("match.card.22222222-2222-2222-2222-222222222222", in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: 30), "a nap nem töltődött be")
+        card.click()
+
+        let insightButton = element("match.detail.section.research", in: app)
+        XCTAssertTrue(insightButton.waitForExistence(timeout: 20), "a Research fül hiányzik")
+        XCTAssertTrue(insightButton.isEnabled, "a Research fül nincs adat hiányában letiltva")
+        insightButton.click()
+
+        let insight = element("match.insight", in: app)
+        XCTAssertTrue(insight.waitForExistence(timeout: 20), "a research-blokk nem jelent meg")
+        let text = insight.label + (insight.value as? String ?? "")
+        XCTAssertTrue(text.contains("2026. 11. 22."), "hibás research időbélyeg: \(text)")
+        XCTAssertFalse(text.contains("2026. 44."), "a hónap helyett perceket ír ki: \(text)")
+    }
+
+    /// A szekciófülek a research-blokkot görgetik elő és meghirdetik a kiválasztást.
+    func testMatchDetailSectionNavigationReachesResearch() throws {
+        let app = try launch(port: Self.loadedPort)
+        app.activate()
+
+        let card = element("match.card.22222222-2222-2222-2222-222222222222", in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: 30), "a nap nem töltődött be")
+        card.click()
+
+        let overview = element("match.detail.section.overview", in: app)
+        XCTAssertTrue(overview.waitForExistence(timeout: 20), "a szekciósáv nem jelent meg")
+        let navigation = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "Meccsrészletező szekciók"))
+            .firstMatch
+        XCTAssertTrue(navigation.exists, "a szekciósáv akadálymentes címkéje hiányzik")
+        for section in ["overview", "events", "stats", "odds", "research"] {
+            XCTAssertTrue(element("match.detail.section.\(section)", in: app).exists,
+                          "hiányzó szekciógomb: \(section)")
+        }
+
+        let research = element("match.insight", in: app)
+        XCTAssertTrue(research.waitForExistence(timeout: 10), "a research-blokk nem jelent meg")
+        XCTAssertFalse(research.isHittable, "a research a nyitó nézetben látható maradt")
+
+        let researchButton = element("match.detail.section.research", in: app)
+        researchButton.click()
+        XCTAssertTrue(waitForHittable(research, timeout: 10), "a Research gomb nem görgetette elő a blokkot")
+        XCTAssertTrue(waitForSelected(researchButton, timeout: 10),
+                      "a Research gomb nem hirdeti meg a kiválasztott állapotot")
+
+        let sheet = element("match.detail", in: app)
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         XCTAssertTrue(waitForGone(sheet, timeout: 10), "Escape nem zárta be a részletezőt")
     }
@@ -577,6 +683,15 @@ final class FootballAppUITests: XCTestCase {
             _ = element.waitForExistence(timeout: 0.2)
         } while Date() < deadline
         return element.isSelected
+    }
+
+    /// A szekcióra görgetés után az elem ténylegesen látható-e (nemcsak az AX-fában van).
+    private func waitForHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "isHittable == true"),
+            object: element
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     /// A fókuszált kártya az AX-fában `selected` jelzést kap (ezt hirdeti a VoiceOver is).

@@ -37,6 +37,12 @@ public struct OddsSnapshot: Decodable, Equatable, Sendable {
     public let over25: Double?
     public let under25: Double?
 
+    /// Az odds-szekció csak akkor érhető el, ha van legalább egy megjeleníthető
+    /// piac — az üres objektum nem számít adatnak.
+    public var hasAnyValue: Bool {
+        [home, draw, away, bttsYes, bttsNo, over25, under25].contains { $0 != nil }
+    }
+
     enum CodingKeys: String, CodingKey {
         case home, draw, away
         case bttsYes = "btts_yes"

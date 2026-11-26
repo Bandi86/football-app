@@ -15,6 +15,10 @@ public struct MatchDetail: Decodable, Equatable, Sendable {
     /// hiányozhat, ezért opcionális (a szerződés-drift elleni kulcshalmaz-teszt
     /// ettől még a mezőt elvárja a válaszban).
     public let competitionId: UUID?
+    /// A két csapat kanonikus azonosítója (entitáslinkekhez). Régi válaszokból
+    /// hiányozhat, ezért opcionális; a kontrakt-kulcshalmaz teszt mégis elvárja.
+    public let homeTeamId: UUID?
+    public let awayTeamId: UUID?
     public let competitionName: String
     public let countryCode: String?
     public let countryName: String?
@@ -96,6 +100,8 @@ public struct MatchDetail: Decodable, Equatable, Sendable {
         case status
         case roundLabel = "round_label"
         case competitionId = "competition_id"
+        case homeTeamId = "home_team_id"
+        case awayTeamId = "away_team_id"
         case competitionName = "competition_name"
         case countryCode = "country_code"
         case countryName = "country_name"
