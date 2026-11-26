@@ -506,6 +506,29 @@ final class FootballAppUITests: XCTestCase {
                       "az audit akció szövege hiányzik")
     }
 
+    /// S174 — az összefoglaló dátuma nem a mai napra van rögzítve: a választó
+    /// magyar AX-címkével és az API-val megegyező kulcsokkal jelenik meg.
+    func testOperationsSummaryDatePickerHasHungarianLabelAndOptions() throws {
+        let app = try openOperations(Self.loadedPort)
+        let picker = element("ops.summary.date", in: app)
+        if !picker.waitForExistence(timeout: 15) {
+            let found = app.descendants(matching: .any).allElementsBoundByIndex
+                .map { "\($0.elementType):\($0.identifier):\($0.label)" }
+            XCTFail("az összefoglaló dátumválasztója hiányzik; AX: \(found.prefix(80).joined(separator: ", "))")
+        }
+        XCTAssertTrue(picker.label.contains("Összefoglaló dátuma"), picker.label)
+
+        picker.click()
+        let today = app.menuItems["Mai nap"]
+        XCTAssertTrue(today.waitForExistence(timeout: 5),
+                      "a 'Mai nap' opció hiányzik a dátummenüben")
+        XCTAssertTrue(app.menuItems["Előző nap"].exists,
+                      "az 'Előző nap' opció hiányzik a dátummenüben")
+        today.click()
+        XCTAssertTrue(element("ops.summary", in: app).exists,
+                      "az összefoglaló sáv a dátumváltás után is megmarad")
+    }
+
     func testOperationsExposesResolveActionForOpenIssue() throws {
         let app = try openOperations(Self.loadedPort)
         let resolve = element("ops.issue.resolve.AAAAAAAA-0000-0000-0000-000000000001", in: app)

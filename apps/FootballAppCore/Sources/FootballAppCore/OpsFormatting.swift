@@ -67,4 +67,31 @@ public enum OpsFormatting {
     public static func timestamp(_ date: Date) -> String {
         timestampFormatter.string(from: date)
     }
+
+    private static let dateKeyFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.timeZone = .current
+        return formatter
+    }()
+
+    /// A `/v1/ops/summary?date=` és a DTO `date` mezőjének közös kulcsa.
+    public static func dateKey(_ date: Date) -> String {
+        dateKeyFormatter.string(from: date)
+    }
+
+    /// Az összefoglaló dátumválasztója: a mai nap és az előző hat nap,
+    /// magyar címkével. A kulcs megegyezik az API `date` paraméterével.
+    public static func summaryDateOptions(
+        from date: Date = Date(),
+        count: Int = 7
+    ) -> [(key: String, label: String)] {
+        let calendar = Calendar.current
+        return (0..<max(1, count)).map { offset in
+            let day = calendar.date(byAdding: .day, value: -offset, to: date) ?? date
+            let label = offset == 0 ? "Mai nap" : offset == 1 ? "Előző nap" : "\(offset) napja"
+            return (dateKey(day), label)
+        }
+    }
 }

@@ -120,8 +120,47 @@ struct OperationsView: View {
 
     // MARK: - Összefoglaló és globális audit (S3)
 
-    @ViewBuilder
     private var summaryBanner: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("ÖSSZEFOGLALÓ")
+                    .font(.appLabel())
+                    .tracking(1.4)
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .accessibilityIdentifier(AccessibilityLabels.opsSummaryIdentifier)
+                Spacer()
+                summaryDatePicker
+            }
+            summaryContent
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(AppTheme.accentSoft, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(AppTheme.hairlineStrong)
+        )
+    }
+
+    /// A dátumválasztó a mai napot és az előző hat napot kínálja;
+    /// a kulcs pontosan az API `date` paramétere (S174).
+    private var summaryDatePicker: some View {
+        Picker(AccessibilityLabels.opsSummaryDateLabel, selection: Binding(
+            get: { model.summaryDate },
+            set: { model.summaryDate = $0 }
+        )) {
+            ForEach(OpsFormatting.summaryDateOptions(), id: \.key) { option in
+                Text(option.label).tag(option.key)
+            }
+        }
+        .pickerStyle(.menu)
+        .frame(width: 170)
+        .accessibilityLabel(AccessibilityLabels.opsSummaryDateLabel)
+        .accessibilityIdentifier(AccessibilityLabels.opsSummaryDateIdentifier)
+    }
+
+    @ViewBuilder
+    private var summaryContent: some View {
         switch model.summaryState {
         case .idle, .loading:
             EmptyView()
@@ -150,14 +189,6 @@ struct OperationsView: View {
                     }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
-            .background(AppTheme.accentSoft, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(AppTheme.hairlineStrong)
-            )
-            .accessibilityIdentifier(AccessibilityLabels.opsSummaryIdentifier)
         }
     }
 

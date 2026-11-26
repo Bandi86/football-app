@@ -17,11 +17,33 @@ final class OpsModelTests: XCTestCase {
         let summary: Result<OpsSummaryDTO, APIError>
         let audit: Result<AuditResponseDTO, APIError>
         let resolve: Result<ResolveResponseDTO, APIError>
+        let summaryDateRecorder: ((String?) -> Void)?
+
+        init(
+            status: Result<OpsStatus, APIError>,
+            issues: Result<IssuesResponseDTO, APIError>,
+            history: Result<HistoryResponseDTO, APIError>,
+            summary: Result<OpsSummaryDTO, APIError>,
+            audit: Result<AuditResponseDTO, APIError>,
+            resolve: Result<ResolveResponseDTO, APIError>,
+            summaryDateRecorder: ((String?) -> Void)? = nil
+        ) {
+            self.status = status
+            self.issues = issues
+            self.history = history
+            self.summary = summary
+            self.audit = audit
+            self.resolve = resolve
+            self.summaryDateRecorder = summaryDateRecorder
+        }
 
         func status() async throws -> OpsStatus { try status.get() }
         func issues(query: IssuesQueryDTO) async throws -> IssuesResponseDTO { try issues.get() }
         func history(matchID: UUID, limit: Int) async throws -> HistoryResponseDTO { try history.get() }
-        func summary(date: String?) async throws -> OpsSummaryDTO { try summary.get() }
+        func summary(date: String?) async throws -> OpsSummaryDTO {
+            summaryDateRecorder?(date)
+            return try summary.get()
+        }
         func audit(limit: Int, subjectKind: String?, subjectID: UUID?) async throws -> AuditResponseDTO { try audit.get() }
         func resolveIssue(id: UUID) async throws -> ResolveResponseDTO { try resolve.get() }
     }
@@ -84,7 +106,8 @@ final class OpsModelTests: XCTestCase {
         issues: Result<IssuesResponseDTO, APIError>? = nil,
         history: Result<HistoryResponseDTO, APIError>? = nil,
         summary: Result<OpsSummaryDTO, APIError>? = nil,
-        audit: Result<AuditResponseDTO, APIError>? = nil
+        audit: Result<AuditResponseDTO, APIError>? = nil,
+        summaryDateRecorder: ((String?) -> Void)? = nil
     ) -> OpsModel {
         OpsModel(
             loader: StubLoader(result: .success(info)),
@@ -95,7 +118,8 @@ final class OpsModelTests: XCTestCase {
                     history: history ?? .success(Self.sampleHistory()),
                     summary: summary ?? .success(Self.sampleSummary()),
                     audit: audit ?? .success(Self.sampleAudit()),
-                    resolve: .success(Self.sampleResolve())
+                    resolve: .success(Self.sampleResolve()),
+                    summaryDateRecorder: summaryDateRecorder
                 )
             }
         )
@@ -190,6 +214,22 @@ final class OpsModelTests: XCTestCase {
         await model.loadAudit()
         XCTAssertEqual(model.summaryState, .loaded(summary))
         XCTAssertEqual(model.auditState, .loaded(audit))
+    }
+
+    func testSummaryDateChangePassesSelectedDateToAPI() async {
+        var requested: [String] = []
+        let model = makeModel(summaryDateRecorder: { date in
+            if let date { requested.append(date) }
+        })
+        await model.loadSummary()
+        XCTAssertEqual(requested.first ?? "", model.summaryDate)
+
+        model.summaryDate = "2026-11-20"
+        for _ in 0..<20 {
+            if requested.count >= 2 { break }
+            await Task.yield()
+        }
+        XCTAssertEqual(requested.last ?? "", "2026-11-20")
     }
 
     func testAuditFilterChangeReloads() async {

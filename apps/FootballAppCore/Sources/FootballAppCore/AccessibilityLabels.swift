@@ -291,6 +291,8 @@ public enum AccessibilityLabels {
     // MARK: - Összefoglaló, globális audit és akciók
 
     public static let opsSummaryIdentifier = "ops.summary"
+    public static let opsSummaryDateIdentifier = "ops.summary.date"
+    public static let opsSummaryDateLabel = "Összefoglaló dátuma"
     public static let opsAuditIdentifier = "ops.audit"
     public static let auditEmptyIdentifier = "ops.audit.empty"
     public static let auditEmptyTitle = "Még nincs audit-esemény."

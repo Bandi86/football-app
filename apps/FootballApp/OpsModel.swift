@@ -46,6 +46,12 @@ final class OpsModel {
     var summaryState: SummaryState = .idle
     var auditState: AuditState = .idle
 
+    /// Az összefoglaló dátuma `yyyy-MM-dd` kulcsként; változása új lekérést indít.
+    /// Az API `/v1/ops/summary?date=` paraméterével azonos formátum.
+    var summaryDate = OpsFormatting.dateKey(Date()) {
+        didSet { Task { await loadSummary() } }
+    }
+
     /// A globális audit-feed tárgy szerinti szűrője.
     var auditSubjectKind: String? {
         didSet { Task { await loadAudit() } }
@@ -160,7 +166,7 @@ final class OpsModel {
         if case .loaded = summaryState {} else { summaryState = .loading }
         do {
             let service = try makeServiceFromRuntime()
-            let summary = try await service.summary(date: nil)
+            let summary = try await service.summary(date: summaryDate)
             guard current == summaryGeneration else { return }
             summaryState = .loaded(summary)
         } catch is CancellationError {
