@@ -13,17 +13,31 @@ private struct ManualEditTarget: Identifiable {
 /// ami hiányzik, az nem jelenik meg, hamis értéket nem rajzolunk.
 struct MatchDetailSheet: View {
     let matchId: UUID
+    var isPresentedInChain = false
     @Environment(\.dismiss) private var dismiss
     @State private var model = MatchDetailModel()
     @State private var manualEditTarget: ManualEditTarget?
+    @State private var selectedMatch: SelectedMatch?
+
+    private var accessibilityPrefix: String {
+        isPresentedInChain ? "match.detail.\(matchId.uuidString)" : "match.detail"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
+                if isPresentedInChain {
+                    Button("Vissza") { selectedMatch = nil }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(AppTheme.accent)
+                        .accessibilityIdentifier("match.detail.back")
+                        .onExitCommand { selectedMatch = nil }
+                }
                 Text("Meccs")
                     .font(.appLabel(11))
                     .tracking(2.4)
                     .foregroundStyle(AppTheme.secondaryText)
+                    .accessibilityIdentifier(accessibilityPrefix)
                 Spacer()
                 Button {
                     manualEditTarget = model.detail.map(ManualEditTarget.init)
@@ -38,7 +52,6 @@ struct MatchDetailSheet: View {
                       : "Kezdés, státusz és eredmény szerkesztése")
                 .accessibilityIdentifier("match.detail.manual")
                 Button("Bezárás") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
                     .buttonStyle(.plain)
                     .foregroundStyle(AppTheme.secondaryText)
             }
@@ -51,10 +64,12 @@ struct MatchDetailSheet: View {
         }
         .frame(minWidth: 720, minHeight: 620)
         .background(AppTheme.background)
-        .accessibilityIdentifier("match.detail")
         .task(id: matchId) { await model.load(matchId: matchId) }
         .sheet(item: $manualEditTarget) { target in
             ManualResultSheet(model: model, detail: target.detail)
+        }
+        .sheet(item: $selectedMatch) { item in
+            MatchDetailSheet(matchId: item.id, isPresentedInChain: true)
         }
     }
 
@@ -71,7 +86,12 @@ struct MatchDetailSheet: View {
             })
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .loaded(let detail):
-            MatchDetailContent(detail: detail, logos: model.logos)
+            MatchDetailContent(
+                detail: detail,
+                logos: model.logos,
+                accessibilityPrefix: accessibilityPrefix,
+                onSelectMatch: { selectedMatch = SelectedMatch(id: $0) }
+            )
         }
     }
 }
@@ -426,6 +446,8 @@ struct ManualResultSheet: View {
 struct MatchDetailContent: View {
     let detail: MatchDetail
     let logos: LogoStore
+    let accessibilityPrefix: String
+    let onSelectMatch: (UUID) -> Void
 
     private static let kickoff: DateFormatter = {
         let formatter = DateFormatter()
@@ -507,14 +529,18 @@ struct MatchDetailContent: View {
                         homeName: detail.homeName,
                         awayName: detail.awayName,
                         homeForm: detail.homeForm ?? [],
-                        awayForm: detail.awayForm ?? []
+                        awayForm: detail.awayForm ?? [],
+                        accessibilityPrefix: accessibilityPrefix,
+                        onSelectMatch: onSelectMatch
                     )
-                    .accessibilityIdentifier("match.detail.form")
                 }
 
                 if let headToHead = detail.headToHead, !headToHead.isEmpty {
-                    HeadToHeadList(entries: headToHead)
-                        .accessibilityIdentifier("match.detail.h2h")
+                    HeadToHeadList(
+                        entries: headToHead,
+                        accessibilityPrefix: accessibilityPrefix,
+                        onSelectMatch: onSelectMatch
+                    )
                 }
 
                 if let tableSlice = detail.tableSlice, !tableSlice.isEmpty {
@@ -524,7 +550,7 @@ struct MatchDetailContent: View {
                         rows: tableSlice,
                         store: logos
                     )
-                    .accessibilityIdentifier("match.detail.table")
+                    .accessibilityIdentifier("\(accessibilityPrefix).table")
                 }
 
                 if !(detail.homeNext ?? []).isEmpty || !(detail.awayNext ?? []).isEmpty {
@@ -532,9 +558,10 @@ struct MatchDetailContent: View {
                         homeName: detail.homeName,
                         awayName: detail.awayName,
                         homeNext: detail.homeNext ?? [],
-                        awayNext: detail.awayNext ?? []
+                        awayNext: detail.awayNext ?? [],
+                        accessibilityPrefix: accessibilityPrefix,
+                        onSelectMatch: onSelectMatch
                     )
-                    .accessibilityIdentifier("match.detail.next")
                 }
 
                 if hasStats {
@@ -544,7 +571,7 @@ struct MatchDetailContent: View {
                         rows: statRows,
                         source: detail.statsSource
                     )
-                    .accessibilityIdentifier("match.detail.stats")
+                    .accessibilityIdentifier("\(accessibilityPrefix).stats")
                 }
 
                 if let odds = detail.odds {
@@ -559,7 +586,7 @@ struct MatchDetailContent: View {
                         source: detail.oddsSource,
                         capturedAt: detail.oddsCapturedAt
                     )
-                    .accessibilityIdentifier("match.detail.odds")
+                    .accessibilityIdentifier("\(accessibilityPrefix).odds")
                 }
 
                 if let insight = detail.insight {
@@ -572,7 +599,7 @@ struct MatchDetailContent: View {
                     evaluatedAt: detail.gateEvaluatedAt,
                     blockers: detail.gateBlockers
                 )
-                .accessibilityIdentifier("match.detail.verification")
+                .accessibilityIdentifier("\(accessibilityPrefix).verification")
             }
             .padding(AppTheme.Spacing.xl)
             .frame(maxWidth: 860, alignment: .leading)
@@ -758,6 +785,11 @@ struct FormStrip: View {
     let awayName: String
     let homeForm: [FormEntry]
     let awayForm: [FormEntry]
+    let accessibilityPrefix: String
+    let onSelectMatch: (UUID) -> Void
+
+    @FocusState private var focusedMatch: UUID?
+    @State private var hoveredMatch: UUID?
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.s) {
@@ -765,6 +797,7 @@ struct FormStrip: View {
                 .font(.appLabel(9))
                 .tracking(1.4)
                 .foregroundStyle(AppTheme.secondaryText)
+                .accessibilityIdentifier("\(accessibilityPrefix).form")
             row(name: homeName, entries: homeForm)
             row(name: awayName, entries: awayForm)
         }
@@ -786,13 +819,40 @@ struct FormStrip: View {
                     .foregroundStyle(AppTheme.tertiaryText)
             } else {
                 ForEach(entries) { entry in
-                    Text(entry.outcome)
-                        .font(.appText(11, weight: .bold))
-                        .foregroundStyle(.black)
-                        .frame(width: 20, height: 20)
-                        .background(chipColor(entry.outcome), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-                        .help("\(entry.isHome ? "hazai" : "vendég") \(entry.opponentName) ellen \(entry.teamGoals)–\(entry.opponentGoals)")
-                        .accessibilityLabel(outcomeLabel(entry))
+                    Button {
+                        onSelectMatch(entry.matchId)
+                    } label: {
+                        Text(entry.outcome)
+                            .font(.appText(11, weight: .bold))
+                            .foregroundStyle(.black)
+                            .frame(width: 28, height: 28)
+                            .background(chipColor(entry.outcome), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .frame(minWidth: 36, minHeight: 36)
+                    .contentShape(Rectangle())
+                    .help("\(entry.isHome ? "hazai" : "vendég") \(entry.opponentName) ellen \(entry.teamGoals)–\(entry.opponentGoals)")
+                    .accessibilityLabel(AccessibilityLabels.formMatchLabel(teamName: name, entry))
+                    .accessibilityIdentifier(AccessibilityLabels.formMatchIdentifier(
+                        for: entry.matchId,
+                        detailPrefix: accessibilityPrefix
+                    ))
+                    .focusAccessibility(focusedMatch == entry.matchId)
+                    .focusable()
+                    .focused($focusedMatch, equals: entry.matchId)
+                    .onKeyPress(.return) {
+                        onSelectMatch(entry.matchId)
+                        return .handled
+                    }
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .strokeBorder(
+                                focusedMatch == entry.matchId ? AppTheme.accent
+                                    : (hoveredMatch == entry.matchId ? AppTheme.hairlineStrong : Color.clear),
+                                lineWidth: focusedMatch == entry.matchId ? 2 : 1
+                            )
+                    )
+                    .onHover { hovering in hoveredMatch = hovering ? entry.matchId : nil }
                 }
             }
             Spacer()
@@ -806,16 +866,16 @@ struct FormStrip: View {
         default: return AppTheme.predictionDraw
         }
     }
-
-    private func outcomeLabel(_ entry: FormEntry) -> String {
-        let result = entry.outcome == "W" ? "győzelem" : (entry.outcome == "L" ? "vereség" : "döntetlen")
-        return "\(entry.isHome ? "Hazai" : "Vendég") \(entry.opponentName) ellen \(entry.teamGoals)–\(entry.opponentGoals), \(result)"
-    }
 }
 
 /// Korábbi egymás elleni meccsek tömör listája.
 struct HeadToHeadList: View {
     let entries: [HeadToHeadEntry]
+    let accessibilityPrefix: String
+    let onSelectMatch: (UUID) -> Void
+
+    @FocusState private var focusedMatch: UUID?
+    @State private var hoveredMatch: UUID?
 
     private static let dayFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -830,29 +890,61 @@ struct HeadToHeadList: View {
                 .font(.appLabel(9))
                 .tracking(1.4)
                 .foregroundStyle(AppTheme.secondaryText)
+                .accessibilityIdentifier("\(accessibilityPrefix).h2h")
             ForEach(entries) { entry in
-                HStack(spacing: AppTheme.Spacing.m) {
-                    Text(Self.dayFormatter.string(from: entry.kickoffAt))
-                        .font(.appText(11))
-                        .foregroundStyle(AppTheme.tertiaryText)
-                        .frame(width: 96, alignment: .leading)
-                    Text("\(entry.homeName) – \(entry.awayName)")
-                        .font(.appText(12))
-                        .foregroundStyle(AppTheme.primaryText)
-                        .lineLimit(1)
-                    Spacer()
-                    Text(scoreText(entry))
-                        .font(.scoreboard(13, weight: .semibold))
-                        .foregroundStyle(AppTheme.primaryText)
-                    Text(entry.competitionName)
-                        .font(.appLabel(9))
-                        .foregroundStyle(AppTheme.tertiaryText)
-                        .lineLimit(1)
-                        .frame(width: 150, alignment: .trailing)
+                Button {
+                    onSelectMatch(entry.matchId)
+                } label: {
+                    HStack(spacing: AppTheme.Spacing.m) {
+                        Text(Self.dayFormatter.string(from: entry.kickoffAt))
+                            .font(.appText(11))
+                            .foregroundStyle(AppTheme.tertiaryText)
+                            .frame(width: 96, alignment: .leading)
+                        Text("\(entry.homeName) – \(entry.awayName)")
+                            .font(.appText(12))
+                            .foregroundStyle(AppTheme.primaryText)
+                            .lineLimit(1)
+                        Spacer()
+                        Text(scoreText(entry))
+                            .font(.scoreboard(13, weight: .semibold))
+                            .foregroundStyle(AppTheme.primaryText)
+                        Text(entry.competitionName)
+                            .font(.appLabel(9))
+                            .foregroundStyle(AppTheme.tertiaryText)
+                            .lineLimit(1)
+                            .frame(width: 150, alignment: .trailing)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(AppTheme.tertiaryText)
+                    }
+                    .padding(.horizontal, AppTheme.Spacing.m)
+                    .padding(.vertical, 8)
+                    .frame(minHeight: 36)
+                    .background(AppTheme.surfaceElevated, in: RoundedRectangle(cornerRadius: AppTheme.Radius.chip, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: AppTheme.Radius.chip, style: .continuous)
+                            .strokeBorder(
+                                focusedMatch == entry.matchId ? AppTheme.accent
+                                    : (hoveredMatch == entry.matchId ? AppTheme.hairlineStrong : Color.clear),
+                                lineWidth: focusedMatch == entry.matchId ? 2 : 1
+                            )
+                    )
                 }
-                .padding(.horizontal, AppTheme.Spacing.m)
-                .padding(.vertical, 6)
-                .background(AppTheme.surfaceElevated, in: RoundedRectangle(cornerRadius: AppTheme.Radius.chip, style: .continuous))
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+                .accessibilityLabel(AccessibilityLabels.headToHeadMatchLabel(entry))
+                .accessibilityIdentifier(AccessibilityLabels.headToHeadMatchIdentifier(
+                    for: entry.matchId,
+                    detailPrefix: accessibilityPrefix
+                ))
+                .focusAccessibility(focusedMatch == entry.matchId)
+                .focusable()
+                .focused($focusedMatch, equals: entry.matchId)
+                .onKeyPress(.return) {
+                    onSelectMatch(entry.matchId)
+                    return .handled
+                }
+                .onHover { hovering in hoveredMatch = hovering ? entry.matchId : nil }
             }
         }
         .padding(AppTheme.Spacing.m)
@@ -873,6 +965,11 @@ struct NextMatchesStrip: View {
     let awayName: String
     let homeNext: [NextMatchEntry]
     let awayNext: [NextMatchEntry]
+    let accessibilityPrefix: String
+    let onSelectMatch: (UUID) -> Void
+
+    @FocusState private var focusedMatch: UUID?
+    @State private var hoveredMatch: UUID?
 
     private static let formatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -887,6 +984,7 @@ struct NextMatchesStrip: View {
                 .font(.appLabel(9))
                 .tracking(1.4)
                 .foregroundStyle(AppTheme.secondaryText)
+                .accessibilityIdentifier("\(accessibilityPrefix).next")
             row(name: homeName, entries: homeNext)
             row(name: awayName, entries: awayNext)
         }
@@ -908,22 +1006,53 @@ struct NextMatchesStrip: View {
                     .foregroundStyle(AppTheme.tertiaryText)
             } else {
                 ForEach(entries) { entry in
-                    HStack(spacing: 5) {
-                        Text(Self.formatter.string(from: entry.kickoffAt))
-                            .font(.appText(10))
-                            .foregroundStyle(AppTheme.tertiaryText)
-                        Text("\(entry.opponentName)")
-                            .font(.appText(11, weight: .medium))
-                            .foregroundStyle(AppTheme.primaryText)
-                            .lineLimit(1)
-                        Text(entry.isHome ? "H" : "V")
-                            .font(.appLabel(8))
-                            .foregroundStyle(AppTheme.secondaryText)
+                    Button {
+                        onSelectMatch(entry.matchId)
+                    } label: {
+                        HStack(spacing: 5) {
+                            Text(Self.formatter.string(from: entry.kickoffAt))
+                                .font(.appText(10))
+                                .foregroundStyle(AppTheme.tertiaryText)
+                            Text(entry.opponentName)
+                                .font(.appText(11, weight: .medium))
+                                .foregroundStyle(AppTheme.primaryText)
+                                .lineLimit(1)
+                            Text(entry.isHome ? "H" : "V")
+                                .font(.appLabel(8))
+                                .foregroundStyle(AppTheme.secondaryText)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 8, weight: .semibold))
+                                .foregroundStyle(AppTheme.tertiaryText)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 7)
+                        .frame(minHeight: 32)
+                        .background(AppTheme.surfaceElevated, in: RoundedRectangle(cornerRadius: AppTheme.Radius.chip, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: AppTheme.Radius.chip, style: .continuous)
+                                .strokeBorder(
+                                    focusedMatch == entry.matchId ? AppTheme.accent
+                                        : (hoveredMatch == entry.matchId ? AppTheme.hairlineStrong : Color.clear),
+                                    lineWidth: focusedMatch == entry.matchId ? 2 : 1
+                                )
+                        )
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(AppTheme.surfaceElevated, in: RoundedRectangle(cornerRadius: AppTheme.Radius.chip, style: .continuous))
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
                     .help(entry.competitionName)
+                    .accessibilityLabel(AccessibilityLabels.nextMatchLabel(teamName: name, entry))
+                    .accessibilityIdentifier(AccessibilityLabels.nextMatchIdentifier(
+                        for: entry.matchId,
+                        detailPrefix: accessibilityPrefix
+                    ))
+                    .focusAccessibility(focusedMatch == entry.matchId)
+                    .focusable()
+                    .focused($focusedMatch, equals: entry.matchId)
+                    .onKeyPress(.return) {
+                        onSelectMatch(entry.matchId)
+                        return .handled
+                    }
+                    .onHover { hovering in hoveredMatch = hovering ? entry.matchId : nil }
                 }
             }
             Spacer()

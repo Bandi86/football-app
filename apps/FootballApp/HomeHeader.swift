@@ -27,6 +27,7 @@ struct HomeHeader: View {
     let onRefresh: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.controlActiveState) private var controlActiveState
     @State private var pulse = false
 
     private static let bigDate: DateFormatter = {
@@ -78,99 +79,145 @@ struct HomeHeader: View {
             let phase = DayPhase.phase(at: now)
             let palette = HeaderMood.resolve(phase: phase, weather: weather.current)
             let refresh = refreshInfo(now: now)
+            header(phase: phase, palette: palette, refresh: refresh, reduceMotion: reduceMotion)
+        }
+    }
 
-            ZStack(alignment: .leading) {
-                HeaderAtmosphere(palette: palette, reduceMotion: reduceMotion)
+    private func header(
+        phase: DayPhase,
+        palette: HeaderPalette,
+        refresh: RefreshInfo,
+        reduceMotion: Bool
+    ) -> some View {
+        ZStack(alignment: .leading) {
+            HeaderAtmosphere(palette: palette, reduceMotion: reduceMotion)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    if compact {
-                        VStack(alignment: .leading, spacing: 6) {
-                            dateBlock(phase: phase, palette: palette)
-                            dateControls(palette: palette)
-                        }
-                    } else {
-                        HStack(alignment: .center, spacing: 16) {
-                            dateBlock(phase: phase, palette: palette)
-                            Spacer(minLength: 12)
-                            dateControls(palette: palette)
-                        }
+            VStack(alignment: .leading, spacing: 2) {
+                if compact {
+                    HStack(spacing: 8) {
+                        compactDateBlock(phase: phase, palette: palette)
+                        Spacer(minLength: 8)
+                        dateControls(palette: palette)
                     }
                     statsRow(palette: palette, refresh: refresh)
+                } else {
+                    HStack(alignment: .center, spacing: 10) {
+                        dateBlock(phase: phase, palette: palette)
+                        Spacer(minLength: 8)
+                        dateControls(palette: palette)
+                        statsRow(palette: palette, refresh: refresh)
+                    }
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 8)
             }
-            .background {
-                LinearGradient(
-                    colors: [Color(hex: palette.topHex), Color(hex: palette.bottomHex)],
-                    startPoint: .topLeading, endPoint: .bottomTrailing
-                )
-                .animation(reduceMotion ? nil : .easeInOut(duration: 0.8), value: palette)
-            }
-            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(AppTheme.hairline))
-            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .padding(.horizontal, 48)
-            .padding(.top, 8)
-            .padding(.bottom, 6)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 2)
         }
+        .background {
+            LinearGradient(
+                colors: [Color(hex: palette.topHex), Color(hex: palette.bottomHex)],
+                startPoint: .topLeading, endPoint: .bottomTrailing
+            )
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.8), value: palette)
+        }
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(AppTheme.hairline))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("home.header")
+        .padding(.horizontal, 48)
+        .padding(.top, 2)
+        .padding(.bottom, 2)
     }
 
     // MARK: - Dátum blokk
 
     private func dateBlock(phase: DayPhase, palette: HeaderPalette) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .center, spacing: 10) {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(alignment: .center, spacing: 6) {
                 Image(systemName: palette.symbolName)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Color(hex: palette.accentHex))
                 Text(phase.greeting)
-                    .font(.appText(14, weight: .semibold))
+                    .font(.appText(11, weight: .semibold))
                     .foregroundStyle(AppTheme.primaryText)
                 if let relativeLabel {
                     Text(relativeLabel)
-                        .font(.system(size: 9.5, weight: .bold))
-                        .tracking(1.3)
+                        .font(.system(size: 8, weight: .bold))
+                        .tracking(1)
                         .foregroundStyle(AppTheme.background)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
                         .background(AppTheme.accent, in: Capsule())
                 }
             }
             .opacity(appeared ? 1 : 0)
-            .offset(y: appeared ? 0 : 8)
+            .offset(y: appeared ? 0 : 4)
             .animation(step(0.04), value: appeared)
 
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(Self.bigDate.string(from: date))
-                    .font(.scoreboard(32))
-                    .tracking(-1.0)
+                    .font(.scoreboard(24))
+                    .tracking(-0.6)
                     .lineLimit(1)
                     .minimumScaleFactor(0.55)
                     .foregroundStyle(AppTheme.primaryText)
                 Text(metaText)
-                    .font(.appText(12))
+                    .font(.appText(9))
                     .foregroundStyle(AppTheme.secondaryText)
                     .lineLimit(1)
             }
             .opacity(appeared ? 1 : 0)
-            .offset(y: appeared ? 0 : 10)
+            .offset(y: appeared ? 0 : 5)
             .animation(step(0.1), value: appeared)
         }
+    }
+
+    private func compactDateBlock(phase: DayPhase, palette: HeaderPalette) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: palette.symbolName)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color(hex: palette.accentHex))
+            Text(phase.greeting)
+                .font(.appText(11, weight: .semibold))
+                .foregroundStyle(AppTheme.primaryText)
+            if let relativeLabel {
+                Text(relativeLabel)
+                    .font(.system(size: 8, weight: .bold))
+                    .tracking(1)
+                    .foregroundStyle(AppTheme.background)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(AppTheme.accent, in: Capsule())
+            }
+            Text(Self.bigDate.string(from: date))
+                .font(.scoreboard(20))
+                .tracking(-0.4)
+                .foregroundStyle(AppTheme.primaryText)
+            Text(metaText)
+                .font(.appText(9))
+                .foregroundStyle(AppTheme.secondaryText)
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.65)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("home.header.compactDate")
+        .opacity(appeared ? 1 : 0)
+        .animation(step(0.08), value: appeared)
     }
 
     // MARK: - Dátumvezérlők
 
     private func dateControls(palette: HeaderPalette) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             iconButton("chevron.left", help: "Előző nap", tint: palette,
                        focus: .previousDay, action: onPrevious)
                 .keyboardShortcut(.leftArrow, modifiers: .command)
             Button(action: onToday) {
                 Text("Ma")
-                    .font(.system(size: 12.5, weight: .medium))
+                    .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(AppTheme.primaryText)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
                     .background(AppTheme.accentSoft, in: Capsule())
                     .overlay(Capsule().strokeBorder(AppTheme.accent.opacity(0.25)))
             }
@@ -184,15 +231,15 @@ struct HomeHeader: View {
                        focus: .nextDay, action: onNext)
                 .keyboardShortcut(.rightArrow, modifiers: .command)
 
-            Rectangle().fill(AppTheme.hairline).frame(width: 1, height: 20).padding(.horizontal, 4)
+            Rectangle().fill(AppTheme.hairline).frame(width: 1, height: 16).padding(.horizontal, 2)
 
             Button {
                 showCalendar = true
             } label: {
                 Image(systemName: "calendar")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(AppTheme.secondaryText)
-                    .frame(width: 34, height: 34)
+                    .frame(width: 28, height: 28)
                     .background(AppTheme.surface, in: Circle())
                     .overlay(Circle().strokeBorder(AppTheme.hairline))
             }
@@ -210,7 +257,7 @@ struct HomeHeader: View {
                        focus: .refresh, action: onRefresh)
                 .keyboardShortcut("r", modifiers: .command)
         }
-        .padding(4)
+        .padding(2)
         .background(Color.black.opacity(0.32), in: Capsule())
         .overlay(Capsule().strokeBorder(AppTheme.hairline))
         .opacity(appeared ? 1 : 0)
@@ -220,7 +267,7 @@ struct HomeHeader: View {
     // MARK: - Ikonos összefoglaló téglák
 
     private func statsRow(palette: HeaderPalette, refresh: RefreshInfo) -> some View {
-        let tiles = HStack(spacing: 12) {
+        let tiles = HStack(spacing: 6) {
             statTile(
                 icon: "sportscourt",
                 value: count.map { "\($0)" } ?? "–",
@@ -245,7 +292,6 @@ struct HomeHeader: View {
             )
             weatherTile(palette: palette)
             countdownTile(info: refresh, palette: palette)
-            Spacer(minLength: 0)
         }
         return Group {
             if compact {
@@ -269,39 +315,41 @@ struct HomeHeader: View {
         identifier: String,
         pulsing: Bool = false
     ) -> some View {
-        HStack(spacing: 11) {
+        HStack(spacing: 5) {
             ZStack {
                 if pulsing {
                     Circle()
                         .stroke(tint.opacity(0.55), lineWidth: 1.5)
-                        .frame(width: 24, height: 24)
+                        .frame(width: 20, height: 20)
                         .scaleEffect(pulse ? 1.5 : 1)
                         .opacity(pulse ? 0 : 0.9)
                 }
                 Image(systemName: icon)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(tint)
             }
-            .frame(width: 28, height: 28)
-            .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-            VStack(alignment: .leading, spacing: 1) {
+            .frame(width: 22, height: 22)
+            .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            VStack(alignment: .leading, spacing: 0) {
                 Text(value)
-                    .font(.scoreboard(16))
+                    .font(.scoreboard(14))
                     .foregroundStyle(AppTheme.primaryText)
                 Text(label)
-                    .font(.appLabel(9))
+                    .font(.appLabel(8))
                     .foregroundStyle(AppTheme.secondaryText)
             }
         }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 8)
-        .background(tileBackground, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(AppTheme.hairline))
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(tileBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(AppTheme.hairline))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(value) \(label)")
         .accessibilityIdentifier(identifier)
         .onAppear {
-            guard pulsing, !reduceMotion else { return }
+            // Csak aktív ablaknál indítjuk a végtelen pulzálást: a repeatForever
+            // animáció különben a háttérben is folyamatos kijelzőfrissítést kér.
+            guard pulsing, !reduceMotion, controlActiveState == .key else { return }
             withAnimation(.easeOut(duration: 1.6).repeatForever(autoreverses: false)) {
                 pulse = true
             }
@@ -315,29 +363,29 @@ struct HomeHeader: View {
         let helpText = live
             ? "Időjárás: \(palette.conditionLabel), \(weather.current?.temperatureText ?? ""), \(weather.cityName) (\(origin)), \(freshness). Forrás: helyi API (Open-Meteo)."
             : "Valódi időjárás nem elérhető; a színezés a napszakot követi (\(palette.conditionLabel))."
-        return HStack(spacing: 11) {
+        return HStack(spacing: 5) {
             Image(systemName: palette.symbolName)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Color(hex: palette.accentHex))
-                .frame(width: 28, height: 28)
+                .frame(width: 22, height: 22)
                 .background(
                     Color(hex: palette.accentHex).opacity(0.12),
-                    in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    in: RoundedRectangle(cornerRadius: 7, style: .continuous)
                 )
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 0) {
                 Text(weather.current?.temperatureText ?? "–")
-                    .font(.scoreboard(16))
+                    .font(.scoreboard(14))
                     .foregroundStyle(AppTheme.primaryText)
                 Text(palette.conditionLabel)
-                    .font(.appLabel(9))
+                    .font(.appLabel(8))
                     .foregroundStyle(AppTheme.secondaryText)
                     .lineLimit(1)
             }
         }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 8)
-        .background(tileBackground, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(AppTheme.hairline))
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(tileBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(AppTheme.hairline))
         .help(helpText)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
@@ -349,37 +397,37 @@ struct HomeHeader: View {
     }
 
     private func countdownTile(info: RefreshInfo, palette: HeaderPalette) -> some View {
-        HStack(spacing: 11) {
+        HStack(spacing: 5) {
             ZStack {
                 Circle()
-                    .stroke(Color.white.opacity(0.10), lineWidth: 2.5)
+                    .stroke(Color.white.opacity(0.10), lineWidth: 2)
                 Circle()
                     .trim(from: 0, to: max(0.02, min(1, info.progress)))
                     .stroke(
                         Color(hex: palette.accentHex),
-                        style: StrokeStyle(lineWidth: 2.5, lineCap: .round)
+                        style: StrokeStyle(lineWidth: 2, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
                 Image(systemName: "arrow.triangle.2.circlepath")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 7, weight: .semibold))
                     .foregroundStyle(Color(hex: palette.accentHex))
             }
-            .frame(width: 28, height: 28)
-            VStack(alignment: .leading, spacing: 1) {
+            .frame(width: 22, height: 22)
+            VStack(alignment: .leading, spacing: 0) {
                 Text(info.value)
-                    .font(.scoreboard(15))
+                    .font(.scoreboard(13))
                     .monospacedDigit()
                     .foregroundStyle(AppTheme.primaryText)
                 Text(info.label)
-                    .font(.appLabel(9))
+                    .font(.appLabel(8))
                     .foregroundStyle(AppTheme.secondaryText)
                     .lineLimit(1)
             }
         }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 8)
-        .background(tileBackground, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(AppTheme.hairline))
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(tileBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(AppTheme.hairline))
         .contentShape(Rectangle())
         .onTapGesture(perform: onRefresh)
         .help(info.help)
@@ -470,9 +518,9 @@ struct HomeHeader: View {
         let isFocused = focused == target
         return Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(AppTheme.secondaryText)
-                .frame(width: 30, height: 30)
+                .frame(width: 26, height: 26)
                 .background(Color.black.opacity(0.28), in: Circle())
                 .overlay(Circle().strokeBorder(AppTheme.hairline))
         }

@@ -95,6 +95,67 @@ import Testing
         #expect(withoutOdds.contains("Újpest, 18:00"))
     }
 
+    @Test func formMatchLabelSpeaksActionTeamOpponentAndResult() {
+        let id = UUID(uuidString: "10000000-0000-0000-0000-000000000001")!
+        let entry = FormEntry(
+            matchId: id,
+            kickoffAt: kickoff,
+            competitionName: "NB I",
+            opponentName: "Ferencváros",
+            isHome: true,
+            teamGoals: 2,
+            opponentGoals: 1,
+            outcome: "W"
+        )
+        let label = AccessibilityLabels.formMatchLabel(teamName: "Debrecen", entry)
+        #expect(label.contains("Meccs megnyitása"))
+        #expect(label.contains("Debrecen"))
+        #expect(label.contains("hazai Ferencváros ellen"))
+        #expect(label.contains("2–1"))
+        #expect(label.contains("győzelem"))
+        #expect(AccessibilityLabels.formMatchIdentifier(for: id)
+            == "match.detail.form.10000000-0000-0000-0000-000000000001")
+    }
+
+    @Test func headToHeadMatchLabelNeverInventsMissingScore() {
+        let id = UUID(uuidString: "10000000-0000-0000-0000-000000000005")!
+        let entry = HeadToHeadEntry(
+            matchId: id,
+            kickoffAt: kickoff,
+            competitionName: "Magyar Kupa",
+            homeName: "Paks",
+            awayName: "Debrecen",
+            homeGoals: nil,
+            awayGoals: nil
+        )
+        let label = AccessibilityLabels.headToHeadMatchLabel(entry)
+        #expect(label.contains("Meccs megnyitása"))
+        #expect(label.contains("Paks – Debrecen"))
+        #expect(label.contains("eredmény még nincs"))
+        #expect(!label.contains("0 – 0"))
+        #expect(!label.contains("0–0"))
+        #expect(AccessibilityLabels.headToHeadMatchIdentifier(for: id)
+            == "match.detail.h2h.10000000-0000-0000-0000-000000000005")
+    }
+
+    @Test func nextMatchLabelSpeaksTeamVenueOpponentAndCompetition() {
+        let id = UUID(uuidString: "10000000-0000-0000-0000-000000000006")!
+        let entry = NextMatchEntry(
+            matchId: id,
+            kickoffAt: kickoff,
+            competitionName: "NB I",
+            opponentName: "Győr",
+            isHome: true
+        )
+        let label = AccessibilityLabels.nextMatchLabel(teamName: "Debrecen", entry)
+        #expect(label.contains("Meccs megnyitása"))
+        #expect(label.contains("Debrecen"))
+        #expect(label.contains("hazai Győr ellen"))
+        #expect(label.contains("NB I"))
+        #expect(AccessibilityLabels.nextMatchIdentifier(for: id)
+            == "match.detail.next.10000000-0000-0000-0000-000000000006")
+    }
+
     @Test func incidentTypeLabelsAreHungarian() {
         #expect(AccessibilityLabels.incidentTypeLabel(.goal) == "Gól")
         #expect(AccessibilityLabels.incidentTypeLabel(.card) == "Kártya")

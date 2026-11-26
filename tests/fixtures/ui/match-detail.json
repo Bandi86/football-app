@@ -67,6 +67,78 @@
   "gate_evaluated_at": "2026-11-20T18:41:00Z",
   "gate_rule_set_version": "1.4.0",
   "publish_date": "2026-11-20",
+  "home_form": [
+    {
+      "match_id": "10000000-0000-0000-0000-000000000001",
+      "kickoff_at": "2026-11-14T17:00:00Z",
+      "competition_name": "NB I",
+      "opponent_name": "Ferencváros",
+      "is_home": true,
+      "team_goals": 2,
+      "opponent_goals": 1,
+      "outcome": "W"
+    },
+    {
+      "match_id": "10000000-0000-0000-0000-000000000002",
+      "kickoff_at": "2026-11-07T14:00:00Z",
+      "competition_name": "NB I",
+      "opponent_name": "Kecskemét",
+      "is_home": false,
+      "team_goals": 0,
+      "opponent_goals": 2,
+      "outcome": "L"
+    }
+  ],
+  "away_form": [
+    {
+      "match_id": "10000000-0000-0000-0000-000000000003",
+      "kickoff_at": "2026-11-13T18:30:00Z",
+      "competition_name": "NB I",
+      "opponent_name": "MTK",
+      "is_home": false,
+      "team_goals": 1,
+      "opponent_goals": 1,
+      "outcome": "D"
+    }
+  ],
+  "head_to_head": [
+    {
+      "match_id": "10000000-0000-0000-0000-000000000004",
+      "kickoff_at": "2026-05-02T18:00:00Z",
+      "competition_name": "NB I",
+      "home_name": "Debrecen",
+      "away_name": "Paks",
+      "home_goals": 3,
+      "away_goals": 1
+    },
+    {
+      "match_id": "10000000-0000-0000-0000-000000000005",
+      "kickoff_at": "2026-10-30T19:30:00Z",
+      "competition_name": "Magyar Kupa",
+      "home_name": "Paks",
+      "away_name": "Debrecen",
+      "home_goals": null,
+      "away_goals": null
+    }
+  ],
+  "home_next": [
+    {
+      "match_id": "10000000-0000-0000-0000-000000000006",
+      "kickoff_at": "2026-11-28T15:00:00Z",
+      "competition_name": "NB I",
+      "opponent_name": "Győr",
+      "is_home": true
+    }
+  ],
+  "away_next": [
+    {
+      "match_id": "10000000-0000-0000-0000-000000000007",
+      "kickoff_at": "2026-11-29T13:30:00Z",
+      "competition_name": "NB I",
+      "opponent_name": "Zalaegerszeg",
+      "is_home": false
+    }
+  ],
   "insight": {
     "captured_at": "2026-11-22T11:44:31Z",
     "source": "research",

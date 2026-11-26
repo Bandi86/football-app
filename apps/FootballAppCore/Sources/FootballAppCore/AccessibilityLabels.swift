@@ -26,6 +26,14 @@ public enum AccessibilityLabels {
         return formatter
     }()
 
+    private static let relatedMatchFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "hu_HU")
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
     /// Ismeretlen státusz esetén a nyers érték marad (nem találunk ki magyarázatot).
     public static func statusLabel(for status: String) -> String {
         statusLabels[status] ?? status
@@ -103,6 +111,53 @@ public enum AccessibilityLabels {
     /// Kattintás- és tesztstabil azonosító soronként.
     public static func matchIdentifier(for id: UUID) -> String {
         "match.row.\(id.uuidString)"
+    }
+
+    public static func formMatchLabel(teamName: String, _ entry: FormEntry) -> String {
+        let venue = entry.isHome ? "hazai" : "vendég"
+        let result = entry.outcome == "W" ? "győzelem"
+            : (entry.outcome == "L" ? "vereség" : "döntetlen")
+        return "Meccs megnyitása: \(teamName), \(venue) \(entry.opponentName) ellen, "
+            + "\(result) \(entry.teamGoals)–\(entry.opponentGoals), \(entry.competitionName), "
+            + relatedMatchFormatter.string(from: entry.kickoffAt)
+    }
+
+    public static func formMatchIdentifier(
+        for id: UUID,
+        detailPrefix: String = "match.detail"
+    ) -> String {
+        "\(detailPrefix).form.\(id.uuidString)"
+    }
+
+    public static func headToHeadMatchLabel(_ entry: HeadToHeadEntry) -> String {
+        let score: String
+        if let home = entry.homeGoals, let away = entry.awayGoals {
+            score = "\(home)–\(away)"
+        } else {
+            score = "eredmény még nincs"
+        }
+        return "Meccs megnyitása: \(entry.homeName) – \(entry.awayName), \(score), "
+            + "\(entry.competitionName), \(relatedMatchFormatter.string(from: entry.kickoffAt))"
+    }
+
+    public static func headToHeadMatchIdentifier(
+        for id: UUID,
+        detailPrefix: String = "match.detail"
+    ) -> String {
+        "\(detailPrefix).h2h.\(id.uuidString)"
+    }
+
+    public static func nextMatchLabel(teamName: String, _ entry: NextMatchEntry) -> String {
+        let venue = entry.isHome ? "hazai" : "vendég"
+        return "Meccs megnyitása: \(teamName), \(venue) \(entry.opponentName) ellen, "
+            + "\(entry.competitionName), \(relatedMatchFormatter.string(from: entry.kickoffAt))"
+    }
+
+    public static func nextMatchIdentifier(
+        for id: UUID,
+        detailPrefix: String = "match.detail"
+    ) -> String {
+        "\(detailPrefix).next.\(id.uuidString)"
     }
 
     /// Az idővonal üres állapotának stabil accessibility-identifierje.
