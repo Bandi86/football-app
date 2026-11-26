@@ -309,6 +309,38 @@
 - [ ] **Következő döntési pont**: a 3 régi fixture-pár kivizsgálása, vagy
       S4 (teljes meccs-szerkesztés); a summary dátumválasztója is nyitva.
 
+## S172 — Helyi AI memóriaproblémája
+
+- [x] **Probléma**: a Magnitude a gemma 4 E4B Artemis Q4_0 modellt nem tudta
+      betölteni: `memory_shortage`, szükséges **5,00 GB**, elérhető **2,42 GB**
+      (a gép M4 Mac mini, 16 GB unified). A service aktív modell nélkül állt,
+      és egy óra kérés nélkül / memórianyomáskor automatikusan kiveszi a modellt.
+- [x] **Döntés**: [`2026-11-26-helyi-modell-memoria.md`](../../decisions/2026-11-26-helyi-modell-memoria.md)
+      — kisebb modell alapértelmezésnek, a nagyobb megmarad eseti használatra.
+- [x] **Végrehajtás**: `magnitude models drafter <gemma-id> none`
+      (~292 MB drafter kikapcsolva); `magnitude models pull lfm3-1.7b:gguf:q4-qat`
+      letöltés (1,05 GB, 2,7 GB betöltési igény, ~54 tok/s, tool-call + structured output);
+      `FOOTBALL_AI_MODEL=lfm3-1.7b:gguf:q4-qat` beállítása a lokális `.env`-ben
+      (a `.env` nem kerül verziókövetésbe, kód nem változott).
+- [x] **Betöltés és ellenőrzés**: az LFM3 letöltése (1,05 GB) + optimalizálás
+      lefutott, `magnitude models load` után az aktív modell
+      **Liquid LFM3 1.7B (QAD-Q4_0)**, `residency=Loaded`, 2,7 GB igénnyel.
+      `footballctl ai search` → 2 magyar forrás URL; `ai ask` → magyar válasz
+      tool-callal és 6 forrással. A `reasoning_effort` nélkül a kis modell a
+      választokenjeit gondolkodásra használta el (`content: null`), ezért
+      bevezettem a `FOOTBALL_AI_REASONING_EFFORT` opciót (default: nincs
+      elküldve; `none` esetén 325 token helyett 7-tel válaszol), és a lokális
+      `.env`-ben `none`-ra állítottam. Új teszt: config + ChatRequest szerializáció.
+- [x] **Kapuk**: `check-foundation` OK, `cargo test --workspace` **615 passed,
+      0 failed**, `clippy --workspace -D warnings` **0**, `fmt --check` **0**,
+      `build footballctl --features obscura` **OK**, `db-reset` a végén,
+      `git diff --check` **0**. A `.env` és a daemon `agent/env` is frissült
+      (a `.env` nem kerül verziókövetésbe).
+- [ ] **Oldalhatás (új, nem az S172 része)**: a SearXNG a `Ferencváros Paks`
+      keresésre pornó/spam domaineket is visszaadott; a modell ezt forrásként
+      sorolta. A `football-ai` jelenleg nem szűr domaineket — külön döntés
+      (SearXNG blocklist vagy kliens-oldali engedélyezett-domain szűrő).
+
 ## Döntések / korlátok
 
 - [ ] **Maradék hézag = forrás, nem pipeline**: 11-25-ön 21 scheduled és 52 odds nélküli meccs; 11-26-on 92 scheduled (délelőtti mérésnél normális) és 57 odds nélküli meccs. Az odds egy része a 14:15-ös `research-sync` körben érkezik — **nem indítottuk kézzel**, a felhasználói döntés szerint az ütemezett körre marad.

@@ -49,7 +49,8 @@ pub struct AiAgent {
 impl AiAgent {
     pub fn new(config: &AiConfig) -> Result<Self, AiError> {
         let model =
-            MagnitudeClient::new(&config.magnitude_base_url, &config.model, config.timeout)?;
+            MagnitudeClient::new(&config.magnitude_base_url, &config.model, config.timeout)?
+                .with_reasoning_effort(config.reasoning_effort.clone());
         let search = SearxngClient::new(&config.searxng_url, config.timeout)?;
         Ok(Self {
             model,

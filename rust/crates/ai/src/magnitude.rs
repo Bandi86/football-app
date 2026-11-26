@@ -117,6 +117,8 @@ struct ChatRequest<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<&'a [ToolDefinition]>,
     max_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<&'a str>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -138,6 +140,7 @@ pub struct MagnitudeClient {
     http: reqwest::Client,
     base_url: String,
     model: String,
+    reasoning_effort: Option<String>,
 }
 
 impl MagnitudeClient {
@@ -155,7 +158,14 @@ impl MagnitudeClient {
             http,
             base_url: parsed.to_string().trim_end_matches('/').to_string(),
             model: model.trim().to_string(),
+            reasoning_effort: None,
         })
+    }
+
+    /// Reasoning-modelleknél kikapcsolható a gondolkodási tokenhasználat.
+    pub fn with_reasoning_effort(mut self, effort: Option<String>) -> Self {
+        self.reasoning_effort = effort;
+        self
     }
 
     pub fn model(&self) -> &str {
@@ -175,6 +185,7 @@ impl MagnitudeClient {
             messages,
             tools,
             max_tokens,
+            reasoning_effort: self.reasoning_effort.as_deref(),
         };
         // A workspace reqwest nem tartalmazza a `json` feature-t, ezért a
         // törzset kézzel szerializáljuk és JSON tartalomtípusként küldjük.
@@ -205,5 +216,35 @@ impl MagnitudeClient {
             context: "Magnitude chat-válasz".to_string(),
             source,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chat_request_omits_effort_by_default_and_sends_it_when_set() {
+        let messages = vec![ChatMessage::user("kérdés")];
+        let plain = ChatRequest {
+            model: "model",
+            messages: &messages,
+            tools: None,
+            max_tokens: 100,
+            reasoning_effort: None,
+        };
+        let value = serde_json::to_value(&plain).unwrap();
+        assert!(value.get("reasoning_effort").is_none());
+        assert_eq!(value["max_tokens"], 100);
+
+        let without_reasoning = ChatRequest {
+            model: "model",
+            messages: &messages,
+            tools: None,
+            max_tokens: 100,
+            reasoning_effort: Some("none"),
+        };
+        let value = serde_json::to_value(&without_reasoning).unwrap();
+        assert_eq!(value["reasoning_effort"], "none");
     }
 }

@@ -20,6 +20,9 @@ pub struct AiConfig {
     pub searxng_url: String,
     pub timeout: Duration,
     pub max_tool_steps: usize,
+    /// Reasoning-modelleknél a `none` megakadályozza, hogy a választokenjeket
+    /// gondolkodásra használja el (LFM3 tanulsága, S172).
+    pub reasoning_effort: Option<String>,
 }
 
 impl Default for AiConfig {
@@ -30,6 +33,7 @@ impl Default for AiConfig {
             searxng_url: DEFAULT_SEARXNG_URL.to_string(),
             timeout: Duration::from_secs(DEFAULT_TIMEOUT_SECS),
             max_tool_steps: DEFAULT_MAX_TOOL_STEPS,
+            reasoning_effort: None,
         }
     }
 }
@@ -65,6 +69,14 @@ impl AiConfig {
             })?;
             config.max_tool_steps = steps.max(1);
         }
+        if let Some(effort) = non_empty(lookup("FOOTBALL_AI_REASONING_EFFORT")) {
+            if !matches!(effort.as_str(), "none" | "low" | "medium" | "high") {
+                return Err(AiError::Config(format!(
+                    "FOOTBALL_AI_REASONING_EFFORT érvénytelen: {effort}"
+                )));
+            }
+            config.reasoning_effort = Some(effort);
+        }
         Ok(config)
     }
 }
@@ -95,6 +107,7 @@ mod tests {
             "FOOTBALL_AI_SEARXNG_URL" => Some("http://127.0.0.1:9999/".into()),
             "FOOTBALL_AI_TIMEOUT_SECS" => Some("15".into()),
             "FOOTBALL_AI_MAX_TOOL_STEPS" => Some("2".into()),
+            "FOOTBALL_AI_REASONING_EFFORT" => Some("none".into()),
             _ => None,
         })
         .expect("felülírás");
@@ -106,6 +119,17 @@ mod tests {
         assert_eq!(config.searxng_url, "http://127.0.0.1:9999");
         assert_eq!(config.timeout, Duration::from_secs(15));
         assert_eq!(config.max_tool_steps, 2);
+        assert_eq!(config.reasoning_effort.as_deref(), Some("none"));
+    }
+
+    #[test]
+    fn invalid_reasoning_effort_is_typed_error() {
+        let err = AiConfig::from_lookup(|key| match key {
+            "FOOTBALL_AI_REASONING_EFFORT" => Some("nagyon".into()),
+            _ => None,
+        })
+        .expect_err("érvénytelen effort");
+        assert!(matches!(err, AiError::Config(_)));
     }
 
     #[test]

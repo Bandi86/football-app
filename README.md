@@ -209,8 +209,12 @@ footballctl ai ask "Mikor játssza a Debrecen a Paks elleni következő mérkőz
 
 A végpontok felülírhatók a `FOOTBALL_AI_MAGNITUDE_URL`, `FOOTBALL_AI_MODEL`,
 `FOOTBALL_AI_SEARXNG_URL`, `FOOTBALL_AI_TIMEOUT_SECS`, `FOOTBALL_AI_MAX_TOOL_STEPS`
-változókkal; a default mindegyiknél a fenti lokális cím. A worker-oldali háttér-job
-bekötése külön szelet. Részletek: [docs/decisions/2026-11-20-local-ai.md](docs/decisions/2026-11-20-local-ai.md).
+és `FOOTBALL_AI_REASONING_EFFORT` változókkal; a default mindegyiknél a fenti lokális cím.
+A 16 GB-os M4-en a kisebb `lfm3-1.7b:gguf:q4-qat` modell a megbízható
+(`FOOTBALL_AI_REASONING_EFFORT=none` — különben a reasoning modell a választokenjeit
+használja el); döntés: [docs/decisions/2026-11-26-helyi-modell-memoria.md](docs/decisions/2026-11-26-helyi-modell-memoria.md).
+A worker-oldali háttér-job bekötése külön szelet. Részletek:
+[docs/decisions/2026-11-20-local-ai.md](docs/decisions/2026-11-20-local-ai.md).
 
 ## Adatvédelem és közzététel
 
