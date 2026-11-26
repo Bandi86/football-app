@@ -17,6 +17,9 @@ struct HomeHeader: View {
     let refreshedAt: Date?
     /// A következő tényleges adatfrissítés a backendtől (research napi slot).
     let nextRefreshAt: Date?
+    /// A legutóbbi csendes háttérfrissítés hibája; a megjelenített adat ekkor
+    /// a korábbi pillanatkép, ezért külön jelzés kell róla (S167).
+    let refreshFailed: Bool
     let appeared: Bool
     let focused: AppFocus?
     let weather: WeatherModel
@@ -292,6 +295,7 @@ struct HomeHeader: View {
             )
             weatherTile(palette: palette)
             countdownTile(info: refresh, palette: palette)
+            refreshFailedTile()
         }
         return Group {
             if compact {
@@ -437,6 +441,33 @@ struct HomeHeader: View {
         .accessibilityIdentifier("home.stat.refresh")
     }
 
+    /// A csendes frissítés hibája csak akkor jelenik meg, ha van mit megjeleníteni:
+    /// teljes hiba esetén az `ErrorStateView` veszi át a place-t, itt nincs mit mutatni.
+    @ViewBuilder
+    private func refreshFailedTile() -> some View {
+        if refreshFailed {
+            HStack(spacing: 4) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                Text("Frissítés nem sikerült")
+                    .font(.appLabel(8))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(AppTheme.warning)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(tileBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(AppTheme.warning.opacity(0.5))
+            )
+            .help("Az utolsó háttérfrissítés nem sikerült. A megjelenített adat a korábbi pillanatkép; a következő kör újrapróbálja.")
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Utolsó frissítés nem sikerült")
+            .accessibilityIdentifier("home.stat.refreshFailed")
+        }
+    }
+
     private var tileBackground: Color {
         Color.black.opacity(0.34)
     }
@@ -449,6 +480,8 @@ struct HomeHeader: View {
         let label: String
         let help: String
     }
+
+    private static let clientPollHint = "A kliens ezalatt 5 percenként (élő meccsnél 60 mp) csendesen újra lekérdezi az API-t; ez nem hoz új research-adatot."
 
     private func refreshInfo(now: Date) -> RefreshInfo {
         let anchor = refreshedAt ?? now
@@ -464,14 +497,14 @@ struct HomeHeader: View {
                     value: "most",
                     progress: 1,
                     label: "frissítés esedékes",
-                    help: "A következő adatfrissítés esedékes. Kattints a frissítéshez."
+                    help: "A forrás következő slotja esedékes. Kattints a frissítéshez."
                 )
             }
             return RefreshInfo(
                 value: Self.duration(remaining),
                 progress: min(1, max(0, remaining / cycle)),
-                label: "következő adatfrissítés",
-                help: "A következő meccsadat-frissítés \(Self.refreshTime.string(from: next)) körül várható."
+                label: "forrás-slot",
+                help: "A következő meccsadat-frissítés \(Self.refreshTime.string(from: next)) körül várható — ez a FORRÁS következő slotja, nem a kliens frissítése. \(Self.clientPollHint)"
             )
         }
         let cycle: TimeInterval = 6 * 3600
@@ -482,14 +515,14 @@ struct HomeHeader: View {
                 value: "most",
                 progress: 1,
                 label: "frissítés esedékes",
-                help: "A következő adatfrissítés esedékes. Kattints a frissítéshez."
+                help: "A forrás következő slotja esedékes. Kattints a frissítéshez."
             )
         }
         return RefreshInfo(
             value: Self.duration(remaining),
             progress: remaining / cycle,
-            label: "következő frissítés",
-            help: "Várható adatfrissítés \(Self.refreshTime.string(from: next)) körül."
+            label: "becsült forrás-slot",
+            help: "Becsült adatfrissítés \(Self.refreshTime.string(from: next)) körül (a forrás nem adott slotot). \(Self.clientPollHint)"
         )
     }
 

@@ -269,6 +269,7 @@ struct HomeView: View {
                 compact: width < 900,
                 refreshedAt: loadedRefreshedAt,
                 nextRefreshAt: loadedNextRefreshAt,
+                refreshFailed: model.lastRefreshFailed,
                 appeared: appeared,
                 focused: focus,
                 weather: weather,
