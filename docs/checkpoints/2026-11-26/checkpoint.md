@@ -253,6 +253,62 @@
 - [ ] **Következő lépés**: S4 (teljes meccs-szerkesztés, `PUT /v1/match/{id}/edit`)
       vagy a summary dátumválasztója — felhasználói döntés.
 
+## S171 — Adatjavítás: duplikátum, verseny- és csapatlogók
+
+- [x] **Push**: a felhasználó kérésére a `main` pusholva —
+      `389a3e4..bd1f0be main -> main`, azóta `main...origin/main` szinkronban.
+      A nem commitolt RFC-spec továbbra is érintetlen.
+- [x] **Duplikátum (ma)**: a `dedupe matches --date 2026-11-26` egy párt
+      talált: Doncaster–Huddersfield, 20:00 UTC, „League One". A két sor:
+      a régebbi, 5+ forrással bíró GB-ENG entitás (round 17) és a tipplap
+      által 13:02-kor, téves **GB-SCT** országgal létrehozott entitás.
+      Web-bizonyíték: ESPN (gameId 401880728), Sky Sports (561796),
+      FotMob (37j24d) — mind EFL League One (GB-ENG). A verseny-merge
+      ország-őre blokkolt, ezért előbb **auditált országjavítás**
+      (`competition_country_revision`, GB-SCT → GB-ENG), majd
+      `identity merge-competition --apply` (1 meccs, 1 alias, 1 ref),
+      végül `dedupe pair` (túlélő: `01a1e9ed…`, áldozat archiválva).
+      Mérés: `integrity 11-26` → 0 duplikátum, 0 azonos pillanatú pár;
+      `dedupe matches` → „nincs duplikált meccs"; API → **1** sor.
+- [x] **Verseny-logók**: a FotMob league-cache nem volt elérhető, ezért
+      webes forrásból származó, ellenőrzött league ID-kkel (Europa League
+      `73`, Conference League `10216`, AFC Champions League Two `9469` —
+      csoportokkal, valamint Elite `525`) átmeneti cache-t állítottam össze,
+      és a meglévő `import-fotmob-competition-logos.py` scriptet futtattam
+      dry-run → `--apply` (DATA_DIR = daemon adatkönyvtára). **10** új
+      `ops.asset` sor. Mérés: a napi API `missing_competition_logo`
+      **90 → 46**; Europa League **18/18**, Conference League **19/19**,
+      AFC CL Two F **2/2** meccsnél van versenylogó; az asset URL-ek
+      hitelesítetten **HTTP 200 image/png**.
+- [x] **Csapatlogók**: `import-luukhopman-logos.py --dry-run` nem fedte le
+      a hiányzó csapatokat (12 jelölt, egyik sem a 23 hiányzó közül),
+      ezért az engedélyezett `import-v1-megapack-logos.py --apply` futott
+      (dry-run előtte): 3688 + 897 csapat- és 88 verseny-illesztés.
+      `ops.asset` team-logo sorok: **8096**. A napi `missing_team_logo`
+      **17 → 16**. A fennmaradó 23 csapat (AC Taipei, Al Nasr, KCB,
+      SJK-J, U19/női válogatottak…) egyik engedélyezett forrásban sincs.
+      **Celtic**: a felnőtt entitásnak már 4 logója van, a mai feedben
+      megjelenik (`away_logo`), az URL HTTP 200 PNG — a felhasználói
+      észrevétel erre az entitásra nem igazolódott; ha Celtic B/W-re
+      vagy másik entitásra gondolt, külön pontosítás kell.
+- [x] **Audit**: 3 új `ops.audit_event` (országjavítás, 2× asset_import,
+      dedupe_pair — összesen 4 az új események közül a meglévők mellett),
+      mindegyik ok + forrás + visszaállási út rögzítve.
+- [x] **Kapuk**: `daily-check 2026-11-25` **EXIT=0 ZÖLD** (detektor:
+      197 jel, 0 lezárás — a logóimport óta a hiányok száma csökkent);
+      `integrity 11-25…11-26` **verdict OK**; `git diff --check` **0**.
+      A `rust/target` időközben eltűnt a gépről, ezért a binárisokat
+      `--features obscura`-val újraépítettem (45 s), a `daily-check`
+      újrafuttatása után már a repo CLI-jét használta.
+- [ ] **Nem oldott meg**: a teljes DB `integrity` (dátum nélkül) továbbra
+      **FAIL**: 3 régi fixture-pár (2026-08-12 Club Friendly, 08-28 és
+      09-11 NCAAW Soccer) + 1 azonos pillanatú pár. Ezek augusztus/
+      szeptemberi, nem a mai műveletből erednek; bizonyíték-alapú,
+      páronkénti döntés külön szelet. 26 „azonos csapatpár azonos napon"
+      többsége jogos (csoportkörök, férfi/női meccsek).
+- [ ] **Következő döntési pont**: a 3 régi fixture-pár kivizsgálása, vagy
+      S4 (teljes meccs-szerkesztés); a summary dátumválasztója is nyitva.
+
 ## Döntések / korlátok
 
 - [ ] **Maradék hézag = forrás, nem pipeline**: 11-25-ön 21 scheduled és 52 odds nélküli meccs; 11-26-on 92 scheduled (délelőtti mérésnél normális) és 57 odds nélküli meccs. Az odds egy része a 14:15-ös `research-sync` körben érkezik — **nem indítottuk kézzel**, a felhasználói döntés szerint az ütemezett körre marad.
