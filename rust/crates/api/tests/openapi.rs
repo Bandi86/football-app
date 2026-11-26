@@ -241,6 +241,21 @@ fn day_schema_matches_contract_fixture() {
     }
 }
 
+#[test]
+fn match_edit_schema_matches_contract_fixture() {
+    let doc = document();
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../tests/fixtures/contract/match-edit-response.json"
+    ))
+    .expect("a szerkesztő kontrakt-fixture érvényes JSON");
+
+    assert_eq!(
+        schema_properties(&doc, "MatchEditResponse"),
+        contract_keys(&fixture),
+        "a MatchEditResponse séma és a fixture mezői eltérnek"
+    );
+}
+
 #[tokio::test]
 async fn openapi_json_is_served_without_token() {
     let pool = test_pool().await;
@@ -263,7 +278,7 @@ async fn openapi_json_is_served_without_token() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let doc: Value = serde_json::from_slice(&body).expect("a válasz JSON");
-    assert_eq!(doc["paths"].as_object().unwrap().len(), 22);
+    assert_eq!(doc["paths"].as_object().unwrap().len(), 23);
     assert!(
         doc["info"]["title"]
             .as_str()

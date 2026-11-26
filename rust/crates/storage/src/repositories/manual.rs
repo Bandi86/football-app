@@ -10,7 +10,7 @@
 //! match_result csere/törlés, valamint az observation, provenance és audit
 //! írása együtt vagy sehogy sem történik meg.
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Utc};
 use football_domain::manual_edit::{KickoffPrecision, ValidatedManualEdit, ValidatedMatchResult};
 use football_domain::match_state::MatchStatus;
@@ -26,6 +26,14 @@ pub struct ManualMatchEditInput<'a> {
     pub match_id: Uuid,
     pub actor: &'a str,
     pub edit: &'a ValidatedManualEdit,
+    /// Stabil kéréskulcs az idempotenciához. `Some` esetén a capture
+    /// `request_key`-je `match-edit:<match_id>:<kulcs>`, és azonos kulcsú
+    /// ismétlés a meglévő observation/audit azonosítókat adja vissza.
+    /// `None` esetén a régi, időbélyeges kulcs marad (kompatibilitás).
+    pub idempotency_key: Option<&'a str>,
+    /// A frissített provenance-sor policy verziója.
+    /// Régi út: [`MANUAL_POLICY_VERSION`], új út: `manual-full-1.0`.
+    pub policy_version: &'a str,
 }
 
 #[derive(Debug, Clone)]
@@ -33,6 +41,9 @@ pub struct ManualResultOutcome {
     pub observation_id: Uuid,
     pub audit_id: Uuid,
     pub capture_id: Uuid,
+    /// Igaz, ha a kérés kulcsa már rögzített szerkesztéshez tartozott,
+    /// és a handler nem írt új observationt/auditot.
+    pub reused: bool,
 }
 
 /// A tartósítás tipizált hibái: a HTTP-réteg ezekből képez státuszkódot.
@@ -48,7 +59,9 @@ pub enum ManualEditError {
 }
 
 const SOURCE_CODE: &str = "manual-ui";
-const POLICY_VERSION: &str = "manual-2.0";
+/// A régi `/manual-result` út policy verziója; az új `/edit` út
+/// `manual-full-1.0`-t használ (a handler adja meg).
+pub const MANUAL_POLICY_VERSION: &str = "manual-2.0";
 const ADAPTER_VERSION: &str = "manual-2.0";
 const ENDPOINT_KEY: &str = "manual-match-edit";
 
@@ -116,6 +129,52 @@ async fn apply_manual_match_edit_inner(
     .fetch_optional(&mut *tx)
     .await?
     .ok_or_else(|| anyhow::Error::new(ManualEditError::MatchNotFound(input.match_id)))?;
+
+    // A meccs sor zárása sorosítja azonos kulcsú párhuzamos kéréseket: a második
+    // már látja az első által COMMIT-elt capture-t, így nem ír új bizonyítékot.
+    let stable_request_key = input
+        .idempotency_key
+        .map(|key| format!("match-edit:{}:{}", input.match_id, key));
+    if let Some(ref request_key) = stable_request_key {
+        let previous_capture: Option<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM raw.capture WHERE request_key=$1 ORDER BY requested_at DESC LIMIT 1",
+        )
+        .bind(request_key)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(capture_id) = previous_capture {
+            let observation_id: Option<Uuid> = sqlx::query_scalar(
+                "SELECT id FROM stage.observation WHERE capture_id=$1 ORDER BY observed_at DESC LIMIT 1",
+            )
+            .bind(capture_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            let audit_id: Option<Uuid> = sqlx::query_scalar(
+                "SELECT id FROM ops.audit_event
+                 WHERE subject_kind='match' AND subject_id=$1 AND detail->>'observation_id'=$2
+                 ORDER BY created_at DESC LIMIT 1",
+            )
+            .bind(input.match_id)
+            .bind(observation_id.map(|id| id.to_string()))
+            .fetch_optional(&mut *tx)
+            .await?;
+            match (observation_id, audit_id) {
+                (Some(observation_id), Some(audit_id)) => {
+                    return Ok(ManualResultOutcome {
+                        observation_id,
+                        audit_id,
+                        capture_id,
+                        reused: true,
+                    });
+                }
+                _ => {
+                    return Err(anyhow!(
+                        "meglévő szerkesztési kéréshez hiányzik az observation vagy az audit: {request_key}"
+                    ));
+                }
+            }
+        }
+    }
 
     let current_status = MatchStatus::parse(&current.status).with_context(|| {
         format!(
@@ -247,11 +306,13 @@ async fn apply_manual_match_edit_inner(
 
     let artifact_id = upsert_artifact(&mut tx, &artifact).await?;
 
-    let request_key = format!(
-        "manual-edit:{}:{}",
-        input.match_id,
-        captured_at.to_rfc3339()
-    );
+    let request_key = stable_request_key.unwrap_or_else(|| {
+        format!(
+            "manual-edit:{}:{}",
+            input.match_id,
+            captured_at.to_rfc3339()
+        )
+    });
     sqlx::query(
         "INSERT INTO raw.capture
          (id, source_id, artifact_id, endpoint_key, request_url, requested_at,
@@ -333,7 +394,7 @@ async fn apply_manual_match_edit_inner(
         .bind(input.match_id)
         .bind(field)
         .bind(observation_id)
-        .bind(POLICY_VERSION)
+        .bind(input.policy_version)
         .bind(captured_at)
         .execute(&mut *tx)
         .await?;
@@ -341,13 +402,13 @@ async fn apply_manual_match_edit_inner(
 
     let audit_id = Uuid::now_v7();
     let before = json!({
-        "kickoff_at": current.kickoff_at,
+        "kickoff_at": current.kickoff_at.to_rfc3339(),
         "kickoff_precision": current.kickoff_precision,
         "status": current.status,
         "result": current_result.as_ref().map(result_state_json),
     });
     let after = json!({
-        "kickoff_at": new_kickoff_at,
+        "kickoff_at": new_kickoff_at.to_rfc3339(),
         "kickoff_precision": new_precision,
         "status": new_status.as_db_str(),
         "result": after_result_json,
@@ -364,6 +425,7 @@ async fn apply_manual_match_edit_inner(
         "after": after,
         "note": edit.note,
         "observation_id": observation_id,
+        "request_key": request_key,
     }))
     .execute(&mut *tx)
     .await?;
@@ -373,6 +435,7 @@ async fn apply_manual_match_edit_inner(
         observation_id,
         audit_id,
         capture_id,
+        reused: false,
     })
 }
 

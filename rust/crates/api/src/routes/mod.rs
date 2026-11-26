@@ -2,6 +2,7 @@ pub mod asset;
 pub mod audit;
 pub mod competition;
 pub mod day;
+pub mod edit;
 pub mod health;
 pub mod history;
 pub mod issue_action;

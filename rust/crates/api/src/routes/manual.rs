@@ -16,7 +16,7 @@ use football_domain::manual_edit::{
 use football_domain::match_state::MatchStatus;
 use football_storage::object_store::ObjectStore;
 use football_storage::repositories::manual::{
-    ManualEditError, ManualMatchEditInput, apply_manual_match_edit,
+    MANUAL_POLICY_VERSION, ManualEditError, ManualMatchEditInput, apply_manual_match_edit,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
@@ -182,6 +182,8 @@ pub async fn manual_result(
             match_id,
             actor: "ui",
             edit: &edit,
+            idempotency_key: None,
+            policy_version: MANUAL_POLICY_VERSION,
         },
     )
     .await

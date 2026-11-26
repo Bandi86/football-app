@@ -33,6 +33,7 @@ pub fn router(state: AppState) -> Router {
             "/v1/match/{id}/manual-result",
             put(routes::manual::manual_result),
         )
+        .route("/v1/match/{id}/edit", put(routes::edit::match_edit))
         .route(
             "/v1/match/{id}/notes",
             get(routes::notes::list_notes).post(routes::notes::create_note),

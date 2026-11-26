@@ -12,6 +12,7 @@ use utoipa::{Modify, OpenApi};
 use crate::routes::audit::AuditResponse;
 use crate::routes::competition::CompetitionDetailResponse;
 use crate::routes::day::{DayMatch, DayResponse};
+use crate::routes::edit::{MatchEditRequest, MatchEditResponse};
 use crate::routes::health::HealthResponse;
 use crate::routes::history::HistoryResponse;
 use crate::routes::issue_action::ResolveResponse;
@@ -45,6 +46,7 @@ use crate::error::ApiError;
         crate::routes::search::search,
         crate::routes::match_detail::match_detail,
         crate::routes::manual::manual_result,
+        crate::routes::edit::match_edit,
         crate::routes::notes::list_notes,
         crate::routes::notes::create_note,
         crate::routes::notes::edit_note,
@@ -69,6 +71,8 @@ use crate::error::ApiError;
         HealthResponse,
         ManualResultRequest,
         ManualResultResponse,
+        MatchEditRequest,
+        MatchEditResponse,
         NoteCreateRequest,
         NotePatchRequest,
         NotesResponse,
@@ -166,7 +170,7 @@ mod tests {
         let version = doc["openapi"].as_str().unwrap();
         assert!(version.starts_with("3.1"), "openapi verzió: {version}");
         let paths = doc["paths"].as_object().unwrap();
-        assert_eq!(paths.len(), 22, "dokumentált útvonalak: {paths:?}");
+        assert_eq!(paths.len(), 23, "dokumentált útvonalak: {paths:?}");
         for (path, item) in paths {
             let methods: Vec<(&str, &serde_json::Value)> = ["get", "post", "put", "patch"]
                 .into_iter()

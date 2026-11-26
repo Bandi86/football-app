@@ -13,8 +13,10 @@ football-domain = { path = "../domain" }
 football-ingest = { path = "../ingest" }
 football-storage = { path = "../storage" }
 football-worker = { path = "../worker" }
+hex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 sqlx.workspace = true
 tokio.workspace = true
 tower.workspace = true
