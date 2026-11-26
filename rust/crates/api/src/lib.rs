@@ -28,6 +28,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/day/{date}", get(routes::day::day))
         .route("/v1/search", get(routes::search::search))
         .route("/v1/asset/{*key}", get(routes::asset::asset))
+        .route("/v1/asset/upload", post(routes::asset_upload::upload_asset))
         .route("/v1/match/{id}", get(routes::match_detail::match_detail))
         .route(
             "/v1/match/{id}/lineups",

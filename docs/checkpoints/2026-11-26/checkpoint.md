@@ -595,3 +595,40 @@
 
 - `git revert <S6 commit>`; a jegyzeteket író API változatlan, a szelet csak olvasott
   és megjelenített (az új jegyzet írása a meglévő `/notes` végpontot hívja).
+
+## S185 — S7+S8: szűrőperzisztencia és logófeltöltés
+
+- [x] **S7:** `FilterPreferences` (Core, `UserDefaults`, teszttel) — a játékosstatisztika
+      oldalszűrője megmarad indítások között; az AI-gomb állapota alapból `false`
+      (S9 külön döntés, nem indult). Teljes beállításoldal **nem** készült (opcionális
+      tétel volt; a fül-sorrend UI-tesztjeit nem akartuk megváltoztatni).
+- [x] **S8 backend:** `POST /v1/asset/upload` (ops token) — WebP/PNG **magic-byte**
+      ellenőrzéssel, 2 MB korláttal, SHA-256 tartalom-címzett kulccsal
+      (`assets/<aa>/<bb>/<sha>.<ext>`), entitás-létezés ellenőrzéssel (fail-closed),
+      `ops.asset` sorral (`origin='user_upload'`, `uploaded_by='ui'`) és
+      `asset_uploaded` audit-eseménnyel. Axum `multipart` feature engedélyezve
+      (új crate nem, csak feature). OpenAPI 26 → **27** útvonal; 2 API-teszt
+      (auth 401, formátum/entitás 400/404, sikeres PNG + audit + fájl a tárban).
+- [x] **S8 UI:** `AssetUploadService` (Core, magic-byte + méret ellenőrzés),
+      `TeamSheet`/`CompetitionSheet` „Logó feltöltése" gomb + `fileImporter`
+      (`.png` és WebP azonosítóval), magyar hibaüzenetek; 2 XCUITest a gombok
+      AX-jelenlétére. A tényleges fájlválasztót az XCUITest nem kattintja végig —
+      a feltöltés maga az API-tesztben bizonyított.
+- [x] **Kapu (mért):** Rust **635 passed, 0 failed**, clippy 0, fmt 0, build
+      `--features obscura` OK · Core **153 passed / 27 suite** · app unit **94/0** ·
+      `run-ui-tests.sh` **31/31, 0 hiba** · `daily-check 11-25` ZÖLD · `integrity` OK ·
+      `git diff --check` 0. Daemon + app újratelepítve, `/v1/health` OK.
+- [ ] **Nem ellenőrzött:** a `fileImporter` valódi macOS fájlválasztása és a feltöltött
+      kép megjelenése a sheetben emberi kattintás nélkül (API-teszt + AX-gomb fedezve);
+      két UI-futtatás átmenetileg `Timed out while enabling automation mode` környezeti
+      hibát adott, a harmadik 31/31 zöld — nem kódregresszió; az S9 (AI-gomb) nem indult,
+      külön döntés tárgya.
+- [ ] **Következő:** nincs kód-szelet a jóváhagyott tervből (S0–S8 kész). S9 csak
+      külön felhasználói döntés után; a worktree `estimated-match-clock` becsült órája
+      továbbra is külön átvételi döntés.
+
+### Visszaállás (S185)
+
+- `git revert <S7+S8 commit>`; a `POST /v1/asset/upload` végpont megszűnik, a már
+  feltöltött fájlok az `ops.asset`-ban és az agent asset-tárban maradnak (nem törlődnek).
+  A `FilterPreferences` `UserDefaults` kulcsa lokálisan visszaállítható.

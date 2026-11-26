@@ -84,6 +84,7 @@ final class CompetitionDetailModel {
 
     var state: State = .idle
     var seasons: [CompetitionSeason] = []
+    var uploadError: String?
     let logos = LogoStore()
 
     private let loader: any RuntimeInfoLoading
@@ -121,6 +122,36 @@ final class CompetitionDetailModel {
         } catch {
             guard currentGeneration == generation else { return }
             state = .error(.network)
+        }
+    }
+
+    /// Versenylogó feltöltése ops tokennel, majd az adatlap frissítése.
+    func uploadLogo(competitionId: UUID, data: Data, filename: String) async {
+        uploadError = nil
+        do {
+            let info = try loader.load()
+            guard let baseURL = URL(string: "http://127.0.0.1:\(info.port)") else {
+                throw APIError.runtimeMissing
+            }
+            guard let opsToken = info.opsToken, !opsToken.isEmpty else {
+                throw APIError.unauthorized
+            }
+            let service = HTTPAssetUploadService(baseURL: baseURL, opsToken: opsToken)
+            _ = try await service.upload(
+                entityKind: "competition", entityID: competitionId,
+                imageData: data, filename: filename
+            )
+            await load(id: competitionId)
+        } catch let error as AssetUploadError {
+            uploadError = switch error {
+            case .tooLarge: "A fájl legfeljebb 2 MB lehet."
+            case .unsupportedFormat: "Csak PNG vagy WebP kép engedélyezett."
+            case .unauthorized: "A feltöltéshez üzemeltetési jogosultság kell."
+            case .invalidEntity: "Érvénytelen verseny vagy fájl."
+            case .server: "A feltöltés nem sikerült. Próbáld újra."
+            }
+        } catch {
+            uploadError = "A feltöltés nem sikerült. Próbáld újra."
         }
     }
 

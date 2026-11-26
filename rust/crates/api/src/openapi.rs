@@ -53,6 +53,7 @@ use crate::error::ApiError;
         crate::routes::history::history,
         crate::routes::issues::issues,
         crate::routes::asset::asset,
+        crate::routes::asset_upload::upload_asset,
         crate::routes::competition::competitions,
         crate::routes::competition::competition_detail,
         crate::routes::competition::competition_seasons,
@@ -122,6 +123,7 @@ use crate::error::ApiError;
         crate::routes::match_micro::LineupsResponse,
         crate::routes::match_micro::PlayerStatsResponse,
         crate::routes::match_micro::ShotsResponse,
+        crate::routes::asset_upload::UploadResponse,
         football_storage::repositories::match_detail::MatchIncidentRow,
         football_storage::repositories::match_detail::VenueRow,
         football_storage::repositories::match_detail::WeatherRow,
@@ -181,7 +183,7 @@ mod tests {
         let version = doc["openapi"].as_str().unwrap();
         assert!(version.starts_with("3.1"), "openapi verzió: {version}");
         let paths = doc["paths"].as_object().unwrap();
-        assert_eq!(paths.len(), 26, "dokumentált útvonalak: {paths:?}");
+        assert_eq!(paths.len(), 27, "dokumentált útvonalak: {paths:?}");
         for (path, item) in paths {
             let methods: Vec<(&str, &serde_json::Value)> = ["get", "post", "put", "patch"]
                 .into_iter()

@@ -198,7 +198,7 @@ struct LineupPitch: View {
 /// A hiányzó érték «–», nem 0 (spec §3.5).
 struct PlayerStatTable: View {
     let stats: [PlayerStatEntry]
-    @State private var sideFilter = "Mind"
+    @State private var sideFilter = FilterPreferences().playerStatsSide
 
     private let sides = ["Mind", "Hazai", "Vendég"]
 
@@ -226,6 +226,11 @@ struct PlayerStatTable: View {
                 }
                 .pickerStyle(.segmented)
                 .frame(width: 220)
+                .onChange(of: sideFilter) { _, newValue in
+                    var preferences = FilterPreferences()
+                    preferences.playerStatsSide = newValue
+                    preferences.save()
+                }
             }
             ForEach(Array(rows.prefix(20).enumerated()), id: \.offset) { index, stat in
                 HStack {

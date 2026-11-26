@@ -243,6 +243,8 @@ final class FootballAppUITests: XCTestCase {
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
         app.buttons.matching(identifier: "search.result.team").firstMatch.click()
         XCTAssertTrue(element("team.detail", in: app).waitForExistence(timeout: 10), "a csapatlap nem nyílt meg")
+        XCTAssertTrue(app.buttons.matching(identifier: "team.logo.upload").firstMatch.exists,
+                      "a csapat logófeltöltő gombja hiányzik")
 
         let player = app.buttons.matching(identifier: "team.player.900001").firstMatch
         XCTAssertTrue(player.waitForExistence(timeout: 10), "a keret játékosa hiányzik")
@@ -266,6 +268,8 @@ final class FootballAppUITests: XCTestCase {
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
         app.buttons.matching(identifier: "search.result.competition").firstMatch.click()
         XCTAssertTrue(element("competition.detail", in: app).waitForExistence(timeout: 10), "a versenylap nem nyílt meg")
+        XCTAssertTrue(app.buttons.matching(identifier: "competition.logo.upload").firstMatch.exists,
+                      "a verseny logófeltöltő gombja hiányzik")
 
         app.buttons.matching(identifier: "competition.tab.Csapatok").firstMatch.click()
         let team = app.buttons.matching(

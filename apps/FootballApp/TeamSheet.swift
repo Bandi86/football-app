@@ -1,14 +1,22 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import FootballAppCore
 
 /// Csapat-adatlap: fejléc (logó, ország, nem/ág, Elo), megfigyelt mérleg,
 /// majd a meccsek verseny szerint csoportosítva.
 struct TeamSheet: View {
+    /// A WebP UTType nem része a régi UniformTypeIdentifiers katalógusnak,
+    /// ezért az azonosítójával kérjük; hiány esetén marad a PNG.
+    static var logoTypes: [UTType] {
+        [.png, UTType("org.webmproject.webp")].compactMap { $0 }
+    }
+
     let teamId: UUID
     let name: String
     @State private var model = TeamDetailModel()
     @State private var selectedMatch: SelectedMatch?
     @State private var selectedPlayer: SelectedPlayer?
+    @State private var showLogoImporter = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -40,6 +48,15 @@ struct TeamSheet: View {
         .sheet(item: $selectedPlayer) { item in
             PlayerView(id: item.id)
         }
+        .fileImporter(isPresented: $showLogoImporter, allowedContentTypes: Self.logoTypes) { result in
+            guard case .success(let url) = result else { return }
+            Task {
+                guard url.startAccessingSecurityScopedResource() else { return }
+                defer { url.stopAccessingSecurityScopedResource() }
+                guard let data = try? Data(contentsOf: url) else { return }
+                await model.uploadLogo(teamId: teamId, data: data, filename: url.lastPathComponent)
+            }
+        }
     }
 
     @ViewBuilder
@@ -61,6 +78,13 @@ struct TeamSheet: View {
     private func loaded(_ detail: TeamDetail) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             header(detail)
+            if let error = model.uploadError {
+                Text(error)
+                    .font(.appText(11))
+                    .foregroundStyle(AppTheme.warning)
+                    .padding(.horizontal, 24)
+                    .accessibilityIdentifier("team.logo.error")
+            }
             Rectangle().fill(AppTheme.hairline).frame(height: 1)
             if !(detail.form ?? []).isEmpty || !(detail.next ?? []).isEmpty {
                 HStack(alignment: .top, spacing: AppTheme.Spacing.m) {
@@ -160,6 +184,15 @@ struct TeamSheet: View {
                 formChip("D", "\(detail.detail.draws)")
                 formChip("V", "\(detail.detail.losses)")
                 formChip("GÓL", "\(detail.detail.goalsFor)–\(detail.detail.goalsAgainst)")
+                Button {
+                    showLogoImporter = true
+                } label: {
+                    Label("Logó feltöltése", systemImage: "photo.badge.plus")
+                        .font(.appLabel(10))
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(AppTheme.accent)
+                .accessibilityIdentifier("team.logo.upload")
             }
         }
         .padding(.horizontal, 24)

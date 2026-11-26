@@ -1,8 +1,14 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import FootballAppCore
 
 /// Verseny-adatlap: fejléc + összesítők, majd meccsek és csapat-mérlegek.
 struct CompetitionSheet: View {
+    /// WebP az azonosítójával (a régi UTType katalógusban nincs külön tagja).
+    static var logoTypes: [UTType] {
+        [.png, UTType("org.webmproject.webp")].compactMap { $0 }
+    }
+
     let competitionId: UUID
     let name: String
     var date: Date = Date()
@@ -10,6 +16,7 @@ struct CompetitionSheet: View {
     @State private var tab: CompetitionTab = .matches
     @State private var selectedMatch: SelectedMatch?
     @State private var selectedTeam: EntityTarget?
+    @State private var showLogoImporter = false
     @Environment(\.dismiss) private var dismiss
 
     enum CompetitionTab: String, CaseIterable, Identifiable {
@@ -49,6 +56,15 @@ struct CompetitionSheet: View {
         .sheet(item: $selectedTeam) { item in
             TeamSheet(teamId: item.id, name: item.name)
         }
+        .fileImporter(isPresented: $showLogoImporter, allowedContentTypes: Self.logoTypes) { result in
+            guard case .success(let url) = result else { return }
+            Task {
+                guard url.startAccessingSecurityScopedResource() else { return }
+                defer { url.stopAccessingSecurityScopedResource() }
+                guard let data = try? Data(contentsOf: url) else { return }
+                await model.uploadLogo(competitionId: competitionId, data: data, filename: url.lastPathComponent)
+            }
+        }
     }
 
     @ViewBuilder
@@ -70,6 +86,13 @@ struct CompetitionSheet: View {
     private func loaded(_ detail: CompetitionDetail) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             header(detail)
+            if let error = model.uploadError {
+                Text(error)
+                    .font(.appText(11))
+                    .foregroundStyle(AppTheme.warning)
+                    .padding(.horizontal, 24)
+                    .accessibilityIdentifier("competition.logo.error")
+            }
             tabBar(detail)
             Rectangle().fill(AppTheme.hairline).frame(height: 1)
             switch tab {
@@ -110,6 +133,15 @@ struct CompetitionSheet: View {
                         .foregroundStyle(AppTheme.secondaryText)
                 }
                 Spacer()
+                Button {
+                    showLogoImporter = true
+                } label: {
+                    Label("Logó feltöltése", systemImage: "photo.badge.plus")
+                        .font(.appLabel(10))
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(AppTheme.accent)
+                .accessibilityIdentifier("competition.logo.upload")
             }
             HStack(spacing: 10) {
                 aggregate("Meccs", "\(detail.detail.matches)")

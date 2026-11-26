@@ -1,4 +1,5 @@
 pub mod asset;
+pub mod asset_upload;
 pub mod audit;
 pub mod competition;
 pub mod day;
