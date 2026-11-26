@@ -489,6 +489,30 @@ final class FootballAppUITests: XCTestCase {
         XCTAssertTrue(empty.label.contains("Még nincs rögzített hiányjel."), empty.label)
     }
 
+    func testOperationsShowsSummaryAndGlobalAuditFeed() throws {
+        let app = try openOperations(Self.loadedPort)
+        XCTAssertTrue(element("ops.summary", in: app).waitForExistence(timeout: 15),
+                      "az összefoglaló sáv hiányzik")
+        XCTAssertTrue(textElement(valueContains: "2 nyitott hiányjel", in: app).exists,
+                      "a magyar összefoglaló mondat hiányzik")
+        XCTAssertTrue(element("ops.audit", in: app).exists, "az audit szekció hiányzik")
+        let row = element("ops.audit.BBBBBBBB-0000-0000-0000-000000000001", in: app)
+        if !row.waitForExistence(timeout: 15) {
+            let found = app.descendants(matching: .any).allElementsBoundByIndex
+                .map { $0.identifier }.filter { !$0.isEmpty }
+            XCTFail("az audit esemény hiányzik; AX: \(found.prefix(80).joined(separator: ", "))")
+        }
+        XCTAssertTrue(textElement(valueContains: "manual_match_edit", in: app).exists,
+                      "az audit akció szövege hiányzik")
+    }
+
+    func testOperationsExposesResolveActionForOpenIssue() throws {
+        let app = try openOperations(Self.loadedPort)
+        let resolve = element("ops.issue.resolve.AAAAAAAA-0000-0000-0000-000000000001", in: app)
+        XCTAssertTrue(resolve.waitForExistence(timeout: 15), "a megoldás akció hiányzik")
+        XCTAssertTrue(resolve.label.contains("Jel megoldottnak jelölése"), resolve.label)
+    }
+
     // MARK: - Segédek
 
     private func openLoadedMatchDetail() throws -> XCUIApplication {

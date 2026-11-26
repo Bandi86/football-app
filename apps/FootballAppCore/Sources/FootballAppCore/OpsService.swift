@@ -4,6 +4,13 @@ public protocol OpsService: Sendable {
     func status() async throws -> OpsStatus
     func issues(query: IssuesQueryDTO) async throws -> IssuesResponseDTO
     func history(matchID: UUID, limit: Int) async throws -> HistoryResponseDTO
+    func summary(date: String?) async throws -> OpsSummaryDTO
+    func audit(
+        limit: Int,
+        subjectKind: String?,
+        subjectID: UUID?
+    ) async throws -> AuditResponseDTO
+    func resolveIssue(id: UUID) async throws -> ResolveResponseDTO
 }
 
 public struct HTTPOpsService: OpsService {
@@ -18,13 +25,11 @@ public struct HTTPOpsService: OpsService {
     }
 
     public func status() async throws -> OpsStatus {
-        try await get("v1/ops/status", query: [], as: OpsStatus.self)
+        try await send("GET", "v1/ops/status", query: [], body: nil, as: OpsStatus.self)
     }
 
     public func issues(query: IssuesQueryDTO) async throws -> IssuesResponseDTO {
-        var items = [
-            URLQueryItem(name: "scope", value: query.scope),
-        ]
+        var items = [URLQueryItem(name: "scope", value: query.scope)]
         if let date = query.date, !date.isEmpty {
             items.append(URLQueryItem(name: "date", value: date))
         }
@@ -37,20 +42,57 @@ public struct HTTPOpsService: OpsService {
         if query.openOnly {
             items.append(URLQueryItem(name: "open_only", value: "true"))
         }
-        return try await get("v1/issues", query: items, as: IssuesResponseDTO.self)
+        return try await send("GET", "v1/issues", query: items, body: nil, as: IssuesResponseDTO.self)
     }
 
     public func history(matchID: UUID, limit: Int) async throws -> HistoryResponseDTO {
-        try await get(
+        try await send(
+            "GET",
             "v1/match/\(matchID.uuidString)/history",
             query: [URLQueryItem(name: "limit", value: String(max(1, min(limit, 200))))],
+            body: nil,
             as: HistoryResponseDTO.self
         )
     }
 
-    private func get<T: Decodable>(
+    public func summary(date: String?) async throws -> OpsSummaryDTO {
+        var query: [URLQueryItem] = []
+        if let date, !date.isEmpty {
+            query.append(URLQueryItem(name: "date", value: date))
+        }
+        return try await send("GET", "v1/ops/summary", query: query, body: nil, as: OpsSummaryDTO.self)
+    }
+
+    public func audit(
+        limit: Int,
+        subjectKind: String?,
+        subjectID: UUID?
+    ) async throws -> AuditResponseDTO {
+        var query = [URLQueryItem(name: "limit", value: String(max(1, min(limit, 200))))]
+        if let subjectKind, !subjectKind.isEmpty {
+            query.append(URLQueryItem(name: "subject_kind", value: subjectKind))
+        }
+        if let subjectID {
+            query.append(URLQueryItem(name: "subject_id", value: subjectID.uuidString))
+        }
+        return try await send("GET", "v1/ops/audit", query: query, body: nil, as: AuditResponseDTO.self)
+    }
+
+    public func resolveIssue(id: UUID) async throws -> ResolveResponseDTO {
+        try await send(
+            "POST",
+            "v1/issue/\(id.uuidString)/resolve",
+            query: [],
+            body: nil,
+            as: ResolveResponseDTO.self
+        )
+    }
+
+    private func send<T: Decodable>(
+        _ method: String,
         _ path: String,
         query: [URLQueryItem],
+        body: Data?,
         as type: T.Type
     ) async throws -> T {
         var url = baseURL.appendingPathComponent(path)
@@ -58,8 +100,12 @@ public struct HTTPOpsService: OpsService {
             url.append(queryItems: query)
         }
         var request = URLRequest(url: url)
-        request.httpMethod = "GET"
+        request.httpMethod = method
         request.setValue("Bearer \(opsToken)", forHTTPHeaderField: "Authorization")
+        if body != nil {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = body
+        }
 
         let data: Data
         let response: URLResponse
@@ -86,6 +132,8 @@ public struct HTTPOpsService: OpsService {
             throw APIError.unauthorized
         case 400:
             throw APIError.badRequest
+        case 404:
+            throw APIError.notFound
         default:
             throw APIError.server
         }

@@ -4,6 +4,7 @@
 
 use chrono::NaiveDate;
 use football_domain::ops::{IssueCode, IssueSeverity, IssueSource, IssueSubjectKind, NoteKind};
+use football_storage::repositories::detect;
 use football_storage::repositories::history;
 use football_storage::repositories::issue::{self, IssueFilter, IssueScope, NewIssue};
 use football_storage::repositories::note::{self, NotePatch};
@@ -152,6 +153,47 @@ async fn list_filters_by_day_code_and_severity() {
         ..IssueFilter::default()
     };
     assert_eq!(issue::list(&pool, &odds).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn detector_reports_match_gaps_only_for_the_gate_day() {
+    let pool = test_pool().await;
+    let (match_id, _) = seed_min_match(&pool).await;
+    sqlx::query(
+        "INSERT INTO ops.publish_gate
+          (id, match_id, publish_date, state, rule_set_version, evaluated_at)
+         VALUES ($1, $2, '2026-11-14', 'provisional_publish', '1.0', now())",
+    )
+    .bind(Uuid::now_v7())
+    .bind(match_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let detected = detect::detect_day(&pool, NaiveDate::from_ymd_opt(2026, 11, 14).unwrap())
+        .await
+        .unwrap();
+    assert!(
+        detected
+            .iter()
+            .any(|d| d.subject_id == match_id && d.code == IssueCode::MissingOdds)
+    );
+    assert!(
+        detected
+            .iter()
+            .any(|d| d.subject_id == match_id && d.code == IssueCode::MissingLogo)
+    );
+    assert!(
+        detected
+            .iter()
+            .any(|d| d.subject_id == match_id && d.code == IssueCode::OpenPast)
+    );
+    assert!(
+        detect::detect_day(&pool, NaiveDate::from_ymd_opt(2026, 11, 15).unwrap())
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[tokio::test]

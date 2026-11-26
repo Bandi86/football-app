@@ -1,0 +1,23 @@
+{
+  "entries": [
+    {
+      "id": "bbbbbbbb-0000-0000-0000-000000000001",
+      "actor": "ui",
+      "action": "manual_match_edit",
+      "subject_kind": "match",
+      "subject_id": "11111111-1111-1111-1111-111111111111",
+      "detail": {},
+      "created_at": "2026-11-20T12:00:00Z"
+    },
+    {
+      "id": "bbbbbbbb-0000-0000-0000-000000000002",
+      "actor": "detect",
+      "action": "issues_detected",
+      "subject_kind": "day",
+      "subject_id": null,
+      "detail": {},
+      "created_at": "2026-11-20T11:00:00Z"
+    }
+  ],
+  "count": 2
+}

@@ -212,6 +212,47 @@
       hogy nem regresszió). A commit a zöld kapukkal commitolt kódot rögzíti;
       a piros régi UI-teszt környezeti hibája továbbra is nyitva marad.
 
+## S170 — S3: detektor, globális audit és magyar összefoglaló
+
+- [x] **Terv**: `docs/superpowers/plans/2026-11-26-uzemeltetes-s3.md`, két
+      albontással (backend, kliens). S3 után itt is megállok.
+- [x] **Backend**: `repositories/detect.rs` (napi hiányok meccs-szinten a
+      `fetch_day_gaps` SQL-jéből + withheld gate + pending review),
+      `footballctl issues detect --date … [--apply]` (dry-run alapból, upsert +
+      lezárás + `issues_detected` audit), bekötve a `daily-check`-be
+      (nem-blokkoló hívás, látható hibajelzéssel).
+- [x] **Új végpontok**: `GET /v1/ops/audit` (Ops scope, szűrők, limit 1–200),
+      `GET /v1/ops/summary` (Read scope, magyar mondat + kiemelt akciók),
+      `POST /v1/issue/{id}/resolve` (Ops scope, idempotens, `issue_resolved`
+      audit). OpenAPI 19 → **22** útvonal, új sémák regisztrálva.
+- [x] **Kliens**: `OpsSummaryModels.swift`, `OpsService` 3 új művelettel,
+      magyar címkék, `OpsModel` summary/audit/resolve állapotok,
+      `OperationsView` összefoglaló sáv + globális audit szekció + „Jel
+      megoldottnak jelölése" akció; `ui-fixture-server.py` és
+      `run-ui-tests.sh` 2 új fixture-öttel, 2 új UI-teszt.
+- [x] **Kapuk (mért)**: Rust workspace **613 passed, 0 failed**;
+      `clippy -D warnings` **0**, `fmt --check` **0**, build `--features obscura`
+      **OK**; Core **146 passed, 0 failed, 25 suite**; app unit **90 tests,
+      0 failures**; az S2+S3 öt új UI-tesztje izoláltan **5/5 zöld**;
+      `daily-check 2026-11-25` **EXIT=0 ZÖLD**; `integrity 11-25…11-26`
+      **verdict OK**; `git diff --check` **0**.
+- [x] **Éles adat és valódi macOS**: a detektor dry-run és `--apply` is
+      **205 jelet** talált 11-25-re (139 hiányzó logó / 52 odds / 14 lejárt
+      nyitott), 0 lezárás, audit-eseménnyel; a `daily-check` újrafuttatása
+      idempotens (205 jel, 0 lezárás). Telepített daemon (port 49372):
+      `/v1/ops/summary?date=2026-11-25` → 205 nyitott jel, magyar címkék;
+      `/v1/ops/audit` → `issues_detected` események. Telepített app:
+      `/tmp/fb-s3-live-ops.png` — összefoglaló sáv, 205 hiányjel kártya,
+      és AX-fában a globális audit `issues_detected` sorai magyar címkével.
+- [ ] **Nem ellenőrzött / nyitva**: a teljes UI-harness továbbra is 6 régi
+      teszten piros (S169 A/B-bizonyíték, környezeti XCUITest-input hiba);
+      az összefoglaló alapértelmezés szerint a **mai** napra vonatkozik (az
+      Üzemeltetés oldalon nincs dátumválasztó), ezért élőben „Nincs nyitott
+      hiányjel ezen a napon / Előző nap: 205" látszik — ez nem hiba, de
+      félrevezető lehet; dátumválasztó külön döntés.
+- [ ] **Következő lépés**: S4 (teljes meccs-szerkesztés, `PUT /v1/match/{id}/edit`)
+      vagy a summary dátumválasztója — felhasználói döntés.
+
 ## Döntések / korlátok
 
 - [ ] **Maradék hézag = forrás, nem pipeline**: 11-25-ön 21 scheduled és 52 odds nélküli meccs; 11-26-on 92 scheduled (délelőtti mérésnél normális) és 57 odds nélküli meccs. Az odds egy része a 14:15-ös `research-sync` körben érkezik — **nem indítottuk kézzel**, a felhasználói döntés szerint az ütemezett körre marad.

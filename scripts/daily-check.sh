@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Napi read-only ellenőrzés: tegnapi adat integritása, mai adat készültsége, egyéb hibák.
+# Napi ellenőrzés: tegnapi adat integritása, mai adat készültsége, egyéb hibák.
+# S170 óta egyetlen auditált írás is történik: a hiányjelek ops.issue rögzítése.
 # Használat: ./scripts/daily-check.sh [DÁTUM]   (alap: tegnap, Europe/Budapest)
 # Kilépés: 0 = kemény hiba nincs; 1 = daemon/integritás/API hiba.
 set -uo pipefail
@@ -95,6 +96,18 @@ union all select 'nyitott breaker: ' || coalesce(string_agg(source_slug || ' (' 
 union all select 'withheld gate (' || '$MA' || '): ' || count(*) from ops.publish_gate where publish_date = '$MA' and state ilike '%withheld%'
 union all select 'verified gate (' || '$MA' || '): ' || count(*) from ops.publish_gate where publish_date = '$MA' and state = 'verified_publish';
 "
+
+# 4b. Hiányjelek rögzítése (S170) — a detektor CSAK ops.issue-t ír, auditáltan.
+#     A napi check kemény kapuja nem függ a detektortól: hiba esetén jelzés van.
+echo
+echo "--- Hiányjelek: $MA ---"
+if [ -n "$CTL" ]; then
+  if ! "$CTL" issues detect --date "$MA" --apply 2>&1; then
+    echo "[FIGYELMEZTETÉS] a hiányjel-detektor nem futott le" >&2
+  fi
+else
+  echo "[FIGYELMEZTETÉS] footballctl nélkül a hiányjelek nem rögzülnek" >&2
+fi
 
 # 5. Soccerway tiltás (S116) — a policy-t kézzel állítottuk false-ra; ha egy
 #    jövőbeli seed/script visszaállítaná, a napi check jelezze. Read-only: nem ír.

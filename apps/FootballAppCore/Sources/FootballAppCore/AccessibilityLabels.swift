@@ -287,4 +287,30 @@ public enum AccessibilityLabels {
     public static func issueDetailTitle(_ code: String) -> String {
         "Változástörténet: \(code)"
     }
+
+    // MARK: - Összefoglaló, globális audit és akciók
+
+    public static let opsSummaryIdentifier = "ops.summary"
+    public static let opsAuditIdentifier = "ops.audit"
+    public static let auditEmptyIdentifier = "ops.audit.empty"
+    public static let auditEmptyTitle = "Még nincs audit-esemény."
+
+    public static func auditEntryLabel(
+        time: String,
+        actor: String,
+        action: String,
+        subject: String
+    ) -> String {
+        "\(time), \(actor), \(action), \(subject)"
+    }
+
+    public static func auditEntryIdentifier(for id: UUID) -> String {
+        "ops.audit.\(id.uuidString)"
+    }
+
+    public static let issueResolveLabel = "Jel megoldottnak jelölése"
+
+    public static func issueResolveIdentifier(for id: UUID) -> String {
+        "ops.issue.resolve.\(id.uuidString)"
+    }
 }

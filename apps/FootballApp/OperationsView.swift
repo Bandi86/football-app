@@ -28,6 +28,8 @@ struct OperationsView: View {
                 Task {
                     await model.load()
                     await model.loadIssues()
+                    await model.loadSummary()
+                    await model.loadAudit()
                 }
             }
         }
@@ -46,12 +48,14 @@ struct OperationsView: View {
         case .loaded(let status):
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    summaryBanner
                     statCards(status)
                     issuesSection
                     if let integrity = status.integrity {
                         integritySection(integrity)
                     }
                     sourceList(status.sources)
+                    auditSection
                 }
                 .padding(.horizontal, 48)
                 .padding(.vertical, 20)
@@ -112,6 +116,132 @@ struct OperationsView: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(AppTheme.hairline)
         )
+    }
+
+    // MARK: - Összefoglaló és globális audit (S3)
+
+    @ViewBuilder
+    private var summaryBanner: some View {
+        switch model.summaryState {
+        case .idle, .loading:
+            EmptyView()
+        case .error:
+            Text("Az összefoglaló nem tölthető be.")
+                .font(.appLabel())
+                .foregroundStyle(AppTheme.secondaryText)
+        case .loaded(let summary):
+            VStack(alignment: .leading, spacing: 10) {
+                Text(summary.headlineHu)
+                    .font(.appText(15, weight: .medium))
+                    .foregroundStyle(AppTheme.primaryText)
+                HStack(spacing: 10) {
+                    Text("Előző nap: \(summary.previousDayTotal)")
+                        .font(.appLabel())
+                        .foregroundStyle(AppTheme.secondaryText)
+                    ForEach(summary.topActions) { action in
+                        Button(action.labelHu) {
+                            if let issue = model.issue(withID: action.issueId) {
+                                model.selectIssue(issue)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("ops.summary.action.\(action.issueId.uuidString)")
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .background(AppTheme.accentSoft, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(AppTheme.hairlineStrong)
+            )
+            .accessibilityIdentifier(AccessibilityLabels.opsSummaryIdentifier)
+        }
+    }
+
+    private var auditSection: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("AUDIT")
+                    .font(.appLabel())
+                    .tracking(1.4)
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .accessibilityIdentifier(AccessibilityLabels.opsAuditIdentifier)
+                Spacer()
+                Picker("Tárgy", selection: Binding(
+                    get: { model.auditSubjectKind ?? "" },
+                    set: { model.auditSubjectKind = $0.isEmpty ? nil : $0 }
+                )) {
+                    Text("Minden tárgy").tag("")
+                    ForEach(["match", "team", "competition", "day"], id: \.self) { kind in
+                        Text(kind).tag(kind)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(width: 160)
+                .accessibilityIdentifier("ops.audit.filter")
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            .background(AppTheme.surface)
+
+            Rectangle().fill(AppTheme.hairline).frame(height: 1)
+
+            auditList
+        }
+        .background(AppTheme.surfaceElevated, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(AppTheme.hairline)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var auditList: some View {
+        switch model.auditState {
+        case .idle, .loading:
+            ProgressView().padding(20)
+        case .error(let error):
+            ErrorStateView(message: error.userMessage, retry: { Task { await model.loadAudit() } })
+        case .loaded(let response):
+            if response.entries.isEmpty {
+                Text(AccessibilityLabels.auditEmptyTitle)
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .padding(20)
+                    .accessibilityIdentifier(AccessibilityLabels.auditEmptyIdentifier)
+            } else {
+                ForEach(response.entries) { entry in
+                    auditRow(entry)
+                    Rectangle().fill(AppTheme.hairline).frame(height: 1).padding(.leading, 18)
+                }
+            }
+        }
+    }
+
+    private func auditRow(_ entry: AuditEntryRowDTO) -> some View {
+        let time = OpsFormatting.timestamp(entry.createdAt)
+        let subject = "\(entry.subjectKind): \(entry.subjectId?.uuidString.prefix(8) ?? "-")"
+        return HStack(spacing: 12) {
+            Image(systemName: "clock.arrow.circlepath").foregroundStyle(AppTheme.secondaryText)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(entry.action)
+                    .font(.appText(13))
+                    .foregroundStyle(AppTheme.primaryText)
+                    .accessibilityIdentifier(AccessibilityLabels.auditEntryIdentifier(for: entry.id))
+                Text("\(time) · \(entry.actor) · \(subject)")
+                    .font(.appLabel())
+                    .foregroundStyle(AppTheme.secondaryText)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+        .accessibilityLabel(AccessibilityLabels.auditEntryLabel(
+            time: time, actor: entry.actor, action: entry.action, subject: subject
+        ))
     }
 
     // MARK: - Hiányjelek
@@ -226,37 +356,53 @@ struct OperationsView: View {
         let first = OpsFormatting.timestamp(issue.firstSeenAt)
         let last = OpsFormatting.timestamp(issue.lastSeenAt)
         let source = OpsFormatting.sourceLabel(issue.source)
-        return Button { model.selectIssue(issue) } label: {
-            HStack(spacing: 14) {
-                Image(systemName: issue.resolvedAt == nil ? "exclamationmark.triangle" : "checkmark.circle")
-                    .foregroundStyle(issue.resolvedAt == nil ? AppTheme.accent : AppTheme.liveGreen)
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Text(code).font(.appText(14)).foregroundStyle(AppTheme.primaryText)
-                        severityPill(issue.severity, text: severity)
+        return HStack(spacing: 0) {
+            Button { model.selectIssue(issue) } label: {
+                HStack(spacing: 14) {
+                    Image(systemName: issue.resolvedAt == nil ? "exclamationmark.triangle" : "checkmark.circle")
+                        .foregroundStyle(issue.resolvedAt == nil ? AppTheme.accent : AppTheme.liveGreen)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 8) {
+                            Text(code).font(.appText(14)).foregroundStyle(AppTheme.primaryText)
+                            severityPill(issue.severity, text: severity)
+                        }
+                        Text("\(subject) · első: \(first) · utolsó: \(last) · \(source)")
+                            .font(.appLabel())
+                            .foregroundStyle(AppTheme.secondaryText)
                     }
-                    Text("\(subject) · első: \(first) · utolsó: \(last) · \(source)")
-                        .font(.appLabel())
-                        .foregroundStyle(AppTheme.secondaryText)
+                    Spacer()
+                    if issue.resolvedAt != nil {
+                        Text("MEGOLDVA")
+                            .font(.appLabel(9))
+                            .foregroundStyle(AppTheme.liveGreen)
+                    }
                 }
-                Spacer()
-                if issue.resolvedAt != nil {
-                    Text("MEGOLDVA")
-                        .font(.appLabel(9))
-                        .foregroundStyle(AppTheme.liveGreen)
-                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 12)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .accessibilityLabel(AccessibilityLabels.issueLabel(
+                code: code, severity: severity, subject: subject,
+                firstSeen: first, lastSeen: last, source: source,
+                resolved: issue.resolvedAt != nil
+            ))
+            .accessibilityIdentifier(AccessibilityLabels.issueIdentifier(for: issue.id))
+
+            if issue.resolvedAt == nil {
+                Button {
+                    Task { await model.resolveIssue(issue.id) }
+                } label: {
+                    Image(systemName: "checkmark.circle")
+                        .foregroundStyle(AppTheme.liveGreen)
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .help(AccessibilityLabels.issueResolveLabel)
+                .accessibilityLabel(AccessibilityLabels.issueResolveLabel)
+                .accessibilityIdentifier(AccessibilityLabels.issueResolveIdentifier(for: issue.id))
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(AccessibilityLabels.issueLabel(
-            code: code, severity: severity, subject: subject,
-            firstSeen: first, lastSeen: last, source: source,
-            resolved: issue.resolvedAt != nil
-        ))
-        .accessibilityIdentifier(AccessibilityLabels.issueIdentifier(for: issue.id))
     }
 
     @ViewBuilder

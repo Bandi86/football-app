@@ -56,6 +56,21 @@ impl IssueSubjectKind {
     }
 }
 
+impl IssueCode {
+    /// A kliens `OpsFormatting.issueCodeLabel`-jével megegyező magyar szöveg.
+    pub fn label_hu(self) -> &'static str {
+        match self {
+            Self::MissingLogo => "Hiányzó logó",
+            Self::MissingOdds => "Hiányzó odds",
+            Self::OpenPast => "Lejárt, nyitott",
+            Self::DuplicateSuspect => "Duplikátum gyanú",
+            Self::IdentityReview => "Identitás-review",
+            Self::StaleStatus => "Elavult státusz",
+            Self::SourceConflict => "Forrásütközés",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum IssueCode {

@@ -26,9 +26,30 @@ final class OpsModel {
         case error(APIError)
     }
 
+    enum SummaryState: Equatable {
+        case idle
+        case loading
+        case loaded(OpsSummaryDTO)
+        case error(APIError)
+    }
+
+    enum AuditState: Equatable {
+        case idle
+        case loading
+        case loaded(AuditResponseDTO)
+        case error(APIError)
+    }
+
     var state: State = .idle
     var issuesState: ListState = .idle
     var historyState: HistoryState = .idle
+    var summaryState: SummaryState = .idle
+    var auditState: AuditState = .idle
+
+    /// A globális audit-feed tárgy szerinti szűrője.
+    var auditSubjectKind: String? {
+        didSet { Task { await loadAudit() } }
+    }
 
     /// A hiánylista szűrője; a változtatás azonnal új lekérést indít.
     var query = IssuesQueryDTO() {
@@ -43,6 +64,8 @@ final class OpsModel {
     private var generation = 0
     private var issuesGeneration = 0
     private var historyGeneration = 0
+    private var summaryGeneration = 0
+    private var auditGeneration = 0
 
     init(
         loader: any RuntimeInfoLoading = RuntimeInfoLoader(),
@@ -131,11 +154,78 @@ final class OpsModel {
         }
     }
 
+    func loadSummary() async {
+        summaryGeneration &+= 1
+        let current = summaryGeneration
+        if case .loaded = summaryState {} else { summaryState = .loading }
+        do {
+            let service = try makeServiceFromRuntime()
+            let summary = try await service.summary(date: nil)
+            guard current == summaryGeneration else { return }
+            summaryState = .loaded(summary)
+        } catch is CancellationError {
+            return
+        } catch let error as APIError {
+            guard current == summaryGeneration else { return }
+            summaryState = .error(error)
+        } catch {
+            guard current == summaryGeneration else { return }
+            summaryState = .error(.network)
+        }
+    }
+
+    func loadAudit() async {
+        auditGeneration &+= 1
+        let current = auditGeneration
+        if case .loaded = auditState {} else { auditState = .loading }
+        do {
+            let service = try makeServiceFromRuntime()
+            let response = try await service.audit(
+                limit: 50, subjectKind: auditSubjectKind, subjectID: nil
+            )
+            guard current == auditGeneration else { return }
+            auditState = .loaded(response)
+        } catch is CancellationError {
+            return
+        } catch let error as APIError {
+            guard current == auditGeneration else { return }
+            auditState = .error(error)
+        } catch {
+            guard current == auditGeneration else { return }
+            auditState = .error(.network)
+        }
+    }
+
+    /// Csak ops tokenes művelet; a lista a válasz után frissül.
+    func resolveIssue(_ id: UUID) async {
+        do {
+            let service = try makeServiceFromRuntime()
+            _ = try await service.resolveIssue(id: id)
+            await loadIssues()
+            await loadSummary()
+            await loadAudit()
+        } catch is CancellationError {
+            return
+        } catch let error as APIError {
+            issuesState = .error(error)
+        } catch {
+            issuesState = .error(.network)
+        }
+    }
+
+    /// Kiemelt akcióhoz tartozó jel megkeresése a betöltött listában.
+    func issue(withID id: UUID) -> IssueRowDTO? {
+        guard case .loaded(let response) = issuesState else { return nil }
+        return response.issues.first { $0.id == id }
+    }
+
     /// 30 mp-enkénti automatikus frissítés, amíg a nézet látható.
     func refreshLoop() async {
         while !Task.isCancelled {
             await load()
             await loadIssues()
+            await loadSummary()
+            await loadAudit()
             try? await Task.sleep(for: .seconds(30))
         }
     }

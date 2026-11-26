@@ -1,8 +1,10 @@
 pub mod asset;
+pub mod audit;
 pub mod competition;
 pub mod day;
 pub mod health;
 pub mod history;
+pub mod issue_action;
 pub mod issues;
 pub mod manual;
 pub mod match_detail;
@@ -10,6 +12,7 @@ pub mod notes;
 pub mod ops;
 pub mod player;
 pub mod search;
+pub mod summary;
 pub mod team;
 pub mod verification;
 pub mod weather;

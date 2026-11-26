@@ -9,16 +9,19 @@ use axum::Json;
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi};
 
+use crate::routes::audit::AuditResponse;
 use crate::routes::competition::CompetitionDetailResponse;
 use crate::routes::day::{DayMatch, DayResponse};
 use crate::routes::health::HealthResponse;
 use crate::routes::history::HistoryResponse;
+use crate::routes::issue_action::ResolveResponse;
 use crate::routes::issues::IssuesResponse;
 use crate::routes::manual::{ManualResultRequest, ManualResultResponse};
 use crate::routes::notes::{NoteCreateRequest, NotePatchRequest, NotesResponse};
 use crate::routes::ops::{OpsIntegrity, OpsSource, OpsStatus};
 use crate::routes::player::PlayerResponse;
 use crate::routes::search::SearchResponse;
+use crate::routes::summary::{IssueCodeCount, OpsAction, OpsSummary};
 use crate::routes::team::TeamDetailResponse;
 use crate::routes::verification::GateRow;
 use crate::routes::weather::WeatherResponse;
@@ -56,6 +59,9 @@ use crate::error::ApiError;
         crate::routes::player::player_detail,
         crate::routes::verification::gates,
         crate::routes::ops::status,
+        crate::routes::audit::audit,
+        crate::routes::summary::summary,
+        crate::routes::issue_action::resolve_issue,
         crate::routes::weather::weather,
     ),
     components(schemas(
@@ -88,6 +94,12 @@ use crate::error::ApiError;
         OpsStatus,
         OpsIntegrity,
         OpsSource,
+        AuditResponse,
+        football_storage::repositories::ops_audit::AuditEntryRow,
+        OpsSummary,
+        IssueCodeCount,
+        OpsAction,
+        ResolveResponse,
         football_storage::repositories::competition::CompetitionListRow,
         football_storage::repositories::competition::CompetitionDetailRow,
         football_storage::repositories::competition::CompetitionTeamRow,
@@ -154,7 +166,7 @@ mod tests {
         let version = doc["openapi"].as_str().unwrap();
         assert!(version.starts_with("3.1"), "openapi verzió: {version}");
         let paths = doc["paths"].as_object().unwrap();
-        assert_eq!(paths.len(), 19, "dokumentált útvonalak: {paths:?}");
+        assert_eq!(paths.len(), 22, "dokumentált útvonalak: {paths:?}");
         for (path, item) in paths {
             let methods: Vec<(&str, &serde_json::Value)> = ["get", "post", "put", "patch"]
                 .into_iter()

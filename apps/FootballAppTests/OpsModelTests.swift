@@ -14,9 +14,16 @@ final class OpsModelTests: XCTestCase {
         let issues: Result<IssuesResponseDTO, APIError>
         let history: Result<HistoryResponseDTO, APIError>
 
+        let summary: Result<OpsSummaryDTO, APIError>
+        let audit: Result<AuditResponseDTO, APIError>
+        let resolve: Result<ResolveResponseDTO, APIError>
+
         func status() async throws -> OpsStatus { try status.get() }
         func issues(query: IssuesQueryDTO) async throws -> IssuesResponseDTO { try issues.get() }
         func history(matchID: UUID, limit: Int) async throws -> HistoryResponseDTO { try history.get() }
+        func summary(date: String?) async throws -> OpsSummaryDTO { try summary.get() }
+        func audit(limit: Int, subjectKind: String?, subjectID: UUID?) async throws -> AuditResponseDTO { try audit.get() }
+        func resolveIssue(id: UUID) async throws -> ResolveResponseDTO { try resolve.get() }
     }
 
     private let info = RuntimeInfo(port: 56782, readToken: "r", opsToken: "o")
@@ -50,10 +57,34 @@ final class OpsModelTests: XCTestCase {
         """)
     }
 
+    private static func sampleSummary() -> OpsSummaryDTO {
+        decode("""
+        {"date":"2026-11-25","open_total":1,"previous_day_total":0,
+         "by_code":[{"code":"missing_odds","label_hu":"Hiányzó odds","count":1,"hard":0}],
+         "top_actions":[],"headline_hu":"2026. 11. 25.: 1 nyitott hiányjel."}
+        """)
+    }
+
+    private static func sampleAudit() -> AuditResponseDTO {
+        decode("""
+        {"entries":[{"id":"00000000-0000-0000-0000-000000000009","actor":"detect",
+          "action":"issues_detected","subject_kind":"day","subject_id":null,
+          "created_at":"2026-11-26T12:00:00Z"}],"count":1}
+        """)
+    }
+
+    private static func sampleResolve() -> ResolveResponseDTO {
+        decode("""
+        {"issue_id":"00000000-0000-0000-0000-000000000001","resolved":true}
+        """)
+    }
+
     private func makeModel(
         status: Result<OpsStatus, APIError>? = nil,
         issues: Result<IssuesResponseDTO, APIError>? = nil,
-        history: Result<HistoryResponseDTO, APIError>? = nil
+        history: Result<HistoryResponseDTO, APIError>? = nil,
+        summary: Result<OpsSummaryDTO, APIError>? = nil,
+        audit: Result<AuditResponseDTO, APIError>? = nil
     ) -> OpsModel {
         OpsModel(
             loader: StubLoader(result: .success(info)),
@@ -61,7 +92,10 @@ final class OpsModelTests: XCTestCase {
                 StubService(
                     status: status ?? .success(Self.sampleStatus()),
                     issues: issues ?? .success(Self.sampleIssues()),
-                    history: history ?? .success(Self.sampleHistory())
+                    history: history ?? .success(Self.sampleHistory()),
+                    summary: summary ?? .success(Self.sampleSummary()),
+                    audit: audit ?? .success(Self.sampleAudit()),
+                    resolve: .success(Self.sampleResolve())
                 )
             }
         )
@@ -74,7 +108,10 @@ final class OpsModelTests: XCTestCase {
             serviceFactory: { _ in StubService(
                 status: .success(status),
                 issues: .success(Self.sampleIssues()),
-                history: .success(Self.sampleHistory())
+                history: .success(Self.sampleHistory()),
+                summary: .success(Self.sampleSummary()),
+                audit: .success(Self.sampleAudit()),
+                resolve: .success(Self.sampleResolve())
             ) }
         )
         await model.load()
@@ -143,5 +180,33 @@ final class OpsModelTests: XCTestCase {
         }
         XCTAssertEqual(model.query.code, "identity_review")
         XCTAssertTrue(model.query.openOnly)
+    }
+
+    func testSummaryAndAuditLoadIntoStates() async {
+        let model = makeModel()
+        let summary = Self.sampleSummary()
+        let audit = Self.sampleAudit()
+        await model.loadSummary()
+        await model.loadAudit()
+        XCTAssertEqual(model.summaryState, .loaded(summary))
+        XCTAssertEqual(model.auditState, .loaded(audit))
+    }
+
+    func testAuditFilterChangeReloads() async {
+        let model = makeModel()
+        await model.loadAudit()
+        model.auditSubjectKind = "match"
+        for _ in 0..<20 {
+            if case .loaded = model.auditState { break }
+            await Task.yield()
+        }
+        XCTAssertEqual(model.auditSubjectKind, "match")
+    }
+
+    func testResolveIssueRefreshesLists() async {
+        let model = makeModel()
+        await model.loadIssues()
+        await model.resolveIssue(Self.sampleIssues().issues[0].id)
+        XCTAssertEqual(model.issuesState, .loaded(Self.sampleIssues()))
     }
 }

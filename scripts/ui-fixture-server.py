@@ -24,6 +24,8 @@ def main() -> int:
     parser.add_argument("--ops-status-fixture", help="opcionális üzemeltetési állapot JSON")
     parser.add_argument("--issues-fixture", help="opcionális hiányjel-listája JSON")
     parser.add_argument("--history-fixture", help="opcionális meccs-idővonal JSON")
+    parser.add_argument("--ops-summary-fixture", help="opcionális napi összefoglaló JSON")
+    parser.add_argument("--ops-audit-fixture", help="opcionális globális audit JSON")
     args = parser.parse_args()
 
     with open(args.fixture, "rb") as handle:
@@ -66,6 +68,8 @@ def main() -> int:
     ops_status_payload = read_fixture(args.ops_status_fixture)
     issues_payload = read_fixture(args.issues_fixture)
     history_payload = read_fixture(args.history_fixture)
+    summary_payload = read_fixture(args.ops_summary_fixture)
+    audit_payload = read_fixture(args.ops_audit_fixture)
 
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -78,6 +82,10 @@ def main() -> int:
                 body, status = ops_status_payload, 200
             elif path == "/v1/issues" and issues_payload is not None:
                 body, status = issues_payload, 200
+            elif path == "/v1/ops/summary" and summary_payload is not None:
+                body, status = summary_payload, 200
+            elif path == "/v1/ops/audit" and audit_payload is not None:
+                body, status = audit_payload, 200
             elif path.endswith("/history") and path.startswith("/v1/match/") and history_payload is not None:
                 body, status = history_payload, 200
             elif path.startswith("/v1/match/"):

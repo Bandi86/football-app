@@ -1,0 +1,19 @@
+{
+  "date": "2026-11-20",
+  "open_total": 2,
+  "previous_day_total": 3,
+  "by_code": [
+    { "code": "missing_odds", "label_hu": "Hiányzó odds", "count": 1, "hard": 0 },
+    { "code": "identity_review", "label_hu": "Identitás-review", "count": 1, "hard": 0 }
+  ],
+  "top_actions": [
+    {
+      "kind": "open_issue",
+      "label_hu": "Jel megtekintése: Hiányzó odds",
+      "issue_id": "aaaaaaaa-0000-0000-0000-000000000001",
+      "subject_kind": "match",
+      "subject_id": "11111111-1111-1111-1111-111111111111"
+    }
+  ],
+  "headline_hu": "2026. 11. 20.: 2 nyitott hiányjel."
+}

@@ -263,7 +263,7 @@ async fn openapi_json_is_served_without_token() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let doc: Value = serde_json::from_slice(&body).expect("a válasz JSON");
-    assert_eq!(doc["paths"].as_object().unwrap().len(), 19);
+    assert_eq!(doc["paths"].as_object().unwrap().len(), 22);
     assert!(
         doc["info"]["title"]
             .as_str()

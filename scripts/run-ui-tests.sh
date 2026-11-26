@@ -23,7 +23,9 @@ python3 scripts/ui-fixture-server.py --port "$PORT_LOADED" \
     --player-fixture tests/fixtures/ui/player-detail.json \
     --ops-status-fixture tests/fixtures/ui/ops-status.json \
     --issues-fixture tests/fixtures/ui/ops-issues.json \
-    --history-fixture tests/fixtures/ui/ops-history.json &
+    --history-fixture tests/fixtures/ui/ops-history.json \
+    --ops-summary-fixture tests/fixtures/ui/ops-summary.json \
+    --ops-audit-fixture tests/fixtures/ui/ops-audit.json &
 pids+=("$!")
 python3 scripts/ui-fixture-server.py --port "$PORT_EMPTY" --fixture tests/fixtures/ui/empty-day.json \
     --ops-status-fixture tests/fixtures/ui/ops-status.json \
@@ -32,7 +34,9 @@ pids+=("$!")
 python3 scripts/ui-fixture-server.py --port "$PORT_PARTIAL" --fixture tests/fixtures/ui/partial-day.json \
     --ops-status-fixture tests/fixtures/ui/ops-status.json \
     --issues-fixture tests/fixtures/ui/ops-issues.json \
-    --history-fixture tests/fixtures/ui/ops-history.json &
+    --history-fixture tests/fixtures/ui/ops-history.json \
+    --ops-summary-fixture tests/fixtures/ui/ops-summary.json \
+    --ops-audit-fixture tests/fixtures/ui/ops-audit.json &
 pids+=("$!")
 
 for _ in $(seq 1 100); do

@@ -37,6 +37,7 @@ use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
 mod competitions;
+mod issues;
 mod match_insight_import;
 mod player_import;
 mod tipplap_replay;
@@ -49,6 +50,17 @@ const RULE_SET_VERSION: &str = "verification-1.3";
 struct Cli {
     #[command(subcommand)]
     command: Command,
+}
+
+#[derive(Subcommand)]
+enum IssuesAction {
+    /// Egy nap hiányjeleinek rögzítése (dry-run alapból, auditált).
+    Detect {
+        #[arg(long)]
+        date: NaiveDate,
+        #[arg(long, default_value_t = false)]
+        apply: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -189,6 +201,11 @@ enum Command {
     Identity {
         #[command(subcommand)]
         action: IdentityAction,
+    },
+    /// S170: hiányjelek rögzítése az ops.issue táblába.
+    Issues {
+        #[command(subcommand)]
+        action: IssuesAction,
     },
     Asset {
         #[command(subcommand)]
@@ -693,6 +710,11 @@ async fn main() -> Result<()> {
             WorkerAction::Tick => worker_tick(&pool, &store, &data_dir).await?,
         },
         Command::Identity { action } => identity_command(&pool, action).await?,
+        Command::Issues { action } => match action {
+            IssuesAction::Detect { date, apply } => {
+                issues::run_detect(&pool, date, apply).await?;
+            }
+        },
         Command::Dedupe { action } => match action {
             DedupeAction::Matches {
                 date,
