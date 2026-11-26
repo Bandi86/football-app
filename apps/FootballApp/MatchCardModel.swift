@@ -109,10 +109,12 @@ struct MatchCardModel: Identifiable {
 
     // MARK: - Hiány- és élő-állapot szabályai
 
-    /// „Lejárt, de nyitott": ennyi idő után számít a kezdés lejártnak
-    /// (a szerver `open_past` definíciója). Legyen nevesített konstans, mert a
+    /// „Lejárt, de nyitott": ennyi idő után számít a kezdés lejártnak.
+    /// A „Következik" 5 perces tűrésénél kissé nagyobb a forráskésés miatt,
+    /// de régen 3 óra volt — az alatt a kezdésük utáni meccsek egyik
+    /// státusz-szűrőben sem jelentek meg (S131). Nevesített konstans, mert a
     /// szűrő és a hiány-panel ugyanezt a határt használja.
-    static let openPastThreshold: TimeInterval = 3 * 60 * 60
+    static let openPastThreshold: TimeInterval = 10 * 60
 
     /// Az `open_past` döntéshez tartozó nyitott státuszok.
     static let openStatuses: Set<String> = ["scheduled", "confirmed", "live", "halftime"]
@@ -128,14 +130,17 @@ struct MatchCardModel: Identifiable {
         status == "finished" && finalScore == nil
     }
 
-    /// Lejárt, de nyitott: a kezdés több mint 3 órával ezelőtt volt, és a
-    /// meccs státusza még nyitott — a hiány-panel `open_past` fogalma.
+    /// Lejárt, de nyitott: a kezdés már elmúlt, a meccs státusza még nyitott.
+    /// Az élő/félidős meccsek addig az „Élő" szűrőben vannak (legfeljebb
+    /// `liveWindow` ideig), csak utána kerülnek át ide — így nem szerepelnek
+    /// kétszer, és nem tűnnek el egyik szűrőből sem.
     static func isOpenPast(status: String, kickoffAt: Date,
                            precision: String? = "exact", now: Date) -> Bool {
         // S153: a `date_only` meccsek kezdési ideje placeholder (00:00 UTC),
         // nem lehet belőle „lejárt, nyitott" következtetést vonni.
         guard openStatuses.contains(status), precision != "date_only" else { return false }
-        return kickoffAt < now.addingTimeInterval(-openPastThreshold)
+        let threshold = ["live", "halftime"].contains(status) ? liveWindow : openPastThreshold
+        return kickoffAt < now.addingTimeInterval(-threshold)
     }
 
     /// Ténylegesen élő: élő/félidős státusz, és a kezdés óta legfeljebb 6 óra

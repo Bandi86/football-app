@@ -63,11 +63,16 @@ final class MatchFilterTests: XCTestCase {
         XCTAssertFalse(MatchFilter.missingResult.matches(oldPostponed, now: now))
     }
 
-    /// „Lejárt, nyitott" = nyitott státusz, de a kezdés több mint 3 órája volt.
+    /// „Lejárt, nyitott" = nyitott státusz, de a kezdés már több mint 10 perce volt;
+    /// az élő meccsek addig az „Élő" szűrőben maradnak (150 perces ablak).
     func testOpenPastSelectsExpiredOpenStatusesOnly() {
         let now = ISO8601DateFormatter().date(from: "2026-11-21T12:00:00Z")!
         let recentScheduled = match(id: "00000000-0000-0000-0000-000000000011",
-                                    kickoff: "2026-11-21T10:00:00Z", status: "scheduled")
+                                    kickoff: "2026-11-21T11:55:00Z", status: "scheduled")
+        let twelveMinutesAgo = match(id: "00000000-0000-0000-0000-000000000016",
+                                     kickoff: "2026-11-21T11:48:00Z", status: "scheduled")
+        let liveWithinWindow = match(id: "00000000-0000-0000-0000-000000000017",
+                                     kickoff: "2026-11-21T10:00:00Z", status: "live")
         let oldScheduled = match(id: "00000000-0000-0000-0000-000000000012",
                                  kickoff: "2026-11-21T08:00:00Z", status: "scheduled")
         let oldLive = match(id: "00000000-0000-0000-0000-000000000013",
@@ -78,6 +83,8 @@ final class MatchFilterTests: XCTestCase {
                                  kickoff: "2026-11-21T08:00:00Z", status: "postponed")
         XCTAssertTrue(MatchFilter.openPast.matches(oldScheduled, now: now))
         XCTAssertTrue(MatchFilter.openPast.matches(oldLive, now: now))
+        XCTAssertTrue(MatchFilter.openPast.matches(twelveMinutesAgo, now: now))
+        XCTAssertFalse(MatchFilter.openPast.matches(liveWithinWindow, now: now))
         XCTAssertFalse(MatchFilter.openPast.matches(recentScheduled, now: now))
         XCTAssertFalse(MatchFilter.openPast.matches(oldFinished, now: now))
         XCTAssertFalse(MatchFilter.openPast.matches(oldPostponed, now: now))

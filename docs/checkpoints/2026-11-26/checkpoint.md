@@ -64,6 +64,22 @@
 - [ ] A match-chain-interakciókat a UI-harness ellenőrizte (16/16); **emberi kattintásos** részletező-nyitogatás nem futott külön. Az S161-es 5 perces időzítő élő végigvárása továbbra sem történt meg.
 - [ ] A három másik worktree (`estimated-match-clock`, `match-detail-navigation`, és a match-chain worktree további 7 nem commitolt fájlja) érintetlen — ezek más ágensek munkái, külön átadás/döntés tárgyai.
 
+## S163 — „Lejárt, nyitott" szűrési rés (S131 lezárása)
+
+- [x] **Probléma**: ma 3 meccs (AC Taipei–Hang Yuan 08:00Z, Borneo–Persita és South Melbourne–Oakleigh 08:30Z) már 12–102 perce kezdődött, de a forrás még `scheduled`. A „Következik" 5 perces tűrése miatt kiesett onnan, a „Lejárt, nyitott" 3 órás küszöbe miatt pedig nem jelent meg sehol — csak a „Mind"-ben volt látható.
+- [x] **Javítás** (`MatchCardModel.swift`): `openPastThreshold` **3 óra → 10 perc**; az `isOpenPast` élő/félidős státusznál a `liveWindow` (150 perc) küszöböt használja, így az élő meccs addig az „Élő" szűrőben van, nem szerepel kétszer. A `date_only` kizárás (S153) változatlan.
+- [x] **Tesztek frissítve**: `MatchCardModelTests` (12 perc → igaz, 2 perc → hamis, élő 2 óra → hamis, élő 3 óra → igaz, konstans = 600 mp) és `MatchFilterTests` (11:55 kezdés −5 perc, új −12 perces és élő-ablakos esetek). App unit **82/82 TEST SUCCEEDED**.
+- [x] **Valódi macOS**: app újratelepítve, AX „Lejárt, nyitott" **0 → 3**, és a három meccs név szerint is megjelenik a szűrőben (South Melbourne–Oakleigh, Borneo–Persita, AC Taipei–Hang Yuan). A backend `open_past` jelzőszámlálója továbbra is 3 órás — ez egy diagnosztikai mező, a UI a meccsekből számol; az összehangolás daemon-restartot igényel, külön döntés.
+- [ ] A `slot-00/01` frissességi kapuja és a backend `open_past` küszöbének összehangolása változatlanul nyitott.
+
+## S164 — Valódi verseny-duplikátumok összevonása
+
+- [x] **Kivizsgálás**: a két napra vetítve 4 átfedő aliasú pár volt; ebből 2 valódi duplikátum, 2 jogos (Serie C Girone B vs C = külön csoport; Liga MX vs Liga MX negyeddöntő = külön szakasz).
+- [x] **Duplikátumok**: `UEFA Conference League` (research-only, 2 meccs) ↔ `Conference League` (72 meccs, openfoot+research, azonos aliasok); `UEFA Europa League` (1 meccs) ↔ `Europa League` (89 meccs, ugyanúgy). Mindkettőnél a régi, gazdagabb entitás a túlélő.
+- [x] **Végrehajtás**: dry-run után `footballctl identity merge-competition --force --apply` kétszer, auditáltan (meccsek 2+1, ref 1+1, alias duplikátumok eldobva, minden áldozat archívumba). Az `integrity` 11-25/11-26-ra **verdict OK**, 0 duplikátum/árva.
+- [x] **Mérés**: az API-n 11-26-on a `Conference League` **17+2 → 19 meccs egy csoportban**, az `Europa League` **17+1 → 18 meccs egy csoportban**; a „UEFA …" változatok 0 meccsesek. `daily-check 2026-11-25` **EXIT=0**.
+- [ ] **Rendszerszintű hézag (nem javítva)**: a DB-ben több tucat hasonló, azonos országú és átfedő aliasú entitáspár él (pl. Belgian Pro League / Jupiler League, Serie B / Brazil Serie B, Regionalliga North / Nord, 1. CFL / Prva Crnogorska Liga, magyar/angol nevek). Tömeges automatikus összevonás az AGENTS.md §6 miatt **tiltott**; forrásalapú, páronkénti döntés vagy egy külön ingest-szabály (alias-egyezés országon belül) szükséges hozzá. Ebben a szeletben csak a két, a tegnapi/mai listát ténylegesen érintő párt oldottuk meg.
+
 ## Döntések / korlátok
 
 - [ ] **Maradék hézag = forrás, nem pipeline**: 11-25-ön 21 scheduled és 52 odds nélküli meccs; 11-26-on 92 scheduled (délelőtti mérésnél normális) és 57 odds nélküli meccs. Az odds egy része a 14:15-ös `research-sync` körben érkezik — **nem indítottuk kézzel**, a felhasználói döntés szerint az ütemezett körre marad.

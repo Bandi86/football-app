@@ -311,14 +311,20 @@ final class MatchCardModelTests: XCTestCase {
         XCTAssertFalse(MatchCardModel.isMissingResult(status: "live", finalScore: nil))
     }
 
-    func testOpenPastMeansOpenStatusOlderThanThreeHours() {
+    func testOpenPastStartsTenMinutesAfterKickoffAndKeepsLiveInItsOwnFilter() {
         let now = utcDate(2026, 11, 21, 12, 0)
         XCTAssertTrue(MatchCardModel.isOpenPast(
             status: "scheduled", kickoffAt: now.addingTimeInterval(-4 * 3600), now: now))
+        // A régi 3 órás küszöb helyett már 12 perccel a kezdés után látható.
         XCTAssertTrue(MatchCardModel.isOpenPast(
-            status: "live", kickoffAt: now.addingTimeInterval(-3.5 * 3600), now: now))
+            status: "scheduled", kickoffAt: now.addingTimeInterval(-12 * 60), now: now))
         XCTAssertFalse(MatchCardModel.isOpenPast(
-            status: "scheduled", kickoffAt: now.addingTimeInterval(-2 * 3600), now: now))
+            status: "scheduled", kickoffAt: now.addingTimeInterval(-2 * 60), now: now))
+        // Az élő meccs a liveWindow alatt az „Élő" szűrőben van, nem itt.
+        XCTAssertFalse(MatchCardModel.isOpenPast(
+            status: "live", kickoffAt: now.addingTimeInterval(-2 * 3600), now: now))
+        XCTAssertTrue(MatchCardModel.isOpenPast(
+            status: "live", kickoffAt: now.addingTimeInterval(-3 * 3600), now: now))
         XCTAssertFalse(MatchCardModel.isOpenPast(
             status: "finished", kickoffAt: now.addingTimeInterval(-4 * 3600), now: now))
         XCTAssertFalse(MatchCardModel.isOpenPast(
@@ -327,6 +333,7 @@ final class MatchCardModelTests: XCTestCase {
         XCTAssertFalse(MatchCardModel.isOpenPast(
             status: "scheduled", kickoffAt: now.addingTimeInterval(-12 * 3600),
             precision: "date_only", now: now))
+        XCTAssertEqual(MatchCardModel.openPastThreshold, 10 * 60)
     }
 
     func testLiveWindowIs150Minutes() {
