@@ -4,6 +4,9 @@ public protocol OpsService: Sendable {
     func status() async throws -> OpsStatus
     func issues(query: IssuesQueryDTO) async throws -> IssuesResponseDTO
     func history(matchID: UUID, limit: Int) async throws -> HistoryResponseDTO
+    func notes(matchID: UUID) async throws -> NotesResponseDTO
+    func addNote(matchID: UUID, author: String, body: String, kind: String) async throws -> MatchNoteDTO
+    func editNote(id: UUID, body: String, kind: String) async throws -> MatchNoteDTO
     func summary(date: String?) async throws -> OpsSummaryDTO
     func audit(
         limit: Int,
@@ -52,6 +55,45 @@ public struct HTTPOpsService: OpsService {
             query: [URLQueryItem(name: "limit", value: String(max(1, min(limit, 200))))],
             body: nil,
             as: HistoryResponseDTO.self
+        )
+    }
+
+    public func notes(matchID: UUID) async throws -> NotesResponseDTO {
+        try await send(
+            "GET",
+            "v1/match/\(matchID.uuidString)/notes",
+            query: [],
+            body: nil,
+            as: NotesResponseDTO.self
+        )
+    }
+
+    public func addNote(
+        matchID: UUID,
+        author: String,
+        body: String,
+        kind: String
+    ) async throws -> MatchNoteDTO {
+        let payload = try JSONSerialization.data(withJSONObject: [
+            "author": author, "body": body, "kind": kind,
+        ])
+        return try await send(
+            "POST",
+            "v1/match/\(matchID.uuidString)/notes",
+            query: [],
+            body: payload,
+            as: MatchNoteDTO.self
+        )
+    }
+
+    public func editNote(id: UUID, body: String, kind: String) async throws -> MatchNoteDTO {
+        let payload = try JSONSerialization.data(withJSONObject: ["body": body, "kind": kind])
+        return try await send(
+            "PATCH",
+            "v1/note/\(id.uuidString)",
+            query: [],
+            body: payload,
+            as: MatchNoteDTO.self
         )
     }
 

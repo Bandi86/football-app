@@ -39,6 +39,103 @@ struct SourceLinkList: View {
     }
 }
 
+/// Meccsjegyzetek: az ügynökök és a felhasználó egymásnak írt bejegyzései.
+/// Írás csak ops tokennel (a modell útján), olvasás a meccsadatlapon.
+struct NotesPanel: View {
+    let notes: [MatchNoteDTO]
+    let onAdd: (String, String) async -> Void
+
+    @State private var bodyText = ""
+    @State private var kind = "info"
+    private let kinds = ["info", "problem", "fix", "question"]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.s) {
+            Text("JEGYZETEK")
+                .sectionLabel()
+            if notes.isEmpty {
+                Text("Még nincs jegyzet.")
+                    .font(.appText(11))
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .accessibilityIdentifier("match.notes.empty")
+            }
+            ForEach(notes) { note in
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text(note.kind.uppercased())
+                            .font(.appLabel(9))
+                            .foregroundStyle(AppTheme.accent)
+                        Text(note.author)
+                            .font(.appLabel(9))
+                            .foregroundStyle(AppTheme.secondaryText)
+                        Spacer()
+                    }
+                    Text(note.body)
+                        .font(.appText(12))
+                        .foregroundStyle(AppTheme.primaryText)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("match.note.\(note.id.uuidString)")
+            }
+            HStack {
+                Picker("Típus", selection: $kind) {
+                    ForEach(kinds, id: \.self) { Text($0).tag($0) }
+                }
+                .pickerStyle(.menu)
+                .frame(width: 110)
+                TextField("Új jegyzet…", text: $bodyText)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier("match.note.body")
+                Button("Hozzáadás") {
+                    let text = bodyText
+                    let selectedKind = kind
+                    bodyText = ""
+                    Task { await onAdd(text, selectedKind) }
+                }
+                .buttonStyle(.borderless)
+                .disabled(bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .accessibilityIdentifier("match.note.add")
+            }
+        }
+    }
+}
+
+/// Mező-szintű változástörténet: ki, mikor, mi változott (before → after).
+struct HistoryPanel: View {
+    let entries: [HistoryEntryDTO]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.s) {
+            Text("ELŐZMÉNYEK")
+                .sectionLabel()
+            if entries.isEmpty {
+                Text("Nincs rögzített változás.")
+                    .font(.appText(11))
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .accessibilityIdentifier("match.history.empty")
+            }
+            ForEach(Array(entries.prefix(20).enumerated()), id: \.offset) { index, entry in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(entry.actor) · \(entry.action)\(entry.fieldKey.map { " · \($0)" } ?? "")")
+                        .font(.appLabel(9))
+                        .foregroundStyle(AppTheme.secondaryText)
+                    Text(Self.beforeAfter(entry))
+                        .font(.appText(11))
+                        .foregroundStyle(AppTheme.primaryText)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("match.history.row.\(index)")
+            }
+        }
+    }
+
+    private static func beforeAfter(_ entry: HistoryEntryDTO) -> String {
+        let before = entry.before?.displayText ?? "–"
+        let after = entry.after?.displayText ?? "–"
+        return "\(before) → \(after)"
+    }
+}
+
 /// Felállás: formáció, kezdők/cserék és hiányzók. A feloldott játékosok
 /// kattinthatók (játékosadatlap), a feloldatlanok neve szöveg marad.
 struct LineupPitch: View {

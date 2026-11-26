@@ -205,6 +205,16 @@ public struct HistoryEntryDTO: Decodable, Equatable, Sendable {
     }
 }
 
+public struct NotesResponseDTO: Decodable, Equatable, Sendable {
+    public let notes: [MatchNoteDTO]
+    public let count: Int
+
+    public init(notes: [MatchNoteDTO], count: Int) {
+        self.notes = notes
+        self.count = count
+    }
+}
+
 public struct HistoryResponseDTO: Decodable, Equatable, Sendable {
     public let entries: [HistoryEntryDTO]
 

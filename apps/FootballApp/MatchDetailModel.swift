@@ -16,6 +16,9 @@ final class MatchDetailModel {
     /// A három mikro-végpont adata; a részletező önállóan tölti, hogy a fő
     /// meccsadat ne várjon rá. Hiány = üres listák.
     var micro: MatchMicro?
+    /// Együttműködési adatok: jegyzetek és mező-szintű előzmények.
+    var notes: [MatchNoteDTO] = []
+    var history: [HistoryEntryDTO] = []
     let logos = LogoStore()
     /// A kézi bevitel kimenetele — az űrlap ezt jeleníti meg.
     var submitError: APIError?
@@ -25,6 +28,7 @@ final class MatchDetailModel {
     private let serviceFactory: (RuntimeInfo) throws -> MatchDetailService
     private let microServiceFactory: (RuntimeInfo) throws -> MatchMicroService
     private let manualServiceFactory: (RuntimeInfo) throws -> ManualEntryService
+    private let opsServiceFactory: (RuntimeInfo) throws -> OpsService
     private var generation = 0
     private var microGeneration = 0
 
@@ -32,12 +36,14 @@ final class MatchDetailModel {
         loader: any RuntimeInfoLoading = RuntimeInfoLoader(),
         serviceFactory: ((RuntimeInfo) throws -> MatchDetailService)? = nil,
         microServiceFactory: ((RuntimeInfo) throws -> MatchMicroService)? = nil,
-        manualServiceFactory: ((RuntimeInfo) throws -> ManualEntryService)? = nil
+        manualServiceFactory: ((RuntimeInfo) throws -> ManualEntryService)? = nil,
+        opsServiceFactory: ((RuntimeInfo) throws -> OpsService)? = nil
     ) {
         self.loader = loader
         self.serviceFactory = serviceFactory ?? Self.makeService
         self.microServiceFactory = microServiceFactory ?? Self.makeMicroService
         self.manualServiceFactory = manualServiceFactory ?? Self.makeManualService
+        self.opsServiceFactory = opsServiceFactory ?? Self.makeOpsService
     }
 
     func load(matchId: UUID) async {
@@ -56,6 +62,7 @@ final class MatchDetailModel {
             // A mikro-adatok külön végpontokról jönnek; itt töltjük be, hogy
             // a fő részletező már megjelenjen, de a szekciók is frissüljenek.
             await loadMicro(matchId: matchId)
+            await loadCollaboration(matchId: matchId)
         } catch is CancellationError {
             return
         } catch let error as APIError {
@@ -82,6 +89,32 @@ final class MatchDetailModel {
             guard currentGeneration == microGeneration else { return }
             self.micro = MatchMicro(lineups: [], playerStats: [], shots: [])
         }
+    }
+
+    /// Jegyzetek és előzmények; a hiány üres lista, a hiba nem dönti el a
+    /// fő részletezőt (a panel üres állapotot mutat).
+    func loadCollaboration(matchId: UUID) async {
+        do {
+            let info = try loader.load()
+            let service = try opsServiceFactory(info)
+            async let notes = service.notes(matchID: matchId)
+            async let history = service.history(matchID: matchId, limit: 50)
+            let loadedNotes = try await notes
+            let loadedHistory = try await history
+            self.notes = loadedNotes.notes
+            self.history = loadedHistory.entries
+        } catch {
+            self.notes = []
+            self.history = []
+        }
+    }
+
+    /// Új jegyzet írása ops tokennel, majd a panel frissítése.
+    func addNote(matchId: UUID, body: String, kind: String) async throws {
+        let info = try loader.load()
+        let service = try opsServiceFactory(info)
+        _ = try await service.addNote(matchID: matchId, author: "ui", body: body, kind: kind)
+        await loadCollaboration(matchId: matchId)
     }
 
     /// A betöltött meccs részletei, ha éppen van ilyen.
@@ -153,6 +186,16 @@ final class MatchDetailModel {
             throw APIError.runtimeMissing
         }
         return HTTPMatchMicroService(baseURL: baseURL, readToken: info.readToken)
+    }
+
+    private static func makeOpsService(_ info: RuntimeInfo) throws -> OpsService {
+        guard let baseURL = URL(string: "http://127.0.0.1:\(info.port)") else {
+            throw APIError.runtimeMissing
+        }
+        guard let opsToken = info.opsToken, !opsToken.isEmpty else {
+            throw APIError.unauthorized
+        }
+        return HTTPOpsService(baseURL: baseURL, opsToken: opsToken)
     }
 
     private static func makeManualService(_ info: RuntimeInfo) throws -> ManualEntryService {

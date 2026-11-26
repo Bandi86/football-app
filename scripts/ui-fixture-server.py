@@ -30,6 +30,7 @@ def main() -> int:
     parser.add_argument("--ops-status-fixture", help="opcionális üzemeltetési állapot JSON")
     parser.add_argument("--issues-fixture", help="opcionális hiányjel-listája JSON")
     parser.add_argument("--history-fixture", help="opcionális meccs-idővonal JSON")
+    parser.add_argument("--notes-fixture", help="opcionális meccsjegyzetek JSON")
     parser.add_argument("--ops-summary-fixture", help="opcionális napi összefoglaló JSON")
     parser.add_argument("--ops-audit-fixture", help="opcionális globális audit JSON")
     args = parser.parse_args()
@@ -75,6 +76,7 @@ def main() -> int:
     ops_status_payload = read_fixture(args.ops_status_fixture)
     issues_payload = read_fixture(args.issues_fixture)
     history_payload = read_fixture(args.history_fixture)
+    notes_payload = read_fixture(args.notes_fixture)
     summary_payload = read_fixture(args.ops_summary_fixture)
     audit_payload = read_fixture(args.ops_audit_fixture)
     team_payload = read_fixture(args.team_fixture)
@@ -97,6 +99,8 @@ def main() -> int:
                 body, status = audit_payload, 200
             elif path.endswith("/history") and path.startswith("/v1/match/") and history_payload is not None:
                 body, status = history_payload, 200
+            elif path.endswith("/notes") and path.startswith("/v1/match/") and notes_payload is not None:
+                body, status = notes_payload, 200
             elif micro_payload is not None and path.startswith("/v1/match/") and any(
                 path.endswith(suffix) for suffix in ("/lineups", "/player-stats", "/shots")
             ):

@@ -40,6 +40,15 @@ final class OpsModelTests: XCTestCase {
         func status() async throws -> OpsStatus { try status.get() }
         func issues(query: IssuesQueryDTO) async throws -> IssuesResponseDTO { try issues.get() }
         func history(matchID: UUID, limit: Int) async throws -> HistoryResponseDTO { try history.get() }
+        func notes(matchID: UUID) async throws -> NotesResponseDTO {
+            NotesResponseDTO(notes: [], count: 0)
+        }
+        func addNote(matchID: UUID, author: String, body: String, kind: String) async throws -> MatchNoteDTO {
+            throw APIError.network
+        }
+        func editNote(id: UUID, body: String, kind: String) async throws -> MatchNoteDTO {
+            throw APIError.network
+        }
         func summary(date: String?) async throws -> OpsSummaryDTO {
             summaryDateRecorder?(date)
             return try summary.get()

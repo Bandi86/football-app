@@ -462,6 +462,29 @@ final class FootballAppUITests: XCTestCase {
                       "a hivatkozás-link hiányzik")
     }
 
+    /// A meccsoldal Research füle mutatja a jegyzeteket és az előzményeket.
+    func testMatchDetailShowsNotesAndHistory() throws {
+        let app = try launch(port: Self.loadedPort)
+        app.activate()
+
+        let card = element("match.card.22222222-2222-2222-2222-222222222222", in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: 30), "a nap nem töltődött be")
+        card.click()
+        app.buttons.matching(identifier: "match.detail.section.research").firstMatch.click()
+
+        let note = element("match.note.00000000-0000-0000-0000-000000000031", in: app)
+        XCTAssertTrue(note.waitForExistence(timeout: 10), "a jegyzet hiányzik")
+        let noteText = note.label + (note.value as? String ?? "")
+        XCTAssertTrue(noteText.contains("Az odds forrása"), noteText)
+        XCTAssertTrue(element("match.note.body", in: app).exists, "az új jegyzet mező hiányzik")
+        XCTAssertTrue(element("match.note.add", in: app).exists, "a jegyzet hozzáadása gomb hiányzik")
+
+        let history = element("match.history.row.0", in: app)
+        XCTAssertTrue(history.waitForExistence(timeout: 10), "az előzmény hiányzik")
+        let historyText = history.label + (history.value as? String ?? "")
+        XCTAssertTrue(historyText.contains("manual_match_edit"), historyText)
+    }
+
     /// A meccsrészletezőből a csapat- és versenylinkek a konkrét entitásra vezetnek.
     func testMatchDetailEntityLinksOpenSheets() throws {
         let app = try launch(port: Self.loadedPort)

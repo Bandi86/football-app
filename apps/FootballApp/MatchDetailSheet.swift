@@ -116,6 +116,11 @@ struct MatchDetailSheet: View {
             MatchDetailContent(
                 detail: detail,
                 micro: model.micro,
+                notes: model.notes,
+                history: model.history,
+                onAddNote: { body, kind in
+                    try? await model.addNote(matchId: detail.id, body: body, kind: kind)
+                },
                 logos: model.logos,
                 accessibilityPrefix: accessibilityPrefix,
                 onSelectMatch: { overlay = .match(SelectedMatch(id: $0)) },
@@ -481,6 +486,9 @@ struct ManualResultSheet: View {
 struct MatchDetailContent: View {
     let detail: MatchDetail
     let micro: MatchMicro?
+    let notes: [MatchNoteDTO]
+    let history: [HistoryEntryDTO]
+    let onAddNote: (String, String) async -> Void
     let logos: LogoStore
     let accessibilityPrefix: String
     let onSelectMatch: (UUID) -> Void
@@ -685,6 +693,7 @@ struct MatchDetailContent: View {
             return detail.odds?.hasAnyValue == true
         case .research:
             return detail.insight != nil || !(detail.links ?? []).isEmpty
+                || !notes.isEmpty || !history.isEmpty
         }
     }
 
@@ -839,6 +848,8 @@ struct MatchDetailContent: View {
         if let links = detail.links, !links.isEmpty {
             SourceLinkList(links: links)
         }
+        NotesPanel(notes: notes, onAdd: onAddNote)
+        HistoryPanel(entries: history)
     }
 
     private var metaGrid: some View {

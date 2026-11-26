@@ -570,3 +570,28 @@
 
 - `git revert <S5 commit>`; az új API-mező (`players`) opcionális a DTO-ban, így a régi
   kliens kompatibilis marad. Az éles adatot a szelet nem írta.
+
+## S184 — S6: jegyzetek és előzmények a meccsoldalon
+
+- [x] **Core:** `NotesResponseDTO` + `OpsService.notes/addNote/editNote` (ops token,
+      Magyar 400/401/404 az API-n), `MatchDetailModel` új `notes`/`history` állapota
+     generációs védelemmel; a `StubService` (OpsModelTests) bővítve.
+- [x] **UI:** `NotesPanel` (típus/szerző/idő/szöveg + új jegyzet űrlap `match.note.*`)
+      és `HistoryPanel` (before → after, szerep, akció — `match.history.row.*`) a
+      meccsrészletező Research/Források szekciójában. A fül akkor is elérhető, ha
+      csak jegyzet/előzmény van (nincs insight/link).
+- [x] **Fixture/teszt:** `match-notes.json`, a fixture szerver `/notes` útvonala,
+      1 új XCUITest (jegyzetek + előzmények AX megjelenése); `run-ui-tests.sh` **31/31**.
+- [x] **Kapu (mért):** Rust **633/0**, Core **151/26**, app unit **94/0**,
+      `run-ui-tests.sh` **31/31**, `daily-check` ZÖLD, `integrity` OK, `git diff --check` 0;
+      daemon + app újratelepítve, `/v1/health` OK.
+- [ ] **Nem ellenőrzött:** a jegyzet **írása** (POST) nincs XCUITesttel végigkattintva
+      (csak az űrlap megjelenése); a `PATCH /v1/note/{id}` nincs UI-ból hívva; a
+      tényleges VoiceOver-hang emberi füllel továbbra is nyitott.
+- [ ] **Következő:** S7 (közös szűrők/perzisztencia, opcionális beállítások), S8
+      (logófeltöltés) — folyamatosan, zöld kapu után commit.
+
+### Visszaállás (S184)
+
+- `git revert <S6 commit>`; a jegyzeteket író API változatlan, a szelet csak olvasott
+  és megjelenített (az új jegyzet írása a meglévő `/notes` végpontot hívja).
