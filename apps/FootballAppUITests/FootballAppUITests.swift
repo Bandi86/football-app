@@ -230,6 +230,52 @@ final class FootballAppUITests: XCTestCase {
         XCTAssertTrue((team.value as? String ?? "").contains("ÚJPEST"), "a csapat-adatlap címe: \(team.value ?? "")")
     }
 
+    /// A csapatadatlapon a keret játékosai kattinthatók; a játékosadatlap
+    /// ugyanabban a sheet-láncban nyílik meg.
+    func testTeamSquadOpensPlayer() throws {
+        let app = try launch(port: Self.loadedPort)
+        app.activate()
+        app.buttons.matching(identifier: "nav.search").firstMatch.click()
+        let field = element("search.field", in: app)
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "a keresés nem nyílt meg")
+        field.click()
+        app.typeText("ujpest")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+        app.buttons.matching(identifier: "search.result.team").firstMatch.click()
+        XCTAssertTrue(element("team.detail", in: app).waitForExistence(timeout: 10), "a csapatlap nem nyílt meg")
+
+        let player = app.buttons.matching(identifier: "team.player.900001").firstMatch
+        XCTAssertTrue(player.waitForExistence(timeout: 10), "a keret játékosa hiányzik")
+        player.click()
+        let name = element("player.name", in: app)
+        XCTAssertTrue(name.waitForExistence(timeout: 10), "a játékoslap nem nyílt meg")
+        // A fixture szerver minden player ID-re ugyanazt a Játékos Kereső
+        // payloadot adja — a lényeg itt a navigáció, nem a név.
+        XCTAssertFalse((name.value as? String ?? "").isEmpty)
+    }
+
+    /// A versenyadatlapon a csapatok (csapatok fül) kattinthatók.
+    func testCompetitionTeamRowsOpenTeamSheet() throws {
+        let app = try launch(port: Self.loadedPort)
+        app.activate()
+        app.buttons.matching(identifier: "nav.search").firstMatch.click()
+        let field = element("search.field", in: app)
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "a keresés nem nyílt meg")
+        field.click()
+        app.typeText("ujpest")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+        app.buttons.matching(identifier: "search.result.competition").firstMatch.click()
+        XCTAssertTrue(element("competition.detail", in: app).waitForExistence(timeout: 10), "a versenylap nem nyílt meg")
+
+        app.buttons.matching(identifier: "competition.tab.Csapatok").firstMatch.click()
+        let team = app.buttons.matching(
+            identifier: "competition.team.00000000-0000-0000-0000-000000000011"
+        ).firstMatch
+        XCTAssertTrue(team.waitForExistence(timeout: 10), "a csapatsor hiányzik")
+        team.click()
+        XCTAssertTrue(element("team.detail", in: app).waitForExistence(timeout: 10), "a csapatlap nem nyílt meg")
+    }
+
     /// A keresés játékos-találatából megnyíló adatlap; a hiány szövegesen
     /// jelenik meg, az AX-azonosítók stabilak.
     func testPlayerDetailShowsDataAndMissingStates() throws {
@@ -248,6 +294,13 @@ final class FootballAppUITests: XCTestCase {
         XCTAssertTrue(element("player.stat", in: app).exists, "a statisztika hiányzik")
         XCTAssertTrue(element("player.incident", in: app).exists, "az esemény hiányzik")
 
+        // A fellépések sora kattintható: a konkrét meccs részletezőjét nyitja.
+        app.buttons.matching(identifier: "player.appearance").firstMatch.click()
+        let detail = element("match.detail", in: app)
+        XCTAssertTrue(detail.waitForExistence(timeout: 10),
+                      "a fellépés meccsrészletezője nem nyílt meg")
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(waitForGone(detail, timeout: 10), "Escape nem zárta be a meccsrészletezőt")
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         XCTAssertTrue(waitForGone(name, timeout: 10), "Escape nem zárta be a játékoslapot")
     }

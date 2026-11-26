@@ -17,5 +17,23 @@
   },
   "matches": [],
   "form": [],
-  "next": []
+  "next": [],
+  "players": [
+    {
+      "source_player_id": "900001",
+      "player_entity_id": "00000000-0000-0000-0000-000000000021",
+      "player_name": "Keret Játékos",
+      "position": "Goalkeeper",
+      "shirt_number": 1,
+      "captured_at": "2026-11-24T18:00:00Z"
+    },
+    {
+      "source_player_id": "900002",
+      "player_entity_id": null,
+      "player_name": "Feloldatlan Játékos",
+      "position": "Midfielder",
+      "shirt_number": 14,
+      "captured_at": "2026-11-24T18:00:00Z"
+    }
+  ]
 }

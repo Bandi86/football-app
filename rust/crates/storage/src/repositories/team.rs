@@ -81,6 +81,40 @@ pub async fn fetch_teams(
     Ok(rows)
 }
 
+/// A csapat as-of kerete a meccs-szintű felállásokból. A játékos neve és
+/// entitása csak akkor jelenik meg, ha a forrás feloldotta; különben a
+/// `source_player_id` marad. Hiány esetén üres lista.
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow, utoipa::ToSchema)]
+pub struct TeamPlayerRow {
+    pub source_player_id: String,
+    pub player_entity_id: Option<Uuid>,
+    pub player_name: Option<String>,
+    pub position: Option<String>,
+    pub shirt_number: Option<i32>,
+    pub captured_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// A legfrissebb felállás-sorok a csapat meccseiről (legfeljebb 30 játékos).
+pub async fn fetch_team_players(pool: &PgPool, team_id: Uuid) -> Result<Vec<TeamPlayerRow>> {
+    sqlx::query_as::<_, TeamPlayerRow>(
+        "SELECT DISTINCT ON (l.source_player_id)
+                l.source_player_id, l.player_entity_id,
+                e.canonical_name AS player_name, l.position, l.shirt_number,
+                l.captured_at
+           FROM fact.match_lineups l
+           JOIN core.match m ON m.id = l.match_id
+           LEFT JOIN core.entity e ON e.id = l.player_entity_id
+          WHERE (m.home_team_id = $1 AND l.side = 'home')
+             OR (m.away_team_id = $1 AND l.side = 'away')
+          ORDER BY l.source_player_id, l.captured_at DESC
+          LIMIT 30",
+    )
+    .bind(team_id)
+    .fetch_all(pool)
+    .await
+    .map_err(Into::into)
+}
+
 #[derive(Debug, Clone, serde::Serialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct TeamDetailRow {
     pub team_id: Uuid,

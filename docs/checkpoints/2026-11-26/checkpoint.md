@@ -542,3 +542,31 @@
 
 - `git revert <S3+S4 commit>`; a `0009` táblákat a szelet nem módosította, csak olvasta.
 - Az éles adatot a szelet nem írta; daemon/app git-commitből újraépíthető.
+
+## S183 — S5: verseny-, csapat- és játékosoldal mélység
+
+- [x] **API:** `/v1/team/{id}` új `players[]` mezője (`fetch_team_players` a
+      `fact.match_lineups`-ból, as-of, legfeljebb 30 játékos, feloldatlan név megőrzésével);
+      `/v1/player/{id}` kliensoldali `limit=200` kérés a csonkolt lista helyett.
+      Az OpenAPI-séma automatikusan követi az új típust (`TeamPlayerRow`).
+- [x] **UI:** `CompetitionSheet` csapat- és tabellasorai kattinthatók (`TeamSheet`);
+      `TeamSheet` új `KERET` szekciója kattintható játékosokkal (`PlayerView`);
+      `PlayerView` fellépése/statisztikája/eseménye kattintható (`MatchDetailSheet`),
+      a `prefix(10)`/`prefix(20)` vágás megszűnt, dátum `mm`→`MM` javítás.
+      A navigáció minden irányban a meglévő sheet-láncot használja.
+- [x] **Fixture/teszt:** `team-detail.json` + `players`, `competition-detail.json` +
+      `teams`/`standings`; 3 új XCUITest (keret→játékos, verseny→csapat, játékos→meccs).
+- [x] **Kapu (mért):** Rust **633/0**, clippy 0, fmt 0, build OK · Core **151/26** ·
+      app unit **94/0** · `run-ui-tests.sh` **30/30, 0 hiba** · `daily-check 11-25` ZÖLD ·
+      `integrity` OK · `git diff --check` 0. Daemon + app újratelepítve, `/v1/health` OK.
+- [ ] **Nem ellenőrzött:** a `limit=200` nem change-el `offset`/`total` mezőt — ha egy
+      játékosnak több mint 200 sora van, a lista akkor is csonkolt (S7-re maradt);
+      a versenyoldal saját fülének (`Versenyek` tab) élő listája nincs XCUITesttel fedezve,
+      a keresési sheetből nyitott versenylap van; a szűrők `@State`-ben vannak (S7).
+- [ ] **Következő:** S6 (jegyzetek/előzmények a meccsoldalon), S7 (közös szűrők,
+      beállítások), S8 (logófeltöltés) — folyamatosan, zöld kapu után commit.
+
+### Visszaállás (S183)
+
+- `git revert <S5 commit>`; az új API-mező (`players`) opcionális a DTO-ban, így a régi
+  kliens kompatibilis marad. Az éles adatot a szelet nem írta.

@@ -9,7 +9,7 @@ use football_storage::repositories::match_detail::{
     FormEntry, NextMatchEntry, fetch_team_form, fetch_team_next,
 };
 use football_storage::repositories::team::{
-    TeamDetailRow, TeamListRow, fetch_team_detail, fetch_teams,
+    TeamDetailRow, TeamListRow, TeamPlayerRow, fetch_team_detail, fetch_team_players, fetch_teams,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -44,6 +44,9 @@ pub struct TeamDetailResponse {
     /// A következő legfeljebb három kijelölt meccs.
     #[serde(default)]
     pub next: Vec<NextMatchEntry>,
+    /// A legfrissebb felállásokból származó as-of keret (hiány esetén []).
+    #[serde(default)]
+    pub players: Vec<TeamPlayerRow>,
 }
 
 #[utoipa::path(
@@ -155,10 +158,18 @@ pub async fn team_detail(
         Vec::new()
     });
 
+    let players = fetch_team_players(&state.pool, team_id)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(error=%e, "csapat keret lekérdezés");
+            Vec::new()
+        });
+
     Ok(Json(TeamDetailResponse {
         detail,
         matches: matches.into_iter().map(map_match).collect(),
         form,
         next,
+        players,
     }))
 }

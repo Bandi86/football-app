@@ -9,6 +9,7 @@ struct CompetitionSheet: View {
     @State private var model = CompetitionDetailModel()
     @State private var tab: CompetitionTab = .matches
     @State private var selectedMatch: SelectedMatch?
+    @State private var selectedTeam: EntityTarget?
     @Environment(\.dismiss) private var dismiss
 
     enum CompetitionTab: String, CaseIterable, Identifiable {
@@ -44,6 +45,9 @@ struct CompetitionSheet: View {
         .task(id: competitionId) { await model.load(id: competitionId, date: date) }
         .sheet(item: $selectedMatch) { item in
             MatchDetailSheet(matchId: item.id)
+        }
+        .sheet(item: $selectedTeam) { item in
+            TeamSheet(teamId: item.id, name: item.name)
         }
     }
 
@@ -171,6 +175,7 @@ struct CompetitionSheet: View {
                     .background(active ? AppTheme.surface : Color.clear, in: Capsule())
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("competition.tab.\(candidate.rawValue)")
             }
             Spacer()
         }
@@ -250,6 +255,9 @@ struct CompetitionSheet: View {
                         .padding(.vertical, 8)
                         Rectangle().fill(AppTheme.hairline).frame(height: 1)
                         ForEach(rows) { row in
+                          Button {
+                            selectedTeam = EntityTarget(id: row.teamId, name: row.name, kind: "team")
+                          } label: {
                             HStack(spacing: 8) {
                                 Text("\(row.position)")
                                     .font(.system(size: 11).monospacedDigit())
@@ -275,7 +283,11 @@ struct CompetitionSheet: View {
                             }
                             .padding(.horizontal, 24)
                             .padding(.vertical, 7)
-                            Rectangle().fill(AppTheme.hairline).frame(height: 1)
+                          }
+                          .buttonStyle(.borderless)
+                          .accessibilityLabel("Csapat megnyitása: \(row.name)")
+                          .accessibilityIdentifier("competition.standing.\(row.teamId.uuidString)")
+                          Rectangle().fill(AppTheme.hairline).frame(height: 1)
                         }
                     }
                 }
@@ -324,6 +336,9 @@ struct CompetitionSheet: View {
     }
 
     private func teamRow(_ team: CompetitionTeam) -> some View {
+        Button {
+            selectedTeam = EntityTarget(id: team.teamId, name: team.name, kind: "team")
+        } label: {
         HStack(spacing: 12) {
             TeamMark(path: team.logo, store: model.logos)
             Text(team.name)
@@ -338,6 +353,10 @@ struct CompetitionSheet: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 10)
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel("Csapat megnyitása: \(team.name)")
+        .accessibilityIdentifier("competition.team.\(team.teamId.uuidString)")
     }
 
     private func statColumn(_ label: String, _ value: String) -> some View {

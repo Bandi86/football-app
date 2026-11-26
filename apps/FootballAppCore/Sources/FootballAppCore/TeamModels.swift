@@ -49,6 +49,26 @@ public struct TeamInfo: Decodable, Equatable, Sendable {
     }
 }
 
+public struct TeamPlayer: Decodable, Equatable, Sendable, Identifiable {
+    public let sourcePlayerId: String
+    public let playerEntityId: UUID?
+    public let playerName: String?
+    public let position: String?
+    public let shirtNumber: Int?
+    public let capturedAt: Date
+
+    public var id: String { sourcePlayerId }
+
+    enum CodingKeys: String, CodingKey {
+        case sourcePlayerId = "source_player_id"
+        case playerEntityId = "player_entity_id"
+        case playerName = "player_name"
+        case position
+        case shirtNumber = "shirt_number"
+        case capturedAt = "captured_at"
+    }
+}
+
 public struct TeamDetail: Decodable, Equatable, Sendable {
     public let detail: TeamInfo
     public let matches: [DayMatch]
@@ -56,4 +76,6 @@ public struct TeamDetail: Decodable, Equatable, Sendable {
     public let form: [FormEntry]?
     /// A következő legfeljebb három kijelölt meccs.
     public let next: [NextMatchEntry]?
+    /// A legfrissebb felállásokból származó as-of keret (hiány esetén []).
+    public let players: [TeamPlayer]?
 }

@@ -5,6 +5,7 @@ import FootballAppCore
 /// jelölt; a hiány „Nincs adat", nem üres sor és nem kitalált 0.
 struct PlayerView: View {
     @State private var model: PlayerModel
+    @State private var selectedMatch: SelectedMatch?
     private let playerID: UUID
     @Environment(\.dismiss) private var dismiss
 
@@ -26,7 +27,7 @@ struct PlayerView: View {
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "hu_HU")
-        f.dateFormat = "yyyy. mm. dd. HH:mm"
+        f.dateFormat = "yyyy. MM. dd. HH:mm"
         return f
     }()
 
@@ -65,6 +66,9 @@ struct PlayerView: View {
         .frame(width: 680, height: 560)
         .background(AppTheme.background)
         .task { await model.load() }
+        .sheet(item: $selectedMatch) { item in
+            MatchDetailSheet(matchId: item.id)
+        }
     }
 
     @ViewBuilder
@@ -86,7 +90,7 @@ struct PlayerView: View {
                     if feed.spells.isEmpty {
                         missing("Nincs csapattagság-adat")
                     } else {
-                        ForEach(Array(feed.spells.prefix(10).enumerated()), id: \.offset) { _, spell in
+                        ForEach(Array(feed.spells.enumerated()), id: \.offset) { _, spell in
                             row(
                                 spell.teamName,
                                 "\(spell.validFrom) – \(spell.validTo ?? "jelenlegi")\(spell.loan ? " · kölcsön" : "")",
@@ -100,10 +104,11 @@ struct PlayerView: View {
                     if feed.appearances.isEmpty {
                         missing("Nincs fellépés-adat")
                     } else {
-                        ForEach(feed.appearances.prefix(10), id: \.matchId) { appearance in
-                            row(
+                        ForEach(feed.appearances, id: \.matchId) { appearance in
+                            matchRow(
                                 "\(Self.dateFormatter.string(from: appearance.kickoffAt)) · \(appearance.competitionName ?? "Ismeretlen verseny")",
                                 "\(appearance.side ?? "?") · \(appearance.role)\(Self.ratingText(appearance.rating))",
+                                matchId: appearance.matchId,
                                 identifier: "player.appearance"
                             )
                         }
@@ -114,17 +119,13 @@ struct PlayerView: View {
                     if feed.stats.isEmpty {
                         missing("Nincs játékosstatisztika")
                     } else {
-                        ForEach(Array(feed.stats.prefix(20).enumerated()), id: \.offset) { _, stat in
-                            row(
+                        ForEach(Array(feed.stats.enumerated()), id: \.offset) { _, stat in
+                            matchRow(
                                 stat.statKey,
                                 Self.valueText(stat.value),
+                                matchId: stat.matchId,
                                 identifier: "player.stat"
                             )
-                        }
-                        if feed.stats.count > 20 {
-                            Text("…és további \(feed.stats.count - 20) metrika")
-                                .font(.appText(11))
-                                .foregroundStyle(AppTheme.secondaryText)
                         }
                     }
                 }
@@ -133,12 +134,13 @@ struct PlayerView: View {
                     if feed.incidents.isEmpty {
                         missing("Nincs esemény-adat")
                     } else {
-                        ForEach(Array(feed.incidents.prefix(10).enumerated()), id: \.offset) { _, incident in
-                            row(
+                        ForEach(Array(feed.incidents.enumerated()), id: \.offset) { _, incident in
+                            matchRow(
                                 "\(incident.minute.map { "\($0). perc" } ?? "Ismeretlen perc") · \(incident.incidentType)",
                                 [incident.playerName, incident.relatedPlayerName]
                                     .compactMap { $0 }
                                     .joined(separator: " ↔ "),
+                                matchId: incident.matchId,
                                 identifier: "player.incident"
                             )
                         }
@@ -171,6 +173,29 @@ struct PlayerView: View {
         .padding(.vertical, 3)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title), \(detail)")
+        .accessibilityIdentifier(identifier)
+    }
+
+    /// A játékosoldal minden meccshez tartozó sora kattintható: a konkrét
+    /// meccsrészletezőt nyitja meg (a `matchId` a DTO-ból jön).
+    private func matchRow(_ title: String, _ detail: String, matchId: UUID,
+                          identifier: String) -> some View {
+        Button {
+            selectedMatch = SelectedMatch(id: matchId)
+        } label: {
+            HStack {
+                Text(title)
+                    .font(.appText(12))
+                    .foregroundStyle(AppTheme.primaryText)
+                Spacer()
+                Text(detail)
+                    .font(.appText(11))
+                    .foregroundStyle(AppTheme.secondaryText)
+            }
+            .padding(.vertical, 3)
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel("Meccs megnyitása: \(title), \(detail)")
         .accessibilityIdentifier(identifier)
     }
 

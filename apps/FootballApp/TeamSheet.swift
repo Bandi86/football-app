@@ -8,6 +8,7 @@ struct TeamSheet: View {
     let name: String
     @State private var model = TeamDetailModel()
     @State private var selectedMatch: SelectedMatch?
+    @State private var selectedPlayer: SelectedPlayer?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -35,6 +36,9 @@ struct TeamSheet: View {
         .task(id: teamId) { await model.load(id: teamId) }
         .sheet(item: $selectedMatch) { item in
             MatchDetailSheet(matchId: item.id)
+        }
+        .sheet(item: $selectedPlayer) { item in
+            PlayerView(id: item.id)
         }
     }
 
@@ -69,6 +73,36 @@ struct TeamSheet: View {
                 }
                 .padding(AppTheme.Spacing.l)
                 .accessibilityIdentifier("team.detail.extras")
+                Rectangle().fill(AppTheme.hairline).frame(height: 1)
+            }
+            if let players = detail.players, !players.isEmpty {
+                VStack(alignment: .leading, spacing: AppTheme.Spacing.s) {
+                    Text("KERET · \(players.count)")
+                        .font(.appLabel(9))
+                        .tracking(1.4)
+                        .foregroundStyle(AppTheme.secondaryText)
+                    ForEach(players) { player in
+                        Group {
+                            if let playerId = player.playerEntityId {
+                                Button {
+                                    selectedPlayer = SelectedPlayer(id: playerId)
+                                } label: {
+                                    Text(playerLabel(player))
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("Játékos megnyitása: \(playerLabel(player))")
+                            } else {
+                                Text(playerLabel(player))
+                                    .accessibilityLabel(playerLabel(player))
+                            }
+                        }
+                        .font(.appText(11))
+                        .foregroundStyle(AppTheme.primaryText)
+                        .accessibilityIdentifier("team.player.\(player.sourcePlayerId)")
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(AppTheme.Spacing.l)
                 Rectangle().fill(AppTheme.hairline).frame(height: 1)
             }
             if detail.matches.isEmpty {
@@ -130,6 +164,13 @@ struct TeamSheet: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 18)
+    }
+
+    private func playerLabel(_ player: TeamPlayer) -> String {
+        let name = player.playerName ?? player.sourcePlayerId
+        let number = player.shirtNumber.map { "\($0). " } ?? ""
+        let position = player.position.map { " · \($0)" } ?? ""
+        return number + name + position
     }
 
     private func country(_ detail: TeamDetail) -> String {

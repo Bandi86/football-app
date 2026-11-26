@@ -24,7 +24,8 @@ public struct HTTPPlayerService: PlayerService {
     }
 
     public func player(id: UUID) async throws -> PlayerFeed {
-        let url = baseURL.appendingPathComponent("v1/player/\(id.uuidString)")
+        var url = baseURL.appendingPathComponent("v1/player/\(id.uuidString)")
+        url.append(queryItems: [URLQueryItem(name: "limit", value: "200")])
         var request = URLRequest(url: url)
         request.setValue("Bearer \(readToken)", forHTTPHeaderField: "Authorization")
         let data: Data
