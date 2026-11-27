@@ -504,8 +504,33 @@ egy nem tőlem származó `HomeHeader.swift` módosítás a munkaterületen
        DROP SCHEMA analytics;` + a `_sqlx_migrations` 0031-es sorának törlése.
       A kanonikus adatot a szelet nem írta.
 
+## S197 — Predikció P1a: Poisson + Dixon–Coles gólmatematika
+
+- [x] **Tiszta modul:** `football-prediction/src/goals.rs` — Poisson PMF,
+      Dixon–Coles `tau` (csak az 0-0 / 0-1 / 1-0 / 1-1 cellákra), 20×20
+      (konfigurálható) gólmátrix normalizálással, és a mátrixból származtatott
+      piacok: 1X2, O/U 2,5, BTTS + fair odds mindegyikre. Nincs adatbázis,
+      illesztés vagy kanonikus írás; a `rho = 0` visszaadja a független Poisson-t.
+- [x] **Tesztek (mért):** +5 unit teszt (PMF értékek, rho=0 ekvivalencia,
+      tau csak alacsony cellák, piac-összegek és fair odds, hibás bemenet
+      fail-closed). `football-prediction` **18/0**; teljes workspace
+      **664 passed, 0 failed**, clippy 0, fmt 0, build OK.
+- [x] **Kapuk:** `daily-check 11-26` EXIT=0 ZÖLD, `integrity 11-25…11-27` OK,
+      `git diff --check` 0. A modell még shadow módban sincs bekötve — ez a
+      szelet csak a matematikát adja.
+- [ ] **Nem ellenőrzött**: a modell paramétereinek (`lambda_home/away`, `rho`)
+      as-of illesztése és éles predikciók; összevetés a v1 `predictions.ts`
+      20×20 mátrixával; a P0 mérési kapu szerinti elfogadás nem történt meg.
+- [ ] A P1b (paraméter-illesztés + `analytics.prediction` + shadow CLI) nem indult.
+
+### Visszaállás (S197)
+
+- `git revert <S197 commit>` — a `goals.rs` modul megszűnik; a P0 modulok,
+      az analytics séma és az adatok változatlanok.
+
 ## Következő döntési pont
 
-- Predikció **P1**: Dixon–Coles / Poisson gólmodell (1X2/OU/BTTS), shadow
-      módban, a P0 mérési szerződése szerinti elfogadási kapuval. Külön döntés
-      marad a 2 névreview és az S9 AI-gomb.
+- Predikció **P1b**: as-of paraméter-illesztés (csapat támadás/védelem, liga
+      bázis, `rho`) + predikciók `analytics.prediction`-be shadow módban,
+      majd mérésük a P0 szerződéssel (csak szignifikáns javulásnál lehet aktív).
+      Külön döntés marad a 2 névreview és az S9 AI-gomb.
