@@ -828,7 +828,47 @@ app unit 101/0, UI **34/34**, `daily-check` ZÖLD, `integrity` OK, `git diff --c
       ágak merge-éből. Az adatot ezek a szeletek nem írják. A szűrő és a badge
       visszaállítása külön revertelhető.
 
+## S215 — Adatminőségi hibák gyökéroka és kemény kapu
+
+- [x] **Kivizsgálás (read-only):** a felhasználó által jelzett három eset
+      részletes gyökérok-lemutatása `docs/operations/2026-11-27-data-bug-audit.md`.
+  - Paraguayan Primera 11-25: ugyanaz a három kanonikus csapatpár három sorban
+    (egy `exact` 20:00 UTC + két `date_only` 00:00 placeholder), a research
+    két külön uid alatt (`fm:` és `espn:`). A `find_cross_source_fixture` nem
+    köt hidat: az ország XX és 20 óra a kezdés-különbség. A forrás mind a hat
+    sorban `scheduled`/null eredmény — nem volt mit visszajátszani.
+  - Ciprus-kupa 11-25: 8 meccs, mind `scheduled`/null eredmény a researchben
+    még 11-27-en is; más forrás nem rögzített hozzájuk adatot.
+  - Algéria 2 meccs: **nem rendszerhiba** — az `ops.audit_event` szerint a
+    felhasználó maga állította át 11-27 16:58-kor `postponed`-ra,
+    „el lett halasztva" indoklással, teljes observation/provenance/audit lánccal.
+- [x] **Kapu:** az `IntegrityReport` két új mutatója:
+    `unresolved_duplicate_fixture_groups` (**kemény hiba**, ID-alapú, nem
+    fuzzy), `stale_scheduled_without_result` + `missing_finished_result`
+    (adathiány-jelzés, `verdict: OK — de ADATHIÁNY`). A korábbi riport az
+    `azonos csapatpár azonos napon = 5` mutatót csak figyelmeztetésnek kezelte,
+    ezért volt `OK` — ezért nem derült ki 11-25-én.
+- [x] **API-szűrés:** a `fetch_day` és a `fetch_day_gaps` determinisztikusan
+    egy sorra szűri az ilyen csoportot (pontos kezdésű sor marad). Mért eredmény:
+    11-25-re a napi API **3** paraguayi meccset ad vissza 6 helyett, mind
+    20:00 UTC-vel; `missing_kickoff` 7 → 4. Az adatot nem írtuk át.
+- [x] **Kapuk:** workspace teszt **0 failed**, clippy 0, fmt 0, build OK.
+    Új daemon telepítve; `integrity --from 2026-11-25 --to 2026-11-27` most
+    `FELOLDATLAN cross-source duplikátum: 3`, `lejárt, scheduled, eredmény
+    nélkül: 36`, **`verdict: FAIL`** — ez a kívánt, korai jelzés.
+- [ ] **Nem ellenőrzött / nyitott:** a 3 duplikátumcsoport (6 DB-sor) végleges
+    adattisztítása csak külön jóváhagyással, mert sorokat kellene
+    státuszváltással/törléssel rendezni (AGENTS.md §6, §10). A Ciprus-kupa és
+    a paraguayi meccsek eredménye a forrásban nincs meg — új forrás kell hozzá.
+
+### Visszaállás (S215)
+
+- `git revert` a `feat/duplicate-fixture-gate` commitjaira; az API-szűrés nem
+    ír adatot, így a régi 6 sor újra megjelenik. A kézi algériai szerkesztések
+    az audit eventből visszaállíthatók.
+
 ## Következő döntési pont
 
-- A predikció shadowban marad; nyitva: a 25/75 részletező panel widgetjei
-      (S210–S212 terv), hosszabb backtest/rho-illesztés, S9 AI-gomb. VoiceOver skip.
+- A predikció shadowban marad; nyitva: a 3 duplikátumcsoport adattisztításának
+    jóváhagyása, a 25/75 részletező panel widgetjei (S210–S212 terv), hosszabb
+    backtest/rho-illesztés, S9 AI-gomb. VoiceOver skip.
