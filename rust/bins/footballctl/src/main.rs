@@ -42,6 +42,7 @@ mod match_insight_import;
 mod player_import;
 mod prediction_fit;
 mod prediction_measure;
+mod rounds;
 mod tipplap_replay;
 
 /// S2b-2: a TRUST_LEVEL + odds trust szabálykészlet verziója (a tickével azonos).
@@ -211,6 +212,11 @@ enum Command {
         /// Backtest: a becslés cutoffja; ekkor a modellverzió `-bt-{dátum}` utótagot kap.
         #[arg(long)]
         as_of: Option<NaiveDate>,
+        #[arg(long, default_value_t = false)]
+        apply: bool,
+    },
+    /// S211: hiányzó fordulószámok pótlása research obszervációkból.
+    RoundsBackfill {
         #[arg(long, default_value_t = false)]
         apply: bool,
     },
@@ -736,6 +742,9 @@ async fn main() -> Result<()> {
         Command::Identity { action } => identity_command(&pool, action).await?,
         Command::PredictionFit { date, as_of, apply } => {
             prediction_fit::run(&pool, date, as_of, apply).await?;
+        }
+        Command::RoundsBackfill { apply } => {
+            rounds::run(&pool, apply).await?;
         }
         Command::PredictionMeasure {
             from,

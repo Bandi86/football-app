@@ -24,6 +24,7 @@ pub mod note;
 pub mod ops_audit;
 pub mod player;
 pub mod raw;
+pub mod round_labels;
 pub mod search;
 pub mod team;
 pub mod trust;
