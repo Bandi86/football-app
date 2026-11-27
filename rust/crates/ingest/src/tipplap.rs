@@ -844,15 +844,29 @@ pub struct MarketQuote {
 /// Magyar szám formátuma (`2,5`) → f64. Csak a piacnévben szereplő, ismert
 /// vonalakat értelmezzük; minden más vonal 0 (nincs vonal).
 fn market_line(name: &str) -> f64 {
-    let folded = fold_name(name);
-    for token in ["1,5", "2,5", "3,5", "4,5"] {
-        if folded.contains(&fold_name(token)) {
-            return token.replace(',', ".").parse().unwrap_or(0.0);
+    // Bármely magyar tizedesvesszős szám (0,5 / 2,5 / 10,5 / …) a piacnévben.
+    let chars: Vec<char> = name.chars().collect();
+    if let Some(pos) = chars.iter().position(|c| *c == ',') {
+        let mut left = pos;
+        while left > 0 && chars[left - 1].is_ascii_digit() {
+            left -= 1;
+        }
+        let mut right = pos + 1;
+        while right < chars.len() && chars[right].is_ascii_digit() {
+            right += 1;
+        }
+        if left < pos && right > pos + 1 {
+            let text: String = chars[left..pos].iter().collect::<String>()
+                + "."
+                + &chars[pos + 1..right].iter().collect::<String>();
+            if let Ok(value) = text.parse::<f64>() {
+                return value;
+            }
         }
     }
     // Hendikep: „Hendikep 0:1" → -1, „1:0" → +1, „2:0" → +2.
-    if folded.starts_with("hendikep") {
-        let digits: Vec<i32> = folded
+    if fold_name(name).starts_with("hendikep") {
+        let digits: Vec<i32> = name
             .chars()
             .filter_map(|c| c.to_digit(10).map(|d| d as i32))
             .collect();
@@ -1083,14 +1097,28 @@ impl SourceAdapter for TipplapAdapter {
     fn meta(&self) -> AdapterMeta {
         AdapterMeta {
             source_slug: SOURCE_SLUG.into(),
-            adapter_version: "1.0".into(),
-            parser_version: "1.1".into(),
-            domains: vec!["day".into()],
+            adapter_version: "1.1".into(),
+            parser_version: "1.2".into(),
+            domains: vec!["day".into(), "markets".into()],
             transport: Transport::RustHttp,
         }
     }
 
     fn plan(&self, job: &FetchJob) -> Vec<FetchRequest> {
+        if job.domain == "markets" {
+            // A scheduler a `markets-{event_id}` kulcsú jobokat a napi
+            // observationökből generálja; a 7 jegyű event ID innen jön.
+            let Some(event_id) = job.entity_key.strip_prefix("markets-") else {
+                return vec![];
+            };
+            return vec![FetchRequest {
+                url: format!("{BASE}/kalkulator/markets/{event_id}"),
+                request_key: format!("{SOURCE_SLUG}:markets:{event_id}"),
+                endpoint_key: "markets".into(),
+                ready_marker: None,
+                bearer_token: None,
+            }];
+        }
         vec![FetchRequest {
             url: format!("{BASE}/kalkulator/labdarugas/{}", job.time_window),
             request_key: format!("{SOURCE_SLUG}:day:{}", job.time_window),
@@ -1101,6 +1129,79 @@ impl SourceAdapter for TipplapAdapter {
     }
 
     fn parse(&self, raw: &RawPayload, ctx: &ParseCtx) -> Result<Vec<Observation>, ParseError> {
+        // S192: részletes piacok — a markets JSON egyetlen match_odds
+        // observationné lesz, ugyanazzal a source_record_keyvel, mint a napi
+        // 1X2 (az újabb captured_at írja felül a forrás odds-blokkját).
+        if let Some(event_id) = ctx.request_key.strip_prefix("tipplap:markets:") {
+            let quotes = parse_markets(&raw.bytes)?;
+            let source_match_id = format!("tipplap-{event_id}");
+            let quote_values: Vec<serde_json::Value> = quotes
+                .iter()
+                .map(|q| {
+                    // A `fact.odds_quote` PK (match, source, bookmaker, market,
+                    // outcome, line, phase) miatt a nem kanonikus piacoknak
+                    // külön kulcs kell: a forrás outcome-ID-je garantáltan
+                    // egyedi. Az API által használt 1x2/btts/ou/dnb/csoportok
+                    // változatlanok, hogy a COALESCE továbbra is megtalálja őket.
+                    let canonical = matches!(
+                        q.market,
+                        "1x2"
+                            | "btts"
+                            | "ou"
+                            | "dnb"
+                            | "double_chance"
+                            | "home_clean_sheet"
+                            | "away_clean_sheet"
+                    );
+                    let market_key = if canonical {
+                        q.market.to_owned()
+                    } else if q.market == "handicap" {
+                        let sign = if q.line < 0.0 { '-' } else { '+' };
+                        format!(
+                            "handicap_{sign}{}:{}",
+                            q.line.abs() as i64,
+                            q.source_outcome_id
+                        )
+                    } else {
+                        format!("{}:{}", q.market, q.source_outcome_id)
+                    };
+                    // A DB line CHECKje >= 0: a hendikep előjelét a market viszi.
+                    let line = if q.market == "handicap" {
+                        q.line.abs()
+                    } else {
+                        q.line.max(0.0)
+                    };
+                    serde_json::json!({
+                        "bookmaker": "Tippmix",
+                        "market": market_key,
+                        "outcome": q.outcome,
+                        "line": line,
+                        "phase": "opening",
+                        "price": q.price,
+                        "source_outcome_id": q.source_outcome_id,
+                        "raw_name": q.raw_name,
+                    })
+                })
+                .collect();
+            let market_count = quote_values
+                .iter()
+                .filter_map(|v| v.get("market").and_then(|m| m.as_str()))
+                .collect::<std::collections::HashSet<_>>()
+                .len() as i32;
+            return Ok(vec![Observation {
+                entity_kind: "match".into(),
+                aspect: "match_odds".into(),
+                natural_key: source_match_id.clone(),
+                source_record_key: source_match_id,
+                observed_at: raw.fetched_at,
+                payload: serde_json::json!({
+                    "canonical_match_id": null,
+                    "quotes": quote_values,
+                    "market_count": market_count,
+                }),
+            }]);
+        }
+
         let html = std::str::from_utf8(&raw.bytes)
             .map_err(|e| ParseError::Parse(format!("nem UTF-8 HTML: {e}")))?;
         let doc = Html::parse_document(html);
@@ -1557,7 +1658,9 @@ mod market_tests {
             ("Kétesély", MarketKind::DoubleChance, 0.0),
             ("Döntetlennél a tét visszajár", MarketKind::DrawNoBet, 0.0),
             ("Mindkét csapat szerez gólt", MarketKind::Btts, 0.0),
+            ("Gólszám 0,5", MarketKind::OverUnder, 0.5),
             ("Gólszám 2,5", MarketKind::OverUnder, 2.5),
+            ("Gólszám 10,5", MarketKind::OverUnder, 10.5),
             ("Gólszám", MarketKind::TotalGoalsBand, 0.0),
             ("Hendikep 0:1", MarketKind::Handicap, -1.0),
             ("Hendikep 1:0", MarketKind::Handicap, 1.0),

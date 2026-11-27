@@ -10,6 +10,143 @@ use football_worker::scheduler;
 use sqlx::PgPool;
 use uuid::Uuid;
 
+#[tokio::test]
+async fn markets_jobs_come_only_from_linked_tipplap_events() {
+    let pool = test_pool().await;
+    let now = base_time();
+    let match_id = seed_match(&pool, now, 50).await;
+
+    let source_id = Uuid::now_v7();
+    sqlx::query("INSERT INTO ops.source (id, code, display_name) VALUES ($1,'tipplap','Tipplap')")
+        .bind(source_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let artifact_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO raw.artifact
+         (id, content_sha256, compression, byte_size, storage_key, media_type)
+         VALUES ($1,$2,'none',0,$3,'application/json')",
+    )
+    .bind(artifact_id)
+    .bind(format!("sha-{artifact_id}"))
+    .bind(format!("key-{artifact_id}"))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let capture_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO raw.capture
+         (id, source_id, artifact_id, endpoint_key, request_url, requested_at,
+          received_at, http_status, adapter_version, parser_version, request_key)
+         VALUES ($1,$2,$3,'day','https://example.test/day',$4,$4,200,'t','p',$5)",
+    )
+    .bind(capture_id)
+    .bind(source_id)
+    .bind(artifact_id)
+    .bind(now)
+    .bind(format!("req-{capture_id}"))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Két napi observation: csak az egyikhez tartozik aktív kanonikus ref.
+    for key in ["tipplap-5621252", "tipplap-5599999"] {
+        sqlx::query(
+            "INSERT INTO stage.observation
+             (id, source_id, capture_id, entity_kind, aspect, natural_key,
+              source_record_key, observed_at, normalized_payload,
+              schema_version, quality_flags, content_hash)
+             VALUES ($1,$2,$3,'match','match_core',$4,$4,$5,'{}'::jsonb,'1.0','{}',$6)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(source_id)
+        .bind(capture_id)
+        .bind(key)
+        .bind(now)
+        .bind(format!("hash-{key}"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    sqlx::query(
+        "INSERT INTO identity.source_entity_ref
+         (id, source_id, entity_kind, source_entity_id, entity_id, method, confidence)
+         VALUES ($1,$2,'match','tipplap-5621252',$3,'exact_external_id',1.0)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(source_id)
+    .bind(match_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let ids = repo::linked_tipplap_event_ids(&pool, "tipplap", now.date_naive())
+        .await
+        .unwrap();
+    assert_eq!(ids, vec!["5621252".to_owned()]);
+
+    // Az ops.job.source_slug az ops.source_policy-ra hivatkozik (FK), és a
+    // tesztadatbázisban ez a sor nincs benne alapból.
+    sqlx::query(
+        "INSERT INTO ops.source_policy
+         (source_slug, transport, mode, daily_budget, min_delay_ms, jitter_ms,
+          breaker_threshold, breaker_cooldown_secs, adapter_version,
+          parser_version, domains, events, enabled, max_bytes)
+         VALUES ('tipplap','rust_http','shadow',150,0,0,3,60,'1.1','1.2',
+                 '[\"day\"]'::jsonb,
+                 '[{\"event_type\":\"discovery\",\"offset_minutes\":null,\"interval_minutes\":1440}]'::jsonb,
+                 true, 5242880)
+         ON CONFLICT (source_slug) DO NOTHING",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let policy = SourcePolicy {
+        source_slug: "tipplap".into(),
+        transport: Transport::RustHttp,
+        mode: SourceMode::Shadow,
+        daily_budget: 150,
+        min_delay_ms: 0,
+        jitter_ms: 0,
+        breaker_threshold: 3,
+        breaker_cooldown_secs: 60,
+        adapter_version: "1.1".into(),
+        parser_version: "1.2".into(),
+        domains: vec!["day".into()],
+        events: vec![interval_event("discovery", 1440)],
+        enabled: true,
+        max_bytes: 5_242_880,
+    };
+    scheduler::generate_jobs(&pool, &[policy], now)
+        .await
+        .unwrap();
+
+    let jobs: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT domain, entity_key, event_type FROM ops.job
+          WHERE source_slug = 'tipplap' ORDER BY entity_key",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert!(jobs.contains(&(
+        "markets".to_owned(),
+        "markets-5621252".to_owned(),
+        "refresh".to_owned()
+    )));
+    assert!(
+        !jobs.iter().any(|job| job.1 == "markets-5599999"),
+        "a feloldatlan sor kimarad"
+    );
+    assert!(
+        !jobs
+            .iter()
+            .any(|job| job.0 == "markets" && (job.1 == "all" || job.1.starts_with("slot-")))
+    );
+}
+
 /// 2026-11-12 12:00 UTC, csütörtök — ISO-hét: 2026-W46.
 fn base_time() -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 11, 12, 12, 0, 0).unwrap()

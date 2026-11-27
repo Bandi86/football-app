@@ -158,3 +158,125 @@ fn parses_extended_league_from_general_table() {
     assert_eq!(odds.len(), 1);
     assert_eq!(odds[0].payload["quotes"][0]["price"], 2.30);
 }
+
+#[test]
+fn markets_job_targets_the_event_endpoint() {
+    use football_domain::policy::FetchJob;
+    use uuid::Uuid;
+
+    let job = FetchJob {
+        id: Uuid::now_v7(),
+        source_slug: "tipplap".into(),
+        domain: "markets".into(),
+        entity_key: "markets-5621252".into(),
+        event_type: "refresh".into(),
+        time_window: "2026-11-27".into(),
+        due_at: chrono::Utc::now(),
+        priority: 10,
+    };
+    let plan = TipplapAdapter.plan(&job);
+    assert_eq!(plan.len(), 1);
+    assert_eq!(
+        plan[0].url,
+        "https://www.tipplap.hu/kalkulator/markets/5621252"
+    );
+    assert_eq!(plan[0].request_key, "tipplap:markets:5621252");
+    assert_eq!(plan[0].endpoint_key, "markets");
+}
+
+#[test]
+fn markets_parse_emits_all_quotes_under_the_day_source_key() {
+    // Kézzel írt, minimal markets-fixture — nyers scrape-elt payload nem kerül
+    // a repóba.
+    let desktop = r#"
+      <tr data-event="5621252" data-market><th class="tleft">Mindkét csapat szerez gólt</th></tr>
+      <tr data-event="5621252" data-market>
+        <td data-market-number>16943</td><td><div data-outcome-name>Igen</div></td>
+        <td data-outcome-code>H</td>
+        <td data-outcome-id="101080923" data-market-name="Mindkét csapat szerez gólt">
+          <div data-odds>2.02</div></td>
+      </tr>
+      <tr data-event="5621252" data-market>
+        <td data-market-number>16943</td><td><div data-outcome-name>Nem</div></td>
+        <td data-outcome-code>V</td>
+        <td data-outcome-id="101080924" data-market-name="Mindkét csapat szerez gólt">
+          <div data-odds>1.63</div></td>
+      </tr>
+      <tr data-event="5621252" data-market><th class="tleft">Gólszám 2,5</th></tr>
+      <tr data-event="5621252" data-market>
+        <td data-market-number>16948</td><td><div data-outcome-name>Több, mint 2,5</div></td>
+        <td data-outcome-code>V</td>
+        <td data-outcome-id="101080928" data-market-name="Gólszám 2,5">
+          <div data-odds>2.31</div></td>
+      </tr>
+      <tr data-event="5621252" data-market><th class="tleft">Hendikep 0:1</th></tr>
+      <tr data-event="5621252" data-market>
+        <td data-market-number>16951</td><td><div data-outcome-name>Azam</div></td>
+        <td data-outcome-code>H</td>
+        <td data-outcome-id="101080935" data-market-name="Hendikep 0:1">
+          <div data-odds>6.00</div></td>
+      </tr>
+      <tr data-event="5621252" data-market>
+        <td data-market-number>16951</td><td><div data-outcome-name>Döntetlen</div></td>
+        <td data-outcome-code>D</td>
+        <td data-outcome-id="101080936" data-market-name="Hendikep 0:1">
+          <div data-odds>3.95</div></td>
+      </tr>"#;
+    let payload = format!(
+        "{{\"desktop\":{},\"mobile\":\"\"}}",
+        serde_json::json!(desktop)
+    );
+    let mut context = ctx("2026-11-27");
+    context.request_key = "tipplap:markets:5621252".into();
+
+    let obs = TipplapAdapter
+        .parse(&raw(payload.as_bytes()), &context)
+        .unwrap();
+    assert_eq!(obs.len(), 1);
+    assert_eq!(obs[0].aspect, "match_odds");
+    assert_eq!(obs[0].source_record_key, "tipplap-5621252");
+    assert_eq!(obs[0].payload["market_count"], 4);
+    assert_eq!(obs[0].payload["quotes"][0]["market"], "btts");
+    assert_eq!(obs[0].payload["quotes"][0]["outcome"], "yes");
+    assert_eq!(obs[0].payload["quotes"][2]["market"], "ou");
+    assert_eq!(obs[0].payload["quotes"][2]["outcome"], "over");
+    assert_eq!(obs[0].payload["quotes"][2]["line"], 2.5);
+
+    // A hendikep negatív vonala nem mehet a DB-be: az előjelet a market viszi.
+    let handicap: Vec<_> = obs[0].payload["quotes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|q| q["market"].as_str().unwrap_or("").starts_with("handicap_"))
+        .collect();
+    assert_eq!(handicap.len(), 2);
+    assert!(
+        handicap
+            .iter()
+            .all(|q| q["line"].as_f64().unwrap_or(-1.0) >= 0.0)
+    );
+    assert!(
+        handicap[0]["market"]
+            .as_str()
+            .unwrap()
+            .starts_with("handicap_-1")
+    );
+
+    // A `fact.odds_quote` PK (market, outcome, line, phase) egyedi kell legyen.
+    let keys: Vec<String> = obs[0].payload["quotes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|q| {
+            format!(
+                "{}|{}|{}|{}",
+                q["market"].as_str().unwrap_or(""),
+                q["outcome"].as_str().unwrap_or(""),
+                q["line"],
+                q["phase"].as_str().unwrap_or("")
+            )
+        })
+        .collect();
+    let unique: std::collections::HashSet<&String> = keys.iter().collect();
+    assert_eq!(unique.len(), keys.len());
+}

@@ -274,7 +274,64 @@
 - `git revert <S191 commit>` — a szótár és a piac-katalógus visszaáll; a
   kanonikus adatot a szelet nem írta, a daemon még nem fut új kóddal.
 
+## S192 — Tipplap S2: markets jobok, kvóta és odds-írás
+
+- [x] **Policy (dev DB, SQL):** `tipplap.daily_budget` **8 → 150**, adapter
+      `1.0 → 1.1`, parser `1.1 → 1.2`; `domains` változatlan (`["day"]`),
+      mert a markets domain sablonjait szándékosan nem generáltatjuk a
+      `generate_jobs` általános ágával. Visszaállás:
+      `UPDATE ops.source_policy SET daily_budget=8, adapter_version='1.0',
+      parser_version='1.1' WHERE source_slug='tipplap'`.
+- [x] **Adapter:** `TipplapAdapter::plan()` a `markets-{event_id}` jobra
+      `/kalkulator/markets/{event_id}` URL-t ad (`request_key=
+      tipplap:markets:{id}`), `parse()` a markets JSON `desktop` fragmentjéből
+      egy `match_odds` observationt emitál, ugyanazzal a `source_record_key`-vel
+      mint a napi 1X2. A piac-kulcsok: az API által használt kanonikus piacok
+      (`1x2/btts/ou/dnb/double_chance/clean_sheet`) változatlanok, minden más
+      piac a forrás `outcome-id`-jével egyedített (`other:<id>`, `handicap_-1:<id>`),
+      hogy a `fact.odds_quote` PK-ja ne ütközzön. A negatív hendikep-vonal
+      előjele a marketbe kerül (DB CHECK: line >= 0). Magyar tizedesvesszőből
+      bármely vonal (`0,5 / 2,5 / 10,5`) felismerhető.
+- [x] **Scheduler:** `repo::linked_tipplap_event_ids()` kizárólag a mai napon
+      megfigyelt ÉS aktív kanonikus meccs-reffel rendelkező eseményeket adja;
+      a `tipplap` policy-n `markets-{event_id}` jobok keletkeznek
+      (`domain=markets`, `event_type=refresh`, 5 mp-es szétütemezéssel).
+      A review-ra várók kimaradnak (fail-closed).
+- [x] **Worker:** a markets domain nem megy át a napi verifikációs úton;
+      `repo::active_match_ref()` oldja fel a meccs-reffel (a meccsek nem
+      `core.entity` sorok, ezért az `identity::active_ref` nem használható),
+      majd `write_market_odds()` írja az egész odds-blokkot. A trust
+      provisional marad; a verifikáció és a publish gate többi forrásra
+      változatlan.
+- [x] **Tesztek (mért):** +3 új teszt (adapter plan és markets parse,
+      scheduler only-linked), teljes workspace **643 passed, 0 failed**,
+      clippy 0, fmt 0, build OK, check-foundation 0, `daily-check 11-26`
+      EXIT=0 ZÖLD, `integrity 11-25…11-27` OK, `git diff --check` 0.
+- [x] **Éles mérés:** daemon újratelepítve (`footballd` 09:52-től); a logistics
+      látott hibák után (negatív vonal / PK-ütközés) a javított kóddal a markets
+      jobok `written=1`-gyel futnak; a Tipplap odds-snapshotok száma
+      **1921**, legnagyobb `market_count` **651**, 805 külön piac;
+      `btts yes/no`, `ou 1,5/2,5/3,5` és számos további piac bekerült.
+      `failed job: 0` a napi ellenőrzésben. A korábban elbukott 12 markets
+      job `pending → újra feldolgozva` (auditált SQL, nem törlés).
+- [ ] **Nem ellenőrzött:** a 18 még pending markets job végigfutása (kb.
+      18 perc, 1 kérés/perc a delay miatt); a 4 új versenycím éles betöltése
+      (a mai `discovery` még a régi binárissal futott, ezért holnap 07:30
+      után mérhető); a `btts` piac néhány összetett neve (pl. „BTTS + gólszám
+      2,5") a `btts` kategóriába került eltérő outcome-kóddal — adatvesztés
+      nincs, de a katalogizálás finomítható; a photon/odds UI nem mutatja
+      az új piacokat (csak 1x2/btts/ou jelenik meg) — külön UI-szelet.
+- [ ] A normál napi kvóta most 150 requests/nap; a 429/breaker viselkedést
+      nem provokáltuk (nem szabad), a meglévő fail-closed őrök változatlanok.
+
+### Visszaállás (S192)
+
+- `git revert <S192 commit>` + a fenti policy-SQL visszaállítása; a már írt
+      odds-sorok a `write_odds()` upsertjével újrajátszhatók, a raw/observation
+      és audit sorok nem törlődnek. A markets jobok `cancelled` státuszba
+      tétele leállítja a további kéréseket.
+
 ## Következő döntési pont
 
-- S2 (markets jobok + policy/kvóta + odds-írás) indulása a jóváhagyott terv
-  szerint; S9 AI-gomb külön döntés marad.
+- S3 (napi ellenőrzés + hiányjelek + üzemeltetési doc) indulása; külön döntés
+      az új piacok UI-megjelenítése és az S9 AI-gomb.

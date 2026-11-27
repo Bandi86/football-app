@@ -1615,6 +1615,25 @@ async fn merge_created_competition_into(
     Ok(())
 }
 
+/// Önálló odds-blokk írása (S192: Tipplap markets job).
+///
+/// A teljes napi kanonikus út helyett egy már linkelt meccshez tartozó,
+/// később érkezett odds-frissítést ír. Ugyanaz az upsert/cserélő logika,
+/// csak a hívó nem a napi `verify_and_publish` — trust itt is provisional
+/// marad, amíg a gate/odds-trust kiértékeli.
+pub async fn write_market_odds(
+    pool: &sqlx::PgPool,
+    match_id: Uuid,
+    source_id: Uuid,
+    captured_at: chrono::DateTime<Utc>,
+    odds: &crate::normalized::NormalizedOdds,
+) -> Result<()> {
+    let mut tx = pool.begin().await?;
+    write_odds(&mut tx, match_id, source_id, captured_at, odds, false).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
 /// Odds-fejléc upsert + a forrás quote-blokkjának teljes cseréje
 /// (a friss/új blokk mindig provisional — a gate utáni kiértékelés zárja).
 async fn write_odds(

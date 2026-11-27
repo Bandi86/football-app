@@ -544,7 +544,66 @@ async fn process_job(
                 )
                 .await?;
             }
-            observations.extend(parsed);
+            observations.extend(parsed.clone());
+
+            // S192: a markets domain nem megy át a napi verifikációs úton —
+            // a forrás sorát a már linkelt kanonikus meccshez rendeljük, és
+            // az egész odds-blokkot (1X2 + minden piacot) együtt írjuk.
+            if job.domain == "markets" && policy.mode != SourceMode::Shadow {
+                let mut written = 0usize;
+                for obs in &parsed {
+                    if obs.aspect != "match_odds" {
+                        continue;
+                    }
+                    let Some(match_id) = repo::active_match_ref(
+                        pool,
+                        source_id,
+                        &obs.source_record_key,
+                    )
+                    .await?
+                    else {
+                        tracing::warn!(
+                            source = %job.source_slug,
+                            key = %obs.source_record_key,
+                            "markets odds: nincs aktív kanonikus link, kihagyva"
+                        );
+                        continue;
+                    };
+                    let mut odds = football_ingest::normalized::NormalizedOdds {
+                        market_count: obs
+                            .payload
+                            .get("market_count")
+                            .and_then(|v| v.as_i64())
+                            .map(|v| v as i32),
+                        quotes: Vec::new(),
+                    };
+                    if let Some(rows) = obs.payload.get("quotes").and_then(|v| v.as_array()) {
+                        for row in rows {
+                            let get_str = |key: &str| {
+                                row.get(key).and_then(|v| v.as_str()).unwrap_or("").to_owned()
+                            };
+                            odds.quotes.push(football_ingest::normalized::NormalizedQuote {
+                                bookmaker: get_str("bookmaker"),
+                                market: get_str("market"),
+                                outcome: get_str("outcome"),
+                                line: row.get("line").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                                phase: get_str("phase"),
+                                price: row.get("price").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                            });
+                        }
+                    }
+                    football_ingest::canonicalize::write_market_odds(
+                        pool,
+                        match_id,
+                        source_id,
+                        obs.observed_at,
+                        &odds,
+                    )
+                    .await?;
+                    written += 1;
+                }
+                tracing::info!(written, "tipplap markets odds materializálva");
+            }
 
             // A fetch sikeres: a ledger-sor véglegesítése (a kanonikus szakasz
             // hibája már nem a fetch eredménye).
@@ -563,7 +622,10 @@ async fn process_job(
         // 8–9. Shadow ágban nincs kanonikus írás; live/canary ágban a teljes
         // verification + gate lánc fut, VERSENYENKÉNT (S9). Üres observation-
         // lista legitím nulla-nap → no_data, nem hiba.
-        if policy.mode != SourceMode::Shadow && !observations.is_empty() {
+        if policy.mode != SourceMode::Shadow
+            && !observations.is_empty()
+            && job.domain != "markets"
+        {
             if observations.iter().any(|o| o.aspect == "club_elo") {
                 let elo = football_ingest::normalized::ClubEloDay::from_observations(
                     &observations,

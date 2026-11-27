@@ -530,6 +530,60 @@ pub async fn kickoff_window(
     .context("kickoff-ablak lekérés")
 }
 
+/// Az adott napon megfigyelt, kanonikus meccshez már linkelt Tipplap event ID-k
+/// (a `source_record_key` `tipplap-` prefixe nélkül). A markets jobokat ezekből
+/// generáljuk — feloldatlan, review-ra váró sorok nem jelennek meg itt.
+pub async fn linked_tipplap_event_ids(
+    pool: &PgPool,
+    source_slug: &str,
+    since: chrono::NaiveDate,
+) -> Result<Vec<String>> {
+    let rows: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT o.source_record_key
+           FROM stage.observation o
+           JOIN ops.source s ON s.id = o.source_id AND s.code = $1
+           JOIN identity.source_entity_ref r
+             ON r.source_id = o.source_id AND r.entity_kind = 'match'
+            AND r.source_entity_id = o.source_record_key AND r.status = 'active'
+           JOIN core.match m ON m.id = r.entity_id
+          WHERE o.entity_kind = 'match' AND o.aspect = 'match_core'
+            AND o.source_record_key LIKE 'tipplap-%'
+            AND o.observed_at >= $2
+          ORDER BY o.source_record_key",
+    )
+    .bind(source_slug)
+    .bind(since)
+    .fetch_all(pool)
+    .await
+    .context("linkelt tipplap event ID-k lekérése")?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|key| key.strip_prefix("tipplap-").map(str::to_owned))
+        .collect())
+}
+
+/// Aktív meccs-szintű forrás-hivatkozás kanonikus `core.match.id`-je.
+///
+/// Az `identity::active_ref` a `core.entity` táblával joinol (csapatoknak és
+/// versenyeknek), de a meccsek nem entitások — ezért külön lekérés kell.
+pub async fn active_match_ref(
+    pool: &PgPool,
+    source_id: Uuid,
+    source_entity_id: &str,
+) -> Result<Option<Uuid>> {
+    sqlx::query_scalar(
+        "SELECT r.entity_id FROM identity.source_entity_ref r
+          JOIN core.match m ON m.id = r.entity_id
+          WHERE r.source_id = $1 AND r.entity_kind = 'match'
+            AND r.source_entity_id = $2 AND r.status = 'active'",
+    )
+    .bind(source_id)
+    .bind(source_entity_id)
+    .fetch_optional(pool)
+    .await
+    .context("aktív meccs-ref lekérése")
+}
+
 /// Esedékes pending jobok claimelése lease-zel (FOR UPDATE SKIP LOCKED).
 /// Sorrendi szerződés: a visszaadott jobok (priority, due_at) szerint
 /// növekvően rendezettek. A rendezést Rustban garantáljuk, mert az

@@ -217,6 +217,31 @@ pub async fn generate_jobs(
                     .await?;
                 }
             }
+            // S192: a Tipplap részletes piacai egy kérés/meccs. Csak a mai
+            // napon megfigyelt ÉS kanonikus meccshez linkelt event ID-kból
+            // generálunk jobot — a review-ra várók kimaradnak (fail-closed).
+            // A domain nem szerepel a policy `domains` listájában, így a
+            // fenti sablonok nem generálnak érvénytelen `all`/`slot-*` jobot.
+            if policy.source_slug == "tipplap" {
+                let ids = repo::linked_tipplap_event_ids(pool, "tipplap", now.date_naive()).await?;
+                for (index, event_id) in ids.into_iter().enumerate() {
+                    inserted += repo::insert_job_counted(
+                        pool,
+                        &NewJob {
+                            source_slug: policy.source_slug.clone(),
+                            domain: "markets".into(),
+                            entity_key: format!("markets-{event_id}"),
+                            event_type: "refresh".into(),
+                            time_window: now.date_naive().to_string(),
+                            // Apró szétütemezés, hogy egy tick ne induljon
+                            // több tucat kéréssel egyszerre.
+                            due_at: now + Duration::seconds((index % 60) as i64 * 5),
+                            priority: event_base("refresh"),
+                        },
+                    )
+                    .await?;
+                }
+            }
         }
     }
     Ok(inserted)
