@@ -473,10 +473,19 @@ private struct MatchItemRow: View {
     private var kickoffColumn: some View {
         VStack(alignment: .leading, spacing: 2) {
             if match.isFinished {
-                Text("FT")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(AppTheme.secondaryText)
-                    .accessibilityIdentifier("match.ft.\(match.id)")
+                // A lezárt meccsnél a kezdési idő és az FT egyaránt látszik
+                // (S209) — a dátum viszont továbbra is csak az AX-címkében.
+                VStack(alignment: .leading, spacing: 0) {
+                    if !match.timeDisplay.isEmpty {
+                        Text(match.timeDisplay)
+                            .font(.system(size: 10, weight: .medium).monospacedDigit())
+                            .foregroundStyle(AppTheme.secondaryText)
+                    }
+                    Text("FT")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(AppTheme.primaryText)
+                        .accessibilityIdentifier("match.ft.\(match.id)")
+                }
             } else if let clock {
                 HStack(spacing: 4) {
                     if clock.isEstimated { LiveDot() }
