@@ -97,9 +97,13 @@ pub async fn run(
         );
         if apply {
             let outcomes = [
-                ("home", markets.home, odds[0], 0.0),
-                ("draw", markets.draw, odds[1], 0.0),
-                ("away", markets.away, odds[2], 0.0),
+                ("1x2", "home", 0.0, markets.home, odds[0], 0.0),
+                ("1x2", "draw", 0.0, markets.draw, odds[1], 0.0),
+                ("1x2", "away", 0.0, markets.away, odds[2], 0.0),
+                ("ou", "over", 2.5, markets.over25, odds[3], 0.0),
+                ("ou", "under", 2.5, markets.under25, odds[4], 0.0),
+                ("btts", "yes", 0.0, markets.btts_yes, odds[5], 0.0),
+                ("btts", "no", 0.0, markets.btts_no, odds[6], 0.0),
             ];
             written += analytics::upsert_prediction(
                 pool,

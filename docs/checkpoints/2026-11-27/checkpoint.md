@@ -637,7 +637,31 @@ egy nem tőlem származó `HomeHeader.swift` módosítás a munkaterületen
 - Az inkrementális build-cache nem állítható vissza, de `cargo build` újra
       létrehozza (a `deps` cache megmaradt).
 
+## S201 — OU/BTTS predikciók és megjelenítésük
+
+- [x] **Backend:** a `prediction-fit` most 7 sort ír meccsenként (1X2 + OU 2,5
+      + BTTS), a `analytics.prediction` `market`/`line` dimenzióit használva;
+      a `/v1/match/{id}/prediction` válasz és a Core `ShadowPrediction` is
+      hordozza ezeket. Éles mérés: **4151 sor**, ebből 1X2 1779, OU 1186,
+      BTTS 1186 — minden predikált meccsen 7 kimenetel.
+- [x] **UI:** a `PredictionCard` az 1X2 sorok alatt megjeleníti a gólszám 2,5
+      és a BTTS valószínűségeket is, ugyanazzal a „NEM ELLENŐRZÖTT · SHADOW"
+      és „Nem fogadási tanács" jelzéssel; AX-címkék magyarul.
+- [x] **Kapuk:** workspace **670 passed, 0 failed** · clippy 0 · fmt 0 · build OK ·
+      Core **165/0** · app unit **101/0** · `run-ui-tests.sh` **34/34** (egy régi
+      Ops-dátumválasztó A/B-vel alapon is piros) · `daily-check` ZÖLD ·
+      `integrity` OK · `git diff --check` 0.
+- [ ] **Nem ellenőrzött**: az OU/BTTS predikciók hitelességét a P0 szerződés
+      még nem mérte (a `predicted_outcomes` csak 1X2-t olvas); a kártya élő
+      kézi görgetése; VoiceOver-hang.
+- [ ] A modell shadowban marad (P1c: nem jobb a piacnál).
+
+### Visszaállás (S201)
+
+- `git revert <S201 commit>`; a már írt OU/BTTS sorok törlése:
+      `DELETE FROM analytics.prediction WHERE market IN ('ou','btts')`.
+
 ## Következő döntési pont
 
 - A predikció shadowban marad; külön döntés: hosszabb backtest/rho-illesztés,
-      OU/BTTS predikciók, a 2 névreview, illetve az S9 AI-gomb.
+      OU/BTTS mérési kiterjesztés, a 2 névreview, illetve az S9 AI-gomb.

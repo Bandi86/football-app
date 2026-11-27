@@ -23,6 +23,10 @@ struct PredictionCard: View {
         return formatter
     }()
 
+    private func percentText(_ value: Double) -> String {
+        Self.percent.string(from: NSNumber(value: value)) ?? "\(Int(value * 100))%"
+    }
+
     private static let time: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "hu_HU")
@@ -62,6 +66,40 @@ struct PredictionCard: View {
                 }
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("\(row.0), modell \(Self.percent.string(from: NSNumber(value: row.1)) ?? ""), nem ellenőrzött")
+                .accessibilityIdentifier("match.prediction.row")
+            }
+            if let over = prediction.over25, let under = prediction.under25 {
+                HStack(spacing: 8) {
+                    Text("Gólszám 2,5")
+                        .font(.appText(12.5))
+                        .foregroundStyle(AppTheme.primaryText)
+                    Text("\(percentText(over)) / \(percentText(under))")
+                        .font(.system(size: 12.5).monospacedDigit())
+                        .foregroundStyle(AppTheme.secondaryText)
+                    Spacer()
+                    Text("több / kevesebb")
+                        .font(.appLabel(9))
+                        .foregroundStyle(AppTheme.secondaryText)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Gólszám 2,5, több \(percentText(over)), kevesebb \(percentText(under)), nem ellenőrzött")
+                .accessibilityIdentifier("match.prediction.row")
+            }
+            if let yes = prediction.bttsYes, let no = prediction.bttsNo {
+                HStack(spacing: 8) {
+                    Text("Mindkét csapat gólt szerez")
+                        .font(.appText(12.5))
+                        .foregroundStyle(AppTheme.primaryText)
+                    Text("\(percentText(yes)) / \(percentText(no))")
+                        .font(.system(size: 12.5).monospacedDigit())
+                        .foregroundStyle(AppTheme.secondaryText)
+                    Spacer()
+                    Text("igen / nem")
+                        .font(.appLabel(9))
+                        .foregroundStyle(AppTheme.secondaryText)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Mindkét csapat gólt szerez, igen \(percentText(yes)), nem \(percentText(no)), nem ellenőrzött")
                 .accessibilityIdentifier("match.prediction.row")
             }
             Text("Nem fogadási tanács. A modellt a piacnál gyengébbnek mértük.")

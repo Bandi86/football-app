@@ -140,7 +140,8 @@ pub async fn upcoming_matches(
 pub struct NewPrediction {
     pub match_id: Uuid,
     pub model_version: String,
-    pub outcomes: Vec<(&'static str, f64, f64, f64)>, // (outcome, probability, fair_odds, edge)
+    /// (piac, kimenetel, vonal, valószínűség, fair odds, edge)
+    pub outcomes: Vec<(&'static str, &'static str, f64, f64, f64, f64)>,
     pub quality: &'static str,
     pub inputs_hash: String,
     pub as_of: DateTime<Utc>,
@@ -148,12 +149,12 @@ pub struct NewPrediction {
 
 pub async fn upsert_prediction(pool: &PgPool, row: &NewPrediction) -> Result<usize> {
     let mut written = 0usize;
-    for (outcome, probability, fair_odds, edge) in &row.outcomes {
+    for (market, outcome, line, probability, fair_odds, edge) in &row.outcomes {
         let res = sqlx::query(
             "INSERT INTO analytics.prediction
              (id, match_id, model_version, market, outcome, line, probability,
               fair_odds, edge, quality, inputs_hash, as_of)
-             VALUES ($1,$2,$3,'1x2',$4,0,$5,$6,$7,$8,$9,$10)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
              ON CONFLICT (match_id, model_version, market, outcome, line)
              DO UPDATE SET probability=EXCLUDED.probability,
                fair_odds=EXCLUDED.fair_odds, edge=EXCLUDED.edge,
@@ -163,7 +164,9 @@ pub async fn upsert_prediction(pool: &PgPool, row: &NewPrediction) -> Result<usi
         .bind(Uuid::now_v7())
         .bind(row.match_id)
         .bind(row.model_version.clone())
+        .bind(*market)
         .bind(*outcome)
+        .bind(*line)
         .bind(*probability)
         .bind(*fair_odds)
         .bind(*edge)
@@ -182,7 +185,9 @@ pub async fn upsert_prediction(pool: &PgPool, row: &NewPrediction) -> Result<usi
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, FromRow)]
 pub struct PredictionRow {
     pub model_version: String,
+    pub market: String,
     pub outcome: String,
+    pub line: f64,
     pub probability: f64,
     pub fair_odds: Option<f64>,
     pub edge: Option<f64>,
@@ -193,7 +198,7 @@ pub struct PredictionRow {
 
 pub async fn latest_prediction(pool: &PgPool, match_id: Uuid) -> Result<Vec<PredictionRow>> {
     let rows = sqlx::query_as::<_, PredictionRow>(
-        "SELECT model_version, outcome, probability,
+        "SELECT model_version, market, outcome, line::float8 AS line, probability,
                 fair_odds::float8 AS fair_odds, edge::float8 AS edge,
                 quality, inputs_hash, as_of
            FROM analytics.prediction

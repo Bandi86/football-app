@@ -512,7 +512,7 @@ final class FootballAppUITests: XCTestCase {
         XCTAssertTrue(textElement(valueContains: "Nem fogadási tanács", in: app).exists,
                       "a fogadási tanács hiányát kimondó szöveg hiányzik")
         let rows = app.descendants(matching: .any).matching(identifier: "match.prediction.row")
-        XCTAssertEqual(rows.count, 3, "három 1X2 kimenetel kell")
+        XCTAssertEqual(rows.count, 5, "1X2 + gólszám + BTTS kimenetel kell")
         XCTAssertTrue(rows.allElementsBoundByIndex.allSatisfy {
             ($0.label + ($0.value as? String ?? "")).contains("nem ellenőrzött")
         })

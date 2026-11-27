@@ -3,7 +3,9 @@ import Foundation
 /// Egy shadow predikciós sor a `/v1/match/{id}/prediction` végpontról.
 public struct PredictionRowDTO: Decodable, Equatable, Sendable {
     public let modelVersion: String
+    public let market: String
     public let outcome: String
+    public let line: Double
     public let probability: Double
     public let fairOdds: Double?
     public let edge: Double?
@@ -13,7 +15,7 @@ public struct PredictionRowDTO: Decodable, Equatable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case modelVersion = "model_version"
-        case outcome, probability
+        case market, outcome, line, probability
         case fairOdds = "fair_odds"
         case edge, quality
         case inputsHash = "inputs_hash"
@@ -43,6 +45,10 @@ public struct ShadowPrediction: Equatable, Sendable {
     public let fairHome: Double?
     public let fairDraw: Double?
     public let fairAway: Double?
+    public let over25: Double?
+    public let under25: Double?
+    public let bttsYes: Double?
+    public let bttsNo: Double?
 
     public init?(dto: PredictionResponseDTO) {
         guard let first = dto.rows.first else { return nil }
@@ -59,6 +65,15 @@ public struct ShadowPrediction: Equatable, Sendable {
         self.fairHome = h.fairOdds
         self.fairDraw = d.fairOdds
         self.fairAway = a.fairOdds
+        func market(_ name: String, _ outcome: String) -> PredictionRowDTO? {
+            dto.rows.first {
+                $0.market == name && $0.outcome == outcome && $0.modelVersion == first.modelVersion
+            }
+        }
+        self.over25 = market("ou", "over")?.probability
+        self.under25 = market("ou", "under")?.probability
+        self.bttsYes = market("btts", "yes")?.probability
+        self.bttsNo = market("btts", "no")?.probability
     }
 
     public var probabilityText: String {

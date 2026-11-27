@@ -1,8 +1,12 @@
 {
   "rows": [
-    {"model_version":"dixon-coles-eb-v1","outcome":"home","probability":0.437,"fair_odds":2.29,"edge":null,"quality":"ok","inputs_hash":"ui-hash","as_of":"2026-11-27T10:00:00Z"},
-    {"model_version":"dixon-coles-eb-v1","outcome":"draw","probability":0.252,"fair_odds":3.97,"edge":null,"quality":"ok","inputs_hash":"ui-hash","as_of":"2026-11-27T10:00:00Z"},
-    {"model_version":"dixon-coles-eb-v1","outcome":"away","probability":0.311,"fair_odds":3.22,"edge":null,"quality":"ok","inputs_hash":"ui-hash","as_of":"2026-11-27T10:00:00Z"}
+    {"model_version":"dixon-coles-eb-v1","market":"1x2","line":0,"outcome":"home","probability":0.437,"fair_odds":2.29,"edge":null,"quality":"ok","inputs_hash":"ui-hash","as_of":"2026-11-27T10:00:00Z"},
+    {"model_version":"dixon-coles-eb-v1","market":"1x2","line":0,"outcome":"draw","probability":0.252,"fair_odds":3.97,"edge":null,"quality":"ok","inputs_hash":"ui-hash","as_of":"2026-11-27T10:00:00Z"},
+    {"model_version":"dixon-coles-eb-v1","market":"1x2","line":0,"outcome":"away","probability":0.311,"fair_odds":3.22,"edge":null,"quality":"ok","inputs_hash":"ui-hash","as_of":"2026-11-27T10:00:00Z"},
+    {"model_version":"dixon-coles-eb-v1","market":"ou","line":2.5,"outcome":"over","probability":0.512,"fair_odds":1.95,"edge":null,"quality":"ok","inputs_hash":"ui-hash","as_of":"2026-11-27T10:00:00Z"},
+    {"model_version":"dixon-coles-eb-v1","market":"ou","line":2.5,"outcome":"under","probability":0.488,"fair_odds":2.05,"edge":null,"quality":"ok","inputs_hash":"ui-hash","as_of":"2026-11-27T10:00:00Z"},
+    {"model_version":"dixon-coles-eb-v1","market":"btts","line":0,"outcome":"yes","probability":0.547,"fair_odds":1.83,"edge":null,"quality":"ok","inputs_hash":"ui-hash","as_of":"2026-11-27T10:00:00Z"},
+    {"model_version":"dixon-coles-eb-v1","market":"btts","line":0,"outcome":"no","probability":0.453,"fair_odds":2.21,"edge":null,"quality":"ok","inputs_hash":"ui-hash","as_of":"2026-11-27T10:00:00Z"}
   ],
-  "count": 3
+  "count": 7
 }
