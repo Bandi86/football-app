@@ -113,7 +113,7 @@ struct HomeHeader: View {
                 }
             }
             .padding(.horizontal, 24)
-            .padding(.vertical, 2)
+            .padding(.vertical, 8)
         }
         .background {
             LinearGradient(
@@ -159,7 +159,7 @@ struct HomeHeader: View {
 
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(Self.bigDate.string(from: date))
-                    .font(.scoreboard(24))
+                    .font(.scoreboard(26))
                     .tracking(-0.6)
                     .lineLimit(1)
                     .minimumScaleFactor(0.55)
@@ -193,7 +193,7 @@ struct HomeHeader: View {
                     .background(AppTheme.accent, in: Capsule())
             }
             Text(Self.bigDate.string(from: date))
-                .font(.scoreboard(20))
+                .font(.scoreboard(22))
                 .tracking(-0.4)
                 .foregroundStyle(AppTheme.primaryText)
             Text(metaText)

@@ -75,10 +75,12 @@ final class FootballAppUITests: XCTestCase {
         let refreshText = refresh.label + (refresh.value as? String ?? "")
         XCTAssertFalse(refreshText.isEmpty, "a visszaszámlálónak van magyar címkéje")
 
-        let teamLogoFilter = element("filter.missingLogo", in: app)
         let competitionLogoFilter = element("filter.missingCompetitionLogo", in: app)
-        XCTAssertEqual(teamLogoFilter.label, "Logó nélkül", "a csapatlogó-szűrőn ne jelenjen meg számláló")
         XCTAssertEqual(competitionLogoFilter.label, "Ligalogó nélkül", "a ligalogó-szűrőn ne jelenjen meg számláló")
+        XCTAssertFalse(element("filter.missingLogo", in: app).exists,
+                       "a duplikált Logó nélkül szűrő kimaradt a fő sor-ból")
+        XCTAssertFalse(element("filter.withheld", in: app).exists,
+                       "a Visszatartva üzemeltetési szűrő nem a főoldalon van")
         XCTAssertFalse(element("day.gaps", in: app).exists,
                         "a hiány-szűrők ne ismétlődjenek meg második sorban")
     }
