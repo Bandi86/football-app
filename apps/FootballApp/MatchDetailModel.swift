@@ -16,6 +16,8 @@ final class MatchDetailModel {
     /// A három mikro-végpont adata; a részletező önállóan tölti, hogy a fő
     /// meccsadat ne várjon rá. Hiány = üres listák.
     var micro: MatchMicro?
+    /// A részletes odds-piacok; a fő részletezőtől függetlenül töltődnek be.
+    var markets: MarketsResponseDTO?
     /// Együttműködési adatok: jegyzetek és mező-szintű előzmények.
     var notes: [MatchNoteDTO] = []
     var history: [HistoryEntryDTO] = []
@@ -27,6 +29,7 @@ final class MatchDetailModel {
     private let loader: any RuntimeInfoLoading
     private let serviceFactory: (RuntimeInfo) throws -> MatchDetailService
     private let microServiceFactory: (RuntimeInfo) throws -> MatchMicroService
+    private let marketServiceFactory: (RuntimeInfo) throws -> MatchMarketService
     private let manualServiceFactory: (RuntimeInfo) throws -> ManualEntryService
     private let opsServiceFactory: (RuntimeInfo) throws -> OpsService
     private var generation = 0
@@ -36,12 +39,14 @@ final class MatchDetailModel {
         loader: any RuntimeInfoLoading = RuntimeInfoLoader(),
         serviceFactory: ((RuntimeInfo) throws -> MatchDetailService)? = nil,
         microServiceFactory: ((RuntimeInfo) throws -> MatchMicroService)? = nil,
+        marketServiceFactory: ((RuntimeInfo) throws -> MatchMarketService)? = nil,
         manualServiceFactory: ((RuntimeInfo) throws -> ManualEntryService)? = nil,
         opsServiceFactory: ((RuntimeInfo) throws -> OpsService)? = nil
     ) {
         self.loader = loader
         self.serviceFactory = serviceFactory ?? Self.makeService
         self.microServiceFactory = microServiceFactory ?? Self.makeMicroService
+        self.marketServiceFactory = marketServiceFactory ?? Self.makeMarketService
         self.manualServiceFactory = manualServiceFactory ?? Self.makeManualService
         self.opsServiceFactory = opsServiceFactory ?? Self.makeOpsService
     }
@@ -62,6 +67,7 @@ final class MatchDetailModel {
             // A mikro-adatok külön végpontokról jönnek; itt töltjük be, hogy
             // a fő részletező már megjelenjen, de a szekciók is frissüljenek.
             await loadMicro(matchId: matchId)
+            await loadMarkets(matchId: matchId)
             await loadCollaboration(matchId: matchId)
         } catch is CancellationError {
             return
@@ -88,6 +94,18 @@ final class MatchDetailModel {
         } catch {
             guard currentGeneration == microGeneration else { return }
             self.micro = MatchMicro(lineups: [], playerStats: [], shots: [])
+        }
+    }
+
+    /// Részletes odds-piacok; a hiány üres lista, a hiba nem dönti el a fő
+    /// részletezőt (az Odds fül üres állapotot mutat).
+    func loadMarkets(matchId: UUID) async {
+        do {
+            let info = try loader.load()
+            let service = try marketServiceFactory(info)
+            self.markets = try await service.load(matchId: matchId)
+        } catch {
+            self.markets = MarketsResponseDTO(quotes: [], count: 0)
         }
     }
 
@@ -186,6 +204,13 @@ final class MatchDetailModel {
             throw APIError.runtimeMissing
         }
         return HTTPMatchMicroService(baseURL: baseURL, readToken: info.readToken)
+    }
+
+    private static func makeMarketService(_ info: RuntimeInfo) throws -> MatchMarketService {
+        guard let baseURL = URL(string: "http://127.0.0.1:\(info.port)") else {
+            throw APIError.runtimeMissing
+        }
+        return HTTPMatchMarketService(baseURL: baseURL, readToken: info.readToken)
     }
 
     private static func makeOpsService(_ info: RuntimeInfo) throws -> OpsService {

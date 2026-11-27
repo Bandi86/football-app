@@ -469,6 +469,31 @@ final class FootballAppUITests: XCTestCase {
         XCTAssertTrue(shot.label.contains("xG 0.18"), shot.label)
     }
 
+    /// Az Odds fül a fő 1X2 mátrix alatt mutatja a részletes Tipplap-piacokat.
+    func testMatchDetailShowsDetailedMarkets() throws {
+        let app = try launch(port: Self.loadedPort)
+        app.activate()
+
+        let card = element("match.card.22222222-2222-2222-2222-222222222222", in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: 30), "a nap nem töltődött be")
+        card.click()
+        app.buttons.matching(identifier: "match.detail.section.odds").firstMatch.click()
+
+        let panel = element("match.markets", in: app)
+        XCTAssertTrue(panel.waitForExistence(timeout: 15), "a részletes piacok panel hiányzik")
+        XCTAssertTrue(element("match.markets.group", in: app).exists, "nincs piaccsoport")
+        let rows = app.descendants(matching: .any).matching(identifier: "match.markets.row")
+        XCTAssertGreaterThan(rows.count, 0, "nincs odds-sor")
+        let labels = rows.allElementsBoundByIndex.map { $0.label + ($0.value as? String ?? "") }
+        XCTAssertTrue(labels.contains { $0.contains("Mindkét csapat gólt szerez") && $0.contains("1,53") },
+                      "a BTTS sor hiányzik: \(labels)")
+        XCTAssertTrue(labels.contains { $0.contains("Kétesély") && $0.contains("1X") },
+                      "a dupla esély sor hiányzik: \(labels)")
+        XCTAssertTrue(labels.contains { $0.contains("Hendikep") && $0.contains("6,00") },
+                      "a hendikep sor hiányzik: \(labels)")
+        XCTAssertTrue(labels.contains { $0.contains("tipplap") }, "a forrás nincs feltüntetve")
+    }
+
     /// A research szekció mutatja a generált riportot és a tárolt forráslinkeket.
     func testMatchDetailShowsReportAndSourceLinks() throws {
         let app = try launch(port: Self.loadedPort)

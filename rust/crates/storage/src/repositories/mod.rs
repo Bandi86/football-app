@@ -17,6 +17,7 @@ pub mod manual;
 pub mod match_detail;
 pub mod match_insight;
 pub mod match_link;
+pub mod match_markets;
 pub mod match_micro;
 pub mod note;
 pub mod ops_audit;

@@ -10,6 +10,7 @@ pub mod issue_action;
 pub mod issues;
 pub mod manual;
 pub mod match_detail;
+pub mod match_markets;
 pub mod match_micro;
 pub mod notes;
 pub mod ops;

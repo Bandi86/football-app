@@ -358,8 +358,53 @@
 - `git revert <S193 commit>` — a napi check és a docok visszaállnak; adatot,
       jobot, odds-ot a szelet nem írt.
 
+## S194 — Részletes odds-piacok a meccsoldalon
+
+- [x] **Döntés:** a felhasználó a predikció előtt az új Tipplap-piacok UI-ját
+      választotta (a mai checkpoint zárópontja). A predikciós RFC
+      (`2026-11-23-modern-predikcios-rendszer-terv.md`) és a v1 referencia
+      áttekintve: a v1 aktív v4 modell Brier/3 ~0,20, de **minden piacon a
+      piac volt jobb**, a `value` ROI negatív, a mérőréteg pedig hibás —
+      ezért a predikció Phase 0 előfeltétele a mérési szerződés.
+- [x] **API/storage:** új `GET /v1/match/{id}/markets` (read scope, 400/401/
+      404/500, OpenAPI 27 → **28** útvonal), `repositories/match_markets.rs`
+      a teljes `fact.odds_quote` blokkot adja piaconként legfrissebb
+      `captured_at`-tal, forrás-kóddal. A fő `/v1/match` válasz változatlan.
+- [x] **Core/UI:** `MarketQuoteDTO`, `MarketsResponseDTO`, `MarketDisplay`
+      (12 magyar piaccímke + ismeretlen piac megőrzése), `HTTPMatchMarketService`;
+      a `MatchDetailModel` a fő adattól függetlenül tölti. Az Odds fülben
+      `MarketOddsList` csoportosítva, keresővel és 10 csoportos kezdeti
+      korláttal („Többi piac megjelenítése") mutatja a sorokat; AX-címkék
+      magyarul, forrással.
+- [x] **Tesztek (mért):** +2 API-teszt (auth/404/üres + valódi piacok),
+      +4 Core-teszt (dekódolás, csoportosítás, címkék), +1 XCUITest;
+      teljes workspace **645 passed, 0 failed** · Core **163/0 (28 suite)** ·
+      app unit **101/0** · `run-ui-tests.sh` **33/33** (az új teszt zöld;
+      egy régi Ops-dátumválasztó-teszt piros — lásd lent) · clippy 0, fmt 0,
+      build OK · `daily-check 11-26` EXIT=0 · `integrity` OK · `git diff --check` 0.
+- [x] **Éles:** daemon + app újratelepítve, `/v1/health` OK; egy valódi meccs
+      `/markets` válasza **676 quote / 653 külön piac**, első sor:
+      `1x2 / away / 4,10 / forrás research`. A korábban láthatatlan 651 piac
+      most elérhető a kliensben is.
+- [ ] **PIROS kapu — nem regresszió (A/B-vel igazolva):** a teljes UI-futtatás
+      33 tesztből 1 piros: `testOperationsSummaryDatePickerHasHungarianLabelAndOptions`
+      („Not hittable: ops.summary.date"). Ugyanaz a hiba a **`21f4224` alap-commit
+      worktreejében** is reprodukálható (A/B), tehát környezeti/XCUITest-
+      geometria, nem az S194 okozza. Egy másik régi teszt
+      (`testCompetitionTeamRowsOpenTeamSheet`) az egyik futtatásban flaky
+      volt, izoláltan zöld.
+- [ ] **Nem ellenőrzött:** a 676 soros lista görgetéssel/keresővel való
+      emberi végigkattintása; VoiceOver tényleges hang; a `btts` összetett
+      piacnevek katalogizálása; a 2 függő névreview és a 9 pending markets job.
+
+### Visszaállás (S194)
+
+- `git revert <S194 commit>` — az új végpont, Core modell és UI-lista
+      megszűnik; a fő meccs-válasz, az odds-adatok és a daemon/worker
+      változatlanok.
+
 ## Következő döntési pont
 
-- A Tipplap kiegészítő forrás üzemeltetési bevezetése kész; külön döntés:
-      az új piacok UI-megjelenítése, a 2 függő névreview eldöntése, illetve
-      az S9 AI-gomb.
+- Predikció **Phase 0**: mérési szerződés + Shin de-vigelés + alap gólmodell
+      shadow módban (a v1 tanulságai alapján). Külön döntés marad a 2
+      névreview és az S9 AI-gomb.

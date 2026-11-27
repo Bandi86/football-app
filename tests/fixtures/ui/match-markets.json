@@ -1,0 +1,11 @@
+{
+  "quotes": [
+    {"market":"btts","outcome":"yes","line":0,"price":1.53,"bookmaker":"Tippmix","phase":"opening","source_code":"tipplap","captured_at":"2026-11-27T08:00:00Z"},
+    {"market":"btts","outcome":"no","line":0,"price":2.19,"bookmaker":"Tippmix","phase":"opening","source_code":"tipplap","captured_at":"2026-11-27T08:00:00Z"},
+    {"market":"ou","outcome":"over","line":2.5,"price":1.44,"bookmaker":"Tippmix","phase":"opening","source_code":"tipplap","captured_at":"2026-11-27T08:00:00Z"},
+    {"market":"ou","outcome":"under","line":2.5,"price":2.31,"bookmaker":"Tippmix","phase":"opening","source_code":"tipplap","captured_at":"2026-11-27T08:00:00Z"},
+    {"market":"double_chance","outcome":"1x","line":0,"price":1.32,"bookmaker":"Tippmix","phase":"opening","source_code":"tipplap","captured_at":"2026-11-27T08:00:00Z"},
+    {"market":"handicap_-1:101080935","outcome":"home","line":1,"price":6.00,"bookmaker":"Tippmix","phase":"opening","source_code":"tipplap","captured_at":"2026-11-27T08:00:00Z"}
+  ],
+  "count": 6
+}
