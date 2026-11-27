@@ -1,3 +1,4 @@
+pub mod analytics;
 pub mod asset_upload;
 pub mod audit;
 pub mod competition;

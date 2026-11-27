@@ -30,7 +30,9 @@ pub async fn test_pool() -> PgPool {
          ops.issue, ops.match_note,
          ops.robots_cache, ops.coverage_slot, ops.job, ops.breaker_state,
          ops.fetch_ledger, ops.source_policy,
-         ops.audit_event, ops.weather_cache RESTART IDENTITY CASCADE",
+         ops.audit_event, ops.weather_cache,
+         analytics.measurement, analytics.prediction, analytics.market_line
+         RESTART IDENTITY CASCADE",
     )
     .execute(&pool)
     .await

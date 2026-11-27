@@ -40,6 +40,7 @@ mod competitions;
 mod issues;
 mod match_insight_import;
 mod player_import;
+mod prediction_measure;
 mod tipplap_replay;
 
 /// S2b-2: a TRUST_LEVEL + odds trust szabálykészlet verziója (a tickével azonos).
@@ -201,6 +202,15 @@ enum Command {
     Identity {
         #[command(subcommand)]
         action: IdentityAction,
+    },
+    /// S196: as-of mérési snapshot a piaci oddsokra (shadow, `--apply` nélkül nem ír).
+    PredictionMeasure {
+        #[arg(long)]
+        from: NaiveDate,
+        #[arg(long)]
+        to: NaiveDate,
+        #[arg(long, default_value_t = false)]
+        apply: bool,
     },
     /// S170: hiányjelek rögzítése az ops.issue táblába.
     Issues {
@@ -710,6 +720,9 @@ async fn main() -> Result<()> {
             WorkerAction::Tick => worker_tick(&pool, &store, &data_dir).await?,
         },
         Command::Identity { action } => identity_command(&pool, action).await?,
+        Command::PredictionMeasure { from, to, apply } => {
+            prediction_measure::run(&pool, from, to, apply).await?;
+        }
         Command::Issues { action } => match action {
             IssuesAction::Detect { date, apply } => {
                 issues::run_detect(&pool, date, apply).await?;

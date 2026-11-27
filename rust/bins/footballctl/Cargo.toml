@@ -15,11 +15,14 @@ clap.workspace = true
 football-ai = { path = "../../crates/ai" }
 football-domain = { path = "../../crates/domain" }
 football-identity = { path = "../../crates/identity" }
+football-prediction = { path = "../../crates/prediction" }
 football-ingest = { path = "../../crates/ingest" }
 football-storage = { path = "../../crates/storage" }
 football-verification = { path = "../../crates/verification" }
 football-worker = { path = "../../crates/worker" }
+hex.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 sqlx.workspace = true
 tokio.workspace = true
 tracing.workspace = true

@@ -15,7 +15,7 @@ fi
 # a 0021 a fact.match_environment-et, a 0022 a fact.match_official-t;
 # a 0018–0020 csak függvényt/indexet/módoslót hoz létre, nem új táblát;
 # a 0028 az ops.issue-t és az ops.match_note-ot.
-expected_tables=57
+expected_tables=60
 
 for name in DATABASE_URL TEST_DATABASE_URL; do
   url="${!name}"

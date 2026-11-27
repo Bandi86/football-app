@@ -466,8 +466,46 @@ függő Tipplap-névreview; 9 pending markets job; VoiceOver-hang emberi füllel
 egy nem tőlem származó `HomeHeader.swift` módosítás a munkaterületen
 (érintetlenül hagyva); a három másik worktree.
 
+## S196 — Predikció P0b: analytics séma + offline mérő CLI
+
+- [x] **Migráció `0031_prediction_analytics.sql`** (előbb teszt-, majd dev DB):
+      `analytics.market_line`, `analytics.prediction`, `analytics.measurement`
+      — minden sor `model_version`, `as_of`, `inputs_hash` és forrással; a
+      kanonikus `core`/`fact` táblákat nem módosítja. Táblaszám **57 → 60**
+      (`db-check.sh`, `connection.rs`, `test_support.rs` TRUNCATE).
+- [x] **Storage:** `repositories/analytics.rs` — as-of 1X2 minták (csak kickoff
+      előtt rögzített snapshotok, legfrissebb), idempotens `upsert_measurement`
+      és `list_measurements`.
+- [x] **CLI:** `footballctl prediction-measure --from --to [--apply]` — Shin
+      de-vigelés, Brier/3, log-loss, Wilson-intervallum és **klaszterezett
+      bootstrap** (versenyenként, 2000 iteráció, fix seed); alapból dry-run,
+      `--apply` esetén auditált `analytics.measurement` sor `inputs_hash`-sel.
+- [x] **Éles mérés (2026-11-20…26, dev DB):** **247 as-of minta**, 0 kiszűrt;
+      Brier/3 **0,1945** vs egyenletes bázis **0,2222**, különbség **−0,0277**,
+      bootstrap CI **[−0,0438; −0,0130]** (a piac szignifikánsan jobb a bázisnál);
+      log-loss **0,9795**, top-1 **129/247**, Wilson CI [0,4601; 0,5837].
+      A mérés `--apply`-vel rögzítve (`analytics.measurement` id
+      `01a21cbd-61ce-7132-a84e-77830b15ce32`). A dry-run és apply hash-e eltér,
+      mert közben új odds-sorok érkeztek — az `inputs_hash` a tényleges inputé.
+- [x] **Tesztek/kapuk:** +1 storage integrációs teszt (upsert idempotencia),
+      teljes workspace **659 passed, 0 failed** · clippy 0 · fmt 0 · build OK ·
+      `check-foundation` OK (dev/test 60 tábla) · `daily-check 11-26` EXIT=0 ·
+      `integrity` OK · `git diff --check` 0.
+- [ ] **Nem ellenőrzött**: a `market_line`/`prediction` táblák még nem íródnak
+      (csak a mérés); a Shin-féle de-vigelés összevetése a v1 `marketcalib.ts`-vel;
+      a 653 piac közül a mérés most csak az 1X2-t fedi; a bootstrap statisztikai
+      kalibrálása szimuláción túl. A CLI neve kebab-case (`prediction-measure`).
+- [ ] A P1 (Dixon–Coles / Poisson gólmodell shadow módban) nem indult.
+
+### Visszaállás (S196)
+
+- `git revert <S196 commit>`; a `0031` migráció visszaállítása:
+      `DROP TABLE analytics.measurement, analytics.prediction, analytics.market_line;
+       DROP SCHEMA analytics;` + a `_sqlx_migrations` 0031-es sorának törlése.
+      A kanonikus adatot a szelet nem írta.
+
 ## Következő döntési pont
 
-- Predikció **P0b**: `analytics` séma + offline mérő CLI (`footballctl prediction
-  measure`) a meglévő 653 piacra, shadow módban. Külön döntés marad a 2
-  névreview és az S9 AI-gomb.
+- Predikció **P1**: Dixon–Coles / Poisson gólmodell (1X2/OU/BTTS), shadow
+      módban, a P0 mérési szerződése szerinti elfogadási kapuval. Külön döntés
+      marad a 2 névreview és az S9 AI-gomb.
