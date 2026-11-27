@@ -225,6 +225,56 @@
   és a két `job_cancel_stale` audit-esemény törlése (vagy megőrzése — a
   visszaállás nem követeli meg). A kanonikus adatot a szelet nem érintette.
 
+## S191 — Tipplap S1: négy versenycím + piac-katalógus és parser
+
+- [x] **Előzmény:** a felhasználó kérésére a Tipplapot kiegészítő forrásként
+      kezeljük. Három döntés: (1) csak a mért hiány versenyei, (2) kvóta emelése
+      és minden linkelt meccs markets-lekérése, (3) review-alapú, fail-closed
+      alias-kezelés. Rögzítve: `docs/decisions/2026-11-27-tipplap-kiegeszito-forras.md`
+      (`73609e3`); spec + terv ugyanott jól láthatóan (`S0`).
+- [x] **Adapter:** `GENERAL_LEAGUES` 26 → **30**: `Walesi 2., Déli csoport` →
+      `Cymru - dél` (GB-WLS), `Walesi 2., Északi csoport` → `Cymru - észak`
+      (GB-WLS), `Szerb bajnokság` → `Super Liga` (RS), `Ománi Szultán Kupa` →
+      `Sultan Cup` (OM). A GB/Scotland ghost-párt nem másoltuk. A két walesi és
+      a szerb entitás már létezik a DB-ben; az ománi kupa új, reviewed verseny,
+      amelyet az első sikeres ingest hoz létre a szokásos `find_or_create`
+      úton — nem fuzzy, nem `create_on_miss` találgatás.
+- [x] **Piac-katalógus:** `MarketKind` + `market_for()` + `market_line()` +
+      `market_outcome()` — 12 piacfajta (1x2, dupla esély, DNB, BTTS, OU,
+      gólszám-sáv, hendikep, hazai/vendég clean sheet, pontos eredmény, félidő
+      1X2/dupla, other). A „Kétesély" **nem** 1X2, a dupla esély kimenetelei
+      `1x/12/2x`; a hazai/vendég clean sheet külön market, hogy ne ütközzön.
+      Ismeretlen piac → `other` + eredeti név (adatvesztés nincs).
+- [x] **`parse_markets()`**: a markets JSON `desktop` fragmentjéből olvas,
+      `<table><tbody>` burkolatban (különben a HTML5 parser a `<td>`-ket
+      eldobja), soronkénti kód/kimenetel testvér-cellákkal, `data-outcome-id`
+      szerinti deduplikációval; hiányzó/üres `desktop` vagy 0 odds →
+      `SchemaDrift` (fail-closed). A `mobile` fragment duplikátum, nem adatforrás.
+- [x] **Tesztek (mért):** +4 unit teszt (4 új cím GB-WLS/RS/OM ellenőrzéssel,
+      14 piac-leképezési eset, magyar tizedesvessző/hendikep-vonal, parser +
+      dedup + fail-closed). `cargo test -p football-ingest --lib` **69/0**;
+      teljes workspace **640 passed, 0 failed**; clippy 0, fmt 0, build OK.
+- [x] **Valódi formátum ellenőrzése:** egy élő markets JSON
+      (`event 5621252`, read-only) **14 piaccsoportot / 36 kimenetelt** tartalmaz
+      (Kétesély, DNB, BTTS, Gólszám 1,5/2,5/3,5, Hendikep 0:1/1:0/2:0,
+      clean sheet hazai/vendég, 1. félidő 1X2/Kétesély) — mindet felismeri a
+      katalógus. A nyers payload nem került a repóba, csak kézzel írt fixture.
+- [x] **Kapuk:** `check-foundation` EXIT=0 · `daily-check 11-26` EXIT=0 ZÖLD ·
+      `integrity 11-25…11-27` OK · `git diff --check` 0.
+- [ ] **Nem ellenőrzött:** az új címek még **nem élnek a futó daemonban**
+      (S2-ben telepítjük újra); a 4 új verseny kanonikus entitását a következő
+      ingest fogja létrehozni/frissíteni, éles mérés S2/S3; a markets jobok és
+      a kvóta emelése még nem készült.
+- [ ] A `Sultan Cup` létrehozásának döntése dokumentált, de a verseny-entitás
+      csak az első sikeres forrás-sorral jön létre; ha a linker közben review-t
+      nyit, a meccs kimarad (fail-closed) — ez a kívánt viselkedés.
+
+### Visszaállás (S191)
+
+- `git revert <S191 commit>` — a szótár és a piac-katalógus visszaáll; a
+  kanonikus adatot a szelet nem írta, a daemon még nem fut új kóddal.
+
 ## Következő döntési pont
 
-- S9 AI-gomb külön döntése (alapból ki), vagy más szelet.
+- S2 (markets jobok + policy/kvóta + odds-írás) indulása a jóváhagyott terv
+  szerint; S9 AI-gomb külön döntés marad.

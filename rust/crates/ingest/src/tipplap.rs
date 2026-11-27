@@ -185,7 +185,7 @@ const LEAGUES: [League; 16] = [
 /// csapatpár-egyezést adnak egy v2 versenyre (lásd docs/decisions).
 /// A v2 ország-nevek a meglévő `core.country` sorokból jönnek (GB esetén
 /// a történelmi "Scotland" név — ismert adathiba, külön döntés).
-const GENERAL_LEAGUES: [League; 26] = [
+const GENERAL_LEAGUES: [League; 30] = [
     League {
         key: "Angol Liga 1.",
         name: "League One",
@@ -392,6 +392,42 @@ const GENERAL_LEAGUES: [League; 26] = [
         country: Some(("GB", "Scotland")),
         tier: 1,
         priority: 50,
+        international: false,
+    },
+    // S191: a 2026-11-27-i kézi összevetésben mért négy hiányzó cím. A Walesi 2.
+    // két csoportjának kanonikus entitása már létezik (GB-WLS); a GB/Scotland
+    // fenti, ismert hibás párosát nem másoljuk. A szerb felsőház a `Super Liga`
+    // (RS), az ománi kupa új, reviewed verseny — nem találgatott egyeztetés.
+    League {
+        key: "Walesi 2., Déli csoport",
+        name: "Cymru - dél",
+        country: Some(("GB-WLS", "Wales")),
+        tier: 2,
+        priority: 60,
+        international: false,
+    },
+    League {
+        key: "Walesi 2., Északi csoport",
+        name: "Cymru - észak",
+        country: Some(("GB-WLS", "Wales")),
+        tier: 2,
+        priority: 60,
+        international: false,
+    },
+    League {
+        key: "Szerb bajnokság",
+        name: "Super Liga",
+        country: Some(("RS", "Serbia")),
+        tier: 1,
+        priority: 60,
+        international: false,
+    },
+    League {
+        key: "Ománi Szultán Kupa",
+        name: "Sultan Cup",
+        country: Some(("OM", "Oman")),
+        tier: 0,
+        priority: 40,
         international: false,
     },
 ];
@@ -744,6 +780,260 @@ fn parse_price(text: &str) -> Option<f64> {
         .parse::<f64>()
         .ok()
         .filter(|v| *v > 1.0)
+}
+
+// ---------------------------------------------------------------------------
+// S191: részletes piacok a `/kalkulator/markets/{event_id}` JSON-ből.
+//
+// A katalógus determinisztikus: a Tipplap magyar piacnevét fix módon képezzük
+// le a `fact.odds_quote` (market, outcome, line) dimenzióira. Ismeretlen piac
+// nem vész el: `other` alatt az eredeti névvel tároljuk. A "Kétesély" kifejezése
+// NEM 1X2 (dupla esély), ezért külön market — az 1X2-t nem szabad
+// felülírni vele.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MarketKind {
+    OneXTwo,
+    DoubleChance,
+    DrawNoBet,
+    Btts,
+    OverUnder,
+    TotalGoalsBand,
+    Handicap,
+    HomeCleanSheet,
+    AwayCleanSheet,
+    ExactScore,
+    HalfTimeOneXTwo,
+    HalfTimeDoubleChance,
+    Other,
+}
+
+impl MarketKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::OneXTwo => "1x2",
+            Self::DoubleChance => "double_chance",
+            Self::DrawNoBet => "dnb",
+            Self::Btts => "btts",
+            Self::OverUnder => "ou",
+            Self::TotalGoalsBand => "total_goals_band",
+            Self::Handicap => "handicap",
+            Self::HomeCleanSheet => "home_clean_sheet",
+            Self::AwayCleanSheet => "away_clean_sheet",
+            Self::ExactScore => "exact_score",
+            Self::HalfTimeOneXTwo => "ht_1x2",
+            Self::HalfTimeDoubleChance => "ht_double_chance",
+            Self::Other => "other",
+        }
+    }
+}
+
+/// Egy markets-sor kanonikus dimenziói. A `raw_name` megőrzi az eredeti
+/// magyar piacnevet, hogy az ismeretlen piacok katalogizálhatók legyenek.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MarketQuote {
+    pub market: &'static str,
+    pub outcome: String,
+    pub line: f64,
+    pub raw_name: String,
+    pub price: f64,
+    pub source_outcome_id: String,
+}
+
+/// Magyar szám formátuma (`2,5`) → f64. Csak a piacnévben szereplő, ismert
+/// vonalakat értelmezzük; minden más vonal 0 (nincs vonal).
+fn market_line(name: &str) -> f64 {
+    let folded = fold_name(name);
+    for token in ["1,5", "2,5", "3,5", "4,5"] {
+        if folded.contains(&fold_name(token)) {
+            return token.replace(',', ".").parse().unwrap_or(0.0);
+        }
+    }
+    // Hendikep: „Hendikep 0:1" → -1, „1:0" → +1, „2:0" → +2.
+    if folded.starts_with("hendikep") {
+        let digits: Vec<i32> = folded
+            .chars()
+            .filter_map(|c| c.to_digit(10).map(|d| d as i32))
+            .collect();
+        if digits.len() >= 2 {
+            return (digits[0] - digits[1]) as f64;
+        }
+    }
+    0.0
+}
+
+pub fn market_for(name: &str) -> (MarketKind, f64) {
+    let folded = fold_name(name.trim());
+    let line = market_line(name);
+    // A `fold_name` a szóközöket és írásjeleket is eltávolítja, ezért itt
+    // minden kulcs foldolt, szóköz nélküli alakban szerepel.
+    let kind = if folded.starts_with("1felido") && folded.contains("1x2") {
+        MarketKind::HalfTimeOneXTwo
+    } else if folded.starts_with("1felido") && folded.contains("ketesely") {
+        MarketKind::HalfTimeDoubleChance
+    } else if folded == "1x2" {
+        MarketKind::OneXTwo
+    } else if folded.starts_with("ketesely") {
+        MarketKind::DoubleChance
+    } else if folded.starts_with("dontetlennel") {
+        MarketKind::DrawNoBet
+    } else if folded.starts_with("mindketcsapatszerezgolt") {
+        MarketKind::Btts
+    } else if folded.starts_with("golszam") && line > 0.0 {
+        MarketKind::OverUnder
+    } else if folded.starts_with("golszam") {
+        MarketKind::TotalGoalsBand
+    } else if folded.starts_with("hendikep") {
+        MarketKind::Handicap
+    } else if folded.contains("kapottgolnelkul") {
+        if folded.starts_with("hazai") {
+            MarketKind::HomeCleanSheet
+        } else {
+            MarketKind::AwayCleanSheet
+        }
+    } else if folded.starts_with("pontosvegeredmeny") {
+        MarketKind::ExactScore
+    } else {
+        MarketKind::Other
+    };
+    (kind, line)
+}
+
+/// A `data-outcome-code` (H/D/V) jelentése piacfüggő: BTTS/clean sheet-nél
+/// igen/nem, gólszámnál kevesebb/több, egyébként hazai/döntetlen/vendég.
+fn market_outcome(kind: MarketKind, code: &str, name: &str) -> String {
+    match kind {
+        MarketKind::Btts | MarketKind::HomeCleanSheet | MarketKind::AwayCleanSheet => match code {
+            "H" => "yes".to_owned(),
+            "V" => "no".to_owned(),
+            _ => slug(code),
+        },
+        // A dupla esély H/D/V kódjai nem hazai/döntetlen/vendég, hanem
+        // „hazai vagy döntetlen", „hazai vagy vendég", „döntetlen vagy vendég".
+        MarketKind::DoubleChance | MarketKind::HalfTimeDoubleChance => match code {
+            "H" => "1x".to_owned(),
+            "D" => "12".to_owned(),
+            "V" => "2x".to_owned(),
+            _ => slug(code),
+        },
+        MarketKind::OverUnder => match code {
+            "H" => "under".to_owned(),
+            "V" => "over".to_owned(),
+            _ => slug(code),
+        },
+        MarketKind::OneXTwo
+        | MarketKind::DrawNoBet
+        | MarketKind::Handicap
+        | MarketKind::HalfTimeOneXTwo => match code {
+            "H" => "home".to_owned(),
+            "D" => "draw".to_owned(),
+            "V" => "away".to_owned(),
+            _ => slug(code),
+        },
+        MarketKind::ExactScore | MarketKind::TotalGoalsBand | MarketKind::Other => {
+            let folded = fold_name(name);
+            if folded.is_empty() {
+                slug(code)
+            } else {
+                slug(&folded)
+            }
+        }
+    }
+}
+
+/// A `/kalkulator/markets/{id}` JSON `desktop` fragmentjából kinyeri az
+/// összes piacot. A `mobile` fragment duplikátum, csak opcionális validálás.
+/// Hiányos/sérült JSON vagy üres piaclista → `SchemaDrift` (fail-closed).
+pub fn parse_markets(raw: &[u8]) -> Result<Vec<MarketQuote>, ParseError> {
+    let document: serde_json::Value = serde_json::from_slice(raw)
+        .map_err(|e| ParseError::SchemaDrift(format!("markets JSON: {e}")))?;
+    let desktop = document
+        .get("desktop")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            ParseError::SchemaDrift("markets JSON: nincs desktop fragment".to_owned())
+        })?;
+
+    // A fragment `<tr>/<td>` elemeket tartalmaz; tábla-konténer nélkül a HTML5
+    // parser a cellákat eldobja, ezért explicit `<table><tbody>` burkolat kell.
+    let wrapped = format!("<table><tbody>{desktop}</tbody></table>");
+    let fragment = Html::parse_fragment(&wrapped);
+    let row_sel = Selector::parse("tr[data-market]")
+        .map_err(|e| ParseError::SchemaDrift(format!("markets selector: {e}")))?;
+    let head_sel = Selector::parse("th.tleft")
+        .map_err(|e| ParseError::SchemaDrift(format!("markets selector: {e}")))?;
+    let cell_sel = Selector::parse("td[data-outcome-id]")
+        .map_err(|e| ParseError::SchemaDrift(format!("markets selector: {e}")))?;
+    let odds_sel = Selector::parse("[data-odds]")
+        .map_err(|e| ParseError::SchemaDrift(format!("markets selector: {e}")))?;
+    let outcome_sel = Selector::parse("[data-outcome-name]")
+        .map_err(|e| ParseError::SchemaDrift(format!("markets selector: {e}")))?;
+    let code_sel = Selector::parse("[data-outcome-code]")
+        .map_err(|e| ParseError::SchemaDrift(format!("markets selector: {e}")))?;
+
+    let mut quotes = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut group = String::new();
+    for row in fragment.select(&row_sel) {
+        if let Some(head) = row.select(&head_sel).next() {
+            group = head.text().collect::<String>().trim().to_owned();
+            continue;
+        }
+        // A kód és a kimenetel neve testvér-<td>-ben van, nem az odds-cellában.
+        let row_code = row
+            .select(&code_sel)
+            .next()
+            .map(|el| el.text().collect::<String>().trim().to_owned())
+            .unwrap_or_default();
+        let row_outcome_name = row
+            .select(&outcome_sel)
+            .next()
+            .map(|el| el.text().collect::<String>().trim().to_owned())
+            .unwrap_or_default();
+        for cell in row.select(&cell_sel) {
+            let Some(outcome_id) = cell.value().attr("data-outcome-id") else {
+                continue;
+            };
+            if !seen.insert(outcome_id.to_owned()) {
+                continue;
+            }
+            let Some(price_text) = cell
+                .select(&odds_sel)
+                .next()
+                .map(|el| el.text().collect::<String>())
+            else {
+                continue;
+            };
+            let Some(price) = parse_price(&price_text) else {
+                continue;
+            };
+            let raw_name = cell
+                .value()
+                .attr("data-market-name")
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or(&group);
+            if raw_name.is_empty() {
+                continue;
+            }
+            let (kind, line) = market_for(raw_name);
+            quotes.push(MarketQuote {
+                market: kind.as_str(),
+                outcome: market_outcome(kind, &row_code, &row_outcome_name),
+                line,
+                raw_name: raw_name.to_owned(),
+                price,
+                source_outcome_id: outcome_id.to_owned(),
+            });
+        }
+    }
+    if quotes.is_empty() {
+        return Err(ParseError::SchemaDrift(
+            "markets JSON: nincs felhasználható odds".to_owned(),
+        ));
+    }
+    Ok(quotes)
 }
 
 /// Nemzetközi versenyben a csapatnév ország: kanonikus EN név + ISO.
@@ -1227,5 +1517,180 @@ mod league_map_tests {
         assert_eq!(men["gender"], "male");
         assert_eq!(men["age_group"], "senior");
         assert_eq!(men["branch"], "senior");
+    }
+
+    #[test]
+    fn new_competition_titles_are_mapped_without_the_gb_scotland_bug() {
+        let cases = [
+            (
+                "Walesi 2., Déli csoport",
+                "Cymru - dél",
+                Some(("GB-WLS", "Wales")),
+            ),
+            (
+                "Walesi 2., Északi csoport",
+                "Cymru - észak",
+                Some(("GB-WLS", "Wales")),
+            ),
+            ("Szerb bajnokság", "Super Liga", Some(("RS", "Serbia"))),
+            ("Ománi Szultán Kupa", "Sultan Cup", Some(("OM", "Oman"))),
+        ];
+        for (title, name, country) in cases {
+            let assignment = league_for(&format!("Labdarúgás – {title}"))
+                .unwrap_or_else(|| panic!("a {title} címnek szerepelnie kell a fix szótárban"));
+            assert_eq!(assignment.name.as_ref(), name);
+            assert_eq!(assignment.league.country, country);
+            assert_eq!(assignment.round_label, None);
+            assert_ne!(assignment.league.country, Some(("GB", "Scotland")));
+        }
+    }
+}
+
+#[cfg(test)]
+mod market_tests {
+    use super::*;
+
+    #[test]
+    fn market_catalog_maps_hungarian_names_deterministically() {
+        let cases = [
+            ("1X2", MarketKind::OneXTwo, 0.0),
+            ("Kétesély", MarketKind::DoubleChance, 0.0),
+            ("Döntetlennél a tét visszajár", MarketKind::DrawNoBet, 0.0),
+            ("Mindkét csapat szerez gólt", MarketKind::Btts, 0.0),
+            ("Gólszám 2,5", MarketKind::OverUnder, 2.5),
+            ("Gólszám", MarketKind::TotalGoalsBand, 0.0),
+            ("Hendikep 0:1", MarketKind::Handicap, -1.0),
+            ("Hendikep 1:0", MarketKind::Handicap, 1.0),
+            (
+                "Hazai csapat kapott gól nélkül játssza le a mérkőzést",
+                MarketKind::HomeCleanSheet,
+                0.0,
+            ),
+            (
+                "Vendégcsapat kapott gól nélkül játssza le a mérkőzést",
+                MarketKind::AwayCleanSheet,
+                0.0,
+            ),
+            ("1. félidő - 1X2", MarketKind::HalfTimeOneXTwo, 0.0),
+            (
+                "1. félidő - Kétesély",
+                MarketKind::HalfTimeDoubleChance,
+                0.0,
+            ),
+            ("Pontos végeredmény", MarketKind::ExactScore, 0.0),
+            ("Teljesen új piac", MarketKind::Other, 0.0),
+        ];
+        for (name, kind, line) in cases {
+            let (actual_kind, actual_line) = market_for(name);
+            assert_eq!(actual_kind, kind, "piac: {name}");
+            assert_eq!(actual_line, line, "vonal: {name}");
+        }
+    }
+
+    fn markets_fixture() -> Vec<u8> {
+        // Kézzel írt, minimal fixture — nem nyers scrape-elt payload.
+        let desktop = r#"
+        <tr data-event="5621252" data-market><th colspan="9" class="tleft">Kétesély</th></tr>
+        <tr data-event="5621252" data-market>
+          <td data-market-number>16941</td>
+          <td><div data-outcome-name>Azam vagy Döntetlen</div></td>
+          <td data-outcome-code>H</td>
+          <td class="item selectable" data-outcome-id="101080918" data-market-name="Kétesély">
+            <div class="item_inner" data-odds>1.32</div></td>
+        </tr>
+        <tr data-event="5621252" data-market><th colspan="9" class="tleft">Mindkét csapat szerez gólt</th></tr>
+        <tr data-event="5621252" data-market>
+          <td data-market-number>16943</td>
+          <td><div data-outcome-name>Igen</div></td>
+          <td data-outcome-code>H</td>
+          <td data-outcome-id="101080923" data-market-name="Mindkét csapat szerez gólt">
+            <div data-odds>2.02</div></td>
+        </tr>
+        <tr data-event="5621252" data-market>
+          <td data-market-number>16943</td>
+          <td><div data-outcome-name>Nem</div></td>
+          <td data-outcome-code>V</td>
+          <td data-outcome-id="101080924" data-market-name="Mindkét csapat szerez gólt">
+            <div data-odds>1.63</div></td>
+        </tr>
+        <tr data-event="5621252" data-market><th colspan="9" class="tleft">Gólszám 2,5</th></tr>
+        <tr data-event="5621252" data-market>
+          <td data-market-number>16948</td>
+          <td><div data-outcome-name>Kevesebb, mint 2,5</div></td>
+          <td data-outcome-code>H</td>
+          <td data-outcome-id="101080927" data-market-name="Gólszám 2,5">
+            <div data-odds>1.48</div></td>
+        </tr>
+        <tr data-event="5621252" data-market>
+          <td data-market-number>16948</td>
+          <td><div data-outcome-name>Több, mint 2,5</div></td>
+          <td data-outcome-code>V</td>
+          <td data-outcome-id="101080928" data-market-name="Gólszám 2,5">
+            <div data-odds>2.31</div></td>
+        </tr>
+        <tr data-event="5621252" data-market>
+          <td data-market-number>99999</td>
+          <td><div data-outcome-name>Ismeretlen kimenetel</div></td>
+          <td data-outcome-code>H</td>
+          <td data-outcome-id="109999999" data-market-name="Teljesen új piac">
+            <div data-odds>3.10</div></td>
+        </tr>
+        <tr data-event="5621252" data-market>
+          <td data-market-number>99999</td>
+          <td><div data-outcome-name>duplikátum</div></td>
+          <td data-outcome-code>H</td>
+          <td data-outcome-id="109999999" data-market-name="Teljesen új piac">
+            <div data-odds>9.99</div></td>
+        </tr>
+        "#;
+        format!(
+            r#"{{"desktop":{},"mobile":""}}"#,
+            serde_json::json!(desktop)
+        )
+        .into_bytes()
+    }
+
+    #[test]
+    fn parse_markets_extracts_known_and_unknown_markets_without_duplicates() {
+        let quotes = parse_markets(&markets_fixture()).expect("a fixture érvényes");
+        assert_eq!(quotes.len(), 6, "a duplikált outcome-id kimarad");
+
+        let double = quotes.iter().find(|q| q.market == "double_chance").unwrap();
+        assert_eq!(double.outcome, "1x");
+        assert_eq!(double.price, 1.32);
+
+        let btts_yes = quotes
+            .iter()
+            .find(|q| q.market == "btts" && q.outcome == "yes")
+            .unwrap();
+        assert_eq!(btts_yes.price, 2.02);
+        let btts_no = quotes
+            .iter()
+            .find(|q| q.market == "btts" && q.outcome == "no")
+            .unwrap();
+        assert_eq!(btts_no.price, 1.63);
+
+        let under = quotes
+            .iter()
+            .find(|q| q.market == "ou" && q.outcome == "under")
+            .unwrap();
+        assert_eq!(under.line, 2.5);
+        let over = quotes
+            .iter()
+            .find(|q| q.market == "ou" && q.outcome == "over")
+            .unwrap();
+        assert_eq!(over.price, 2.31);
+
+        let unknown = quotes.iter().find(|q| q.market == "other").unwrap();
+        assert_eq!(unknown.outcome, "ismeretlenkimenetel");
+        assert_eq!(unknown.raw_name, "Teljesen új piac");
+        assert_eq!(unknown.price, 3.10);
+    }
+
+    #[test]
+    fn parse_markets_fails_closed_on_missing_or_empty_desktop() {
+        assert!(parse_markets(br#"{"mobile":"x"}"#).is_err());
+        assert!(parse_markets(br#"{"desktop":""}"#).is_err());
+        assert!(parse_markets(b"not json").is_err());
     }
 }
