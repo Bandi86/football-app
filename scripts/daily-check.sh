@@ -97,7 +97,34 @@ union all select 'withheld gate (' || '$MA' || '): ' || count(*) from ops.publis
 union all select 'verified gate (' || '$MA' || '): ' || count(*) from ops.publish_gate where publish_date = '$MA' and state = 'verified_publish';
 "
 
-# 4b. Hiányjelek rögzítése (S170) — a detektor CSAK ops.issue-t ír, auditáltan.
+# 4b. Tipplap kiegészítő forrás (S193) — read-only lefedettségi mérés.
+#     A markets kérések 1 kérés/meccs, ezért a sikertelenség figyelmeztetés,
+#     nem kemény kapu (429/breaker esetén a job újra ütemeződik).
+echo
+echo "--- Tipplap kiegészítés: $MAI ---"
+psql "$DATABASE_URL" -v day="$MAI" -At <<'SQL' || echo "[FIGYELMEZTETÉS] a Tipplap-mérés nem futott le" >&2
+select 'linkelt mai esemény: ' || count(*)
+  from stage.observation o
+  join ops.source s on s.id = o.source_id and s.code = 'tipplap'
+  join identity.source_entity_ref r on r.source_id = o.source_id
+    and r.entity_kind = 'match' and r.source_entity_id = o.source_record_key
+    and r.status = 'active'
+ where o.aspect = 'match_core' and o.observed_at >= :'day'::date;
+select 'markets job (done/failed/pending): ' ||
+       count(*) filter (where status='done') || '/' ||
+       count(*) filter (where status='failed') || '/' ||
+       count(*) filter (where status='pending')
+  from ops.job where source_slug='tipplap' and domain='markets'
+    and time_window = :'day';
+select 'gazdag odds-snapshot (>1 piac): ' || count(*)
+  from fact.odds_snapshot o join ops.source s on s.id=o.source_id
+ where s.code='tipplap' and o.market_count > 1;
+select 'függő tipplap névreview: ' || count(*)
+  from identity.review_queue q join ops.source s on s.id=q.source_id
+ where s.code='tipplap' and q.status='pending';
+SQL
+
+# 4c. Hiányjelek rögzítése (S170) — a detektor CSAK ops.issue-t ír, auditáltan.
 #     A napi check kemény kapuja nem függ a detektortól: hiba esetén jelzés van.
 echo
 echo "--- Hiányjelek: $MA ---"

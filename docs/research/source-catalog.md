@@ -274,6 +274,14 @@ adoptációs rang.
   Soccerway-sorokhoz illesztve (0 duplikátum), 36 Tippmix 1X2 snapshot
   (`provisional`), nap-API-ban megjelenik. Üzemeltetés:
   `docs/operations/tipplap.md`.
+- **2026-11-27 S191–S192 — kiegészítő forrás:** a fix ligcímek 42-ről 46-ra
+  bővülnek (Walesi 2. Dél/Észak, Szerb bajnokság, Ománi Szultán Kupa);
+  a `/kalkulator/markets/{id}` JSON (32 piaccsoport, egy meccsen 14 csoport /
+  36 odds mérve) bekerül a korábban csak deklarált séma-résbe. A markets
+  jobok 1 kérés/meccs, a `daily_budget` 8 → 150; a kvóta továbbra is a
+  worker `delay/jitter/robots/breaker` őrei alatt. A 2026-11-27-i kézi
+  összevetés (128 Tipplap-eseményből 11 hiány) adta a bővítés alapját;
+  döntés: `docs/decisions/2026-11-27-tipplap-kiegeszito-forras.md`.
 
 - **Adoptációs rang:** 3.
 

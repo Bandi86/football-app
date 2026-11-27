@@ -331,7 +331,35 @@
       és audit sorok nem törlődnek. A markets jobok `cancelled` státuszba
       tétele leállítja a további kéréseket.
 
+## S193 — Tipplap S3: napi ellenőrzés és üzemeltetési dokumentáció
+
+- [x] **`daily-check.sh`** új, read-only szakasza: `linkelt mai esemény`,
+      `markets job (done/failed/pending)`, `gazdag odds-snapshot (>1 piac)` és
+      `függő tipplap névreview`. A markets sikertelensége figyelmeztetés, nem
+      kemény kapu (429/breaker esetén újraütemezés), a review-szám megjelenik.
+- [x] **Dokumentáció:** `docs/operations/tipplap.md` (kvóta 150, markets domain,
+      4 új versenycím, piac-leképezési tábla, visszaállás) és
+      `docs/research/source-catalog.md` (S191–S192 státusz) frissítve.
+- [x] **Éles mérés (napi check, 2026-11-27):** linkelt mai esemény **81**,
+      markets job **15 done / 0 failed / 12 pending**, gazdag Tipplap
+      odds-snapshot **8**, függő névreview **2**. `daily-check 11-26` EXIT=0;
+      `integrity 11-25…11-27` OK; teljes workspace **643 passed, 0 failed**,
+      clippy 0, fmt 0, build OK, `check-foundation` 0, `git diff --check` 0.
+- [ ] **Nem ellenőrzött:** a 12 pending markets job végigfutása; a 4 új
+      versenycím első éles betöltése holnap 07:30 után; a 2 review-ra váró
+      név emberi eldöntése (`footballctl identity review/approve`); a részletes
+      piacok UI-megjelenítése és a VoiceOver-hang külön szelet/döntés.
+- [ ] A markets piacok száma egy meccsen 651 is lehet (ismeretlen piacok
+      outcome-ID szerint egyedítve) — ez adatvesztés nélküli, de a
+      `market_count` nem azonos a klasszikus „piacfajták" számával.
+
+### Visszaállás (S193)
+
+- `git revert <S193 commit>` — a napi check és a docok visszaállnak; adatot,
+      jobot, odds-ot a szelet nem írt.
+
 ## Következő döntési pont
 
-- S3 (napi ellenőrzés + hiányjelek + üzemeltetési doc) indulása; külön döntés
-      az új piacok UI-megjelenítése és az S9 AI-gomb.
+- A Tipplap kiegészítő forrás üzemeltetési bevezetése kész; külön döntés:
+      az új piacok UI-megjelenítése, a 2 függő névreview eldöntése, illetve
+      az S9 AI-gomb.
