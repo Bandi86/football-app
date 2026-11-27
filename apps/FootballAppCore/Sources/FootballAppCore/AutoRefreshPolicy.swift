@@ -13,3 +13,23 @@ public enum AutoRefreshPolicy {
         liveMatchCount > 0 ? liveIntervalSeconds : idleIntervalSeconds
     }
 }
+
+/// Az alkalmazás életciklusa a frissítés szempontjából. A SwiftUI `ScenePhase`
+/// helyett Core-ban tartjuk, hogy a döntés unit-tesztelhető maradjon, és a kliens
+/// ne kelljen hozzá SwiftUI-t importálni.
+public enum AppLifecyclePhase: Equatable {
+    case active, inactive, background
+}
+
+extension AutoRefreshPolicy {
+    /// A háttérben töltött idő alatt a daemon új eredményeket/oddsokat írhat,
+    /// miközben az időzített kör szuszpendálva van. Ezért a felhasználó elé
+    /// kerüléskor (inactive/background → active) azonnal újra kérjük az adatot —
+    /// nem kell megvárni a következő 5 perces kört, és nem kell kézzel Frissíteni.
+    public static func shouldRefreshOnActivation(
+        from previous: AppLifecyclePhase,
+        to current: AppLifecyclePhase
+    ) -> Bool {
+        current == .active && previous != .active
+    }
+}

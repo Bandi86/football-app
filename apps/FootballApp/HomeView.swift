@@ -70,6 +70,9 @@ struct HomeView: View {
     @State private var weather = WeatherModel(location: SavedWeatherLocation.load())
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    /// Az utolsó ismert életciklus-állapot — az aktíválódás felismeréséhez.
+    @State private var previousPhase: AppLifecyclePhase = .inactive
     @State private var appeared = false
 
     var body: some View {
@@ -116,6 +119,15 @@ struct HomeView: View {
         }
         .onAppear {
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.4)) { appeared = true }
+        }
+        // A háttérben szuszpendált időzített kör helyett azonnal frissít, amikor
+        // a felhasználó újra az app elé kerül — kézi Frissítés nélkül.
+        .onChange(of: scenePhase) { _, newPhase in
+            let current = AppLifecyclePhase(newPhase)
+            if AutoRefreshPolicy.shouldRefreshOnActivation(from: previousPhase, to: current) {
+                Task { await model.refresh() }
+            }
+            previousPhase = current
         }
         .task(id: model.selectedDate) { await model.load() }
         // Időjárás: azonnal, majd 15 percenként. A szolgáltatás rövid
@@ -455,6 +467,17 @@ struct HomeView: View {
         favorites = LeagueFavorites().toggle(key)
         if favoritesOnly && favorites.isEmpty {
             favoritesOnly = false
+        }
+    }
+}
+
+private extension AppLifecyclePhase {
+    init(_ phase: ScenePhase) {
+        switch phase {
+        case .active: self = .active
+        case .inactive: self = .inactive
+        case .background: self = .background
+        @unknown default: self = .inactive
         }
     }
 }
