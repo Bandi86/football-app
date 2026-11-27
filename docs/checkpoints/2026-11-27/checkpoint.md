@@ -101,8 +101,51 @@
       az API, az adatbázis és a research slotjai érintetlenek.
 - Az app bármely commitból újraépíthető az `install-football-app.sh`-vel.
 
+## S188 — `missing_result` hiányjel (a felhasználó által választott szelet)
+
+- [x] **Kivizsgálás**: a detektor már jelzett `finished` + nincs eredmény esetet,
+      de a félrevezető `stale_status` ("Elavult státusz") kód alatt; az
+      `ops.issue.code` CHECK-je nem engedte a `missing_result` értéket. A napi gap
+      és a kliens szűrője viszont `missing_result` / „Eredmény nélkül" néven
+      szerepel — ez volt a következetlenség.
+- [x] **Migráció `0030_missing_result_issue_code.sql`**: a `issue_code_check`
+      kibővül `missing_result`-tal; a régi `stale_status` a visszaféle
+      kompatibilitás miatt engedélyezett marad, de a detektor nem írja.
+      Migráció **előbb a teszt-, majd a dev DB-re**; a constraint_def ellenőrizve.
+- [x] **Backend**: `domain/ops.rs` új `IssueCode::MissingResult` (`as_db_str`,
+      `parse`, `label_hu` = „Eredmény nélkül"); `detect.rs` ezt írja Hard
+      súlyossággal, `kickoff_at`-tal a detailben. Az API-tesztben a
+      `code=missing_result` most érvényes kód (200), a hibás kód `not_a_gap`.
+- [x] **Kliens**: `OpsIssueModels` új `.missingResult`, `OpsFormatting` magyar
+      címke, `OperationsView` hiány-szűrője és `issueCode(from:)` bővítve.
+- [x] **Tesztek**: új storage-integrációs teszt (lezárt meccs eredmény nélkül →
+      `MissingResult`, nem `StaleStatus`, más napra nem), új Core dekódolós-
+      és címketest, domain round-trip bővítve.
+- [x] **Kapuk (mért)**: `db-reset` → `check-foundation` EXIT=0 · Rust
+      **636 passed, 0 failed**, clippy 0, fmt 0, build `--features obscura` OK ·
+      Core **156/0 (27 suite)** · app unit **94/0** · `run-ui-tests.sh` **31/31,
+      0 hiba** · `daily-check 11-26` **EXIT=0 ZÖLD** · `integrity 11-25…11-26`
+      **verdict OK** · `git diff --check` 0.
+- [x] **Éles**: `install-footballd-agent.sh` → `/v1/health` OK; a futó daemon
+      `GET /v1/issues?code=missing_result` → **200, 0 jel**; érvénytelen kód →
+      **400**. `footballctl issues detect --date 2026-11-26 --apply` (repo CLI)
+      61 jel, 0 lezárás; a DB-ben továbbra is 0 `stale_status` és 0
+      `missing_result` — a két napon nincs eredmény nélküli lezárt meccs, ezért
+      élesben nem keletkezett új jel.
+- [ ] **Nem ellenőrzött**: a `missing_result` jel **éles adaton** nem volt
+      megfigyelhető (a teljes DB-ben 0 `finished` eredmény nélkül); a kódot az
+      integrációs teszt fedi. A kliens szűrőt az XCUITest nem kattintja végig az
+      új kódra (csak a dekódolás és a címke van tesztelve); a tényleges
+      VoiceOver-hang nyitott marad.
+
+### Visszaállás (S188)
+
+- `git revert <S188 commit>` + a `0030` migráció visszaállítása: a CHECK
+  visszaállítása a hét elemű listára, a `_sqlx_migrations` 0030 sorának törlése;
+  `missing_result` jelek esetén előbb `resolved_at` (jelenleg nincs ilyen sor).
+
 ## Következő döntési pont
 
-- A felhasználó döntése a következő szeletről: (a) `missing_result` hiányjel-kód
-  a detektorban; (b) a `feat/estimated-match-clock` worktree becsült órájának
-  átvétele; (c) a két régi failed job rendezése; (d) S9 AI-gomb külön döntése.
+- A felhasználó döntése a következő szeletről: (a) a
+  `feat/estimated-match-clock` worktree becsült órájának átvétele; (b) a két régi
+  failed job rendezése; (c) S9 AI-gomb külön döntése.

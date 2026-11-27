@@ -136,9 +136,13 @@ pub async fn detect_day(pool: &PgPool, date: NaiveDate) -> Result<Vec<DetectedIs
         }
         if row.status == "finished" && row.result_missing {
             push(match_issue(
-                IssueCode::StaleStatus,
+                IssueCode::MissingResult,
                 IssueSeverity::Hard,
-                json!({ "status": row.status, "result": "missing" }),
+                json!({
+                    "status": row.status,
+                    "result": "missing",
+                    "kickoff_at": row.kickoff_at
+                }),
             ));
         }
     }

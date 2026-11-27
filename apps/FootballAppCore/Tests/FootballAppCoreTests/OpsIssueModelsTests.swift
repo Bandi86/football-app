@@ -21,8 +21,26 @@ import Testing
         #expect(issue.code.key == "uj_hiany")
     }
 
+    @Test func missingResultCodeDecodesAndHasAHungarianLabel() throws {
+        let json = """
+        {"issues":[{"id":"00000000-0000-0000-0000-000000000003",
+          "subject_kind":"match","subject_id":"00000000-0000-0000-0000-000000000004",
+          "code":"missing_result","severity":"hard",
+          "first_seen_at":"2026-11-26T08:00:00Z","last_seen_at":"2026-11-26T09:00:00Z",
+          "resolved_at":null,"source":"daily-check"}],"count":1}
+        """
+        let response = try APIDecoding.makeDecoder().decode(
+            IssuesResponseDTO.self, from: Data(json.utf8)
+        )
+        let issue = try #require(response.issues.first)
+        #expect(issue.code == .missingResult)
+        #expect(issue.code.key == "missing_result")
+        #expect(OpsFormatting.issueCodeLabel(issue.code) == "Eredmény nélkül")
+    }
+
     @Test func hungarianLabelsCoverAllKnownValues() {
         #expect(OpsFormatting.issueCodeLabel(.missingOdds) == "Hiányzó odds")
+        #expect(OpsFormatting.issueCodeLabel(.missingResult) == "Eredmény nélkül")
         #expect(OpsFormatting.issueCodeLabel(.identityReview) == "Identitás-review")
         #expect(OpsFormatting.severityLabel(.hard) == "Súlyos")
         #expect(OpsFormatting.severityLabel(.unknown) == "Ismeretlen súlyosság")

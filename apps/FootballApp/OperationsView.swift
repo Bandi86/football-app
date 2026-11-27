@@ -315,8 +315,9 @@ struct OperationsView: View {
                 set: { model.query.code = $0.isEmpty ? nil : $0 }
             )) {
                 Text("Minden hiány").tag("")
-                ForEach(["missing_logo", "missing_odds", "open_past", "duplicate_suspect",
-                         "identity_review", "stale_status", "source_conflict"], id: \.self) { code in
+                ForEach(["missing_logo", "missing_odds", "open_past", "missing_result",
+                         "duplicate_suspect", "identity_review", "stale_status",
+                         "source_conflict"], id: \.self) { code in
                     Text(OpsFormatting.issueCodeLabel(issueCode(from: code))).tag(code)
                 }
             }
@@ -468,6 +469,7 @@ struct OperationsView: View {
         case "missing_logo": return .missingLogo
         case "missing_odds": return .missingOdds
         case "open_past": return .openPast
+        case "missing_result": return .missingResult
         case "duplicate_suspect": return .duplicateSuspect
         case "identity_review": return .identityReview
         case "stale_status": return .staleStatus

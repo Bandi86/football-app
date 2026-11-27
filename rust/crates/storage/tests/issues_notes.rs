@@ -197,6 +197,50 @@ async fn detector_reports_match_gaps_only_for_the_gate_day() {
 }
 
 #[tokio::test]
+async fn detector_reports_missing_result_for_a_finished_match_without_score() {
+    let pool = test_pool().await;
+    let (match_id, _) = seed_min_match(&pool).await;
+    // Szándékosan nincs core.match_result sor: a lezárt meccsnek nincs eredménye.
+    sqlx::query("UPDATE core.match SET status = 'finished' WHERE id = $1")
+        .bind(match_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO ops.publish_gate
+          (id, match_id, publish_date, state, rule_set_version, evaluated_at)
+         VALUES ($1, $2, '2026-11-14', 'provisional_publish', '1.0', now())",
+    )
+    .bind(Uuid::now_v7())
+    .bind(match_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let detected = detect::detect_day(&pool, NaiveDate::from_ymd_opt(2026, 11, 14).unwrap())
+        .await
+        .unwrap();
+    assert!(
+        detected
+            .iter()
+            .any(|d| d.subject_id == match_id && d.code == IssueCode::MissingResult),
+        "a lezárt, eredmény nélküli meccs külön missing_result jelet kap"
+    );
+    assert!(
+        !detected
+            .iter()
+            .any(|d| d.subject_id == match_id && d.code == IssueCode::StaleStatus),
+        "a félrevezető régi kódot a detektor nem írja többé"
+    );
+    assert!(
+        detect::detect_day(&pool, NaiveDate::from_ymd_opt(2026, 11, 15).unwrap())
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
 async fn note_crud_round_trip() {
     let pool = test_pool().await;
     let (match_id, _) = seed_min_match(&pool).await;

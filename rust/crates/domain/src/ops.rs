@@ -63,6 +63,7 @@ impl IssueCode {
             Self::MissingLogo => "Hiányzó logó",
             Self::MissingOdds => "Hiányzó odds",
             Self::OpenPast => "Lejárt, nyitott",
+            Self::MissingResult => "Eredmény nélkül",
             Self::DuplicateSuspect => "Duplikátum gyanú",
             Self::IdentityReview => "Identitás-review",
             Self::StaleStatus => "Elavult státusz",
@@ -77,6 +78,9 @@ pub enum IssueCode {
     MissingLogo,
     MissingOdds,
     OpenPast,
+    /// Lezárt (`finished`) meccs, aminek nincs végeredménye — a napi
+    /// `missing_result` gap és a kliens „Eredmény nélkül" szűrőjének párja.
+    MissingResult,
     DuplicateSuspect,
     IdentityReview,
     StaleStatus,
@@ -89,6 +93,7 @@ impl IssueCode {
             Self::MissingLogo => "missing_logo",
             Self::MissingOdds => "missing_odds",
             Self::OpenPast => "open_past",
+            Self::MissingResult => "missing_result",
             Self::DuplicateSuspect => "duplicate_suspect",
             Self::IdentityReview => "identity_review",
             Self::StaleStatus => "stale_status",
@@ -101,6 +106,7 @@ impl IssueCode {
             "missing_logo" => Some(Self::MissingLogo),
             "missing_odds" => Some(Self::MissingOdds),
             "open_past" => Some(Self::OpenPast),
+            "missing_result" => Some(Self::MissingResult),
             "duplicate_suspect" => Some(Self::DuplicateSuspect),
             "identity_review" => Some(Self::IdentityReview),
             "stale_status" => Some(Self::StaleStatus),
@@ -236,6 +242,7 @@ mod tests {
             IssueCode::MissingLogo,
             IssueCode::MissingOdds,
             IssueCode::OpenPast,
+            IssueCode::MissingResult,
             IssueCode::DuplicateSuspect,
             IssueCode::IdentityReview,
             IssueCode::StaleStatus,
@@ -265,7 +272,7 @@ mod tests {
     #[test]
     fn unknown_db_strings_are_rejected() {
         assert_eq!(IssueSeverity::parse("blocker"), None);
-        assert_eq!(IssueCode::parse("missing_result"), None);
+        assert_eq!(IssueCode::parse("not_a_gap"), None);
         assert_eq!(NoteKind::parse("done"), None);
         assert_eq!(IssueSource::parse("daily_check"), None);
     }

@@ -99,13 +99,24 @@ async fn issues_are_readable_with_read_token_and_validated() {
         "/v1/issues?scope=day",
         "/v1/issues?scope=day&date=2026-11-14T18:00",
         "/v1/issues?scope=evil",
-        "/v1/issues?code=missing_result",
+        "/v1/issues?code=not_a_gap",
         "/v1/issues?severity=blocker",
     ] {
         let (status, body) = call(&app, "GET", uri, Some("read-test"), Value::Null).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "hibás kérés: {uri}");
         assert_eq!(body["code"], "BAD_REQUEST");
     }
+
+    // S188: a missing_result mostantól érvényes kód; a szűrő elfogadja.
+    let (status, _) = call(
+        &app,
+        "GET",
+        "/v1/issues?code=missing_result",
+        Some("read-test"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
 }
 
 #[tokio::test]

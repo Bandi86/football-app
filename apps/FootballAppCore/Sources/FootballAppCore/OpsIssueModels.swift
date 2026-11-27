@@ -21,7 +21,7 @@ public enum IssueSeverity: String, Decodable, Equatable, Sendable {
 }
 
 public enum IssueCode: Decodable, Equatable, Sendable {
-    case missingLogo, missingOdds, openPast, duplicateSuspect
+    case missingLogo, missingOdds, openPast, missingResult, duplicateSuspect
     case identityReview, staleStatus, sourceConflict
     case other(String)
 
@@ -30,6 +30,7 @@ public enum IssueCode: Decodable, Equatable, Sendable {
         case .missingLogo: return "missing_logo"
         case .missingOdds: return "missing_odds"
         case .openPast: return "open_past"
+        case .missingResult: return "missing_result"
         case .duplicateSuspect: return "duplicate_suspect"
         case .identityReview: return "identity_review"
         case .staleStatus: return "stale_status"
@@ -44,6 +45,7 @@ public enum IssueCode: Decodable, Equatable, Sendable {
         case "missing_logo": .missingLogo
         case "missing_odds": .missingOdds
         case "open_past": .openPast
+        case "missing_result": .missingResult
         case "duplicate_suspect": .duplicateSuspect
         case "identity_review": .identityReview
         case "stale_status": .staleStatus

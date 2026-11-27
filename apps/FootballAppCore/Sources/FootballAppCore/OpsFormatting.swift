@@ -16,6 +16,7 @@ public enum OpsFormatting {
         case .missingLogo: return "Hiányzó logó"
         case .missingOdds: return "Hiányzó odds"
         case .openPast: return "Lejárt, nyitott"
+        case .missingResult: return "Eredmény nélkül"
         case .duplicateSuspect: return "Duplikátum gyanú"
         case .identityReview: return "Identitás-review"
         case .staleStatus: return "Elavult státusz"
