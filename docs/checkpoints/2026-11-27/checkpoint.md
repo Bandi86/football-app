@@ -890,6 +890,49 @@ app unit 101/0, UI **34/34**, `daily-check` ZÖLD, `integrity` OK, `git diff --c
     ír adatot, így a régi 6 sor újra megjelenik. A kézi algériai szerkesztések
     az audit eventből visszaállíthatók.
 
+## S217 — Külső források alapján végzett adatkorrekciók
+
+- [x] **Döntés:** a felhasználó engedélyezte a teljes korrekciót (dátumok,
+    státuszok, hiányzó meccsek letöltése) auditlánccal.
+- [x] **Külső bizonyíték:** `docs/operations/2026-11-27-data-bug-audit.md` 4. szakasza.
+  - Paraguay: az ESPN ugyanazzal a játékID-vel 11-27/11-28-ra tünteti fel a
+    három meccset, amelyek nálunk 11-25-ön `scheduled`-ek maradtak.
+  - Ciprus-kupa: a CFA hivatalos programja szerint a nyolc nyolcaddöntő
+    12-09 és 2027-01-27 között van — a 11-25-i dátum a research feedben
+    placeholder volt („legkorábban ekkor kezdődhetnek").
+  - Holland 17. forduló: a Voetbalkrant pontosan az öt elhalasztott és három
+    lejátszott meccset mutatja, aminek megfelel a DB; a két 11-29-i meccs
+    azért hiányzott, mert nem volt 11-29-i napi JSON.
+- [x] **Végrehajtás:** `scripts/corrections-2026-11-27.sql` — 6 elavult
+    paraguayi sor canceled, 8 ciprusi kickoff javítva, Emmen–Helmond
+    postponed; minden sorhoz `ops.audit_event` (**15** event). Újrafuttatása
+    idempotens. A 11-29-i research feed `scripts/research-sync.sh 2026-11-29`
+    segítségével letöltve (2,1 MB) és feldolgozva — a két hiányzó holland
+    meccs most a megfelelő adatcsatornából származik. Az új feed által
+    hozott 2 paraguayi placeholder duplikátum a meglévő
+    `duplicates-resolve` paranccsal rendezve (2 sor, audit event).
+- [x] **Kapu:** a `fetch_day` és `fetch_day_gaps` most kiszűri a `canceled`
+    sorokat (korábban a leállított meccsek még megjelentek az API-ban).
+    `integrity --from 2026-11-25 --to 2026-11-29`: duplikátum 0,
+    `verdict: OK — de ADATHIÁNY`; `daily-check` **EXIT=0 / ZÖLD**.
+    Workspace teszt 0 failed, clippy 0, fmt 0, build OK; új daemon telepítve,
+    `/v1/health` OK. API: 11-25-en 0 canceled sor, 11-27-n 1 paraguayi meccs,
+    11-29-en 2 holland meccs.
+- [x] **Migráció:** a `feat/ops-triage-console` ág 0032-es migrációja
+    (capture request_key index) bekerült erre az ágra is — a dev DB már
+    alkalmazta, ezért a régi bináris nem tudott indítani. Forrás és indok
+    rögzítve; másik ág munkáját nem írtuk át.
+- [ ] **Nem ellenőrzött:** a javított ciprusi időpontokat a UI-ban nem
+    néztük meg (jövőbeli meccsek, nincs AX/képi teszt); a researchben továbbra
+    is 2876 függő review van (a 11-29-i sync növelte meg).
+
+### Visszaállás (S217)
+
+- A `scripts/corrections-2026-11-27.sql` minden UPDATE-je audit eventtel
+    írt; az `ops.audit_event` `detail` mezője tartalmazza a régi értékeket.
+    A `git revert` a kódot állítja vissza, az adatkorrekció az auditból
+    visszafordítható.
+
 ## Következő döntési pont
 
 - A predikció shadowban marad; nyitva: a 3 duplikátumcsoport adattisztításának
