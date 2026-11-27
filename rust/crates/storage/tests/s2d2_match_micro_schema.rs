@@ -284,3 +284,60 @@ async fn match_delete_cascades_all_micro_tables() {
         assert_eq!(count, 0, "{table} kaszkádol a meccs-törlésre");
     }
 }
+
+#[tokio::test]
+async fn numeric_micro_values_decode_without_type_mismatch() {
+    let pool = test_pool().await;
+    let (match_id, source_id) = seed_min_match(&pool).await;
+
+    sqlx::query(
+        "INSERT INTO fact.match_lineups
+         (match_id, source_id, captured_at, side, source_player_id, role, rating)
+         VALUES ($1,$2,now(),'home','p-1','starter',7.4::numeric)",
+    )
+    .bind(match_id)
+    .bind(source_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO fact.match_player_stats
+         (match_id, source_id, captured_at, source_player_id, side, stat_key, value)
+         VALUES ($1,$2,now(),'p-1','home','xg',1.234567890123::numeric)",
+    )
+    .bind(match_id)
+    .bind(source_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO fact.match_shots
+         (match_id, source_id, captured_at, shot_no, side, source_player_id, x, y, xg, xgot)
+         VALUES ($1,$2,now(),1,'home','p-1',
+                 84.55::numeric,42.15::numeric,0.123456789::numeric,0.234567891::numeric)",
+    )
+    .bind(match_id)
+    .bind(source_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let lineups = football_storage::repositories::match_micro::fetch_lineups(&pool, match_id)
+        .await
+        .unwrap();
+    assert_eq!(lineups[0].rating, Some(7.4));
+
+    let player_stats =
+        football_storage::repositories::match_micro::fetch_player_stats(&pool, match_id)
+            .await
+            .unwrap();
+    assert_eq!(player_stats[0].value, Some(1.234567890123));
+
+    let shots = football_storage::repositories::match_micro::fetch_shots(&pool, match_id)
+        .await
+        .unwrap();
+    assert_eq!(shots[0].x, Some(84.55));
+    assert_eq!(shots[0].y, Some(42.15));
+    assert_eq!(shots[0].xg, Some(0.123456789));
+    assert_eq!(shots[0].xgot, Some(0.234567891));
+}

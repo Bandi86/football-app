@@ -41,7 +41,7 @@ pub async fn fetch_lineups(pool: &PgPool, match_id: Uuid) -> Result<Vec<LineupRo
         "SELECT DISTINCT ON (side, source_player_id)
                 l.side, l.role, l.source_player_id, l.player_entity_id,
                 e.canonical_name AS player_name, l.position, l.shirt_number,
-                l.rating, l.captured_at
+                l.rating::double precision AS rating, l.captured_at
            FROM fact.match_lineups l
            LEFT JOIN core.entity e ON e.id = l.player_entity_id
           WHERE l.match_id = $1
@@ -72,7 +72,8 @@ pub async fn fetch_player_stats(pool: &PgPool, match_id: Uuid) -> Result<Vec<Pla
     sqlx::query_as::<_, PlayerStatRow>(
         "SELECT DISTINCT ON (source_player_id, stat_key)
                 p.side, p.source_player_id, p.player_entity_id,
-                e.canonical_name AS player_name, p.stat_key, p.value, p.captured_at
+                e.canonical_name AS player_name, p.stat_key,
+                p.value::double precision AS value, p.captured_at
            FROM fact.match_player_stats p
            LEFT JOIN core.entity e ON e.id = p.player_entity_id
           WHERE p.match_id = $1
@@ -107,8 +108,10 @@ pub async fn fetch_shots(pool: &PgPool, match_id: Uuid) -> Result<Vec<ShotRow>> 
     sqlx::query_as::<_, ShotRow>(
         "SELECT DISTINCT ON (shot_no)
                 s.shot_no, s.side, s.source_player_id, s.player_entity_id,
-                e.canonical_name AS player_name, s.minute, s.x, s.y, s.xg,
-                s.xgot, s.shot_type, s.captured_at
+                e.canonical_name AS player_name, s.minute,
+                s.x::double precision AS x, s.y::double precision AS y,
+                s.xg::double precision AS xg, s.xgot::double precision AS xgot,
+                s.shot_type, s.captured_at
            FROM fact.match_shots s
            LEFT JOIN core.entity e ON e.id = s.player_entity_id
           WHERE s.match_id = $1
