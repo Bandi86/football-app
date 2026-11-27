@@ -747,8 +747,8 @@ final class FootballAppUITests: XCTestCase {
 
     // MARK: - Üzemeltetés: hiányjelek és idővonal (S2)
 
-    private func openOperations(_ port: UInt16) throws -> XCUIApplication {
-        let app = try launch(port: port)
+    private func openOperations(_ port: UInt16, width: CGFloat? = nil) throws -> XCUIApplication {
+        let app = try launch(port: port, windowWidth: width)
         let tab = element("nav.tab.ops", in: app)
         XCTAssertTrue(tab.waitForExistence(timeout: 30), "a felső navigáció nem töltődött be")
         tab.click()
@@ -962,9 +962,10 @@ final class FootballAppUITests: XCTestCase {
         if let playerID {
             app.launchEnvironment["FOOTBALL_UI_PLAYER_ID"] = playerID
         }
-        if let windowWidth {
-            app.launchEnvironment["FOOTBALL_UI_WINDOW_WIDTH"] = String(Int(windowWidth))
-        }
+        // Determinista ablakszélesség: a macOS window restoration máskülönben
+        // az előző futás (akár képernyőn túlnyúló) méretét hozza vissza, és a
+        // jobb szélén lévő menük nem kattinthatók.
+        app.launchEnvironment["FOOTBALL_UI_WINDOW_WIDTH"] = String(Int(windowWidth ?? 1400))
         app.launch()
         app.activate()
         return app

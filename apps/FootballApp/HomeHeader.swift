@@ -600,12 +600,12 @@ private struct MonthCalendar: View {
     var body: some View {
         VStack(spacing: 14) {
             HStack(spacing: 8) {
-                monthButton("chevron.left") { shiftMonth(-1) }
+                monthButton("chevron.left", label: "Előző hónap") { shiftMonth(-1) }
                 Text(Self.monthTitle.string(from: month))
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(AppTheme.primaryText)
                     .frame(maxWidth: .infinity)
-                monthButton("chevron.right") { shiftMonth(1) }
+                monthButton("chevron.right", label: "Következő hónap") { shiftMonth(1) }
             }
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 4) {
@@ -692,7 +692,7 @@ private struct MonthCalendar: View {
         month = calendar.date(byAdding: .month, value: delta, to: month) ?? month
     }
 
-    private func monthButton(_ systemName: String, _ action: @escaping () -> Void) -> some View {
+    private func monthButton(_ systemName: String, label: String, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 12, weight: .semibold))
@@ -702,5 +702,8 @@ private struct MonthCalendar: View {
                 .overlay(Circle().strokeBorder(AppTheme.hairline))
         }
         .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier("calendar.\(systemName)")
     }
 }

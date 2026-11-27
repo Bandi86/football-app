@@ -47,15 +47,22 @@ struct OperationsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .loaded(let status):
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    summaryBanner
-                    statCards(status)
-                    issuesSection
-                    if let integrity = status.integrity {
-                        integritySection(integrity)
+                // A hosszú ranked/hiányjel-sorok intrinsic szélessége régen
+                // szétfeszítette a tartalmat, és a jobb szélén lévő dátumválasztó
+                // kikerült a látható ablakból. A GeometryReader a látható
+                // szélességre kényszeríti a tartalmat.
+                GeometryReader { geometry in
+                    VStack(alignment: .leading, spacing: 20) {
+                        summaryBanner
+                        statCards(status)
+                        issuesSection
+                        if let integrity = status.integrity {
+                            integritySection(integrity)
+                        }
+                        sourceList(status.sources)
+                        auditSection
                     }
-                    sourceList(status.sources)
-                    auditSection
+                    .frame(width: max(0, geometry.size.width - 96), alignment: .leading)
                 }
                 .padding(.horizontal, 48)
                 .padding(.vertical, 20)
@@ -401,6 +408,9 @@ struct OperationsView: View {
                         Text("\(subject) · első: \(first) · utolsó: \(last) · \(source)")
                             .font(.appLabel())
                             .foregroundStyle(AppTheme.secondaryText)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     Spacer()
                     if issue.resolvedAt != nil {
