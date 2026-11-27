@@ -13,6 +13,17 @@ pub struct IntegrityReport {
     pub duplicate_kickoff_groups: i64,
     /// Ugyanaz a verseny+szezon+csapat-pár+UTC-nap több sorban.
     pub duplicate_fixture_groups: i64,
+    /// S215: ugyanaz a KANONIKUS csapatpár ugyanazon UTC-napon több, külön
+    /// verseny alatt, és legalább egy sor `date_only` placeholder kezdéssel.
+    /// Ez a cross-source duplikátum, amit az id-alapú fixture-kulcs nem lát.
+    /// ID-alapú (nem név-fuzzy), ezért pl. az azonos nevű férfi/női csapat
+    /// nem kerül bele. Ezeket a napi kapu kemény hibának tekinti.
+    pub unresolved_duplicate_fixture_groups: i64,
+    /// S215: lejárt kezdésű, még `scheduled` státuszú meccs eredmény nélkül.
+    /// Forráshiány jelzése: nem írunk eredményt, csak jelezzük a hiányt.
+    pub stale_scheduled_without_result: i64,
+    /// Lezárt státuszú meccs, de nincs `core.match_result` sor.
+    pub missing_finished_result: i64,
     /// Ugyanaz a csapatpár pontosan ugyanabban a kickoff-pillanatban több
     /// sorban — verseny-entitástól függetlenül. Egy klub nem játszhat két
     /// meccset ugyanabban a percben, ezért ez review-jelzés (cross-competition
@@ -43,8 +54,15 @@ impl IntegrityReport {
     pub fn has_hard_failures(&self) -> bool {
         self.duplicate_kickoff_groups > 0
             || self.duplicate_fixture_groups > 0
+            || self.unresolved_duplicate_fixture_groups > 0
             || self.orphan_provenance > 0
             || self.active_refs_to_merged > 0
+    }
+
+    /// Adathiány: a forrás nem zárt le lejárt meccseket. Jelzés, nem kemény
+    /// integritási hiba — eredményt nem találunk ki.
+    pub fn has_data_gaps(&self) -> bool {
+        self.stale_scheduled_without_result > 0 || self.missing_finished_result > 0
     }
 }
 
@@ -89,6 +107,53 @@ pub async fn report(
     .fetch_one(pool)
     .await
     .context("fixture duplikátumok számlálása")?;
+
+    // S215: cross-source duplikátum — azonos kanonikus csapatpár, azonos UTC
+    // nap, több verseny, és legalább egy `date_only` placeholder sor. Ez a
+    // paraguayi eset: a FotMob date_only sora és az ESPN pontos sora külön
+    // kanonikus meccsként jelent meg. ID-alapú, tehát nem fuzzy név-egyezés.
+    let unresolved_duplicates: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM (
+             SELECT 1 FROM core.match
+              WHERE ($1::date IS NULL OR kickoff_at::date >= $1)
+                AND ($2::date IS NULL OR kickoff_at::date <= $2)
+              GROUP BY LEAST(home_team_id, away_team_id),
+                       GREATEST(home_team_id, away_team_id), kickoff_at::date
+             HAVING count(*) > 1
+                AND count(*) FILTER (WHERE kickoff_precision = 'date_only') > 0
+                AND count(DISTINCT competition_id) > 1
+          ) x",
+    )
+    .bind(from)
+    .bind(to)
+    .fetch_one(pool)
+    .await
+    .context("feloldatlan cross-source duplikátumok számlálása")?;
+
+    // S215: lejárt, de még mindig `scheduled` meccs eredmény nélkül. A riport
+    // csak jelzi — a hiányzó eredményt nem pótoljuk, nem találunk ki adatot.
+    let stale_scheduled: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core.match m
+          WHERE m.status = 'scheduled'
+            AND m.kickoff_at < now() - interval '3 hours'
+            AND ($1::date IS NULL OR m.kickoff_at::date >= $1)
+            AND ($2::date IS NULL OR m.kickoff_at::date <= $2)
+            AND NOT EXISTS (SELECT 1 FROM core.match_result r WHERE r.match_id = m.id)",
+    )
+    .bind(from)
+    .bind(to)
+    .fetch_one(pool)
+    .await
+    .context("lejárt, eredmény nélküli meccsek számlálása")?;
+
+    let missing_finished: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core.match m
+          WHERE m.status IN ('finished','awarded')
+            AND NOT EXISTS (SELECT 1 FROM core.match_result r WHERE r.match_id = m.id)",
+    )
+    .fetch_one(pool)
+    .await
+    .context("lezárt, eredmény nélküli meccsek számlálása")?;
 
     let orphan_prov: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM fact.provenance p
@@ -187,6 +252,9 @@ pub async fn report(
     Ok(IntegrityReport {
         duplicate_kickoff_groups: dup_kickoff,
         duplicate_fixture_groups: dup_fixture,
+        unresolved_duplicate_fixture_groups: unresolved_duplicates,
+        stale_scheduled_without_result: stale_scheduled,
+        missing_finished_result: missing_finished,
         same_pair_same_instant_groups: same_pair_same_instant,
         same_pair_same_day_groups: same_pair_same_day,
         orphan_provenance: orphan_prov,
