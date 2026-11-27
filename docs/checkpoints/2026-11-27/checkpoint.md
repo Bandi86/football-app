@@ -189,7 +189,42 @@
       megszűnnek; a `main` 10/150 perces és stale-live szabályai változatlanok,
       adatot a szelet nem írt.
 
+## S190 — Két régi failed job diagnosztikus lezárása
+
+- [x] **Döntés:** a felhasználó a napi munka lezárása előtt a két régi failed
+      job rendezését választotta (újraingestelés **nélkül**).
+- [x] **Diagnózis (read-only):**
+  - `slot-03` (created 11-24 07:31, 4 kísérlet, `time_window=2026-11-24`):
+        „dátum-guard eltérés: kért 2026-11-24, kapott 2026-11-25". A 11-24-i
+        napi JSON azonban helyes (`meta.date=2026-11-24`) — a régi kód a
+        `time_window` helyett a mai dátumot ellenőrizte. Az **S179** óta a slot
+        job a `time_window`-ból olvas (regressziós teszttel).
+  - `catchup-2026-11-22` (created 11-25 07:31, 1 kísérlet,
+        `entity_key=catchup-2026-11-22`): a hivatkozott
+        `matches/2026/11/22/2026-11-22_bendel-insurance-vs-doma-united_fm6103183.json`
+        a forrásban **nem létezik** (a meccs maga a DB-ben van: `scheduled`).
+        A régi kód egy hiányzó detail miatt az egész kört megbuktatta; az
+        **S179** óta warning + skip (forrás: `ingest/research.rs:420-427`).
+- [x] **Végrehajtás (tudatos, auditált revízió — nem migráció, nem törlés):**
+      a két job státusza `failed → cancelled`; az eredeti `last_error` megmarad,
+      hozzáfűzve az S190-es ok és a visszaállítási út. Két `ops.audit_event`
+      (`actor=ops`, `action=job_cancel_stale`, `subject_kind=job`,
+      `data_changed=false`) ugyanabban a tranzakcióban. Kanonikus adatot,
+      `ops.issue`-t vagy research fájlt a szelet **nem írt**.
+- [x] **Kapuk (mért):** `daily-check 2026-11-26` **EXIT=0 ZÖLD**, `failed job:
+      0` (előtte 2, majd 1), `pending job: 8`; `integrity 11-25…11-26`
+      **verdict OK**; `git diff --check` 0; a repo munkaterülete tiszta.
+- [ ] **Nem ellenőrzött**: a hiányzó 11-22-i detail-fájl forráshoz kötődő
+      eredete (miért nem lett letöltve) nem nyomoztuk ki; új forrásengedély
+      nélkül nem pótolható. A 11-22-i meccs eredménye továbbra is hiány —
+      ez nem a job-státusz változtatásának mellékhatása.
+
+### Visszaállás (S190)
+
+- `UPDATE ops.job SET status='failed' WHERE id IN ('01a20c40-…','01a21166-…');`
+  és a két `job_cancel_stale` audit-esemény törlése (vagy megőrzése — a
+  visszaállás nem követeli meg). A kanonikus adatot a szelet nem érintette.
+
 ## Következő döntési pont
 
-- A felhasználó döntése: (a) a két régi failed job rendezése; (b) S9 AI-gomb
-  külön döntése; (c) más szelet.
+- S9 AI-gomb külön döntése (alapból ki), vagy más szelet.
