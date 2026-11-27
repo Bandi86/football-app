@@ -70,7 +70,7 @@ struct FilterBar: View {
             }
         }
         .padding(.horizontal, 48)
-        .padding(.bottom, 6)
+        .padding(.bottom, 10)
     }
 
     private var chipRow: some View {
@@ -87,6 +87,7 @@ struct FilterBar: View {
                 }
             }
         }
+        .padding(.vertical, 4)
         .fixedSize(horizontal: true, vertical: false)
     }
 

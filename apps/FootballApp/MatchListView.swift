@@ -16,8 +16,13 @@ enum MatchFilter: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    /// A főoldali szűrősor egy helyen mutatja az összes szűrőt.
-    static let homeFilters = allCases
+    /// A főoldali szűrősor. A `missingLogo` felesleges (a `missingCompetitionLogo`
+    /// már jelzi a hiányzó címereket), a `withheld` pedig üzemeltetési részlet,
+    /// nem napi_listázási szűrő — mindkettő kimarad innen (S205).
+    static let homeFilters: [MatchFilter] = [
+        .all, .upcoming, .live, .finished, .openPast,
+        .missingKickoff, .missingResult, .missingOdds, .missingCompetitionLogo,
+    ]
 
     var title: String {
         switch self {
