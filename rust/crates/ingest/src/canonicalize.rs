@@ -498,7 +498,9 @@ impl Canonicalizer {
                   kickoff_at, kickoff_precision, competition_timezone, status)
                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
                  ON CONFLICT (id) DO UPDATE SET
-                   round_label = EXCLUDED.round_label,
+                   -- S211: a források, amelyek nem adnak fordulót, nem
+                   -- törölhetik a már rögzítettet (NULL felülírás ellen).
+                   round_label = COALESCE(EXCLUDED.round_label, core.match.round_label),
                    home_team_id = EXCLUDED.home_team_id,
                    away_team_id = EXCLUDED.away_team_id,
                    -- S153: az `exact` nem ragadó — ha a tárolt érték maga

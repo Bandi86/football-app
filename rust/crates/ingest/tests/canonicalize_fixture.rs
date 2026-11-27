@@ -89,6 +89,34 @@ async fn midnight_exact_can_be_corrected_to_date_only() {
     assert_eq!(stored, "date_only", "a javított placeholder átjutott");
 }
 
+/// S211: egy olyan forrás, amely nem ad fordulót, nem törölheti a már
+/// rögzített számot (a régi `round_label = EXCLUDED.round_label` ezt tette).
+#[tokio::test]
+async fn source_without_round_does_not_erase_stored_round() {
+    let pool = test_pool().await;
+    let temp = tempfile::tempdir().unwrap();
+    let store = ObjectStore::new(temp.path()).unwrap();
+    let fixture_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../tests/fixtures/fixture_a_day.json");
+    FixtureAdapter::ingest(&pool, &store, &fixture_path)
+        .await
+        .unwrap();
+    let fixture: FixtureSource =
+        serde_json::from_slice(&std::fs::read(&fixture_path).unwrap()).unwrap();
+    let mut day = football_ingest::normalized::NormalizedDay::from(&fixture);
+    day.matches[0].round_label = Some("13".into());
+    Canonicalizer::materialize(&pool, &day).await.unwrap();
+
+    day.matches[0].round_label = None;
+    Canonicalizer::materialize(&pool, &day).await.unwrap();
+
+    let stored: Option<String> = sqlx::query_scalar("SELECT round_label FROM core.match LIMIT 1")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(stored.as_deref(), Some("13"));
+}
+
 /// S149: a mezőalapú provenance a legfrissebb obszervációra mutasson.
 /// Régen a legelső sor maradt `is_selected=true`, így pl. a kickoff egy
 /// elavult értékre hivatkozott, még ha a kanonikus érték frissült is.
