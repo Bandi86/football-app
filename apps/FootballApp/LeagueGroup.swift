@@ -70,7 +70,7 @@ struct LeagueGroup: Identifiable {
             guard let winner = counts.max(by: { lhs, rhs in
                 lhs.value == rhs.value ? lhs.key > rhs.key : lhs.value < rhs.value
             })?.key else { return nil }
-            let text = MatchCardModel.roundText(for: winner)
+            let text = MatchCardModel.roundText(for: winner) ?? winner
             return counts.count == 1 ? text : "~\(text)"
         }
         guard let first = labels.first,
