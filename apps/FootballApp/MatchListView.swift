@@ -216,13 +216,13 @@ struct MatchListView: View {
                                     )
                                 }
                             }
-                            .frame(width: twoColumns ? geometry.size.width * 0.62 : nil,
+                            .frame(width: twoColumns ? geometry.size.width * 0.5 : nil,
                                    alignment: .leading)
                             if twoColumns {
                                 // Üres jobb oszlop — későbbi tartalom helye.
                                 RoundedRectangle(cornerRadius: 19, style: .continuous)
                                     .strokeBorder(AppTheme.hairline)
-                                    .frame(width: geometry.size.width * 0.38 - 16,
+                                    .frame(width: geometry.size.width * 0.5 - 16,
                                            height: geometry.size.height - 32)
                                     .allowsHitTesting(false)
                                     .accessibilityIdentifier("home.sidepanel")
@@ -523,19 +523,12 @@ private struct MatchItemRow: View {
         .frame(width: kickoffWidth, alignment: .leading)
     }
 
-    /// Két csapatnév a címerrel. A fordulót a liga fejlécében csak akkor
-    /// mutatjuk, ha a csoport minden meccsére ugyanaz — vegyes forrásadatnál
-    /// meccsenként jelenik meg itt, ha a forrás adta (S206).
+    /// Két csapatnév a címerrel. A forduló kizárólag a liga fejlécében jelenik
+    /// meg — a kártyán duplikált lenne (S208).
     private var teamsColumn: some View {
         VStack(alignment: .leading, spacing: 2) {
             teamLine(match.home, logo: match.homeLogo, weight: .semibold)
             teamLine(match.away, logo: match.awayLogo, weight: .medium)
-            if let round = match.roundText, !round.isEmpty {
-                Text(round)
-                    .font(.appLabel(9))
-                    .foregroundStyle(AppTheme.secondaryText)
-                    .accessibilityIdentifier("match.round.\(match.id)")
-            }
         }
         .lineLimit(1)
         .minimumScaleFactor(0.8)
