@@ -10,7 +10,8 @@ async fn fixture_is_stored_raw_and_observed_once() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../tests/fixtures/fixture_a_day.json");
 
-    let report = FixtureAdapter::ingest(&pool, &store, &path).await.unwrap();
+    let first = FixtureAdapter::ingest(&pool, &store, &path).await.unwrap();
+    let second = FixtureAdapter::ingest(&pool, &store, &path).await.unwrap();
 
     let artifacts: i64 = sqlx::query_scalar("SELECT count(*) FROM raw.artifact")
         .fetch_one(&pool)
@@ -26,7 +27,8 @@ async fn fixture_is_stored_raw_and_observed_once() {
         .unwrap();
 
     assert_eq!(artifacts, 1);
-    assert_eq!(captures, 1);
-    assert_eq!(observations, report.observation_ids.len() as i64);
+    assert_eq!(captures, 2);
     assert_eq!(observations, 3);
+    assert_ne!(first.capture_id, second.capture_id);
+    assert_eq!(first.observation_ids, second.observation_ids);
 }

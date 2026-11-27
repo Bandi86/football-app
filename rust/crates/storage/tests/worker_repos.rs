@@ -721,7 +721,7 @@ fn raw_capture(request_key: &str) -> repo::RawCapture<'_> {
 }
 
 #[tokio::test]
-async fn persist_raw_upserts_source_artifact_capture_idempotently() {
+async fn persist_raw_creates_capture_per_fetch_and_deduplicates_artifact() {
     let pool = test_pool().await;
     let artifact = stored_artifact('a');
     let capture = raw_capture("demo-synthetic:match:2026-11-12");
@@ -737,7 +737,6 @@ async fn persist_raw_upserts_source_artifact_capture_idempotently() {
     .await
     .unwrap();
 
-    // Ugyanaz a tartalom + request_key: nem keletkezik új artifact/capture.
     let (source_id2, capture_id2) = repo::persist_raw(
         &pool,
         "demo-synthetic",
@@ -749,7 +748,7 @@ async fn persist_raw_upserts_source_artifact_capture_idempotently() {
     .await
     .unwrap();
     assert_eq!(source_id, source_id2);
-    assert_eq!(capture_id, capture_id2);
+    assert_ne!(capture_id, capture_id2);
 
     let (artifacts, captures, sources): (i64, i64, i64) = sqlx::query_as(
         "SELECT (SELECT count(*) FROM raw.artifact),
@@ -759,9 +758,8 @@ async fn persist_raw_upserts_source_artifact_capture_idempotently() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!((artifacts, captures, sources), (1, 1, 1));
+    assert_eq!((artifacts, captures, sources), (1, 2, 1));
 
-    // A display_name upsert frissült.
     let display_name: String =
         sqlx::query_scalar("SELECT display_name FROM ops.source WHERE id=$1")
             .bind(source_id)
@@ -770,7 +768,6 @@ async fn persist_raw_upserts_source_artifact_capture_idempotently() {
             .unwrap();
     assert_eq!(display_name, "Demó forrás v2");
 
-    // Új request_key ugyanazzal az artifacttal: új capture, ugyanaz az artifact.
     let other = raw_capture("demo-synthetic:match:2026-11-13");
     let (_, capture_id3) = repo::persist_raw(
         &pool,
@@ -783,13 +780,48 @@ async fn persist_raw_upserts_source_artifact_capture_idempotently() {
     .await
     .unwrap();
     assert_ne!(capture_id, capture_id3);
+    assert_ne!(capture_id2, capture_id3);
+
     let (artifacts, captures): (i64, i64) = sqlx::query_as(
         "SELECT (SELECT count(*) FROM raw.artifact), (SELECT count(*) FROM raw.capture)",
     )
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!((artifacts, captures), (1, 2));
+    assert_eq!((artifacts, captures), (1, 3));
+}
+
+#[tokio::test]
+async fn persist_raw_rolls_back_source_and_artifact_when_capture_fails() {
+    let pool = test_pool().await;
+    let artifact = stored_artifact('b');
+    let mut capture = raw_capture("demo-synthetic:match:rollback");
+    capture.http_status = 600;
+
+    let error = repo::persist_raw(
+        &pool,
+        "demo-synthetic",
+        "Demó forrás",
+        &artifact,
+        &capture,
+        "application/json",
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        format!("{error:#}").contains("capture beszúrás"),
+        "{error:#}"
+    );
+
+    let (artifacts, captures, sources): (i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM raw.artifact),
+                (SELECT count(*) FROM raw.capture),
+                (SELECT count(*) FROM ops.source)",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!((artifacts, captures, sources), (0, 0, 0));
 }
 
 #[tokio::test]

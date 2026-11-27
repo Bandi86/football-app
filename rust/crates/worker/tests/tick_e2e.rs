@@ -1078,3 +1078,97 @@ async fn multi_request_day_job_materializes_per_competition() {
         .unwrap();
     assert_eq!(coverage, "done");
 }
+
+#[tokio::test]
+async fn repeated_fetch_with_same_request_key_keeps_per_capture_provenance() {
+    let pool = test_pool().await;
+    let now = today_noon();
+    let store_dir = tempfile::tempdir().unwrap();
+    let store = ObjectStore::new(store_dir.path()).unwrap();
+    let fetch_dir = tempfile::tempdir().unwrap();
+    let path = write_rewritten_fixture("demo_day.json", now, fetch_dir.path());
+    let request_key = format!("demo-synthetic:match:{}", now.date_naive());
+    let fetchers = as_fetchers(FixtureFetcher::new(HashMap::from([(
+        request_key.clone(),
+        path.clone(),
+    )])));
+    seed_and_generate(&pool, SourceMode::Shadow, now).await;
+
+    let first = tick::tick(&pool, &store, &fetchers, &adapters(), Uuid::now_v7(), now)
+        .await
+        .unwrap();
+    assert_eq!(first.processed, 1);
+    assert_eq!(first.failed, 0);
+
+    let mut fixture: FixtureSource =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    fixture.matches[0].round_label = Some("2. forduló".into());
+    std::fs::write(&path, serde_json::to_vec_pretty(&fixture).unwrap()).unwrap();
+
+    let later = now + Duration::minutes(1);
+    sqlx::query(
+        "UPDATE ops.job
+            SET status='pending', due_at=$1, leased_until=NULL, worker_id=NULL,
+                attempts=0, last_error=NULL
+          WHERE source_slug='demo-synthetic' AND status='done'",
+    )
+    .bind(later)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let second = tick::tick(&pool, &store, &fetchers, &adapters(), Uuid::now_v7(), later)
+        .await
+        .unwrap();
+    assert_eq!(second.processed, 1);
+    assert_eq!(second.failed, 0);
+
+    let captures: Vec<(Uuid, String, String, chrono::DateTime<Utc>)> = sqlx::query_as(
+        "SELECT c.id, a.content_sha256, c.request_key, c.requested_at
+           FROM raw.capture c
+           JOIN raw.artifact a ON a.id=c.artifact_id
+          ORDER BY c.requested_at, c.id",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(captures.len(), 2);
+    assert_eq!(captures[0].2, request_key);
+    assert_eq!(captures[1].2, request_key);
+    assert_ne!(captures[0].1, captures[1].1);
+    assert_ne!(captures[0].3, captures[1].3);
+
+    let distinct_observation_captures: i64 =
+        sqlx::query_scalar("SELECT count(DISTINCT capture_id) FROM stage.observation")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(distinct_observation_captures, 2);
+
+    let changed_capture_id: Uuid = sqlx::query_scalar(
+        "SELECT capture_id FROM stage.observation
+          WHERE aspect='match_core' AND source_record_key='DEMO-1001'
+            AND normalized_payload->>'round_label'='2. forduló'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(changed_capture_id, captures[1].0);
+
+    let (orphan_artifacts, orphan_captures, orphan_observations): (i64, i64, i64) = sqlx::query_as(
+        "SELECT
+               (SELECT count(*) FROM raw.artifact a
+                 WHERE NOT EXISTS (SELECT 1 FROM raw.capture c WHERE c.artifact_id=a.id)),
+               (SELECT count(*) FROM raw.capture c
+                 WHERE NOT EXISTS (SELECT 1 FROM raw.artifact a WHERE a.id=c.artifact_id)),
+               (SELECT count(*) FROM stage.observation o
+                 WHERE NOT EXISTS (SELECT 1 FROM raw.capture c WHERE c.id=o.capture_id))",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        (orphan_artifacts, orphan_captures, orphan_observations),
+        (0, 0, 0)
+    );
+}

@@ -280,6 +280,16 @@ async fn edit_is_idempotent_by_explicit_key_and_canonical_payload() {
     .unwrap();
     assert_eq!(audits, 1, "ismétlés nem ír új auditot");
 
+    let manual_captures: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM raw.capture c
+           JOIN ops.source s ON s.id=c.source_id
+          WHERE s.code='manual-ui' AND c.endpoint_key='manual-match-edit'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(manual_captures, 1, "azonos kulcs: egy manual capture");
+
     // Kulcs nélkül a whitelist kanonikus lenyomata adja a stabil kulcsot.
     let canonical = json!({"kickoff_at": "2026-11-26T17:00:00Z", "note": "kanonikus kulcs"});
     let (first_status, first) = put(

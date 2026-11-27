@@ -56,7 +56,7 @@ async fn latest_capture(
            JOIN raw.artifact a ON a.id = c.artifact_id
           WHERE c.source_id = $1 AND c.request_key = $2
             AND c.http_status = 200 AND c.error_code IS NULL
-          ORDER BY c.requested_at DESC
+          ORDER BY c.requested_at DESC, c.id DESC
           LIMIT 1",
     )
     .bind(source_id)
@@ -176,10 +176,86 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use football_storage::test_support::test_pool;
+    use sqlx::postgres::PgPoolOptions;
 
     #[test]
     fn request_key_is_stable() {
         let date = NaiveDate::from_ymd_opt(2026, 11, 21).unwrap();
         assert_eq!(request_key(date), "tipplap:day:2026-11-21");
+    }
+
+    #[tokio::test]
+    async fn latest_capture_breaks_requested_at_ties_by_capture_id() {
+        let setup_pool = test_pool().await;
+        setup_pool.close().await;
+        let pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&std::env::var("TEST_DATABASE_URL").unwrap())
+            .await
+            .unwrap();
+
+        // Az index jelenleg elfedheti a hiányzó tie-breaket; a szerződés
+        // ellenőrzéséhez a teszt soros táblavizsgálatot kényszerít ki.
+        sqlx::query("SET enable_indexscan = off")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("SET enable_bitmapscan = off")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let source_id = Uuid::from_u128(100);
+        let artifact_id = Uuid::from_u128(101);
+        let older_capture_id = Uuid::from_u128(102);
+        let newer_capture_id = Uuid::from_u128(103);
+        let captured_at = DateTime::parse_from_rfc3339("2026-11-21T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        sqlx::query(
+            "INSERT INTO ops.source (id, code, display_name) VALUES ($1,'tipplap','Tipplap')",
+        )
+        .bind(source_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO raw.artifact
+             (id, content_sha256, compression, byte_size, storage_key, media_type)
+             VALUES ($1,$2,'none',4,'replay/tie.html','text/html')",
+        )
+        .bind(artifact_id)
+        .bind("a".repeat(64))
+        .execute(&pool)
+        .await
+        .unwrap();
+        for capture_id in [newer_capture_id, older_capture_id] {
+            sqlx::query(
+                "INSERT INTO raw.capture
+                 (id, source_id, artifact_id, endpoint_key, request_url, requested_at,
+                  received_at, http_status, adapter_version, parser_version, request_key)
+                 VALUES ($1,$2,$3,'day','https://example.invalid/tipplap',$4,$4,200,'test','test',
+                         'tipplap:day:2026-11-21')",
+            )
+            .bind(capture_id)
+            .bind(source_id)
+            .bind(artifact_id)
+            .bind(captured_at)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        let selected = latest_capture(
+            &pool,
+            source_id,
+            NaiveDate::from_ymd_opt(2026, 11, 21).unwrap(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(selected.id, newer_capture_id);
     }
 }

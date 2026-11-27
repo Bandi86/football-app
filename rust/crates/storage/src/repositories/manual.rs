@@ -137,8 +137,13 @@ async fn apply_manual_match_edit_inner(
         .map(|key| format!("match-edit:{}:{}", input.match_id, key));
     if let Some(ref request_key) = stable_request_key {
         let previous_capture: Option<Uuid> = sqlx::query_scalar(
-            "SELECT id FROM raw.capture WHERE request_key=$1 ORDER BY requested_at DESC LIMIT 1",
+            "SELECT c.id FROM raw.capture c
+              WHERE c.source_id=(SELECT id FROM ops.source WHERE code=$1)
+                AND c.request_key=$2
+              ORDER BY c.requested_at DESC, c.id DESC
+              LIMIT 1",
         )
+        .bind(SOURCE_CODE)
         .bind(request_key)
         .fetch_optional(&mut *tx)
         .await?;
@@ -313,11 +318,12 @@ async fn apply_manual_match_edit_inner(
             captured_at.to_rfc3339()
         )
     });
-    sqlx::query(
+    let capture_id: Uuid = sqlx::query_scalar(
         "INSERT INTO raw.capture
          (id, source_id, artifact_id, endpoint_key, request_url, requested_at,
           received_at, http_status, adapter_version, parser_version, request_key)
-         VALUES ($1,$2,$3,$4,'manual://ui',$5,$6,200,$7,$8,$9)",
+         VALUES ($1,$2,$3,$4,'manual://ui',$5,$6,200,$7,$8,$9)
+         RETURNING id",
     )
     .bind(Uuid::now_v7())
     .bind(source_id)
@@ -328,14 +334,8 @@ async fn apply_manual_match_edit_inner(
     .bind(ADAPTER_VERSION)
     .bind(ADAPTER_VERSION)
     .bind(&request_key)
-    .execute(&mut *tx)
+    .fetch_one(&mut *tx)
     .await?;
-    let capture_id: Uuid =
-        sqlx::query_scalar("SELECT id FROM raw.capture WHERE source_id=$1 AND request_key=$2")
-            .bind(source_id)
-            .bind(&request_key)
-            .fetch_one(&mut *tx)
-            .await?;
 
     let observation_id = Uuid::now_v7();
     let source_record_key = format!("manual:{}", input.match_id);

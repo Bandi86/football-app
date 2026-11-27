@@ -762,9 +762,9 @@ pub struct RawCapture<'a> {
 }
 
 /// L0 nyers megőrzés egy tranzakcióban: ops.source upsert + raw.artifact
-/// upsert (content_sha256 unique) + raw.capture insert (source_id, request_key
-/// unique). Azonos tartalom és azonos request_key esetén idempotens: a meglévő
-/// artifact/capture azonosítóját adja vissza. Visszatérés: (source_id, capture_id).
+/// upsert (content_sha256 unique) + minden hívásra új raw.capture. A stabil
+/// request_key nem capture-identitás. Visszatérés: (source_id, capture_id), ahol
+/// a capture_id a ténylegesen beszúrt sor azonosítója.
 ///
 /// A `source_code` a hiteles forrásazonosító: a hívó a job source_slugját
 /// adja át, NEM a payloadból olvasott kódot (megszemélyesítés-védelem).
@@ -813,12 +813,12 @@ pub async fn persist_raw(
     .await
     .context("artifact upsert")?;
 
-    sqlx::query(
+    let capture_id: Uuid = sqlx::query_scalar(
         "INSERT INTO raw.capture
          (id, source_id, artifact_id, endpoint_key, request_url, requested_at,
           received_at, http_status, adapter_version, parser_version, request_key)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-         ON CONFLICT (source_id, request_key) DO NOTHING",
+         RETURNING id",
     )
     .bind(Uuid::now_v7())
     .bind(source_id)
@@ -831,17 +831,9 @@ pub async fn persist_raw(
     .bind(capture.adapter_version)
     .bind(capture.parser_version)
     .bind(capture.request_key)
-    .execute(&mut *tx)
+    .fetch_one(&mut *tx)
     .await
     .context("capture beszúrás")?;
-
-    let capture_id: Uuid =
-        sqlx::query_scalar("SELECT id FROM raw.capture WHERE source_id = $1 AND request_key = $2")
-            .bind(source_id)
-            .bind(capture.request_key)
-            .fetch_one(&mut *tx)
-            .await
-            .context("capture azonosító")?;
 
     tx.commit().await.context("nyers megőrzés commit")?;
     Ok((source_id, capture_id))

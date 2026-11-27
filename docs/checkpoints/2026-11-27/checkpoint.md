@@ -890,6 +890,78 @@ app unit 101/0, UI **34/34**, `daily-check` ZÖLD, `integrity` OK, `git diff --c
     ír adatot, így a régi 6 sor újra megjelenik. A kézi algériai szerkesztések
     az audit eventből visszaállíthatók.
 
+## S218 — O0 raw capture/provenance invariant
+
+- [x] **Változás:** minden fetch/import saját `raw.capture` sort kap;
+      `(source_id, request_key)` stabil kérésidentitás, nem capture-identitás.
+      `persist_raw` és a manual író `INSERT ... RETURNING id`-vel propagálja a
+      ténylegesen beszúrt capture UUID-ját. Az artifact- és observation-
+      deduplikáció, valamint a manual explicit/canonical idempotencia megmarad.
+- [x] **Fájlok:** `db/migrations/0032_raw_capture_history.sql`;
+      `rust/crates/storage/src/repositories/worker.rs`;
+      `rust/crates/storage/tests/worker_repos.rs`;
+      `rust/crates/ingest/src/fixture.rs`;
+      `rust/crates/ingest/tests/capture_observation.rs`;
+      `rust/crates/worker/tests/tick_e2e.rs`;
+      `rust/crates/storage/src/repositories/manual.rs`;
+      `rust/crates/api/tests/match_edit.rs`;
+      `rust/bins/footballctl/src/tipplap_replay.rs`;
+      `.dsh/skills/football-app-v2/references/db-queries.md`;
+      `docs/superpowers/plans/2026-11-27-uzemeltetes-o0.md`; és ez a checkpoint.
+      A review által javított replay fájl, az aktív DB-skill és a terv
+      constraint-nevének javítása indokolt eltérés az eredeti kilenc fájlos
+      staging-listától; a végleges lista 12 fájl.
+- [x] **Piros bizonyíték (TDD):** a storage-regresszió `1 passed / 1 failed`
+      eredménnyel bukott a valódi
+      `capture_source_id_request_key_key` unique constraintra; a fixture
+      `0 passed / 1 failed` ugyanerre a duplikátumhibára futott; a worker E2E
+      `0 passed / 1 failed`, a várt capture-számnál `0`-t kapott `1` helyett.
+      A már működő manual idempotencia-teszt piros körben is `1/0` maradt.
+      A review utáni replay-teszt külön piros eredménye `0 passed / 1 failed`,
+      exit `101`: a várt UUID `…0067` helyett `…0066` érkezett.
+- [x] **Célzott zöld:** storage `2 passed / 0 failed`, fixture `1/0`, worker
+      E2E `1/0`, manual API `1/0`; a replay regresszió `1/0`. A storage-teszt
+      `(artifact, capture, source) = (1, 3, 1)`, a fixture `(1, 2, 3)`;
+      a worker két capture-t, két artifactet és két külön observation-capture
+      kapcsolatot igazolt. A manual-tesztben a `manual-ui` capture-szám `1`.
+- [x] **Review-javítás:** a Tipplap replay latest-capture lekérdezés most
+      `requested_at DESC, id DESC` szerint rendez. A valódi DB-teszt azonos
+      időbélyegű, fix UUID-jú capture-eket szúr be, és kikapcsolja az index-
+      és bitmap-szkennelést, hogy a fizikai sorrend ne fedje el a hiányzó
+      tie-breaket.
+- [x] **Teljes kapu:** az első végső futás csak formázási hiba miatt bukott
+      (`check-foundation exit 1`, `cargo fmt --check exit 1`); a workspace,
+      clippy és build már akkor is zöld volt. `cargo fmt --all` után teljes
+      ismétlés: `check-foundation=0`, workspace `165` tesztcsomag,
+      `926 passed / 0 failed / 0 ignored`, clippy `0`, fmt `0`, obscura build
+      `0`, mindkét `db-reset=0`, `git diff --check=0`. A kimenetben `FAILED`,
+      panic, `error:` és `warning:` marker **0**.
+- [x] **Tesztadatbázis:** `football_v2_test`; capture unique constraint `0`,
+      `idx_raw_capture_latest` `1`, sikeres 0032 migráció `1`, táblaszám `60`.
+      Árva artifact `0`, observation nélküli capture `0`, árva observation `0`
+      — az ellenőrzött sor `(0, 0, 0)`.
+- [x] **Független review:** read-only ellenőr, műszaki diff-verdikt **ZÖND**;
+      Critical `0`, Important `0`. Minor: a terv téves constraint-neve, javítva.
+      A checkpoint hiánya lezárási feltétel volt, nem technikai finding.
+- [x] **Unicode:** a végleges 12 módosult/untracked fájl magyar szövege
+      ellenőrizve; CJK/kelet-ázsiai karakter és replacement karakter **0**.
+- [x] **Nem ellenőrzött / nyitott kockázat:** az `ObjectStore` fájlírás a
+      DB-tranzakció előtt történik; sikertelen capture-beszúrás után egy fizikai,
+      DB-ben nem hivatkozott objektumtár-fájl maradhat. Az O0 nem töröl ilyen
+      fájlokat automatikusan. A manual explicit kulcsú, eltérő payload
+      ütközésének kifejezett kezelése az O2-hatókör.
+- [x] **Dev és daemon érintetlenül:** a dev DB továbbra is
+      `football_v2_dev`, capture unique constraint `1`, 0032 migráció `0`;
+      a futó daemon PID `24602`, nem indítottuk újra és nem telepítettük.
+      Az O0 nem futtat dev migrációt. A séma és a régi daemon csak külön,
+      explicit jóváhagyású egyszerre végrehajtott átállásban cserélhető.
+- [x] **Visszaállás:** a kód a szelet commitjának `git revert`-jével állítható
+      vissza. A `capture_source_id_request_key_key UNIQUE (source_id,
+      request_key)` constraint csak akkor adható vissza, ha a migráció óta
+      keletkezett ismétlődő capture-k előbb archiválhatók vagy egyértelművé
+      válnak; a 0032 migrácios sor önmagában nem törölhető visszafordítás
+      helyett.
+
 ## Következő döntési pont
 
 - A predikció shadowban marad; nyitva: a 3 duplikátumcsoport adattisztításának

@@ -3,6 +3,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use football_storage::object_store::ObjectStore;
+use football_storage::repositories::worker::{RawCapture, persist_raw};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -126,56 +127,29 @@ impl FixtureAdapter {
         let fixture: FixtureSource = serde_json::from_slice(&payload)?;
         let artifact = store.put_json(&payload)?;
 
-        let source_id =
-            upsert_source(pool, &fixture.source_code, &fixture.source_display_name).await?;
-
-        let artifact_id = sqlx::query_scalar::<_, Uuid>(
-            "INSERT INTO raw.artifact
-             (id, content_sha256, compression, byte_size, storage_key, media_type)
-             VALUES ($1, $2, $3, $4, $5, 'application/json')
-             ON CONFLICT (content_sha256) DO UPDATE SET content_sha256 = EXCLUDED.content_sha256
-             RETURNING id",
-        )
-        .bind(Uuid::now_v7())
-        .bind(&artifact.sha256)
-        .bind(artifact.compression)
-        .bind(artifact.byte_size as i64)
-        .bind(&artifact.storage_key)
-        .fetch_one(pool)
-        .await?;
-
         let request_key = format!(
             "{}:{}:{}",
             fixture.source_code, fixture.endpoint_key, fixture.captured_at
         );
-        let capture_id = Uuid::now_v7();
-        sqlx::query(
-            "INSERT INTO raw.capture
-             (id, source_id, artifact_id, endpoint_key, request_url, requested_at,
-              received_at, http_status, adapter_version, parser_version, request_key)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,200,$8,$9,$10)
-             ON CONFLICT (source_id, request_key) DO NOTHING",
+        let (source_id, capture_id) = persist_raw(
+            pool,
+            &fixture.source_code,
+            &fixture.source_display_name,
+            &artifact,
+            &RawCapture {
+                endpoint_key: &fixture.endpoint_key,
+                request_url: &fixture.request_url,
+                request_key: &request_key,
+                requested_at: fixture.captured_at,
+                received_at: fixture.captured_at,
+                http_status: 200,
+                adapter_version: &fixture.adapter_version,
+                parser_version: &fixture.parser_version,
+            },
+            "application/json",
         )
-        .bind(capture_id)
-        .bind(source_id)
-        .bind(artifact_id)
-        .bind(&fixture.endpoint_key)
-        .bind(&fixture.request_url)
-        .bind(fixture.captured_at)
-        .bind(fixture.captured_at)
-        .bind(&fixture.adapter_version)
-        .bind(&fixture.parser_version)
-        .bind(&request_key)
-        .execute(pool)
-        .await?;
-
-        let capture_id: Uuid = sqlx::query_scalar(
-            "SELECT id FROM raw.capture WHERE source_id = $1 AND request_key = $2",
-        )
-        .bind(source_id)
-        .bind(&request_key)
-        .fetch_one(pool)
-        .await?;
+        .await
+        .context("fixture nyers megőrzése")?;
 
         let observations = build_observations(&fixture)?;
         let mut observation_ids = Vec::new();
@@ -201,21 +175,6 @@ impl FixtureAdapter {
             observation_ids,
         })
     }
-}
-
-async fn upsert_source(pool: &PgPool, code: &str, name: &str) -> Result<Uuid> {
-    sqlx::query_scalar(
-        "INSERT INTO ops.source (id, code, display_name)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (code) DO UPDATE SET display_name = EXCLUDED.display_name
-         RETURNING id",
-    )
-    .bind(Uuid::now_v7())
-    .bind(code)
-    .bind(name)
-    .fetch_one(pool)
-    .await
-    .context("forrás upsert")
 }
 
 /// A fixture → staging observationök (tiszta építés, persist nélkül).

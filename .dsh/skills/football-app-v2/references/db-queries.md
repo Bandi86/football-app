@@ -29,8 +29,10 @@ referencia (crosswalk-seed, v1-import forrás).
   candidate_entity_ids jsonb; unique pending index (source_id, entity_kind, source_entity_id, reason).
 - `stage.observation`: entity_kind (team/match), aspect (team_identity/match_core),
   normalized_payload jsonb, source_record_key.
-- `raw.capture`: UNIQUE(source_id, request_key) — refetch-nél upsert; `raw.artifact`:
-  storage_key, content_sha256, compression, byte_size.
+- `raw.capture`: minden fetch/import új sort hoz létre; `(source_id, request_key)` stabil
+  kérésidentitás, nem egyedi capture-kulcs. A legfrissebb capture determinisztikus
+  rendezése: `requested_at DESC, id DESC`. `raw.artifact`: `content_sha256` egyedi,
+  ezért az azonos tartalom deduplikálódik; storage_key, compression, byte_size.
 - Sémák: raw, stage, core, identity, fact, ops (+ public._sqlx_migrations).
 
 ## Bevált diagnosztikai lekérdezések (read-only)
