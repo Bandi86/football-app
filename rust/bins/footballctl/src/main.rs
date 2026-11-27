@@ -42,6 +42,7 @@ mod match_insight_import;
 mod player_import;
 mod prediction_fit;
 mod prediction_measure;
+mod referee_alias_seed;
 mod season_stats_import;
 mod tipplap_replay;
 
@@ -326,6 +327,14 @@ enum Command {
     /// napi bontás, exact season_id/team_id párosítás, ON CONFLICT DO NOTHING,
     /// apply-nál tábla-backup. (match_team_stats / season_player_stats érintetlen.)
     SeasonStatsImport {
+        #[arg(long)]
+        apply: bool,
+    },
+    /// Auditált bíró-alias seeding (S-szelet B): identity.alias sorok
+    /// kizárólag evidence-alapú pontos (foldolt) egyezésre egy referee-entitásra;
+    /// ambiguous/no-match -> pending review; nincs fuzzy, nincs kitalált egyezés;
+    /// research megjelenítés + core.match.referee_entity_id érintetlen. Dry-run alap.
+    RefereeAliasSeed {
         #[arg(long)]
         apply: bool,
     },
@@ -1598,6 +1607,25 @@ async fn main() -> Result<()> {
             for skip in report.skipped.iter().take(10) {
                 println!("  kihagyva: {skip}");
             }
+        }
+        Command::RefereeAliasSeed { apply } => {
+            let report = referee_alias_seed::run(&pool, apply).await?;
+            println!(
+                "referee-alias-seed: {} kulcs / {} no-match / {} ambiguous / \
+                 {} már egzakt / {} seedable / {} alias beszúrt / {} review beszúrt{}",
+                report.keys_total,
+                report.no_match,
+                report.ambiguous,
+                report.already_exact,
+                report.seedable,
+                report.inserted_aliases,
+                report.inserted_reviews,
+                if report.applied {
+                    ""
+                } else {
+                    " (dry-run — nem történt írás)"
+                }
+            );
         }
         Command::SeasonStatsImport { apply } => {
             let report = season_stats_import::run(&pool, apply).await?;
