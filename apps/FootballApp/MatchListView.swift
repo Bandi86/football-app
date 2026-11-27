@@ -171,6 +171,9 @@ struct MatchListView: View {
     /// (a kártya a 48 pt oldalpaddel ennél keskenyebb). Ez nem a kártya szélessége:
     /// a kártya mindig kitölti a listapanelt, csak a belső elrendezés vált.
     private static let wideLayoutThreshold: CGFloat = 800
+    /// Teljes képernyőn bal oldal a meccslista, jobb oldal üres hely a
+    /// későbbi tartalomnak; keskeny ablaknál a lista teljes szélességű.
+    private static let twoColumnThreshold: CGFloat = 1200
 
     private var orderedIDs: [String] {
         leagues.flatMap { league in
@@ -194,30 +197,44 @@ struct MatchListView: View {
         } else {
             GeometryReader { geometry in
                 let isWide = geometry.size.width >= Self.wideLayoutThreshold
+                let twoColumns = geometry.size.width >= Self.twoColumnThreshold
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(spacing: 16) {
-                            ForEach(leagues) { league in
-                                LeagueSectionView(
-                                    league: league,
-                                    logos: logos,
-                                    now: now,
-                                    isWide: isWide,
-                                    focusedMatch: focusedMatch,
-                                    onSelect: onSelect,
-                                    isFavorite: favorites.contains(league.id),
-                                    onToggleFavorite: onToggleFavorite.map { toggle in
-                                        { toggle(league.id) }
-                                    },
-                                    isCollapsed: collapsed.contains(league.id),
-                                    onToggleCollapse: onToggleCollapse.map { toggle in
-                                        { toggle(league.id) }
-                                    }
-                                )
+                        HStack(alignment: .top, spacing: twoColumns ? 16 : 0) {
+                            LazyVStack(spacing: 10) {
+                                ForEach(leagues) { league in
+                                    LeagueSectionView(
+                                        league: league,
+                                        logos: logos,
+                                        now: now,
+                                        isWide: isWide,
+                                        focusedMatch: focusedMatch,
+                                        onSelect: onSelect,
+                                        isFavorite: favorites.contains(league.id),
+                                        onToggleFavorite: onToggleFavorite.map { toggle in
+                                            { toggle(league.id) }
+                                        },
+                                        isCollapsed: collapsed.contains(league.id),
+                                        onToggleCollapse: onToggleCollapse.map { toggle in
+                                            { toggle(league.id) }
+                                        }
+                                    )
+                                }
+                            }
+                            .frame(width: twoColumns ? geometry.size.width * 0.62 : nil,
+                                   alignment: .leading)
+                            if twoColumns {
+                                // Üres jobb oszlop — későbbi tartalom helye.
+                                RoundedRectangle(cornerRadius: 19, style: .continuous)
+                                    .strokeBorder(AppTheme.hairline)
+                                    .frame(width: geometry.size.width * 0.38 - 16,
+                                           height: geometry.size.height - 32)
+                                    .allowsHitTesting(false)
+                                    .accessibilityIdentifier("home.sidepanel")
                             }
                         }
                         .padding(.horizontal, 48)
-                        .padding(.vertical, 16)
+                        .padding(.vertical, 10)
                     }
                     .onChange(of: focusedMatch) { _, newValue in
                         guard let newValue else { return }
@@ -254,16 +271,16 @@ private struct LeagueSectionView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 16) {
+            HStack(spacing: 10) {
                 if let logo = league.logo {
-                    CompetitionLogo(path: logo, store: logos, fallbackFlag: league.countryCode, size: 40)
+                    CompetitionLogo(path: logo, store: logos, fallbackFlag: league.countryCode, size: 32)
                 } else {
                     Text(league.flag)
-                        .font(.system(size: 25))
+                        .font(.system(size: 20))
                 }
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 1) {
                     Text(league.name)
-                        .font(.appText(16, weight: .semibold))
+                        .font(.appText(14, weight: .semibold))
                         .foregroundStyle(AppTheme.primaryText)
                     HStack(spacing: 8) {
                         Text(league.subtitle)
@@ -312,8 +329,8 @@ private struct LeagueSectionView: View {
                     .accessibilityIdentifier("league.favorite.\(league.id)")
                 }
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 14)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
             .background(AppTheme.surface)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("league.section.\(league.id)")
@@ -327,7 +344,7 @@ private struct LeagueSectionView: View {
                                  focusedMatch: focusedMatch, onSelect: onSelect)
                         .id(match.id)
                         if index < sortedMatches.count - 1 {
-                            Rectangle().fill(AppTheme.hairline).frame(height: 1).padding(.leading, 18)
+                            Rectangle().fill(AppTheme.hairline).frame(height: 1).padding(.leading, 14)
                         }
                     }
                 }
@@ -356,7 +373,7 @@ private struct MatchItemRow: View {
 
     /// A kezdés-oszlop szélessége: a dátum, az idő és az állapotjelzés alatt
     /// egy vonalban marad. Fix, mert ez az oszlop minden sornál ugyanaz.
-    private let kickoffWidth: CGFloat = 96
+    private let kickoffWidth: CGFloat = 76
 
     private var clock: MatchCardModel.ClockDisplay? { match.clock(at: now) }
     private var phase: String? { match.phaseLabel(at: now) }
@@ -369,8 +386,8 @@ private struct MatchItemRow: View {
                 stackedLayout
             }
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 18)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
         // Az egér fölé vitelén a sor finoman kiemelkedik: enyhe borostyán
         // tónus, hajszál szegély és mikro-skálázás. A billentyűfókusz saját,
         // vastagabb borostyán kerete ettől függetlenül látszik.
@@ -423,10 +440,11 @@ private struct MatchItemRow: View {
     /// Széles: kezdés | csapatok | eredmény | 1X2 egy sorban; a csapatoszlop
     /// viszi a maradék helyet, így az eredmény és az odds jobbra igazodik.
     private var wideLayout: some View {
-        HStack(alignment: .center, spacing: 16) {
+        HStack(alignment: .center, spacing: 10) {
             kickoffColumn
             teamsColumn
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: 280, alignment: .leading)
+            Spacer(minLength: 4)
             scoreColumn
             oddsBlock
         }
@@ -510,23 +528,29 @@ private struct MatchItemRow: View {
         .frame(width: kickoffWidth, alignment: .leading)
     }
 
-    /// Két csapatnév a címerrel. A forduló/kupa-felirat kizárólag a liga
-    /// szekciófejlécében jelenik meg láthatóan; a kártyán a felolvasott címke
-    /// hordozza (`AccessibilityLabels.matchCardLabel`).
+    /// Két csapatnév a címerrel. A fordulót a liga fejlécében csak akkor
+    /// mutatjuk, ha a csoport minden meccsére ugyanaz — vegyes forrásadatnál
+    /// meccsenként jelenik meg itt, ha a forrás adta (S206).
     private var teamsColumn: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 2) {
             teamLine(match.home, logo: match.homeLogo, weight: .semibold)
             teamLine(match.away, logo: match.awayLogo, weight: .medium)
+            if let round = match.roundText, !round.isEmpty {
+                Text(round)
+                    .font(.appLabel(9))
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .accessibilityIdentifier("match.round.\(match.id)")
+            }
         }
         .lineLimit(1)
         .minimumScaleFactor(0.8)
     }
 
     private func teamLine(_ name: String, logo: String?, weight: Font.Weight) -> some View {
-        HStack(spacing: 12) {
-            CrestLogo(name: name, path: logo, store: logos, size: 26)
+        HStack(spacing: 8) {
+            CrestLogo(name: name, path: logo, store: logos, size: 22)
             Text(name)
-                .font(.appText(16, weight: weight))
+                .font(.appText(14, weight: weight))
                 .foregroundStyle(AppTheme.primaryText.opacity(weight == .semibold ? 1 : 0.9))
         }
     }
