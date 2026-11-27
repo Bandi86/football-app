@@ -113,7 +113,7 @@ struct HomeHeader: View {
                 }
             }
             .padding(.horizontal, 24)
-            .padding(.vertical, 8)
+            .padding(.vertical, compact ? 4 : 8)
         }
         .background {
             LinearGradient(
