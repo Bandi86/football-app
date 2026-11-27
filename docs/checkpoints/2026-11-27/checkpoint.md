@@ -403,8 +403,45 @@
       megszűnik; a fő meccs-válasz, az odds-adatok és a daemon/worker
       változatlanok.
 
+## S195 — Predikció P0a: Shin + mérési szerződés + as-of őr
+
+- [x] **Döntés:** a felhasználó a piacok UI (S194) után a **mérési szerződés +
+      Shin** szeletet választotta, a Dixon–Coles modell elé. Indoklás: a v1
+      saját auditja szerint a modell minden piacon rosszabb volt a piacnál, a
+      `value` ROI negatív és a mérőréteg (CI nélküli verdikt) nem tudta hitelesen
+      megítélni az új modelleket. Terv:
+      `docs/superpowers/plans/2026-11-27-predikcio-phase0.md`.
+- [x] **Új crate:** `football-prediction` (workspace `crates/*` automatikusan),
+      adatbázis-/hálózatmentes, tiszta Rust.
+  - `margin.rs`: determinisztikus Shin-biszekció a `p_i = [√(z²+4(1-z)p_i²/S)−z] /
+    (2(1-z))` formulára, `fair_odds`, `edge = p·odds−1`; üres/nem pozitív odds
+    fail-closed `None`.
+  - `metrics.rs`: multi-class Brier (opcionális `/klass`, a v1 `Brier/3`
+    konvenciója), log-loss, Wilson-intervallum, **klaszterezett bootstrap**
+    páros Brier-különbségre (fix xorshift seed, 2,5/97,5 percentilis).
+  - `as_of.rs`: szigorú `captured_at < kickoff_at` őr, `date_only` placeholder
+    elutasítása, teljes feature+predikció-idő ellenőrzés.
+- [x] **Tesztek (mért):** 13 új unit teszt (Shin-összeg=1, favorite-longshot
+      torzítás, 2 utas/nincs margin, hibás odds, Brier/log-loss értékek,
+      Wilson, bootstrap szignifikáns és zajos eset, as-of). Teljes workspace
+      **658 passed, 0 failed**, clippy 0, fmt 0, build OK.
+- [x] **Kapuk:** `check-foundation` érintetlen · `daily-check 11-26` EXIT=0 ZÖLD ·
+      `integrity 11-25…11-27` OK · `git diff --check` 0. A szelet nem írt
+      adatot, nem módosított sémát, nem indított modellt.
+- [ ] **Nem ellenőrzött**: a Shin-implementációütköztetés a v1 `marketcalib.ts`-vel
+      (csak a matematikai tulajdonságok vannak tesztelve); valódi odds-blokkon
+      mért margin/edge; a bootstrap statisztikai kalibrálása szimulált adaton
+      túl; a `football-prediction` még nincs bekötve CLI-be vagy API-ba.
+- [ ] A P0b (analytics séma + `footballctl prediction measure`) és a P1
+      (Dixon–Coles) nem indult — külön szeletek.
+
+### Visszaállás (S195)
+
+- `git revert <S195 commit>` — a `football-prediction` crate és a Phase 0 terv
+      megszűnik; a meglévő crate-ek, adatok és API változatlanok.
+
 ## Következő döntési pont
 
-- Predikció **Phase 0**: mérési szerződés + Shin de-vigelés + alap gólmodell
-      shadow módban (a v1 tanulságai alapján). Külön döntés marad a 2
-      névreview és az S9 AI-gomb.
+- Predikció **P0b**: `analytics` séma + offline mérő CLI (`footballctl prediction
+  measure`) a meglévő 653 piacra, shadow módban. Külön döntés marad a 2
+  névreview és az S9 AI-gomb.
