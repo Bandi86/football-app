@@ -153,8 +153,7 @@ impl FixtureAdapter {
             "INSERT INTO raw.capture
              (id, source_id, artifact_id, endpoint_key, request_url, requested_at,
               received_at, http_status, adapter_version, parser_version, request_key)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,200,$8,$9,$10)
-             ON CONFLICT (source_id, request_key) DO NOTHING",
+             VALUES ($1,$2,$3,$4,$5,$6,$7,200,$8,$9,$10)",
         )
         .bind(capture_id)
         .bind(source_id)
@@ -170,7 +169,8 @@ impl FixtureAdapter {
         .await?;
 
         let capture_id: Uuid = sqlx::query_scalar(
-            "SELECT id FROM raw.capture WHERE source_id = $1 AND request_key = $2",
+            "SELECT id FROM raw.capture WHERE source_id = $1 AND request_key = $2
+             ORDER BY received_at DESC, id DESC LIMIT 1",
         )
         .bind(source_id)
         .bind(&request_key)

@@ -162,3 +162,43 @@ a research napi JSON 11-29-re egyáltalán nem létezik, ezért nem lett
 letöltve. Ez nem megjelenítési hiba, hanem **feed-lefedettségi hiány**.
 Egy eltérés: az Emmen–Helmond meccset a külső forrás elhalasztottnak
 mutatja, nálunk `scheduled` (11-28 16:30) — ezt külön kell egyeztetni.
+
+## 5. Élő percek — gyökérok és javítás (2026-11-27 este)
+
+**Tünet:** a Győri ETO–Debrecen kártyája 42'-t mutatott, miközben a meccs
+későbbi fázisban járt (a felhasználó 54'-et látott); a német meccseknél
+pontosnak tűnt az óra.
+
+**Gyökérok:** nem a kliens számolása, hanem a betöltési lánc állt meg.
+A `feat/ops-triage-console` ág 0032-es migrációja **eltörölte** a
+`raw.capture (source_id, request_key)` UNIQUE kényszert, de a worker és a
+fixture-adapter kód még `ON CONFLICT (source_id, request_key) DO NOTHING`-et
+használt. PostgreSQL ezért `there is no unique or exclusion constraint
+matching the ON CONFLICT specification` hibát adott, és minden research
+discovery job a `capture beszúrás` lépésben failed. Az élő adat ezért a
+20:24-i snapshoton ragadt (Győr: 42'), miközben a research JSON már 88'-t
+tartalmazott a 21:29-i revízióban.
+
+**Javítás (S219):**
+- a capture INSERT többé nem hivatkozik a törölt kényszerre;
+- a capture azonosítót `ORDER BY received_at DESC, id DESC LIMIT 1`
+  lekérdezéssel választjuk (a 0032-es migráció szándékának megfelelően a
+  legfrissebb fetch nyer);
+- ugyanez a javítás a fixture-adapterben;
+- a storage-teszt frissítve az új, nem-idempotens capture-számára.
+
+**Mérés:**
+- a sikertelen job újraütemezése után a Győr–Debrecen perc **42 → 88**, az
+  API most `minute=88`, a DB legfrissebb obszervációja 21:29:12 (88');
+- a 11-27-i napi API **47 élő meccséből 0 perceltérés, 0 státuszeltérés,
+  0 eredményeltérés** a research JSON-hoz képest;
+- külső ellenőrzés: a Sofascore/FotMob meccslapjai 83' eseményt, illetve
+  90+1-ig terjedő eseménylistát mutatnak — a 88' ebbe belefér; a korábbi
+  42' valóban elavult érték volt.
+- `ops.job`: 11-27-re `done=71`, failed=0; workspace teszt 0 failed,
+  clippy 0, fmt 0, build OK; daemon újratelepítve, `/v1/health` OK.
+
+**Kapu-hiány:** a `daily-check 2026-11-26` zöld maradt, pedig a 11-27-i
+research job failed volt (a napi ellenőrzés csak az előző nap ablakát nézte).
+Javaslat: a failed job-ok ellenőrzése minden napra vonatkozzon, ne csak a
+vizsgált dátumra.

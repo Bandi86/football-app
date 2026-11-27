@@ -817,8 +817,7 @@ pub async fn persist_raw(
         "INSERT INTO raw.capture
          (id, source_id, artifact_id, endpoint_key, request_url, requested_at,
           received_at, http_status, adapter_version, parser_version, request_key)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-         ON CONFLICT (source_id, request_key) DO NOTHING",
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
     )
     .bind(Uuid::now_v7())
     .bind(source_id)
@@ -835,13 +834,15 @@ pub async fn persist_raw(
     .await
     .context("capture beszúrás")?;
 
-    let capture_id: Uuid =
-        sqlx::query_scalar("SELECT id FROM raw.capture WHERE source_id = $1 AND request_key = $2")
-            .bind(source_id)
-            .bind(capture.request_key)
-            .fetch_one(&mut *tx)
-            .await
-            .context("capture azonosító")?;
+    let capture_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM raw.capture WHERE source_id = $1 AND request_key = $2
+             ORDER BY received_at DESC, id DESC LIMIT 1",
+    )
+    .bind(source_id)
+    .bind(capture.request_key)
+    .fetch_one(&mut *tx)
+    .await
+    .context("capture azonosító")?;
 
     tx.commit().await.context("nyers megőrzés commit")?;
     Ok((source_id, capture_id))
