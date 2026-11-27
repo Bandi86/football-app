@@ -525,8 +525,10 @@ struct MatchItemRow: View {
         let badge = statusBadge
         return VStack(alignment: .leading, spacing: 2) {
             Text(badge.text)
-                .font(.system(size: 9, weight: .bold))
-                .tracking(0.3)
+                // A hosszabb állapotszöveg (ELHALASZTOTT) kisebb betűvel fér
+                // el a fix 76 pt-es kezdés-oszlopban — ne vágja le.
+                .font(.system(size: badge.text.count > 10 ? 7.5 : 9, weight: .bold))
+                .tracking(badge.text.count > 10 ? 0 : 0.3)
                 .foregroundStyle(badge.color)
                 .lineLimit(1)
                 .accessibilityIdentifier("match.status.\(match.id)")
