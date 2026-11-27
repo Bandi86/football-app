@@ -10,7 +10,7 @@ import FootballAppCore
 /// lezárt, de végeredmény nélküli meccseket jelenti — nem azonos a lejárt,
 /// nyitott meccsekkel.
 enum MatchFilter: String, CaseIterable, Identifiable {
-    case all, upcoming, live, finished, openPast
+    case all, upcoming, live, finished, postponed, openPast
     case missingKickoff, missingResult, missingOdds, missingLogo
     case missingCompetitionLogo, withheld
 
@@ -25,6 +25,7 @@ enum MatchFilter: String, CaseIterable, Identifiable {
         case .upcoming: return "Következik"
         case .live: return "Élő"
         case .finished: return "Befejezett"
+        case .postponed: return "Elhalasztott"
         case .openPast: return "Lejárt, nyitott"
         case .missingKickoff: return "Idő nélkül"
         case .missingResult: return "Eredmény nélkül"
@@ -57,11 +58,14 @@ enum MatchFilter: String, CaseIterable, Identifiable {
         case .all:
             return true
         case .upcoming:
-            return ["scheduled", "confirmed", "postponed"].contains(status)
+            // S212: az elhalasztott meccs nem „Következik", külön szűrője van.
+            return ["scheduled", "confirmed"].contains(status)
         case .live:
             return ["live", "halftime"].contains(status)
         case .finished:
             return ["finished", "awarded"].contains(status)
+        case .postponed:
+            return status == "postponed"
         case .openPast, .missingKickoff, .missingResult, .missingOdds, .missingLogo,
              .missingCompetitionLogo, .withheld:
             return false
@@ -447,7 +451,16 @@ private struct MatchItemRow: View {
 
     private var kickoffColumn: some View {
         VStack(alignment: .leading, spacing: 3) {
-            if !match.dayLabel.isEmpty {
+            if match.status == "postponed" {
+                // S212: az elhalasztott meccs nem a kezdési idővel, hanem
+                // kifejezett állapottal jelenik meg a kártyán.
+                Text("ELHALASZTOTT")
+                    .font(.system(size: 9.5, weight: .bold))
+                    .tracking(0.4)
+                    .foregroundStyle(AppTheme.accent)
+                    .lineLimit(1)
+                    .accessibilityIdentifier("match.postponed.\(match.id)")
+            } else if !match.dayLabel.isEmpty {
                 Text(match.dayLabel)
                     .font(.system(size: 11, weight: .medium).monospacedDigit())
                     .foregroundStyle(AppTheme.secondaryText)
