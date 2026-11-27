@@ -175,16 +175,122 @@ final class MatchCardModelTests: XCTestCase {
     /// `minute` mezőt, ezért a perc-kijelzést így tudjuk determinisztikusan
     /// vizsgálni.
     private func makeCard(status: String, kickoffAt: Date, minute: Int? = nil,
-                          score: (home: Int, away: Int)? = (1, 0)) -> MatchCardModel {
+                          score: (home: Int, away: Int)? = (1, 0),
+                          kickoffPrecision: String = "exact") -> MatchCardModel {
         MatchCardModel(
             id: "test-card", home: "A", away: "B", kickoffAt: kickoffAt,
-            dayLabel: "nov. 20.", time: "18:00", kickoffPrecision: "exact",
+            dayLabel: "nov. 20.", time: "18:00", kickoffPrecision: kickoffPrecision,
             roundLabel: nil, status: status, publishState: .provisionalPublish,
             homeScore: score?.home, awayScore: score?.away, homeHt: nil, awayHt: nil, homeEt: nil, awayEt: nil,
             homePens: nil, awayPens: nil, minute: minute, odds: nil, markets: 0,
             oddsSource: "–", homePosition: nil, awayPosition: nil, homeLogo: nil,
             awayLogo: nil, competitionLogo: nil, homeElo: nil, awayElo: nil
         )
+    }
+
+    // MARK: - Becsült óra (a `main` 150 perces élő-ablakára adaptálva)
+
+    func testEstimatedClockShowsFirstHalfMinuteAfterKickoff() {
+        let kickoff = utcDate(2026, 11, 21, 12, 0)
+        let card = makeCard(status: "scheduled", kickoffAt: kickoff)
+
+        XCTAssertEqual(card.clock(at: kickoff.addingTimeInterval(10 * 60))?.text, "10'")
+        XCTAssertEqual(card.clock(at: kickoff.addingTimeInterval(10 * 60))?.isEstimated, true)
+    }
+
+    func testEstimatedClockCoversKickoffHalftimeSecondHalfAndExpiryBoundaries() {
+        let kickoff = utcDate(2026, 11, 21, 12, 0)
+        let card = makeCard(status: "scheduled", kickoffAt: kickoff)
+        let cases: [(seconds: Int, expected: String?)] = [
+            (-1, nil),
+            (0, "0'"),
+            (44 * 60 + 59, "44'"),
+            (45 * 60, "HT"),
+            (59 * 60 + 59, "HT"),
+            (60 * 60, "45'"),
+            (104 * 60 + 59, "89'"),
+            (105 * 60, "90+"),
+            (149 * 60 + 59, "90+"),
+            (150 * 60, nil),
+        ]
+
+        for testCase in cases {
+            XCTAssertEqual(
+                card.clock(at: kickoff.addingTimeInterval(TimeInterval(testCase.seconds)))?.text,
+                testCase.expected,
+                "a kezdés után \(testCase.seconds) másodpercnél hibás a becsült óra"
+            )
+        }
+    }
+
+    func testBackendHalftimeStatusShowsHTThroughoutTheClockWindow() {
+        let kickoff = utcDate(2026, 11, 21, 12, 0)
+        let card = makeCard(status: "halftime", kickoffAt: kickoff)
+
+        XCTAssertEqual(card.clock(at: kickoff.addingTimeInterval(50 * 60))?.text, "HT")
+        XCTAssertEqual(card.clock(at: kickoff.addingTimeInterval(149 * 60))?.text, "HT")
+        XCTAssertNil(card.clock(at: kickoff.addingTimeInterval(150 * 60)))
+    }
+
+    func testReportedMinuteOverridesEstimatedClockOnlyInsideClockWindow() {
+        let kickoff = utcDate(2026, 11, 21, 12, 0)
+        let card = makeCard(status: "live", kickoffAt: kickoff, minute: 67)
+
+        XCTAssertEqual(card.clock(at: kickoff.addingTimeInterval(10 * 60)),
+                       MatchCardModel.ClockDisplay(text: "67'", isEstimated: false))
+        XCTAssertEqual(card.clock(at: kickoff.addingTimeInterval(149 * 60))?.text, "67'")
+        XCTAssertNil(card.clock(at: kickoff.addingTimeInterval(150 * 60)))
+        XCTAssertNil(card.clock(at: kickoff.addingTimeInterval(-1)))
+    }
+
+    func testEstimatedClockOnlyAppliesToOpenMatchesWithExactKickoff() {
+        let kickoff = utcDate(2026, 11, 21, 12, 0)
+        let now = kickoff.addingTimeInterval(10 * 60)
+
+        for status in ["scheduled", "confirmed", "live"] {
+            XCTAssertEqual(makeCard(status: status, kickoffAt: kickoff).clock(at: now)?.text, "10'")
+        }
+        for status in ["finished", "awarded", "postponed", "canceled", "abandoned"] {
+            XCTAssertNil(makeCard(status: status, kickoffAt: kickoff).clock(at: now), status)
+        }
+        XCTAssertNil(makeCard(status: "scheduled", kickoffAt: kickoff,
+                              kickoffPrecision: "date_only").clock(at: now))
+    }
+
+    func testEstimatedClockDeterminesSpokenAndVisibleMatchPhase() {
+        let now = utcDate(2026, 11, 21, 12, 0)
+        let firstHalf = makeCard(status: "scheduled",
+                                 kickoffAt: now.addingTimeInterval(-10 * 60))
+        XCTAssertEqual(firstHalf.displayStatus(at: now), "live")
+        XCTAssertEqual(firstHalf.phaseLabel(at: now), "ÉLŐ")
+
+        let halftime = makeCard(status: "scheduled",
+                                kickoffAt: now.addingTimeInterval(-50 * 60))
+        XCTAssertEqual(halftime.displayStatus(at: now), "halftime")
+        XCTAssertEqual(halftime.phaseLabel(at: now), "FÉLIDŐ")
+
+        let secondHalf = makeCard(status: "scheduled",
+                                  kickoffAt: now.addingTimeInterval(-80 * 60))
+        XCTAssertEqual(secondHalf.displayStatus(at: now), "live")
+        XCTAssertEqual(secondHalf.phaseLabel(at: now), "ÉLŐ")
+
+        let expired = makeCard(status: "scheduled",
+                               kickoffAt: now.addingTimeInterval(-151 * 60))
+        XCTAssertEqual(expired.displayStatus(at: now), "scheduled")
+        XCTAssertNil(expired.phaseLabel(at: now))
+    }
+
+    /// A main S130 szabálya változatlan: a tartósan `live` sor nem kap becsült
+    /// órát, hanem „EREDMÉNY VÁRHATÓ"-t — a becsült óra nem írja felül.
+    func testStaleLiveStillReportsResultPendingNotAnEstimatedClock() {
+        let now = utcDate(2026, 11, 21, 12, 0)
+        let card = makeCard(status: "live",
+                            kickoffAt: now.addingTimeInterval(-151 * 60), score: nil)
+
+        XCTAssertNil(card.clock(at: now))
+        XCTAssertTrue(card.isResultPending)
+        XCTAssertEqual(card.displayStatus(at: now), "result_pending")
+        XCTAssertEqual(card.phaseLabel(at: now), "EREDMÉNY VÁRHATÓ")
     }
 
     func testLiveCardShowsLivePhaseAndRunningScore() {

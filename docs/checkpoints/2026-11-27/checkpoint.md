@@ -144,8 +144,52 @@
   visszaállítása a hét elemű listára, a `_sqlx_migrations` 0030 sorának törlése;
   `missing_result` jelek esetén előbb `resolved_at` (jelenleg nincs ilyen sor).
 
+## S189 — Becsült óra átvétele a worktree-ből
+
+- [x] **Döntés:** a felhasználó a következő szeletnek a
+      `feat/estimated-match-clock` worktree becsült óráját választotta.
+- [x] **Worktree-review (csak olvasás):** a branch a `main` régebbi bázisáról
+      készült (`openPastThreshold` 3 óra, `liveWindow` 6 óra), ezért a kódot
+      **nem másoltuk át**: a `main` 10 perces / 150 perces szabályaira és az
+      `isResultPending` / „EREDMÉNY VÁRHATÓ" viselkedésre adaptáltuk. A worktree
+      más, nem kapcsolódó változásait (11-24 checkpoint, sortMenü-teszt,
+      `app.activate()` — utóbbi már a `main`-ben van) nem vettük át.
+- [x] **Core/UI:** `MatchCardModel.ClockDisplay` + `clock(at:)` (forrás minute-ja
+      vagy 45+15+45 becslés, csak a 150 perces ablakban), `phaseLabel(at:)`,
+      `displayStatus(at:)`; a `main` stale-live szabálya változatlan. A kártya
+      kezdési ideje helyett becsült órát és „becsült" jelzést mutat; az
+      `AccessibilityLabels.matchCardLabel` „becsült 10. perc" / „becsült félidő"
+      / „becsült 90. perc vagy ráadás" alakban olvassa fel. 30 mp-es
+      `Timer.publish` frissíti a kártyákat.
+- [x] **Fixture/teszt:** új `clock-day.json` + `--relative-kickoffs` a fixture
+      szerverben, új 18083-as port, 1 XCUITest; Core +3 AX-teszt, app unit +7
+      óra-teszt (határok 0/44/45/59/60/104/105/149/150 perc, félidő, forrás-minute,
+      date_only, lezárt státuszok, stale-live megőrzése).
+- [x] **Kapuk (mért):** `db-reset` → `check-foundation` EXIT=0 · Core **159/0
+      (27 suite)** · app unit **101/0** · `run-ui-tests.sh` **32/32, 0 hiba**
+      (az új óra-teszt 5,4 mp alatt zöld) · Rust **636 passed, 0 failed**,
+      clippy 0, fmt 0, build OK · `daily-check 11-26` **EXIT=0 ZÖLD** ·
+      `integrity` **OK** · `git diff --check` 0.
+- [x] **Valódi macOS:** `install-football-app.sh` BUILD SUCCEEDED, app újraindítva
+      (PID **18591**), AX: `Mind 232 / Következik 227 / Befejezett 4 / Eredmény
+      nélkül 0`. A képernyőn látható kártyákon jövőbeli kezdések vannak, ezért
+      óra nem jelent meg rajtuk; a becsült óra viselkedését az XCUITest ellenőrzi
+      valódi macOS-en (fixture-szerverrel).
+- [ ] **Nem ellenőrzött**: a becsült óra **élő, lejárt-startú meccsen** nem
+      lett szemmel/AX-szel végignézve (a megfelelő kártyák a listában görgetéssel
+      elérhetők, az AX-fa csak a láthatókat tartalmazza); a Timer 30 mp-es
+      újraértékelését nem vártuk végig; VoiceOver-hang emberi füllel nyitott.
+- [ ] A worktree három másik mappája (`estimated-match-clock` kivételével) és a
+      worktree saját, nem commitolt fájljai érintetlenek — a forrás worktree-be
+      nem írtunk.
+
+### Visszaállás (S189)
+
+- `git revert <S189 commit>` — a becsült óra és a fixture/harness-változások
+      megszűnnek; a `main` 10/150 perces és stale-live szabályai változatlanok,
+      adatot a szelet nem írt.
+
 ## Következő döntési pont
 
-- A felhasználó döntése a következő szeletről: (a) a
-  `feat/estimated-match-clock` worktree becsült órájának átvétele; (b) a két régi
-  failed job rendezése; (c) S9 AI-gomb külön döntése.
+- A felhasználó döntése: (a) a két régi failed job rendezése; (b) S9 AI-gomb
+  külön döntése; (c) más szelet.

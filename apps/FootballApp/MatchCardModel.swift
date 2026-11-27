@@ -163,16 +163,57 @@ struct MatchCardModel: Identifiable {
     /// A meccsnek régen vége kellett volna lenni, de a forrás még mindig
     /// `live`/`halftime`-t mond és nincs eredmény — ilyenkor nem „ÉLŐ"-t
     /// mutatunk, hanem azt, hogy az eredmény még várható (S130).
-    var isResultPending: Bool {
-        guard ["live", "halftime"].contains(status), !isLive,
+    var isResultPending: Bool { isResultPending(at: Date()) }
+
+    func isResultPending(at now: Date) -> Bool {
+        guard ["live", "halftime"].contains(status),
+              !Self.isLiveNow(status: status, kickoffAt: kickoffAt, now: now),
               hasExactKickoff, finalScore == nil else { return false }
-        return Date().timeIntervalSince(kickoffAt) > Self.liveWindow
+        return now.timeIntervalSince(kickoffAt) > Self.liveWindow
     }
 
-    /// A kezdés alatti kis állapotjelzés („ÉLŐ" / „FT" / eredmény várható).
-    var phaseLabel: String? {
-        if isLive { return "ÉLŐ" }
-        if isResultPending { return "EREDMÉNY VÁRHATÓ" }
+    /// A kártyán megjelenített játékidő. A forrás által jelzett perc, ha van;
+    /// különben a kezdésből becsült (45 + 15 + 45 + ráadás). A becsült óra
+    /// jelezi, ha a forrás még nem érzékelte a kezdést vagy a félidőt.
+    struct ClockDisplay: Equatable {
+        let text: String
+        let isEstimated: Bool
+    }
+
+    /// Csak a `liveWindow` (150 perc) alatt mutatunk órát — az ennél régebbi
+    /// élő sor elavult, ott „EREDMÉNY VÁRHATÓ" jelenik meg, nem becsült óra.
+    func clock(at now: Date) -> ClockDisplay? {
+        let elapsed = now.timeIntervalSince(kickoffAt)
+        guard elapsed >= 0, elapsed < Self.liveWindow else { return nil }
+        if status == "halftime", hasExactKickoff {
+            return ClockDisplay(text: "HT", isEstimated: true)
+        }
+        if status == "live", let minute {
+            return ClockDisplay(text: "\(minute)'", isEstimated: false)
+        }
+        guard hasExactKickoff, Self.openStatuses.contains(status) else { return nil }
+        if elapsed < 45 * 60 {
+            return ClockDisplay(text: "\(Int(elapsed / 60))'", isEstimated: true)
+        }
+        if elapsed < 60 * 60 {
+            return ClockDisplay(text: "HT", isEstimated: true)
+        }
+        if elapsed < 105 * 60 {
+            return ClockDisplay(text: "\(Int(elapsed / 60) - 15)'", isEstimated: true)
+        }
+        return ClockDisplay(text: "90+", isEstimated: true)
+    }
+
+    /// A kezdés alatti kis állapotjelzés („ÉLŐ" / „FÉLIDŐ" / „FT" /
+    /// „EREDMÉNY VÁRHATÓ"); elavult élő státusznál nem írunk „ÉLŐ"-t.
+    var phaseLabel: String? { phaseLabel(at: Date()) }
+
+    func phaseLabel(at now: Date) -> String? {
+        if isResultPending(at: now) { return "EREDMÉNY VÁRHATÓ" }
+        if let clock = clock(at: now) {
+            return clock.text == "HT" ? "FÉLIDŐ" : "ÉLŐ"
+        }
+        if Self.isLiveNow(status: status, kickoffAt: kickoffAt, now: now) { return "ÉLŐ" }
         if isFinished { return "FT" }
         return nil
     }
@@ -200,11 +241,19 @@ struct MatchCardModel: Identifiable {
         return "Várakozás az eredményre"
     }
 
-    /// A kijelzett állapot: elavult `live`/`halftime` státusznál a kártya a
-    /// szokásos, nem-élő kezdés-kijelzést mutatja, így a felolvasott címke sem
-    /// mondhat „Élő"-t — ilyenkor „Ütemezett"-ként olvassuk fel.
-    var displayStatus: String {
-        if ["live", "halftime"].contains(status) && !isLive { return "result_pending" }
+    /// A kijelzett állapot: az aktív óra alatt „Élő"/„Félidő" (a címke is ezt
+    /// olvassa fel), elavult `live`/`halftime` státusznál pedig a main szabálya
+    /// él — „EREDMÉNY VÁRHATÓ", nem „Élő".
+    var displayStatus: String { displayStatus(at: Date()) }
+
+    func displayStatus(at now: Date) -> String {
+        if let clock = clock(at: now) {
+            return clock.text == "HT" ? "halftime" : "live"
+        }
+        if ["live", "halftime"].contains(status),
+           !Self.isLiveNow(status: status, kickoffAt: kickoffAt, now: now) {
+            return "result_pending"
+        }
         return status
     }
 

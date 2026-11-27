@@ -11,6 +11,7 @@ final class FootballAppUITests: XCTestCase {
     private static let loadedPort: UInt16 = 18080
     private static let emptyPort: UInt16 = 18081
     private static let partialPort: UInt16 = 18082
+    private static let clockPort: UInt16 = 18083
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -80,6 +81,29 @@ final class FootballAppUITests: XCTestCase {
         XCTAssertEqual(competitionLogoFilter.label, "Ligalogó nélkül", "a ligalogó-szűrőn ne jelenjen meg számláló")
         XCTAssertFalse(element("day.gaps", in: app).exists,
                         "a hiány-szűrők ne ismétlődjenek meg második sorban")
+    }
+
+    /// A forrás által még nem jelzett meccseknél a kártya becsült órát mutat
+    /// a kezdési idő helyett — és a VoiceOver ezt „becsült"-ként olvassa fel.
+    func testEstimatedClockReplacesKickoffAndSpeaksLiveHalftimeAndQuality() throws {
+        let app = try launch(port: Self.clockPort)
+
+        let live = element("match.card.EEEEEEEE-EEEE-EEEE-EEEE-EEEEEEEEEEEE", in: app)
+        XCTAssertTrue(live.waitForExistence(timeout: 30), "a becsült órás nap nem töltődött be")
+        XCTAssertNotNil(live.label.range(of: #"becsült \d{1,2}\. perc"#, options: .regularExpression), live.label)
+        XCTAssertTrue(live.label.contains("Élő"), live.label)
+        XCTAssertNil(live.label.range(of: #"\d{2}:\d{2}"#, options: .regularExpression), live.label)
+        XCTAssertTrue(live.label.contains("Ellenőrzött publikáció"), live.label)
+
+        let halftime = element("match.card.FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF", in: app)
+        XCTAssertTrue(halftime.waitForExistence(timeout: 10), "a félidős kártya hiányzik")
+        XCTAssertTrue(halftime.label.contains("becsült félidő"), halftime.label)
+        XCTAssertTrue(halftime.label.contains("Félidő"), halftime.label)
+
+        let upcoming = element("match.card.99999999-9999-9999-9999-999999999999", in: app)
+        XCTAssertTrue(upcoming.waitForExistence(timeout: 10), "a jövőbeli kártya hiányzik")
+        XCTAssertTrue(upcoming.label.contains("Ütemezett"), upcoming.label)
+        XCTAssertFalse(upcoming.label.contains("becsült"), upcoming.label)
     }
 
     // MARK: - Részleges / bizonytalan adat

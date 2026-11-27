@@ -156,6 +156,47 @@ import Testing
             == "match.detail.next.10000000-0000-0000-0000-000000000006")
     }
 
+    @Test func matchCardLabelSpeaksEstimatedClockInsteadOfKickoffTime() {
+        let label = AccessibilityLabels.matchCardLabel(
+            home: "Ferencváros", away: "Újpest", time: "18:00", status: "live",
+            homeScore: nil, awayScore: nil, publishState: .verifiedPublish,
+            dayLabel: "nov. 20.", clockText: "10'", clockIsEstimated: true
+        )
+        #expect(label.contains("Ferencváros – Újpest, nov. 20., becsült 10. perc"))
+        #expect(!label.contains("18:00"))
+        #expect(label.contains("Élő"))
+    }
+
+    @Test func matchCardLabelSpeaksEstimatedHalftimeAndAddedTime() {
+        let halftime = AccessibilityLabels.matchCardLabel(
+            home: "Ferencváros", away: "Újpest", time: "18:00", status: "halftime",
+            homeScore: nil, awayScore: nil, publishState: .verifiedPublish,
+            dayLabel: "nov. 20.", clockText: "HT", clockIsEstimated: true
+        )
+        #expect(halftime.contains("nov. 20., becsült félidő"))
+        #expect(halftime.contains("Félidő"))
+        #expect(!halftime.contains("18:00"))
+
+        let addedTime = AccessibilityLabels.matchCardLabel(
+            home: "Ferencváros", away: "Újpest", time: "18:00", status: "live",
+            homeScore: nil, awayScore: nil, publishState: .verifiedPublish,
+            dayLabel: "nov. 20.", clockText: "90+", clockIsEstimated: true
+        )
+        #expect(addedTime.contains("becsült 90. perc vagy ráadás"))
+        #expect(!addedTime.contains("18:00"))
+    }
+
+    @Test func matchCardLabelSpeaksReportedClockWithoutEstimatedQualifier() {
+        let label = AccessibilityLabels.matchCardLabel(
+            home: "Ferencváros", away: "Újpest", time: "18:00", status: "live",
+            homeScore: nil, awayScore: nil, publishState: .verifiedPublish,
+            clockText: "67'", clockIsEstimated: false
+        )
+        #expect(label.contains("67. perc"))
+        #expect(!label.contains("becsült"))
+        #expect(!label.contains("18:00"))
+    }
+
     @Test func incidentTypeLabelsAreHungarian() {
         #expect(AccessibilityLabels.incidentTypeLabel(.goal) == "Gól")
         #expect(AccessibilityLabels.incidentTypeLabel(.card) == "Kártya")

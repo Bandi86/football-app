@@ -159,6 +159,8 @@ struct MatchListView: View {
     var collapsed: Set<String> = []
     /// A szekció összecsukása/kinyitása; `nil` esetén nincs nyíl a fejlécben.
     var onToggleCollapse: ((String) -> Void)? = nil
+    /// A becsült óra időbélyege; 30 mp-enként újraértékeljük a kártyákat.
+    @State private var now = Date()
 
     /// A kártyasor elrendezésének váltópontja a rendelkezésre álló szélességben
     /// (a kártya a 48 pt oldalpaddel ennél keskenyebb). Ez nem a kártya szélessége:
@@ -194,6 +196,7 @@ struct MatchListView: View {
                                 LeagueSectionView(
                                     league: league,
                                     logos: logos,
+                                    now: now,
                                     isWide: isWide,
                                     focusedMatch: focusedMatch,
                                     onSelect: onSelect,
@@ -218,6 +221,9 @@ struct MatchListView: View {
                         }
                     }
                 }
+                .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) {
+                    now = $0
+                }
             }
         }
     }
@@ -226,6 +232,7 @@ struct MatchListView: View {
 private struct LeagueSectionView: View {
     let league: LeagueGroup
     let logos: LogoStore
+    let now: Date
     let isWide: Bool
     let focusedMatch: String?
     let onSelect: (String) -> Void
@@ -311,7 +318,7 @@ private struct LeagueSectionView: View {
             if !isCollapsed {
                 VStack(spacing: 0) {
                     ForEach(Array(sortedMatches.enumerated()), id: \.element.id) { index, match in
-                    MatchItemRow(match: match, logos: logos, isWide: isWide,
+                    MatchItemRow(match: match, logos: logos, now: now, isWide: isWide,
                                  focusedMatch: focusedMatch, onSelect: onSelect)
                         .id(match.id)
                         if index < sortedMatches.count - 1 {
@@ -336,6 +343,7 @@ private struct LeagueSectionView: View {
 private struct MatchItemRow: View {
     let match: MatchCardModel
     let logos: LogoStore
+    let now: Date
     let isWide: Bool
     let focusedMatch: String?
     let onSelect: (String) -> Void
@@ -344,6 +352,9 @@ private struct MatchItemRow: View {
     /// A kezdés-oszlop szélessége: a dátum, az idő és az állapotjelzés alatt
     /// egy vonalban marad. Fix, mert ez az oszlop minden sornál ugyanaz.
     private let kickoffWidth: CGFloat = 96
+
+    private var clock: MatchCardModel.ClockDisplay? { match.clock(at: now) }
+    private var phase: String? { match.phaseLabel(at: now) }
 
     var body: some View {
         Group {
@@ -377,14 +388,16 @@ private struct MatchItemRow: View {
                 home: match.home,
                 away: match.away,
                 time: match.time,
-                status: match.displayStatus,
+                status: match.displayStatus(at: now),
                 homeScore: match.finalScore?.home,
                 awayScore: match.finalScore?.away,
                 publishState: match.publishState,
                 dayLabel: match.dayLabel.isEmpty ? nil : match.dayLabel,
                 kickoffNote: match.kickoffNote,
                 round: match.roundText,
-                odds: match.oddsAccessibilityText
+                odds: match.oddsAccessibilityText,
+                clockText: clock?.text,
+                clockIsEstimated: clock?.isEstimated ?? false
             )
         )
         .accessibilityAddTraits(focusedMatch == match.id ? [.isButton, .isSelected] : [.isButton])
@@ -440,7 +453,20 @@ private struct MatchItemRow: View {
                     .foregroundStyle(AppTheme.secondaryText)
                     .lineLimit(1)
             }
-            if let note = match.kickoffNote {
+            if let clock {
+                HStack(spacing: 4) {
+                    Text(clock.text)
+                        .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(AppTheme.liveGreen)
+                        .accessibilityIdentifier("match.clock.\(match.id)")
+                    if clock.isEstimated {
+                        Text("becsült")
+                            .font(.system(size: 8.5, weight: .medium))
+                            .foregroundStyle(AppTheme.secondaryText)
+                            .accessibilityIdentifier("match.clock.estimated.\(match.id)")
+                    }
+                }
+            } else if let note = match.kickoffNote {
                 Text(note)
                     .font(.system(size: 9.5, weight: .medium))
                     .foregroundStyle(AppTheme.secondaryText)
@@ -450,21 +476,28 @@ private struct MatchItemRow: View {
                     .font(.system(size: 13, weight: .semibold).monospacedDigit())
                     .foregroundStyle(AppTheme.primaryText)
             }
-            if let phase = match.phaseLabel {
+            if let phase {
                 HStack(spacing: 4) {
-                    if match.isLive { LiveDot() }
+                    if clock != nil || match.isLive { LiveDot() }
                     Text(phase)
                         .font(.system(size: 9.5, weight: .bold))
                         .tracking(0.6)
-                        .foregroundStyle(match.isLive ? AppTheme.liveGreen : AppTheme.secondaryText)
-                    if let phase = match.livePhaseText {
-                        Text(phase)
-                            .font(.system(size: 9.5, weight: .bold).monospacedDigit())
-                            .foregroundStyle(AppTheme.liveGreen)
-                    } else if let minute = match.minuteText {
-                        Text(minute)
-                            .font(.system(size: 9.5, weight: .bold).monospacedDigit())
-                            .foregroundStyle(AppTheme.liveGreen)
+                        .foregroundStyle(
+                            phase == "FT" || phase == "EREDMÉNY VÁRHATÓ"
+                                ? AppTheme.secondaryText : AppTheme.liveGreen
+                        )
+                    // Az aktív óra már hordozza a percet; csak óra nélkül
+                    // mutatjuk a forrás részletesebb fázisát/minutáját.
+                    if clock == nil {
+                        if let detail = match.livePhaseText {
+                            Text(detail)
+                                .font(.system(size: 9.5, weight: .bold).monospacedDigit())
+                                .foregroundStyle(AppTheme.liveGreen)
+                        } else if let minute = match.minuteText {
+                            Text(minute)
+                                .font(.system(size: 9.5, weight: .bold).monospacedDigit())
+                                .foregroundStyle(AppTheme.liveGreen)
+                        }
                     }
                 }
             }

@@ -85,7 +85,9 @@ public enum AccessibilityLabels {
         dayLabel: String? = nil,
         kickoffNote: String? = nil,
         round: String? = nil,
-        odds: String? = nil
+        odds: String? = nil,
+        clockText: String? = nil,
+        clockIsEstimated: Bool = false
     ) -> String {
         let score: String
         if let homeScore, let awayScore {
@@ -93,12 +95,31 @@ public enum AccessibilityLabels {
         } else {
             score = "eredmény még nincs"
         }
-        let kickoff = [dayLabel, kickoffNote ?? time]
+        let hasClock = clockText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        var kickoffParts = [dayLabel]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-            .joined(separator: " ")
-        var parts = [home + " – " + away, kickoff, statusLabel(for: status), score,
-                     publishLabel(publishState)]
+        if hasClock, let clockText {
+            let rawClock = clockText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let spokenClock: String
+            if rawClock == "HT" {
+                spokenClock = "félidő"
+            } else if rawClock == "90+" {
+                spokenClock = "90. perc vagy ráadás"
+            } else if rawClock.hasSuffix("'"), let minute = Int(rawClock.dropLast()) {
+                spokenClock = "\(minute). perc"
+            } else {
+                spokenClock = rawClock
+            }
+            kickoffParts.append(clockIsEstimated ? "becsült \(spokenClock)" : spokenClock)
+        } else {
+            let trimmed = (kickoffNote ?? time).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { kickoffParts.append(trimmed) }
+        }
+        let kickoff = kickoffParts.joined(separator: hasClock ? ", " : " ")
+        var parts = [home + " – " + away]
+        parts.append(contentsOf: [kickoff, statusLabel(for: status), score,
+                                  publishLabel(publishState)].filter { !$0.isEmpty })
         if let round, !round.isEmpty {
             parts.append(round)
         }

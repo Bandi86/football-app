@@ -11,6 +11,27 @@ import http.server
 import json
 import sys
 import threading
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+
+def relative_day_payload(payload: bytes) -> bytes:
+    """A `kickoff_offset_seconds` értékeket a kérés pillanatához igazítja.
+
+    A becsült óra tesztje így determinisztikusan kap „épp most kezdődött" és
+    „jövőbeli" meccseket anélkül, hogy a fixture-t minden futás előtt át kellene
+    írni.
+    """
+    document = json.loads(payload)
+    now = datetime.now(timezone.utc)
+    for match in document["matches"]:
+        offset = match.pop("kickoff_offset_seconds", None)
+        if offset is not None:
+            kickoff = now + timedelta(seconds=offset)
+            match["kickoff_at"] = kickoff.isoformat(timespec="seconds").replace("+00:00", "Z")
+    document["date"] = datetime.now(ZoneInfo("Europe/Budapest")).date().isoformat()
+    document["refreshed_at"] = now.isoformat(timespec="seconds").replace("+00:00", "Z")
+    return json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
 
 def main() -> int:
@@ -33,6 +54,8 @@ def main() -> int:
     parser.add_argument("--notes-fixture", help="opcionális meccsjegyzetek JSON")
     parser.add_argument("--ops-summary-fixture", help="opcionális napi összefoglaló JSON")
     parser.add_argument("--ops-audit-fixture", help="opcionális globális audit JSON")
+    parser.add_argument("--relative-kickoffs", action="store_true",
+                        help="a fixture kickoff_offset_seconds értékeit a kérés időpontjához igazítja")
     args = parser.parse_args()
 
     with open(args.fixture, "rb") as handle:
@@ -88,7 +111,8 @@ def main() -> int:
         def do_GET(self):  # noqa: N802 - http.server API
             path = self.path.split("?", 1)[0]
             if path.startswith("/v1/day/"):
-                body, status = payload, 200
+                body = relative_day_payload(payload) if args.relative_kickoffs else payload
+                status = 200
             elif path == "/v1/ops/status" and ops_status_payload is not None:
                 body, status = ops_status_payload, 200
             elif path == "/v1/issues" and issues_payload is not None:

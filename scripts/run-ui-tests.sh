@@ -6,6 +6,7 @@ cd "$(dirname "$0")/.."
 PORT_LOADED="${FOOTBALL_UI_PORT_LOADED:-18080}"
 PORT_EMPTY="${FOOTBALL_UI_PORT_EMPTY:-18081}"
 PORT_PARTIAL="${FOOTBALL_UI_PORT_PARTIAL:-18082}"
+PORT_CLOCK="${FOOTBALL_UI_PORT_CLOCK:-18083}"
 
 pids=()
 cleanup() {
@@ -44,11 +45,15 @@ python3 scripts/ui-fixture-server.py --port "$PORT_PARTIAL" --fixture tests/fixt
     --ops-summary-fixture tests/fixtures/ui/ops-summary.json \
     --ops-audit-fixture tests/fixtures/ui/ops-audit.json &
 pids+=("$!")
+python3 scripts/ui-fixture-server.py --port "$PORT_CLOCK" \
+    --fixture tests/fixtures/ui/clock-day.json --relative-kickoffs &
+pids+=("$!")
 
 for _ in $(seq 1 100); do
     if curl -sf -m 1 "http://127.0.0.1:${PORT_LOADED}/v1/health" >/dev/null \
         && curl -sf -m 1 "http://127.0.0.1:${PORT_EMPTY}/v1/health" >/dev/null \
-        && curl -sf -m 1 "http://127.0.0.1:${PORT_PARTIAL}/v1/health" >/dev/null; then
+        && curl -sf -m 1 "http://127.0.0.1:${PORT_PARTIAL}/v1/health" >/dev/null \
+        && curl -sf -m 1 "http://127.0.0.1:${PORT_CLOCK}/v1/health" >/dev/null; then
         break
     fi
     sleep 0.1
