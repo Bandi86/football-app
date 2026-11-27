@@ -123,6 +123,9 @@ fn clean_report_has_no_hard_failures() {
     let r = IntegrityReport {
         duplicate_kickoff_groups: 0,
         duplicate_fixture_groups: 0,
+        unresolved_duplicate_fixture_groups: 0,
+        stale_scheduled_without_result: 0,
+        missing_finished_result: 0,
         same_pair_same_instant_groups: 0,
         same_pair_same_day_groups: 0,
         orphan_provenance: 0,
@@ -133,4 +136,42 @@ fn clean_report_has_no_hard_failures() {
         open_breakers: 1,
     };
     assert!(!r.has_hard_failures());
+    assert!(!r.has_data_gaps());
+}
+
+/// S215: a cross-source duplikátum kemény hiba, a forráshiány csak jelzés.
+#[test]
+fn unresolved_duplicate_is_hard_failure_but_stale_result_is_only_a_gap() {
+    let base = IntegrityReport {
+        duplicate_kickoff_groups: 0,
+        duplicate_fixture_groups: 0,
+        unresolved_duplicate_fixture_groups: 0,
+        stale_scheduled_without_result: 0,
+        missing_finished_result: 0,
+        same_pair_same_instant_groups: 0,
+        same_pair_same_day_groups: 0,
+        orphan_provenance: 0,
+        active_refs_to_merged: 0,
+        pending_reviews: 0,
+        withheld_gates: 0,
+        failed_jobs: 0,
+        open_breakers: 0,
+    };
+    assert!(!base.has_hard_failures());
+    let duplicate = IntegrityReport {
+        unresolved_duplicate_fixture_groups: 1,
+        ..base.clone()
+    };
+    assert!(duplicate.has_hard_failures());
+    let gap = IntegrityReport {
+        stale_scheduled_without_result: 3,
+        ..base.clone()
+    };
+    assert!(!gap.has_hard_failures());
+    assert!(gap.has_data_gaps());
+    let missing = IntegrityReport {
+        missing_finished_result: 1,
+        ..base
+    };
+    assert!(missing.has_data_gaps());
 }

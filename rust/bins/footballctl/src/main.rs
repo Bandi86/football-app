@@ -1374,6 +1374,15 @@ async fn main() -> Result<()> {
                 println!("duplikált kickoff-csoport: {}", r.duplicate_kickoff_groups);
                 println!("duplikált fixture-csoport: {}", r.duplicate_fixture_groups);
                 println!(
+                    "FELOLDATLAN cross-source duplikátum: {}",
+                    r.unresolved_duplicate_fixture_groups
+                );
+                println!(
+                    "lejárt, scheduled, eredmény nélkül: {}",
+                    r.stale_scheduled_without_result
+                );
+                println!("lezárt, eredmény nélkül: {}", r.missing_finished_result);
+                println!(
                     "azonos csapatpár azonos pillanatban: {}",
                     r.same_pair_same_instant_groups
                 );
@@ -1391,6 +1400,8 @@ async fn main() -> Result<()> {
                     "verdict: {}",
                     if r.has_hard_failures() {
                         "FAIL (kemény integritási hiba)"
+                    } else if r.has_data_gaps() {
+                        "OK — de ADATHIÁNY (lásd a fenti számokat)"
                     } else {
                         "OK"
                     }

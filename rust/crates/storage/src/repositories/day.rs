@@ -19,6 +19,9 @@ pub struct DayFilter {
 #[derive(Debug, Clone, FromRow, serde::Serialize)]
 pub struct DayMatchRow {
     pub match_id: Uuid,
+    /// S215: a duplikátum-szűrés ID-alapú, nem név-alapú (a név-fuzzy merge tiltott).
+    pub home_team_id: Uuid,
+    pub away_team_id: Uuid,
     pub kickoff_at: DateTime<Utc>,
     pub kickoff_precision: String,
     pub status: String,
@@ -61,6 +64,7 @@ pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatch
     let rows = sqlx::query_as::<_, DayMatchRow>(
         "SELECT
             m.id AS match_id,
+            m.home_team_id, m.away_team_id,
             m.kickoff_at,
             m.kickoff_precision,
             m.status,
@@ -200,7 +204,68 @@ pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatch
     .bind(filter.team_id)
     .fetch_all(pool)
     .await?;
+
+    // S215: a napi lekérés determinisztikusan kiszűri a feloldatlan
+    // cross-source duplikátumokat. Az adatot nem írjuk át — a mögöttes sorok
+    // továbbra is auditálhatók, és az integritási riport kemény hibát jelez.
+    let keys: Vec<_> = rows
+        .iter()
+        .map(|r| {
+            (
+                r.home_team_id,
+                r.away_team_id,
+                r.kickoff_at.date_naive(),
+                r.kickoff_precision.as_str(),
+                r.match_id,
+            )
+        })
+        .collect();
+    let losers = duplicate_fixture_losers(&keys);
+    let rows = rows
+        .into_iter()
+        .filter(|r| !losers.contains(&r.match_id))
+        .collect();
     Ok(rows)
+}
+
+/// S215: determinisztikus duplikátum-kulcs. A csapatok kanonikus ID-i és az
+/// UTC nap alapján dönt — ez nem fuzzy név-összevonás. Csak akkor avatkozik
+/// közbe, ha a csoportban van `date_only` placeholder sor; ilyenkor a pontos
+/// kezdésű sort tartja meg (több ilyen esetén a legalacsonyabb UUID-t).
+pub fn duplicate_fixture_losers(
+    rows: &[(Uuid, Uuid, NaiveDate, &str, Uuid)],
+) -> std::collections::HashSet<Uuid> {
+    use std::collections::{HashMap, HashSet};
+
+    let mut groups: HashMap<(Uuid, Uuid, NaiveDate), Vec<usize>> = HashMap::new();
+    for (i, (home, away, day, _, _)) in rows.iter().enumerate() {
+        let key = if home <= away {
+            (*home, *away, *day)
+        } else {
+            (*away, *home, *day)
+        };
+        groups.entry(key).or_default().push(i);
+    }
+
+    let mut losers = HashSet::new();
+    for indices in groups.values() {
+        if indices.len() < 2 || !indices.iter().any(|&i| rows[i].3 == "date_only") {
+            continue;
+        }
+        let winner = indices
+            .iter()
+            .copied()
+            .filter(|&i| rows[i].3 == "exact")
+            .min_by_key(|&i| rows[i].4)
+            .or_else(|| indices.iter().copied().min_by_key(|&i| rows[i].4))
+            .expect("a csoport nem lehet üres");
+        for &i in indices {
+            if i != winner {
+                losers.insert(rows[i].4);
+            }
+        }
+    }
+    losers
 }
 
 /// A nap legutóbbi gate-kiértékelésének ideje (batch/frissítés jelzés).
@@ -265,7 +330,25 @@ pub async fn fetch_day_gaps(pool: &PgPool, filter: &DayFilter) -> Result<DayGaps
                 WHERE a.entity_kind = 'competition' AND a.kind = 'logo' AND a.entity_id = c.entity_id
                 ORDER BY (a.storage_key IS NULL), a.captured_at DESC LIMIT 1
             ) cl ON true
-            WHERE (m.kickoff_at AT TIME ZONE $2)::date
+            -- S215: ugyanaz a determinisztikus duplikátum-szűrés, mint a
+            -- fetch_day-ben — a hiány-számok ne számolják a placeholder sorokat.
+            WHERE NOT EXISTS (
+                SELECT 1 FROM core.match m2
+                 WHERE least(m2.home_team_id, m2.away_team_id)
+                       = least(m.home_team_id, m.away_team_id)
+                   AND greatest(m2.home_team_id, m2.away_team_id)
+                       = greatest(m.home_team_id, m.away_team_id)
+                   AND m2.kickoff_at::date = m.kickoff_at::date
+                   AND m2.id <> m.id
+                   AND (
+                         (m.kickoff_precision = 'date_only'
+                          AND m2.kickoff_precision = 'exact')
+                         OR (m.kickoff_precision = 'date_only'
+                             AND m2.kickoff_precision = 'date_only'
+                             AND m2.id < m.id)
+                       )
+            )
+              AND (m.kickoff_at AT TIME ZONE $2)::date
                     BETWEEN $1 - ($4::int) AND $1 + ($4::int)
               AND ($3::uuid IS NULL OR m.competition_id = $3)
               AND g.state IN ('verified_publish', 'provisional_publish')
@@ -275,6 +358,7 @@ pub async fn fetch_day_gaps(pool: &PgPool, filter: &DayFilter) -> Result<DayGaps
         )
         SELECT
             count(*) FILTER (WHERE kickoff_precision = 'date_only') AS missing_kickoff,
+
             -- S163: a kliens szűrőjével azonos küszöb. Az elo/felidos sorok
             -- addig az Elo csoportban vannak (150 perc), csak utana szamitanak
             -- lejartnak, kulonben ketszer jelennenek meg.
@@ -298,4 +382,67 @@ pub async fn fetch_day_gaps(pool: &PgPool, filter: &DayFilter) -> Result<DayGaps
     .fetch_one(pool)
     .await?;
     Ok(gaps)
+}
+
+#[cfg(test)]
+mod duplicate_fixture_tests {
+    use super::duplicate_fixture_losers;
+    use chrono::NaiveDate;
+    use uuid::Uuid;
+
+    fn row(
+        id: u8,
+        home: u8,
+        away: u8,
+        precision: &'static str,
+    ) -> (Uuid, Uuid, NaiveDate, &'static str, Uuid) {
+        (
+            Uuid::from_u128(home as u128),
+            Uuid::from_u128(away as u128),
+            NaiveDate::from_ymd_opt(2026, 11, 25).unwrap(),
+            precision,
+            Uuid::from_u128(id as u128),
+        )
+    }
+
+    #[test]
+    fn date_only_placeholder_duplicates_drop_all_but_exact() {
+        // A paraguayi eset: egy pontos ESPN-sor + ket FotMob placeholder.
+        let rows = vec![
+            row(1, 10, 20, "exact"),
+            row(2, 10, 20, "date_only"),
+            row(3, 10, 20, "date_only"),
+        ];
+        let losers = duplicate_fixture_losers(&rows);
+        assert_eq!(losers.len(), 2);
+        assert!(!losers.contains(&rows[0].4));
+        assert!(losers.contains(&rows[1].4));
+        assert!(losers.contains(&rows[2].4));
+    }
+
+    #[test]
+    fn reversed_teams_are_still_one_fixture() {
+        let rows = vec![row(1, 20, 10, "exact"), row(2, 10, 20, "date_only")];
+        let losers = duplicate_fixture_losers(&rows);
+        assert_eq!(losers.len(), 1);
+        assert!(losers.contains(&rows[1].4));
+    }
+
+    #[test]
+    fn two_exact_matches_on_same_day_are_not_merged() {
+        // Ket different competition, mindkETTŐ pontos idővel: nem döntünk,
+        // az integritási riport jelez, de az API nem rejt el adatot.
+        let rows = vec![row(1, 10, 20, "exact"), row(2, 10, 20, "exact")];
+        assert!(duplicate_fixture_losers(&rows).is_empty());
+    }
+
+    #[test]
+    fn different_teams_or_days_are_never_merged() {
+        let rows = vec![
+            row(1, 10, 20, "exact"),
+            row(2, 10, 21, "date_only"),
+            row(3, 11, 20, "date_only"),
+        ];
+        assert!(duplicate_fixture_losers(&rows).is_empty());
+    }
 }
