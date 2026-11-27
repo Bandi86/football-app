@@ -455,8 +455,7 @@ private struct MatchItemRow: View {
                 // S212: az elhalasztott meccs nem a kezdési idővel, hanem
                 // kifejezett állapottal jelenik meg a kártyán.
                 Text("ELHALASZTOTT")
-                    .font(.system(size: 9.5, weight: .bold))
-                    .tracking(0.4)
+                    .font(.system(size: 7.5, weight: .bold))
                     .foregroundStyle(AppTheme.accent)
                     .lineLimit(1)
                     .accessibilityIdentifier("match.postponed.\(match.id)")
