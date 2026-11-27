@@ -850,6 +850,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "football-prediction"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+]
+
+[[package]]
 name = "football-storage"
 version = "0.1.0"
 dependencies = [
