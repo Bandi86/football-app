@@ -695,7 +695,41 @@ app unit 101/0, UI **34/34**, `daily-check` ZÖLD, `integrity` OK, `git diff --c
 - `git revert` a két commitra; a mérési sorok törlése:
       `DELETE FROM analytics.measurement WHERE model_version LIKE 'dixon-coles-eb-v1-bt-%'`.
 
+## S204 — Függő Tipplap-névreviewök rendezése (adatművelet)
+
+- [x] **Felhatalmazás:** a felhasználó 2026-11-27-ben minden további munkára
+      és javításra általános engedélyt adott; a VoiceOver-hangot kifejezetten
+      **skip**-elte (nincs mikrofon).
+- [x] **Review-átvizsgálás:** 10 pending Tipplap team-sor. Egyik sem fuzzy
+      összevonás: `Inter Kashi FC` → kanonikus `Inter Kashi` (IND) reviewed
+      alias (`manual_review` ref, csak az „FC" utótag eltér), a másik 9-nek
+      **egyáltalán nem volt jelöltje** — valódi, új klubok (Al-Gharraf SC,
+      Al-Mudhaibi, Brickfield Rangers, Denbigh Town, Fanja, Gas Alshimal,
+      IMT Novi Belgrád, Nacional Madeira, Swansea Univ.).
+- [x] **Végrehajtás:** 1 `footballctl identity approve` + 9 `approve-create`
+      (élő forrás bootstrap, mindegyik auditált megjegyzéssel). A Tipplap
+      review queue pending száma **10 → 0**. Egy új, idempotens Tipplap
+      discovery job (`manual-review-unlock-2026-11-27`) újraingeste a mai
+      napot: a napi lista meccsszáma **232 → 245**, a linkelt mai Tipplap-
+      események **81 → 171**.
+- [x] **Ellenőrzés:** `integrity 11-25…11-27` **OK** mind az ingest előtt,
+      mint utána (0 duplikátum/árva); `daily-check 11-26` EXIT=0, failed job 0;
+      workspace **670/0**, clippy 0, fmt 0, `git diff --check` 0.
+- [ ] **Nem ellenőrzött**: a 9 új entitás független forrás-keresztellenőrzése
+      (egyforrású bootstrap; a nav review queue jelölt nélkül volt); a
+      visszaállás csak a review sorok `pending`re állítása + az új entitások
+      törlése (audit megőrzendő).
+- [ ] A modell shadowban marad; a BIZONYOS forrású új csapatok mostantól
+      feloldódnak, de a kanonikus adatot a szelet nem írta át kézzel.
+
+### Visszaállás (S204)
+
+- `UPDATE identity.review_queue SET status='pending' WHERE id IN (…10 UUID…);`,
+      `DELETE FROM identity.source_entity_ref WHERE method='manual_review' AND
+      source_entity_id='inter-kashi-fc'`, és a 9 létrehozott `core.entity`/
+      `core.team` sor archiválása (nem törlése) az audit megőrzésével.
+
 ## Következő döntési pont
 
-- A modell shadowban marad; nyitva: hosszabb backtest/rho-illesztés, a 2
-  névreview, S9 AI-gomb. VoiceOver skip (felhasználói döntés).
+- A predikció shadowban marad; nyitva: hosszabb backtest/rho-illesztés,
+      S9 AI-gomb. VoiceOver skip (felhasználói döntés).
