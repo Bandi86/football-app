@@ -185,7 +185,9 @@ pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatch
          ) ae ON true
          JOIN ops.publish_gate g ON g.match_id = m.id
            AND g.publish_date = (m.kickoff_at AT TIME ZONE $2)::date
-         WHERE (m.kickoff_at AT TIME ZONE $2)::date
+         -- S216: leállított (canceled) meccsek nem jelennek meg a napi listában.
+         WHERE m.status <> 'canceled'
+           AND (m.kickoff_at AT TIME ZONE $2)::date
                  BETWEEN $1 - ($5::int) AND $1 + ($5::int)
            AND ($4::uuid IS NULL OR m.competition_id = $4)
            AND ($6::uuid IS NULL OR m.home_team_id = $6 OR m.away_team_id = $6)
@@ -396,9 +398,11 @@ pub async fn fetch_day_gaps(pool: &PgPool, filter: &DayFilter) -> Result<DayGaps
                    AND m.kickoff_precision = 'exact'
                    AND m3.id < m.id
             )
-            -- S215: ugyanaz a determinisztikus duplikátum-szűrés, mint a
-            -- fetch_day-ben — a hiány-számok ne számolják a placeholder sorokat.
-            WHERE NOT EXISTS (
+            -- S216: a leállított sorok nem számítanak hiánynak sem.
+            WHERE m.status <> 'canceled'
+              -- S215: ugyanaz a determinisztikus duplikátum-szűrés, mint a
+              -- fetch_day-ben — a hiány-számok ne számolják a placeholder sorokat.
+              AND NOT EXISTS (
                 SELECT 1 FROM core.match m2
                  WHERE least(m2.home_team_id, m2.away_team_id)
                        = least(m.home_team_id, m.away_team_id)
