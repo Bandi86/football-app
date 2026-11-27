@@ -20,7 +20,7 @@ enum MatchFilter: String, CaseIterable, Identifiable {
     /// már jelzi a hiányzó címereket), a `withheld` pedig üzemeltetési részlet,
     /// nem napi_listázási szűrő — mindkettő kimarad innen (S205).
     static let homeFilters: [MatchFilter] = [
-        .all, .upcoming, .live, .finished, .openPast,
+        .all, .upcoming, .live, .finished, .postponed, .openPast,
         .missingKickoff, .missingResult, .missingOdds, .missingCompetitionLogo,
     ]
 
