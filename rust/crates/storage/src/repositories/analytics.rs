@@ -78,6 +78,107 @@ pub async fn market_odds_samples(
     .context("as-of piaci minták lekérése")
 }
 
+/// Egy predikcióhoz használt, már lezárt meccs (as-of: kickoff < cutoff).
+#[derive(Debug, Clone, FromRow)]
+pub struct ScoredMatchRow {
+    pub kickoff_at: DateTime<Utc>,
+    pub home: Uuid,
+    pub away: Uuid,
+    pub home_goals: f64,
+    pub away_goals: f64,
+}
+
+pub async fn scored_matches_before(
+    pool: &PgPool,
+    cutoff: DateTime<Utc>,
+    days_back: i64,
+) -> Result<Vec<ScoredMatchRow>> {
+    sqlx::query_as::<_, ScoredMatchRow>(
+        "SELECT m.kickoff_at, m.home_team_id AS home, m.away_team_id AS away,
+                r.home_ft::float8 AS home_goals, r.away_ft::float8 AS away_goals
+           FROM core.match m
+           JOIN core.match_result r ON r.match_id = m.id
+          WHERE m.status = 'finished'
+            AND m.kickoff_at < $1
+            AND m.kickoff_at >= $1 - ($2::int) * interval '1 day'
+          ORDER BY m.kickoff_at",
+    )
+    .bind(cutoff)
+    .bind(days_back)
+    .fetch_all(pool)
+    .await
+    .context("as-of eredmények lekérése")
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct UpcomingMatchRow {
+    pub id: Uuid,
+    pub home: Uuid,
+    pub away: Uuid,
+    pub kickoff_at: DateTime<Utc>,
+}
+
+pub async fn upcoming_matches(
+    pool: &PgPool,
+    date: NaiveDate,
+    after: DateTime<Utc>,
+) -> Result<Vec<UpcomingMatchRow>> {
+    sqlx::query_as::<_, UpcomingMatchRow>(
+        "SELECT id, home_team_id AS home, away_team_id AS away, kickoff_at
+           FROM core.match
+          WHERE kickoff_at::date = $1 AND kickoff_at > $2
+            AND status IN ('scheduled', 'confirmed')
+          ORDER BY kickoff_at",
+    )
+    .bind(date)
+    .bind(after)
+    .fetch_all(pool)
+    .await
+    .context("jövőbeli meccsek lekérése")
+}
+
+#[derive(Debug, Clone)]
+pub struct NewPrediction {
+    pub match_id: Uuid,
+    pub model_version: &'static str,
+    pub outcomes: Vec<(&'static str, f64, f64, f64)>, // (outcome, probability, fair_odds, edge)
+    pub quality: &'static str,
+    pub inputs_hash: String,
+    pub as_of: DateTime<Utc>,
+}
+
+pub async fn upsert_prediction(pool: &PgPool, row: &NewPrediction) -> Result<usize> {
+    let mut written = 0usize;
+    for (outcome, probability, fair_odds, edge) in &row.outcomes {
+        let res = sqlx::query(
+            "INSERT INTO analytics.prediction
+             (id, match_id, model_version, market, outcome, line, probability,
+              fair_odds, edge, quality, inputs_hash, as_of)
+             VALUES ($1,$2,$3,'1x2',$4,0,$5,$6,$7,$8,$9,$10)
+             ON CONFLICT (match_id, model_version, market, outcome, line)
+             DO UPDATE SET probability=EXCLUDED.probability,
+               fair_odds=EXCLUDED.fair_odds, edge=EXCLUDED.edge,
+               quality=EXCLUDED.quality, inputs_hash=EXCLUDED.inputs_hash,
+               as_of=EXCLUDED.as_of, created_at=now()",
+        )
+        .bind(Uuid::now_v7())
+        .bind(row.match_id)
+        .bind(row.model_version)
+        .bind(*outcome)
+        .bind(*probability)
+        .bind(*fair_odds)
+        .bind(*edge)
+        .bind(row.quality)
+        .bind(row.inputs_hash.clone())
+        .bind(row.as_of)
+        .execute(pool)
+        .await
+        .context("predikció írása")?;
+        written += res.rows_affected() as usize;
+    }
+    Ok(written)
+}
+
 #[derive(Debug, Clone)]
 pub struct NewMeasurement {
     pub model_version: &'static str,

@@ -528,9 +528,46 @@ egy nem tőlem származó `HomeHeader.swift` módosítás a munkaterületen
 - `git revert <S197 commit>` — a `goals.rs` modul megszűnik; a P0 modulok,
       az analytics séma és az adatok változatlanok.
 
+## S198 — Predikció P1b: EB-illesztés és shadow predikciók
+
+- [x] **Döntés:** a felhasználó a v1-szerű empirikus-Bayes zsugorítást választotta
+      (K=4, hazai/vendég bontás, 365 napos ablak, 180 napos felezési idő).
+- [x] **Tiszta illesztő:** `football-prediction/src/fit.rs` — súlyozott
+      gól-for/against gyűjtés kizárólag a `cutoff` **előtti** meccsekből,
+      `GF + K·bázis / (játszott + K)` zsugorítás, támadási/védekező erősség
+      a ligaátlaghoz képest, `lambda_home/away` clamp 0,05–10; hibás/jövőbeli
+      adat fail-closed. 5 új teszt.
+- [x] **Storage/CLI:** `scored_matches_before` + `upcoming_matches` +
+      `upsert_prediction`; `footballctl prediction-fit --date [--apply]` —
+      Dixon–Coles gólmátrix (rho = −0,05), 1X2/OU/BTTS + fair odds,
+      modellverzió `dixon-coles-eb-v1`, `as_of` és `inputs_hash` minden sorban.
+      Alapból dry-run; nem ad fogadási tanácsot, nem ír kanonikus adatot.
+- [x] **Éles mérés (2026-11-28, dev DB):** 40 905 as-of eredménysor,
+      582 jövőbeli meccs; `--apply` **1746 predikciós sor** (582 × 3 kimenetel),
+      átlagos `home/draw/away` = **0,437 / 0,252 / 0,311**, fair odds
+      **2,50 / 4,12 / 3,73**. Minden sor `as_of` = 2026-11-27T11:36:55Z,
+      modellverzióval és input-hash-sel.
+- [x] **Kapuk:** teljes workspace **669 passed, 0 failed** · clippy 0 · fmt 0 ·
+      build OK · `daily-check 11-26` EXIT=0 · `integrity` OK · `git diff --check` 0.
+- [ ] **Nem ellenőrzött**: a modell **még nincs letesztelve** a P0 mérési
+      szerződéssel (a `prediction-fit` és a `prediction-measure` még nincs
+      összekapcsolva); nincs v1 `predictions.ts`-vel való szám szerinti
+      ütköztetés; a `rho = −0,05` fix érték, nincs illesztve; az OU/BTTS
+      predikciók nem íródnak a `analytics.prediction`-be (csak 1X2);
+      582 meccsre 1746 sor — a 2026-11-28-i eredmények még nincsenek meg,
+      így nincs hitelesített predikciós teljesítmény.
+- [ ] A modell **shadow** marad: aktív modellé csak a P0 szerződés szerinti
+      szignifikáns javulás után lehet.
+
+### Visszaállás (S198)
+
+- `git revert <S198 commit>` + `DELETE FROM analytics.prediction WHERE
+  model_version='dixon-coles-eb-v1'` (a raw/audit sorok megőrzendők).
+      A kanonikus adatot a szelet nem írta.
+
 ## Következő döntési pont
 
-- Predikció **P1b**: as-of paraméter-illesztés (csapat támadás/védelem, liga
-      bázis, `rho`) + predikciók `analytics.prediction`-be shadow módban,
-      majd mérésük a P0 szerződéssel (csak szignifikáns javulásnál lehet aktív).
-      Külön döntés marad a 2 névreview és az S9 AI-gomb.
+- Predikció **P1c**: a shadow predikciók mérése a P0 szerződéssel (Brier/log-loss,
+      Wilson, klaszterezett bootstrap a piac és a bázis ellen), és csak
+      szignifikáns javulás esetén aktiválás. Külön döntés marad a 2 névreview
+      és az S9 AI-gomb.

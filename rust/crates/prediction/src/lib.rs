@@ -9,6 +9,7 @@
 //! CI nélküli „jobb, mint a bázis" verdiktet nem engedünk.
 
 pub mod as_of;
+pub mod fit;
 pub mod goals;
 pub mod margin;
 pub mod metrics;

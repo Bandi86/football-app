@@ -40,6 +40,7 @@ mod competitions;
 mod issues;
 mod match_insight_import;
 mod player_import;
+mod prediction_fit;
 mod prediction_measure;
 mod tipplap_replay;
 
@@ -202,6 +203,13 @@ enum Command {
     Identity {
         #[command(subcommand)]
         action: IdentityAction,
+    },
+    /// S198: shadow predikciók as-of EB-illesztésből (`--apply` nélkül nem ír).
+    PredictionFit {
+        #[arg(long)]
+        date: NaiveDate,
+        #[arg(long, default_value_t = false)]
+        apply: bool,
     },
     /// S196: as-of mérési snapshot a piaci oddsokra (shadow, `--apply` nélkül nem ír).
     PredictionMeasure {
@@ -720,6 +728,9 @@ async fn main() -> Result<()> {
             WorkerAction::Tick => worker_tick(&pool, &store, &data_dir).await?,
         },
         Command::Identity { action } => identity_command(&pool, action).await?,
+        Command::PredictionFit { date, apply } => {
+            prediction_fit::run(&pool, date, apply).await?;
+        }
         Command::PredictionMeasure { from, to, apply } => {
             prediction_measure::run(&pool, from, to, apply).await?;
         }
