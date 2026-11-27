@@ -10,7 +10,7 @@ import FootballAppCore
 /// lezárt, de végeredmény nélküli meccseket jelenti — nem azonos a lejárt,
 /// nyitott meccsekkel.
 enum MatchFilter: String, CaseIterable, Identifiable {
-    case all, upcoming, live, finished, openPast
+    case all, upcoming, live, finished, postponed, openPast
     case missingKickoff, missingResult, missingOdds, missingLogo
     case missingCompetitionLogo, withheld
 
@@ -30,6 +30,7 @@ enum MatchFilter: String, CaseIterable, Identifiable {
         case .upcoming: return "Következik"
         case .live: return "Élő"
         case .finished: return "Befejezett"
+        case .postponed: return "Elhalasztott"
         case .openPast: return "Lejárt, nyitott"
         case .missingKickoff: return "Idő nélkül"
         case .missingResult: return "Eredmény nélkül"
@@ -62,11 +63,14 @@ enum MatchFilter: String, CaseIterable, Identifiable {
         case .all:
             return true
         case .upcoming:
-            return ["scheduled", "confirmed", "postponed"].contains(status)
+            // S212: az elhalasztott meccs nem „Következik", külön szűrője van.
+            return ["scheduled", "confirmed"].contains(status)
         case .live:
             return ["live", "halftime"].contains(status)
         case .finished:
             return ["finished", "awarded"].contains(status)
+        case .postponed:
+            return status == "postponed"
         case .openPast, .missingKickoff, .missingResult, .missingOdds, .missingLogo,
              .missingCompetitionLogo, .withheld:
             return false
@@ -467,12 +471,39 @@ private struct MatchItemRow: View {
 
     // MARK: - Kártyaelemek
 
-    /// Látható réteg tudatosan egyszerű (S207): csak a kezdési időpont,
-    /// lezárt meccsnél `FT`, élőnél a becsült óra. A dátum, a fázis és a
-    /// minuta a VoiceOver AX-címkében továbbra is megvan.
+    /// S214: minden kártyán látszik az állapot — elhalasztott, élő, lezárt,
+    /// következik vagy eredmény várható. A dátum és a részletes fázis továbbra
+    /// is csak a VoiceOver AX-címkében van, hogy a sor kompakt maradjon.
+    private var statusBadge: (text: String, color: Color) {
+        if match.status == "postponed" {
+            return ("ELHALASZTOTT", AppTheme.accent)
+        }
+        if clock != nil || match.isLive {
+            return ("ÉLŐ", AppTheme.liveGreen)
+        }
+        if match.isFinished {
+            return ("LEZÁRT", AppTheme.secondaryText)
+        }
+        if match.kickoffAt < now {
+            return ("VÁRHATÓ", AppTheme.accent)
+        }
+        return ("KÖVETKEZIK", AppTheme.secondaryText)
+    }
+
     private var kickoffColumn: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            if match.isFinished {
+        let badge = statusBadge
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(badge.text)
+                .font(.system(size: 9, weight: .bold))
+                .tracking(0.3)
+                .foregroundStyle(badge.color)
+                .lineLimit(1)
+                .accessibilityIdentifier("match.status.\(match.id)")
+            if match.status == "postponed" {
+                // Elhalasztott meccsnél az eredeti időpont félrevezető lenne.
+                Text(" ")
+                    .font(.system(size: 12))
+            } else if match.isFinished {
                 // A lezárt meccsnél a kezdési idő és az FT egyaránt látszik
                 // (S209) — a dátum viszont továbbra is csak az AX-címkében.
                 VStack(alignment: .leading, spacing: 0) {

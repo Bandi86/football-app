@@ -92,6 +92,24 @@ final class MatchFilterTests: XCTestCase {
 
     /// Az „Élő" szűrő a státusz mellett legfeljebb 150 perces kezdés-ablakot enged
     /// (45 + 15 + 45 + hosszabbítás; a backend stale-live védelem kliensoldali párja).
+    /// S212: az elhalasztott meccs külön szűrőben van, nem a „Következik"-ben.
+    func testPostponedIsSeparateFromUpcoming() {
+        let now = ISO8601DateFormatter().date(from: "2026-11-21T12:00:00Z")!
+        let future = match(id: "00000000-0000-0000-0000-0000000000a1",
+                           kickoff: "2026-11-21T18:00:00Z", status: "postponed")
+        let past = match(id: "00000000-0000-0000-0000-0000000000a2",
+                         kickoff: "2026-11-20T18:00:00Z", status: "postponed")
+        let scheduled = match(id: "00000000-0000-0000-0000-0000000000a3",
+                              kickoff: "2026-11-21T18:00:00Z", status: "scheduled")
+        XCTAssertTrue(MatchFilter.postponed.matches(future, now: now))
+        XCTAssertTrue(MatchFilter.postponed.matches(past, now: now))
+        XCTAssertFalse(MatchFilter.upcoming.matches(future, now: now))
+        XCTAssertFalse(MatchFilter.upcoming.matches(past, now: now))
+        XCTAssertFalse(MatchFilter.openPast.matches(past, now: now))
+        XCTAssertFalse(MatchFilter.postponed.matches(scheduled, now: now))
+        XCTAssertTrue(MatchFilter.homeFilters.contains(.postponed))
+    }
+
     func testLiveFilterRequiresLiveStatusWithin150Minutes() {
         let now = ISO8601DateFormatter().date(from: "2026-11-21T12:00:00Z")!
         let liveRecent = match(id: "00000000-0000-0000-0000-000000000021",
