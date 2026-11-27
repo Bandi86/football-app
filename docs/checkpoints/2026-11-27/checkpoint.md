@@ -763,7 +763,37 @@ app unit 101/0, UI **34/34**, `daily-check` ZÖLD, `integrity` OK, `git diff --c
 
 - Csak dokumentáció és read-only vizsgálat; kód/adat nem változott.
 
+## S211 — Fordulószám megőrzése és visszajátszható backfill
+
+- [x] **Döntés:** a felhasználó a 25/75 arányt bal 25 / jobb 75-ként erősítette
+      meg, és a fordulójavítást most kérte.
+- [x] **Kódjavítás:** `canonicalize.rs` — `round_label = COALESCE(EXCLUDED.
+      round_label, core.match.round_label)`; a források, amelyek nem adnak
+      fordulót, nem törölhetik a már rögzítettet. Új regressziós teszt:
+      `source_without_round_does_not_erase_stored_round`.
+- [x] **Backfill:** új storage-modul (`round_labels.rs`) + `footballctl
+      rounds-backfill [--apply]` (alapból dry-run, idempotens). storage-teszt:
+      csak NULL-t ír, második futás 0 sort. Éles: **1059** meccs pótlása
+      (dry-run 1059 → apply 1059 → újra 0). Integritás OK, daily-check ZÖLD.
+- [x] **Mérés:** a mai napon a kanonikus nagy ligák sorai fordulóval rendelkeznek
+      (Bundesliga DE 1/1, La Liga ES 1/1, Ligue 1 FR 1/1, NB I HU 1/1,
+      Premier League GB-ENG 1/1). A „ Premier League" többi országú sora
+      (AM/AZ/BH/LY/MT/SG/TZ/UA) külön liga — ezért jelenik meg a főoldalon
+      több „1 meccs" csoport, nem hiba.
+- [x] **Kapuk:** workspace **672 passed, 0 failed**, clippy 0, fmt 0, build OK,
+      `integrity` OK, `daily-check` EXIT=0, `git diff --check` 0.
+- [ ] **Nem ellenőrzött**: a research által egyáltalán nem adott fordulók
+      (pl. barátságosok, kupák) továbbra is hiányoznak — új forrás kellene;
+      a főoldali `~` jelölésű többségi forduló megjelenítése a preview ágon
+      már kész, de ezen az ágon nincs.
+
+### Visszaállás (S211)
+
+- `git revert <S211 commit>`; a backfill soraihoz: az érintett `core.match`
+      `round_label` mezőjét a research obszervációkból újra lehet generálni;
+      destruktív törlés nem történt. Az új daemon a régi commitból újraépíthető.
+
 ## Következő döntési pont
 
-- A predikció shadowban marad; nyitva: forduló-javítás, 25/75 implementáció,
+- A predikció shadowban marad; nyitva: a 25/75 implementáció (S210 terv),
       hosszabb backtest/rho-illesztés, S9 AI-gomb. VoiceOver skip.
