@@ -77,7 +77,8 @@ pub async fn report(
     let dup_kickoff: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM (
             SELECT 1 FROM core.match
-             WHERE ($1::date IS NULL OR kickoff_at::date >= $1)
+             WHERE status <> 'canceled'
+              AND ($1::date IS NULL OR kickoff_at::date >= $1)
                AND ($2::date IS NULL OR kickoff_at::date <= $2)
              GROUP BY competition_id, season_id,
                       LEAST(home_team_id, away_team_id),
@@ -94,7 +95,8 @@ pub async fn report(
     let dup_fixture: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM (
             SELECT 1 FROM core.match
-             WHERE ($1::date IS NULL OR kickoff_at::date >= $1)
+             WHERE status <> 'canceled'
+              AND ($1::date IS NULL OR kickoff_at::date >= $1)
                AND ($2::date IS NULL OR kickoff_at::date <= $2)
              GROUP BY competition_id, season_id,
                       LEAST(home_team_id, away_team_id),
@@ -115,7 +117,8 @@ pub async fn report(
     let unresolved_duplicates: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM (
              SELECT 1 FROM core.match
-              WHERE ($1::date IS NULL OR kickoff_at::date >= $1)
+              WHERE status <> 'canceled'
+                AND ($1::date IS NULL OR kickoff_at::date >= $1)
                 AND ($2::date IS NULL OR kickoff_at::date <= $2)
               GROUP BY LEAST(home_team_id, away_team_id),
                        GREATEST(home_team_id, away_team_id), kickoff_at::date
@@ -210,7 +213,8 @@ pub async fn report(
               JOIN core.entity he ON he.id = ht.entity_id
               JOIN core.team at ON at.id = m.away_team_id
               JOIN core.entity ae ON ae.id = at.entity_id
-             WHERE ($1::date IS NULL OR m.kickoff_at::date >= $1)
+             WHERE m.status <> 'canceled'
+               AND ($1::date IS NULL OR m.kickoff_at::date >= $1)
                AND ($2::date IS NULL OR m.kickoff_at::date <= $2)
              GROUP BY identity.fold_name(he.canonical_name),
                       identity.fold_name(ae.canonical_name),
@@ -235,7 +239,8 @@ pub async fn report(
               JOIN core.entity he ON he.id = ht.entity_id
               JOIN core.team at ON at.id = m.away_team_id
               JOIN core.entity ae ON ae.id = at.entity_id
-             WHERE ($1::date IS NULL OR m.kickoff_at::date >= $1)
+             WHERE m.status <> 'canceled'
+               AND ($1::date IS NULL OR m.kickoff_at::date >= $1)
                AND ($2::date IS NULL OR m.kickoff_at::date <= $2)
              GROUP BY identity.fold_name(he.canonical_name),
                       identity.fold_name(ae.canonical_name),

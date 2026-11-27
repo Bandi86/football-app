@@ -9,6 +9,7 @@ pub mod coverage;
 pub mod day;
 pub mod dedupe;
 pub mod detect;
+pub mod duplicate_fix;
 pub mod history;
 pub mod identity;
 pub mod identity_merge;
