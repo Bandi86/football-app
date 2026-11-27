@@ -856,10 +856,33 @@ app unit 101/0, UI **34/34**, `daily-check` ZÖLD, `integrity` OK, `git diff --c
     Új daemon telepítve; `integrity --from 2026-11-25 --to 2026-11-27` most
     `FELOLDATLAN cross-source duplikátum: 3`, `lejárt, scheduled, eredmény
     nélkül: 36`, **`verdict: FAIL`** — ez a kívánt, korai jelzés.
-- [ ] **Nem ellenőrzött / nyitott:** a 3 duplikátumcsoport (6 DB-sor) végleges
-    adattisztítása csak külön jóváhagyással, mert sorokat kellene
-    státuszváltással/törléssel rendezni (AGENTS.md §6, §10). A Ciprus-kupa és
-    a paraguayi meccsek eredménye a forrásban nincs meg — új forrás kell hozzá.
+- [ ] **Nem ellenőrzött / nyitott:** a Ciprus-kupa és a paraguayi meccsek
+    eredménye a forrásban nincs meg — új forrás kell hozzá (S216 már nem nyitott).
+
+## S216 — Duplikátumok adattisztítása (jóváhagyás után)
+
+- [x] **Döntés:** a felhasználó engedélyezte a placeholder sorok `canceled`re
+    állítását. A dry-run során kiderült, hogy páronként **egy `date_only` +
+    két `exact`** sor van — ezért csak a 3 placeholder érintett, pontos sor
+    nem lett leállítva vagy törölve.
+- [x] **Eszköz:** új `footballctl duplicates-resolve [--from --to] [--apply]`
+    (dry-run alapból, egy tranzakció, `ops.audit_event` minden sorhoz).
+    Idempotens: első apply 3 sor, második 0. Új storage-teszt igazolja,
+    hogy csak `date_only` sorokat érint és auditot ír.
+- [x] **Kapu most zöld:** az integritási lekérések kizárják a `canceled`
+    sorokat; `duplikátum: 0`, `verdict: OK — de ADATHIÁNY` (35 lejárt,
+    eredmény nélküli meccs — forráshiány, nem találunk ki eredményt).
+    `daily-check 2026-11-26` **EXIT=0 / ZÖLD**.
+- [x] **API:** 11-25-re továbbra is 3 paraguayi sor, mind 20:00 UTC-vel;
+    a két pontos sor közül determinisztikusan egyet jelenítünk meg
+    (`duplicate_instant_losers`), `missing_kickoff` 4. Új daemon telepítve.
+- [x] **Kapuk:** workspace teszt 0 failed, clippy 0, fmt 0, build OK.
+    Részletek: `docs/operations/2026-11-27-data-bug-audit.md`.
+
+### Visszaállás (S216)
+
+- A 3 `canceled` sor `status`ja az audit eventek alapján `scheduled`re
+    állítható; sor nem lett törölve. A kód `git revert`-tel visszaállítható.
 
 ### Visszaállás (S215)
 
