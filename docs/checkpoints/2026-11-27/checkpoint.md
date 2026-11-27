@@ -933,6 +933,34 @@ app unit 101/0, UI **34/34**, `daily-check` ZÖLD, `integrity` OK, `git diff --c
     A `git revert` a kódot állítja vissza, az adatkorrekció az auditból
     visszafordítható.
 
+## S219 — Élő percek: a research-betöltés újra működik
+
+- [x] **Jelzés:** a Győr–Debrecen kártyája 42'-t mutatott, miközben a meccs
+    később járt; a német meccsek rendben voltak. A kliens óraszámítása nem
+    volt hibás — a `minute` közvetlenül a research obszervációból jön.
+- [x] **Gyökérok:** a 0032-es migráció eltörölte a
+    `raw.capture (source_id, request_key)` egyedi kényszert, de a worker és a
+    fixture-adapter még `ON CONFLICT (source_id, request_key)`-t használt —
+    ezért minden research job a `capture beszúrás` lépésben failed, és az élő
+    adat a 20:24-i snapshoton ragadt. A research JSON közben már 88'-t tartalmazott.
+- [x] **Javítás:** a capture INSERT nem hivatkozik törölt kényszerre; a
+    felhasznált capture a legfrissebb `received_at` szerint választódik
+    (a migráció szándékának megfelelően). Ugyanez a fixture-adapterben.
+    Storage-teszt frissítve: artifact dedup, capture-ek száma 3, legújabb nyer.
+- [x] **Mérés:** a failed job újraütemezése után Győr–Debrecen
+    **42' → 88'**; a 11-27-i API 47 élő meccsére **0 perc-, 0 státusz- és
+    0 eredményeltérés** a research JSON-hoz képest. `ops.job`: done 71,
+    failed 0. Workspace teszt 0 failed, clippy 0, fmt 0, build OK; daemon
+    újratelepítve, health OK. Részletek: `docs/operations/2026-11-27-data-bug-audit.md` 5. szakasz.
+- [ ] **Nyitott:** a `daily-check` csak az előző nap failed jobjait nézte,
+    ezért zöld maradt a 11-27-i hibás betöltés mellett — a job-ellenőrzést
+    minden napra kell terjeszteni (külön szelet).
+
+### Visszaállás (S219)
+
+- `git revert` a két capture-javításra; a 0032-es migráció visszaállítása
+    külön döntés (az új capture-ek miatt nem önmagában visszafordítható).
+
 ## Következő döntési pont
 
 - A predikció shadowban marad; nyitva: a 3 duplikátumcsoport adattisztításának
