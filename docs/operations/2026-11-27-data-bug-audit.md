@@ -31,9 +31,21 @@ külön `core.match` sor keletkezett.
   a pontos kezdésű sort tartja meg, a `date_only` placeholder-eket elrejti;
   a hiány-számlálók (`fetch_day_gaps`) ugyanazt a szűrőt használják.
 
-**Mérés:** 11-25-re a riport `FELOLDATLAN cross-source duplikátum: 3`,
+**Korrekció a helyszíni ellenőrzés során:** páronként nem két placeholder,
+hanem **egy `date_only` + két `exact`** sor volt (a második pontos sor a XX
+országkódú verseny alatt, saját source-refel). Ezért az S216 adattisztítás
+**csak a 3 `date_only` sort** állította `canceled`re; a két pontos sor közül
+egyik sem lett törölve vagy leállítva. Az API a két pontos sor közül is
+determinisztikusan egyet jelenít meg (azonos kanonikus csapatpár + azonos
+kickoff-pillanat), ezért a felhasználó három sort lát.
+
+**Mérés:** a javítás előtt a riport `FELOLDATLAN cross-source duplikátum: 3`,
 `verdict: FAIL`. Az API 6 helyett **3** paraguayi meccset ad vissza, mind
 pontos 20:00 UTC kezdéssel; `missing_kickoff` 7-ről 4-re csökkent.
+Az S216 rendezés után: dry-run 3 → apply 3 sor → újra 0; a riport
+`duplikátum: 0`, `verdict: OK — de ADATHIÁNY`, `daily-check` **ZÖLD**.
+A 3 audit event az `ops.audit_event` táblában `duplicate_fixture_cancel`
+akcióval visszakereshető.
 
 ## 2. Ciprus-kupa — nincs eredmény (2026-11-25)
 
@@ -80,7 +92,9 @@ curl -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/v1/day/2026-11-25
 
 ## Visszaállás
 
-- A kód `git revert`-tel visszaállítható; az API-szűrés nem ír adatot, így
-  visszaállítás után a korábbi 6 sor újra látható.
+- A kód `git revert`-tel visszaállítható; az API-szűrés nem ír adatot.
+- Az S216 által leállított 3 `core.match` sor `status` mezője `canceled`ről
+  `scheduled`re állítható vissza; a pontos értékek az audit event `detail`
+  mezőjében és a fenti dry-run listában megvannak. Törlés nem történt.
 - A kézi algériai szerkesztések audit eventben visszakereshetők; nem lettek
   felülírva.

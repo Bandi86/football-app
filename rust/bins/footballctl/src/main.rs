@@ -282,6 +282,16 @@ enum Command {
         #[arg(long)]
         competition: Option<String>,
     },
+    /// S216: feloldatlan cross-source duplikátumok rendezése — a `date_only`
+    /// placeholder sorok `canceled`re állítása audit eventtel. Dry-run alapból.
+    DuplicatesResolve {
+        #[arg(long)]
+        from: Option<NaiveDate>,
+        #[arg(long)]
+        to: Option<NaiveDate>,
+        #[arg(long, default_value_t = false)]
+        apply: bool,
+    },
     /// Napi integritás-riport (read-only): duplikátumok, árva hivatkozások,
     /// review/gate/job/breaker állomány. Kemény hiba esetén exit 1.
     Integrity {
@@ -1375,6 +1385,24 @@ async fn main() -> Result<()> {
                 competitions::run_repair_countries(&pool, from, to, apply).await?;
             }
         },
+        Command::DuplicatesResolve { from, to, apply } => {
+            use football_storage::repositories::duplicate_fix;
+            if !apply {
+                let candidates = duplicate_fix::candidates(&pool, from, to).await?;
+                println!(
+                    "Canceledre állítható placeholder duplikátum: {}. Dry-run — semmit nem írtam (--apply).",
+                    candidates.len()
+                );
+                for c in candidates.iter().take(12) {
+                    println!("  {} -> {}", c.loser_id, c.winner_id);
+                }
+            } else {
+                let (groups, rows) = duplicate_fix::apply(&pool, from, to).await?;
+                println!(
+                    "Duplikátum-rendezés: {groups} csoport, {rows} sor canceledre állítva (audit eventtel)."
+                );
+            }
+        }
         Command::Integrity { from, to, json } => {
             let r = football_storage::repositories::integrity::report(&pool, from, to).await?;
             if json {

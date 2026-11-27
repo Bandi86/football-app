@@ -220,7 +220,23 @@ pub async fn fetch_day(pool: &PgPool, filter: &DayFilter) -> Result<Vec<DayMatch
             )
         })
         .collect();
-    let losers = duplicate_fixture_losers(&keys);
+    let mut losers = duplicate_fixture_losers(&keys);
+    // Ugyanaz a csapatpár ugyanabban a kickoff-pillanatban szintén duplikátum
+    // (a két pontos sor esete a paraguayi csoportban) — determinisztikusan
+    // egyet megjelenítünk, az adatot itt sem írjuk át.
+    let instant_keys: Vec<_> = rows
+        .iter()
+        .map(|r| {
+            (
+                r.home_team_id,
+                r.away_team_id,
+                r.kickoff_at,
+                r.kickoff_precision.as_str(),
+                r.match_id,
+            )
+        })
+        .collect();
+    losers.extend(duplicate_instant_losers(&instant_keys));
     let rows = rows
         .into_iter()
         .filter(|r| !losers.contains(&r.match_id))
@@ -259,6 +275,43 @@ pub fn duplicate_fixture_losers(
             .min_by_key(|&i| rows[i].4)
             .or_else(|| indices.iter().copied().min_by_key(|&i| rows[i].4))
             .expect("a csoport nem lehet üres");
+        for &i in indices {
+            if i != winner {
+                losers.insert(rows[i].4);
+            }
+        }
+    }
+    losers
+}
+
+/// Ugyanaz a kanonikus csapatpár ugyanabban a pontos kickoff-pillanatban.
+/// Itt nem kell `date_only` jelzés: két `exact` sor esetén is egyet mutatunk.
+pub fn duplicate_instant_losers(
+    rows: &[(Uuid, Uuid, DateTime<Utc>, &str, Uuid)],
+) -> std::collections::HashSet<Uuid> {
+    use std::collections::{HashMap, HashSet};
+    let mut groups: HashMap<(Uuid, Uuid, DateTime<Utc>), Vec<usize>> = HashMap::new();
+    for (i, (home, away, instant, precision, _)) in rows.iter().enumerate() {
+        if *precision != "exact" {
+            continue;
+        }
+        let key = if home <= away {
+            (*home, *away, *instant)
+        } else {
+            (*away, *home, *instant)
+        };
+        groups.entry(key).or_default().push(i);
+    }
+    let mut losers = HashSet::new();
+    for indices in groups.values() {
+        if indices.len() < 2 {
+            continue;
+        }
+        let winner = indices
+            .iter()
+            .copied()
+            .min_by_key(|&i| rows[i].4)
+            .expect("nem üres");
         for &i in indices {
             if i != winner {
                 losers.insert(rows[i].4);
@@ -330,6 +383,19 @@ pub async fn fetch_day_gaps(pool: &PgPool, filter: &DayFilter) -> Result<DayGaps
                 WHERE a.entity_kind = 'competition' AND a.kind = 'logo' AND a.entity_id = c.entity_id
                 ORDER BY (a.storage_key IS NULL), a.captured_at DESC LIMIT 1
             ) cl ON true
+            -- S216: két pontos sor ugyanabban a pillanatban: a nagyobb UUID
+            -- kimarad a hiány-számokból is (ugyanaz, mint a fetch_day).
+            AND NOT EXISTS (
+                SELECT 1 FROM core.match m3
+                 WHERE least(m3.home_team_id, m3.away_team_id)
+                       = least(m.home_team_id, m.away_team_id)
+                   AND greatest(m3.home_team_id, m3.away_team_id)
+                       = greatest(m.home_team_id, m.away_team_id)
+                   AND m3.kickoff_at = m.kickoff_at
+                   AND m3.kickoff_precision = 'exact'
+                   AND m.kickoff_precision = 'exact'
+                   AND m3.id < m.id
+            )
             -- S215: ugyanaz a determinisztikus duplikátum-szűrés, mint a
             -- fetch_day-ben — a hiány-számok ne számolják a placeholder sorokat.
             WHERE NOT EXISTS (
@@ -386,8 +452,8 @@ pub async fn fetch_day_gaps(pool: &PgPool, filter: &DayFilter) -> Result<DayGaps
 
 #[cfg(test)]
 mod duplicate_fixture_tests {
-    use super::duplicate_fixture_losers;
-    use chrono::NaiveDate;
+    use super::{duplicate_fixture_losers, duplicate_instant_losers};
+    use chrono::{NaiveDate, TimeZone, Utc};
     use uuid::Uuid;
 
     fn row(
@@ -434,6 +500,30 @@ mod duplicate_fixture_tests {
         // az integritási riport jelez, de az API nem rejt el adatot.
         let rows = vec![row(1, 10, 20, "exact"), row(2, 10, 20, "exact")];
         assert!(duplicate_fixture_losers(&rows).is_empty());
+    }
+
+    #[test]
+    fn two_exact_rows_at_same_instant_keep_only_one() {
+        let instant = Utc.with_ymd_and_hms(2026, 11, 25, 20, 0, 0).unwrap();
+        let rows = vec![
+            (
+                Uuid::from_u128(10),
+                Uuid::from_u128(20),
+                instant,
+                "exact",
+                Uuid::from_u128(1),
+            ),
+            (
+                Uuid::from_u128(10),
+                Uuid::from_u128(20),
+                instant,
+                "exact",
+                Uuid::from_u128(2),
+            ),
+        ];
+        let losers = duplicate_instant_losers(&rows);
+        assert_eq!(losers.len(), 1);
+        assert!(losers.contains(&rows[1].4));
     }
 
     #[test]
