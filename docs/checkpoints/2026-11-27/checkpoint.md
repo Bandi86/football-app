@@ -440,6 +440,32 @@
 - `git revert <S195 commit>` — a `football-prediction` crate és a Phase 0 terv
       megszűnik; a meglévő crate-ek, adatok és API változatlanok.
 
+## Szakasz zárása — 2026-11-27 (S186–S195)
+
+A reggeli adat- és filter-ellenőrzéstől a predikciós alapkönyvtárig tartó
+tíz szelet mindegyik saját kapulánccal zöld, commitolva és pusholva:
+
+| Szelet | Eredmény | Commit |
+|---|---|---|
+| S186 — napi check + szűrővizsgálat | a feltételezett filterhiba nem igazolódott; elavult klienskép | — (vizsgálat) |
+| S187 — aktíváláskori frissítés | `scenePhase` → azonnali refresh | `121bfd0` |
+| S188 — `missing_result` hiányjel | detektor + API + Üzemeltetés egységes | `256db0d` |
+| S189 — becsült óra | worktree-funkció a `main` 10/150 perces szabályaira adaptálva | `141ace7` |
+| S190 — régi failed jobok | 2 job diagnosztikusan lezárva, auditált | `61ed775` |
+| S0 → S191–S193 — Tipplap kiegészítő forrás | 4 versenycím, 653 piac, kvóta 150, napi check, doc | `73609e3`, `77fcfde`, `c52a586`, `21f4224` |
+| S194 — részletes piacok UI | `/v1/match/{id}/markets`, Odds fül, 676 quote mérve | `870dce6` |
+| S195 — predikció P0a | `football-prediction`: Shin + mérési szerződés + as-of | `820e3a1`, `362d1f9` |
+
+**Záró kapuk (utolsó mérés):** Rust **658 passed, 0 failed** · clippy 0 · fmt 0 ·
+build OK · Core **163/0** · app unit **101/0** · UI **33/33** (egy régi Ops-
+dátumválasztó-teszt A/B-vel alapon is piros, környezeti) · `daily-check 11-26`
+EXIT=0 ZÖLD · `integrity 11-25…11-27` OK · `git diff --check` 0.
+
+**Nyitva maradt (tudatosan):** P0b analytics/mérő CLI és P1 Dixon–Coles; 2
+függő Tipplap-névreview; 9 pending markets job; VoiceOver-hang emberi füllel;
+egy nem tőlem származó `HomeHeader.swift` módosítás a munkaterületen
+(érintetlenül hagyva); a három másik worktree.
+
 ## Következő döntési pont
 
 - Predikció **P0b**: `analytics` séma + offline mérő CLI (`footballctl prediction
