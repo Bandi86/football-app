@@ -661,7 +661,41 @@ egy nem tőlem származó `HomeHeader.swift` módosítás a munkaterületen
 - `git revert <S201 commit>`; a már írt OU/BTTS sorok törlése:
       `DELETE FROM analytics.prediction WHERE market IN ('ou','btts')`.
 
+## S202–S203 — UI-hibajavítás, mérési kiterjesztés, dokumentáció
+
+**S202 (UI):** a tartósan piros `testOperationsSummaryDatePicker...` oka valódi
+layout-hiba volt: a hosszú hiányjel-sorok intrinsic szélessége szétfeszítette
+az Üzemeltetés ScrollView-ét, és a dátumválasztó a látható területen kívülre
+került. `GeometryReader` + `lineLimit(1)` javítás; a teszt-harnessben rögzített
+**1400 px** ablakszélesség (a macOS window restoration 1800 px-es ablakot hozott
+vissza, ami a képernyőn túlra nyúlt). Eredmény: **`run-ui-tests.sh` 34/34 ZÖLD**
+— először hibátlan teljes futás. A nem tőlem származó `HomeHeader.swift`
+(naptár gombok AX-címkéi) átvizsgálva és commitolva.
+
+**S203 (mérés):** a `prediction-measure` most **1X2 + OU 2,5 + BTTS** piacokra
+mér külön-külön; `prediction_market_samples` storage-lekérés, piac-szintű
+`analytics.measurement` sorok. Backtest (2026-11-24 cutoff, 11-25 meccsei,
+146 lezárt mérhető meccs):
+
+| piac | modell | bázis | piac | különbség | bootstrap CI |
+|---|---|---|---|---|---|
+| 1x2 | 0,2213 | 0,2222 | 0,1408 | −0,0010 | [−0,0174; +0,0126] |
+| btts | 0,2527 | 0,2500 | — | +0,0027 | [−0,0137; +0,0208] |
+| ou | 0,2381 | 0,2500 | — | −0,0119 | [−0,0289; +0,0059] |
+
+Egyik piac sem szignifikáns → a modell **shadowban marad**. Három mérési sor
+rögzítve. `docs/operations/remaining-gaps.md` frissítve (S131/S190 megoldva,
+VoiceOver SKIP, Tipplap és predikció állapota).
+
+**Kapuk:** workspace **670/0**, clippy 0, fmt 0, build OK, Core 165/0,
+app unit 101/0, UI **34/34**, `daily-check` ZÖLD, `integrity` OK, `git diff --check` 0.
+
+### Visszaállás (S202–S203)
+
+- `git revert` a két commitra; a mérési sorok törlése:
+      `DELETE FROM analytics.measurement WHERE model_version LIKE 'dixon-coles-eb-v1-bt-%'`.
+
 ## Következő döntési pont
 
-- A predikció shadowban marad; külön döntés: hosszabb backtest/rho-illesztés,
-      OU/BTTS mérési kiterjesztés, a 2 névreview, illetve az S9 AI-gomb.
+- A modell shadowban marad; nyitva: hosszabb backtest/rho-illesztés, a 2
+  névreview, S9 AI-gomb. VoiceOver skip (felhasználói döntés).

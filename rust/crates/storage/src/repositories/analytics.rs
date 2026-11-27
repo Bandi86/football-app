@@ -256,12 +256,49 @@ pub async fn predicted_outcomes(
     .context("predikciók és eredmények lekérése")
 }
 
+/// Egy rögzített predikciós sor az eredménnyel — piaconkénti méréshez.
+#[derive(Debug, Clone, FromRow)]
+pub struct PredictionMarketSampleRow {
+    pub match_id: Uuid,
+    pub competition_id: Uuid,
+    pub market: String,
+    pub outcome: String,
+    pub probability: f64,
+    pub home_ft: i16,
+    pub away_ft: i16,
+}
+
+pub async fn prediction_market_samples(
+    pool: &PgPool,
+    model_version: &str,
+    from: NaiveDate,
+    to: NaiveDate,
+) -> Result<Vec<PredictionMarketSampleRow>> {
+    sqlx::query_as::<_, PredictionMarketSampleRow>(
+        "SELECT p.match_id, m.competition_id, p.market, p.outcome,
+                p.probability, r.home_ft, r.away_ft
+           FROM analytics.prediction p
+           JOIN core.match m ON m.id = p.match_id
+           JOIN core.match_result r ON r.match_id = m.id
+          WHERE p.model_version = $1
+            AND m.kickoff_at::date BETWEEN $2 AND $3
+            AND p.market IN ('1x2', 'ou', 'btts')
+          ORDER BY p.match_id, p.market, p.outcome",
+    )
+    .bind(model_version)
+    .bind(from)
+    .bind(to)
+    .fetch_all(pool)
+    .await
+    .context("piaconkénti predikciós minták lekérése")
+}
+
 #[derive(Debug, Clone)]
 pub struct NewMeasurement {
     pub model_version: String,
     pub date_from: NaiveDate,
     pub date_to: NaiveDate,
-    pub market: &'static str,
+    pub market: String,
     pub sample_size: i32,
     pub brier: f64,
     pub brier_baseline: f64,
@@ -295,7 +332,7 @@ pub async fn upsert_measurement(pool: &PgPool, row: &NewMeasurement) -> Result<U
     .bind(row.model_version.clone())
     .bind(row.date_from)
     .bind(row.date_to)
-    .bind(row.market)
+    .bind(row.market.clone())
     .bind(row.sample_size)
     .bind(row.brier)
     .bind(row.brier_baseline)

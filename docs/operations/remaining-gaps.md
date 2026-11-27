@@ -1,8 +1,15 @@
 # Hátralévő hézagok és nyitott kérdések
 
-Állapot: 2026-11-25. A research backfill a célig (2026-08-01) lezárult: 108 nap,
-0 hiba. Ez a dokumentum azokat a problémákat gyűjti, amik **nem blokkolják**
-az adatfeldolgozást, de külön döntést vagy későbbi kutatást igényelnek.
+Állapot: 2026-11-27 (S203). A research backfill a célig (2026-08-01) lezárult:
+108 nap, 0 hiba. Ez a dokumentum azokat a problémákat gyűjti, amik **nem
+blokkolják** az adatfeldolgozást, de külön döntést vagy későbbi kutatást
+igényelnek.
+
+**2026-11-27-i frissítés:** a lejárt-nyitott rés (S163) és a két régi failed
+job (S190) megoldva; a Tipplap kiegészítő forrás 4 új versenycímet és 653
+piacot hoz be (S191–S194); a predikciós rendszerPhase 0/1 shadowban kész
+(S195–S201), de a mérés szerint **nem jobb a piacnál**, ezért nem aktivált.
+A részletek a `docs/checkpoints/2026-11-27/checkpoint.md`-ben.
 
 ## 1. Adatintegritás — ismert, nem javított
 
@@ -94,10 +101,10 @@ van—webes forrás (Wikipedia, HRT) megerősítette (Šibenik visszalépett,
 
 ### S131 — öt percnél régebbi `scheduled` meccsek
 
-6 meccs van úgy, hogy a kezdési ideje több mint 5 perce elmúlt, de a forrás
-még `scheduled`-t mond: egyik státusz-szűrőben sincs (a `lejárt, nyitott`
-3 órás küszöb alatt), csak a „Mind"-ben. Vagy a `open_past` küszöbét kell
-leszállítani, vagy külön szűrőt adni — döntés kérdése.
+**Állapot: megoldva (S163/S189).** A `open_past` küszöb 3 óra → **10 perc**,
+élő/félidős sornál 150 perc; a backend (`fetch_day_gaps`) és a kliens
+(`MatchCardModel`) ugyanazt a szabályt használja. A becsült óra (S189) ezen
+felül a kezdés utáni perceket is mutatja.
 
 ### Placeholder kezdési idők (S148 — javítva)
 
@@ -111,9 +118,10 @@ leszállítani, vagy külön szűrőt adni — döntés kérdése.
 
 ### Failed research job
 
-Egy `refresh` job a 2026-11-22-i `bendel-insurance-vs-doma-united_fm6103183`
-detail fájl hiányzó változata miatt `failed`. Nem mai adatot érint; a
-research dokumentum hiányát külön kell pótolni, ha számít.
+**Állapot: lezárva (S190).** A két régi failed job (`catchup-2026-11-22`,
+`slot-03`) diagnosztikusan `cancelled` státuszba került, audit-eseménnyel;
+a napi ellenőrzés `failed job: 0`-t mutat. A hiányzó 11-22-i detail fájl
+forrásoldali pótlása továbbra is nyitott, de nem blokkoló.
 
 ### Soccerway
 
@@ -145,9 +153,15 @@ döntés** kell páronként. A teljes átvizsgálás hátralévő munka.
 
 ## 6. Emberi ellenőrzésre vár
 
-- Tényleges VoiceOver-felolvasás (emberi fül kell hozzá).
-- Tab-kör kiterjesztése a natív menükre / naptár-popoverre / részletezőre.
+- **Tényleges VoiceOver-felolvasás: SKIP** — a felhasználó 2026-11-27-ben
+  kifejezetten lemondta (nincs mikrofon). Az AX-címkék és a magyar szövegek
+  XCUITesttel ellenőrzöttek (34/34), de a tényleges beszédhang nem része a
+  követelménynek.
+- Tab-kör kiterjesztése a natív menükre / naptár-popoverre / részletezőre;
+  a naptár hónapváltó gombjai kaptak AX-címkét (S202).
 - Alsóbb ligák webes keresztellenőrzése mintánként — eddig 138/138 minta
   egyezett a research forrással, és 7 webes forrás (BBC, ESPN, Guardian,
   premierleague.com, Wikipedia/HRT, Aston Villa, club sites) is megerősítette
   a mintát; a rendszeres webes audit még nem automatizált.
+- 2 függő Tipplap-névreview (`footballctl identity review/approve`) — forrás-
+  alapú, emberi döntés, nem automatizálható.

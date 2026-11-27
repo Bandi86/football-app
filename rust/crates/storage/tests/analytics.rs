@@ -9,7 +9,7 @@ fn measurement(hash: &str) -> NewMeasurement {
         model_version: "test-v1".to_owned(),
         date_from: NaiveDate::from_ymd_opt(2026, 11, 1).unwrap(),
         date_to: NaiveDate::from_ymd_opt(2026, 11, 27).unwrap(),
-        market: "1x2",
+        market: "1x2".to_owned(),
         sample_size: 10,
         brier: 0.20,
         brier_baseline: 0.22,
