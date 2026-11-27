@@ -729,7 +729,41 @@ app unit 101/0, UI **34/34**, `daily-check` ZÖLD, `integrity` OK, `git diff --c
       source_entity_id='inter-kashi-fc'`, és a 9 létrehozott `core.entity`/
       `core.team` sor archiválása (nem törlése) az audit megőrzésével.
 
+## S210 — Döntések: UI-tesztelés, forduló-hézag, 25/75 terv
+
+- [x] **XCUITest-gyakorlat leállítása:** a felhasználó kérésére a teljes
+      `run-ui-tests.sh` (15 perc, mindig ugyanazt kattintja, blokkolja a gépet)
+      **nem része a rutin-kapunak**. Ellenőriztem: nem fut xcodebuild folyamat.
+      Helyette gyors app unit + Core teszt, valamint célzott 1–2 UI-eset csak
+      akkor, ha a szelet azt tényleg érinti. A script megmarad kérésre.
+- [x] **Fordulóadat-hézag kivizsgálása (read-only):**
+  - A research napi JSON **tartalmaz** fordulót: 11-27-en Premier League
+    **15/17**, Eerste Divisie 7/7, de Ligue 1 FR csak 1/3.
+  - A DB viszont kevesebbet tart: novemberi RTL-adatok alapján
+    `Premier League 60%` (21/35), `La Liga 60,5%`, `Bundesliga 61,3%`,
+    `Ligue 1 (FR) 68,6%`, `Serie A 74,4%`, `Coupe de France 28,5%`,
+    `NCAAW/NCAAM Soccer`, `Club Friendly`, `FA Trophy`, `Friendlies`: **0%**.
+  - **Gyökér:** `canonicalize.rs:501` a `round_label`-t feltétel nélkül írja
+    át `EXCLUDED.round_label`-re — a források, amelyek nem adnak fordulót
+    (`footballdata`, `soccerway`, `fotmob`, `tipplap`), **NULL-lal felülírják**
+    a research/openfoot által korábban rögzített számot. A `fact.provenance`
+    ráadásul nem követi ezt a mezőt (0 sor), ezért a hiba csendes.
+  - Javaslat: `COALESCE(EXCLUDED.round_label, core.match.round_label)` +
+    provenance-bejegyzés + visszajátszható backfill a research obszervációkból.
+    Új külső forrás csak azoknak a ligáknak kell, ahol a research sem ad
+    fordulót (pl. Ligue 1 FR 1/3, kupa-/barátságos meccsek).
+- [x] **25/75 terv:** `docs/superpowers/specs/2026-11-27-fooldal-reszletezo-panel-design.md`
+      — bal lista 25%, jobb részletező panel 75%, kattintásra ott jelenik meg
+      a meccs (nem sheetben), widget-sorrend az áttekintéstől a jegyzetekig,
+      keskeny ablaknál sheet fallback, S210–S212 szeletek.
+- [ ] A 25/75 arány értelmezése (bal 25 / jobb 75) és a `round_label`-javítás
+      elindítása — felhasználói döntés.
+
+### Visszaállás (S210)
+
+- Csak dokumentáció és read-only vizsgálat; kód/adat nem változott.
+
 ## Következő döntési pont
 
-- A predikció shadowban marad; nyitva: hosszabb backtest/rho-illesztés,
-      S9 AI-gomb. VoiceOver skip (felhasználói döntés).
+- A predikció shadowban marad; nyitva: forduló-javítás, 25/75 implementáció,
+      hosszabb backtest/rho-illesztés, S9 AI-gomb. VoiceOver skip.
