@@ -1,0 +1,8 @@
+{
+  "rows": [
+    {"model_version":"dixon-coles-eb-v1","outcome":"home","probability":0.437,"fair_odds":2.29,"edge":null,"quality":"ok","inputs_hash":"ui-hash","as_of":"2026-11-27T10:00:00Z"},
+    {"model_version":"dixon-coles-eb-v1","outcome":"draw","probability":0.252,"fair_odds":3.97,"edge":null,"quality":"ok","inputs_hash":"ui-hash","as_of":"2026-11-27T10:00:00Z"},
+    {"model_version":"dixon-coles-eb-v1","outcome":"away","probability":0.311,"fair_odds":3.22,"edge":null,"quality":"ok","inputs_hash":"ui-hash","as_of":"2026-11-27T10:00:00Z"}
+  ],
+  "count": 3
+}

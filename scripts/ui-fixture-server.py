@@ -54,6 +54,7 @@ def main() -> int:
     parser.add_argument("--notes-fixture", help="opcionális meccsjegyzetek JSON")
     parser.add_argument("--ops-summary-fixture", help="opcionális napi összefoglaló JSON")
     parser.add_argument("--markets-fixture", help="opcionális részletes odds-piacok JSON")
+    parser.add_argument("--prediction-fixture", help="opcionális shadow predikció JSON")
     parser.add_argument("--ops-audit-fixture", help="opcionális globális audit JSON")
     parser.add_argument("--relative-kickoffs", action="store_true",
                         help="a fixture kickoff_offset_seconds értékeit a kérés időpontjához igazítja")
@@ -106,6 +107,7 @@ def main() -> int:
     team_payload = read_fixture(args.team_fixture)
     competition_payload = read_fixture(args.competition_fixture)
     markets_payload = read_fixture(args.markets_fixture)
+    prediction_payload = read_fixture(args.prediction_fixture)
 
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -129,6 +131,8 @@ def main() -> int:
                 body, status = notes_payload, 200
             elif path.endswith("/markets") and path.startswith("/v1/match/") and markets_payload is not None:
                 body, status = markets_payload, 200
+            elif path.endswith("/prediction") and path.startswith("/v1/match/") and prediction_payload is not None:
+                body, status = prediction_payload, 200
             elif micro_payload is not None and path.startswith("/v1/match/") and any(
                 path.endswith(suffix) for suffix in ("/lineups", "/player-stats", "/shots")
             ):

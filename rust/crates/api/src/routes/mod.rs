@@ -12,6 +12,7 @@ pub mod manual;
 pub mod match_detail;
 pub mod match_markets;
 pub mod match_micro;
+pub mod match_prediction;
 pub mod notes;
 pub mod ops;
 pub mod player;

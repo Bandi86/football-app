@@ -178,6 +178,38 @@ pub async fn upsert_prediction(pool: &PgPool, row: &NewPrediction) -> Result<usi
     Ok(written)
 }
 
+/// Egy meccs legfrissebb modellverziójának predikciói (csak olvasás).
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, FromRow)]
+pub struct PredictionRow {
+    pub model_version: String,
+    pub outcome: String,
+    pub probability: f64,
+    pub fair_odds: Option<f64>,
+    pub edge: Option<f64>,
+    pub quality: String,
+    pub inputs_hash: String,
+    pub as_of: DateTime<Utc>,
+}
+
+pub async fn latest_prediction(pool: &PgPool, match_id: Uuid) -> Result<Vec<PredictionRow>> {
+    let rows = sqlx::query_as::<_, PredictionRow>(
+        "SELECT model_version, outcome, probability,
+                fair_odds::float8 AS fair_odds, edge::float8 AS edge,
+                quality, inputs_hash, as_of
+           FROM analytics.prediction
+          WHERE match_id = $1
+          ORDER BY as_of DESC, model_version DESC, outcome",
+    )
+    .bind(match_id)
+    .fetch_all(pool)
+    .await
+    .context("predikció lekérése")?;
+    let Some(latest) = rows.first().map(|row| row.as_of) else {
+        return Ok(Vec::new());
+    };
+    Ok(rows.into_iter().filter(|row| row.as_of == latest).collect())
+}
+
 /// Egy rögzített predikció és a tényleges eredmény a méréshez.
 #[derive(Debug, Clone, FromRow)]
 pub struct PredictionSampleRow {

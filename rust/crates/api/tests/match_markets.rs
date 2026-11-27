@@ -187,3 +187,66 @@ async fn markets_endpoint_returns_quotes_with_source_and_latest_capture() {
     assert_eq!(value["quotes"][1]["source_code"], "tipplap");
     assert_eq!(value["quotes"][1]["price"], 1.53);
 }
+
+#[tokio::test]
+async fn prediction_endpoint_has_auth_matrix_and_returns_latest_version() {
+    let pool = test_pool().await;
+    let match_id = seed_match(&pool).await;
+    let app = app(pool.clone());
+    let uri = format!("/v1/match/{match_id}/prediction");
+
+    let (status, _) = get(&app, &uri, None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, body) = get(&app, &uri, Some("read-test")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, r#"{"rows":[],"count":0}"#);
+    let (status, _) = get(
+        &app,
+        &format!("/v1/match/{}/prediction", Uuid::now_v7()),
+        Some("read-test"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    async fn seed_prediction(
+        pool: &sqlx::PgPool,
+        match_id: Uuid,
+        version: &str,
+        probability: f64,
+        as_of: chrono::DateTime<chrono::Utc>,
+    ) {
+        sqlx::query(
+            "INSERT INTO analytics.prediction
+             (id, match_id, model_version, market, outcome, line, probability,
+              quality, inputs_hash, as_of)
+             VALUES ($1,$2,$3,'1x2','home',0,$4,'ok','hash',$5)
+             ON CONFLICT (match_id, model_version, market, outcome, line)
+             DO UPDATE SET probability=EXCLUDED.probability, as_of=EXCLUDED.as_of",
+        )
+        .bind(Uuid::now_v7())
+        .bind(match_id)
+        .bind(version)
+        .bind(probability)
+        .bind(as_of)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+    let now = chrono::Utc::now();
+    seed_prediction(
+        &pool,
+        match_id,
+        "old-v1",
+        0.3,
+        now - chrono::Duration::minutes(10),
+    )
+    .await;
+    seed_prediction(&pool, match_id, "new-v2", 0.5, now).await;
+
+    let (status, body) = get(&app, &uri, Some("read-test")).await;
+    assert_eq!(status, StatusCode::OK);
+    let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(value["count"], 1);
+    assert_eq!(value["rows"][0]["model_version"], "new-v2");
+    assert_eq!(value["rows"][0]["probability"], 0.5);
+}

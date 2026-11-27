@@ -18,6 +18,8 @@ final class MatchDetailModel {
     var micro: MatchMicro?
     /// A részletes odds-piacok; a fő részletezőtől függetlenül töltődnek be.
     var markets: MarketsResponseDTO?
+    /// Shadow predikció (nem ellenőrzött, nem fogadási tanács).
+    var prediction: ShadowPrediction?
     /// Együttműködési adatok: jegyzetek és mező-szintű előzmények.
     var notes: [MatchNoteDTO] = []
     var history: [HistoryEntryDTO] = []
@@ -30,6 +32,7 @@ final class MatchDetailModel {
     private let serviceFactory: (RuntimeInfo) throws -> MatchDetailService
     private let microServiceFactory: (RuntimeInfo) throws -> MatchMicroService
     private let marketServiceFactory: (RuntimeInfo) throws -> MatchMarketService
+    private let predictionServiceFactory: (RuntimeInfo) throws -> MatchPredictionService
     private let manualServiceFactory: (RuntimeInfo) throws -> ManualEntryService
     private let opsServiceFactory: (RuntimeInfo) throws -> OpsService
     private var generation = 0
@@ -40,6 +43,7 @@ final class MatchDetailModel {
         serviceFactory: ((RuntimeInfo) throws -> MatchDetailService)? = nil,
         microServiceFactory: ((RuntimeInfo) throws -> MatchMicroService)? = nil,
         marketServiceFactory: ((RuntimeInfo) throws -> MatchMarketService)? = nil,
+        predictionServiceFactory: ((RuntimeInfo) throws -> MatchPredictionService)? = nil,
         manualServiceFactory: ((RuntimeInfo) throws -> ManualEntryService)? = nil,
         opsServiceFactory: ((RuntimeInfo) throws -> OpsService)? = nil
     ) {
@@ -47,6 +51,7 @@ final class MatchDetailModel {
         self.serviceFactory = serviceFactory ?? Self.makeService
         self.microServiceFactory = microServiceFactory ?? Self.makeMicroService
         self.marketServiceFactory = marketServiceFactory ?? Self.makeMarketService
+        self.predictionServiceFactory = predictionServiceFactory ?? Self.makePredictionService
         self.manualServiceFactory = manualServiceFactory ?? Self.makeManualService
         self.opsServiceFactory = opsServiceFactory ?? Self.makeOpsService
     }
@@ -68,6 +73,7 @@ final class MatchDetailModel {
             // a fő részletező már megjelenjen, de a szekciók is frissüljenek.
             await loadMicro(matchId: matchId)
             await loadMarkets(matchId: matchId)
+            await loadPrediction(matchId: matchId)
             await loadCollaboration(matchId: matchId)
         } catch is CancellationError {
             return
@@ -111,6 +117,18 @@ final class MatchDetailModel {
 
     /// Jegyzetek és előzmények; a hiány üres lista, a hiba nem dönti el a
     /// fő részletezőt (a panel üres állapotot mutat).
+    /// Shadow predikció; hiány vagy hiba esetén `nil`, a fő részletező marad.
+    func loadPrediction(matchId: UUID) async {
+        do {
+            let info = try loader.load()
+            let service = try predictionServiceFactory(info)
+            let response = try await service.load(matchId: matchId)
+            self.prediction = ShadowPrediction(dto: response)
+        } catch {
+            self.prediction = nil
+        }
+    }
+
     func loadCollaboration(matchId: UUID) async {
         do {
             let info = try loader.load()
@@ -211,6 +229,13 @@ final class MatchDetailModel {
             throw APIError.runtimeMissing
         }
         return HTTPMatchMarketService(baseURL: baseURL, readToken: info.readToken)
+    }
+
+    private static func makePredictionService(_ info: RuntimeInfo) throws -> MatchPredictionService {
+        guard let baseURL = URL(string: "http://127.0.0.1:\(info.port)") else {
+            throw APIError.runtimeMissing
+        }
+        return HTTPMatchPredictionService(baseURL: baseURL, readToken: info.readToken)
     }
 
     private static func makeOpsService(_ info: RuntimeInfo) throws -> OpsService {

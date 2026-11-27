@@ -494,6 +494,31 @@ final class FootballAppUITests: XCTestCase {
         XCTAssertTrue(labels.contains { $0.contains("tipplap") }, "a forrás nincs feltüntetve")
     }
 
+    /// Az Odds fül a piacok mellett a shadow modellt is mutatja — egyértelműen
+    /// nem ellenőrzöttként, fogadási tanács nélkül.
+    func testMatchDetailShowsShadowPredictionLabel() throws {
+        let app = try launch(port: Self.loadedPort)
+        app.activate()
+
+        let card = element("match.card.22222222-2222-2222-2222-222222222222", in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: 30), "a nap nem töltődött be")
+        card.click()
+        app.buttons.matching(identifier: "match.detail.section.odds").firstMatch.click()
+
+        let panel = element("match.prediction", in: app)
+        XCTAssertTrue(panel.waitForExistence(timeout: 15), "a modellpanel hiányzik")
+        let panelText = panel.label + (panel.value as? String ?? "")
+        XCTAssertTrue(panelText.contains("NEM ELLENŐRZÖTT"), panelText)
+        XCTAssertTrue(textElement(valueContains: "Nem fogadási tanács", in: app).exists,
+                      "a fogadási tanács hiányát kimondó szöveg hiányzik")
+        let rows = app.descendants(matching: .any).matching(identifier: "match.prediction.row")
+        XCTAssertEqual(rows.count, 3, "három 1X2 kimenetel kell")
+        XCTAssertTrue(rows.allElementsBoundByIndex.allSatisfy {
+            ($0.label + ($0.value as? String ?? "")).contains("nem ellenőrzött")
+        })
+        XCTAssertTrue(element("match.prediction.source", in: app).exists, "a modellverzió hiányzik")
+    }
+
     /// A research szekció mutatja a generált riportot és a tárolt forráslinkeket.
     func testMatchDetailShowsReportAndSourceLinks() throws {
         let app = try launch(port: Self.loadedPort)

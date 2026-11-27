@@ -47,6 +47,10 @@ pub fn router(state: AppState) -> Router {
             get(routes::match_markets::match_markets),
         )
         .route(
+            "/v1/match/{id}/prediction",
+            get(routes::match_prediction::match_prediction),
+        )
+        .route(
             "/v1/match/{id}/manual-result",
             put(routes::manual::manual_result),
         )

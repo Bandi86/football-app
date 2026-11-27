@@ -601,6 +601,42 @@ egy nem tőlem származó `HomeHeader.swift` módosítás a munkaterületen
       és `DELETE FROM analytics.measurement WHERE model_version LIKE '...'`.
       A kanonikus adatot a szelet nem írta.
 
+## S200 — Predikció megjelenítése a kliensben + lemeztakarítás
+
+- [x] **Lemez:** a `rust/target/debug/incremental` (6,9 GB) törlése — a szabad
+      hely **1,7 GB → 8,6 GB**; a telepített daemon/app binárisok és a
+      `target/debug/deps` build-cache megmaradt, így a munka folytatható.
+- [x] **API:** `GET /v1/match/{id}/prediction` (read scope, 400/401/404/500),
+      a legfrissebb modellverzió 1X2 sorait adja `as_of`, `inputs_hash`,
+      `quality` és fair odds mezőkkel; OpenAPI **28 → 29** útvonal. A `numeric`
+      DB-oszlopok `::float8` castet kaptak (élő 500 hiba javítva).
+- [x] **Core/UI:** `ShadowPrediction` (a meglévő `MatchInsightModels.MatchPrediction`
+      névütközés elkerülésére), `MatchPredictionService`, `PredictionCard` az
+      Odds fülben: százalékos 1X2, fair odds, és kifejezett **„NEM ELLENŐRZÖTT ·
+      SHADOW"** + **„Nem fogadási tanács"** jelzés, modellverzió és as-of idővel.
+      AX-azonosítók és magyar címkék.
+- [x] **Tesztek/kapuk:** +2 Core teszt, +1 API teszt (auth/404/legfrissebb
+      verzió), +1 XCUITest; workspace **670 passed, 0 failed** · clippy 0 ·
+      fmt 0 · build OK · Core **165/0** · app unit **101/0** ·
+      `run-ui-tests.sh` **34/34** (egy régi Ops-dátumválasztó-teszt továbbra is
+      piros, A/B-vel alapon is — környezeti) · `daily-check` ZÖLD ·
+      `integrity` OK · `git diff --check` 0.
+- [x] **Éles:** daemon + app újratelepítve, `/v1/health` OK; a predikció-végpont
+      valódi meccsen 3 sort ad fair odds-szal. A kliensben az új kártyát az
+      XCUITest igazolja (fixture-tel, valódi macOS-en).
+- [ ] **Nem ellenőrzött**: a kártya görgetéssel való élő kézi végignézése
+      (az AX-harness nem nyit részletezőt a napi kártyáról); VoiceOver-hang;
+      a százalékok a modell saját termeiből jönnek, összevetve a piaci
+      szorzókkal még nincs UI-szinten edge-mutatás.
+- [ ] A modell shadowban marad (P1c mérése szerint nem jobb a piacnál).
+
+### Visszaállás (S200)
+
+- `git revert <S200 commit>` — az új végpont, Core modell és kártya megszűnik;
+      az analytics adatok és a kanonikus entitások változatlanok.
+- Az inkrementális build-cache nem állítható vissza, de `cargo build` újra
+      létrehozza (a `deps` cache megmaradt).
+
 ## Következő döntési pont
 
 - A predikció shadowban marad; külön döntés: hosszabb backtest/rho-illesztés,

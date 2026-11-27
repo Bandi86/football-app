@@ -117,6 +117,7 @@ struct MatchDetailSheet: View {
                 detail: detail,
                 micro: model.micro,
                 markets: model.markets,
+                prediction: model.prediction,
                 notes: model.notes,
                 history: model.history,
                 onAddNote: { body, kind in
@@ -488,6 +489,7 @@ struct MatchDetailContent: View {
     let detail: MatchDetail
     let micro: MatchMicro?
     let markets: MarketsResponseDTO?
+    let prediction: ShadowPrediction?
     let notes: [MatchNoteDTO]
     let history: [HistoryEntryDTO]
     let onAddNote: (String, String) async -> Void
@@ -693,6 +695,7 @@ struct MatchDetailContent: View {
             return !(micro?.shots.isEmpty ?? true)
         case .odds:
             return detail.odds?.hasAnyValue == true || !(markets?.quotes.isEmpty ?? true)
+                || prediction != nil
         case .research:
             return detail.insight != nil || !(detail.links ?? []).isEmpty
                 || !notes.isEmpty || !history.isEmpty
@@ -842,6 +845,9 @@ struct MatchDetailContent: View {
         }
         if let markets, !markets.quotes.isEmpty {
             MarketOddsList(response: markets)
+        }
+        if let prediction {
+            PredictionCard(prediction: prediction, market: detail.odds)
         }
     }
 
