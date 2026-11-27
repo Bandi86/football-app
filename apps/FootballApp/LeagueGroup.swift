@@ -55,12 +55,10 @@ struct LeagueGroup: Identifiable {
     }
 
     /// A szekciófejléc forduló-felirata. A csoport numerikus (nem-nil) címkéi
-    /// közül a leggyakoribbat adja vissza (döntetlennél a legkisebbet), így a
-    /// kevert „13"/„női"/hiányzó címkék nem blokkolják a feliratot. A tisztán
-    /// női-marker címkék („női", „women", „(W)") nem fordulók, hiányzónak
-    /// számítanak. Ha nincs numerikus címke (pl. kupa), a régi szabály él: csak
-    /// akkor jelenik meg, ha a csoport minden ismert címkéje ugyanaz. A felirat
-    /// a kártyáéval azonos mappingból jön (`MatchCardModel.roundText`).
+    /// közül a leggyakoribbat mutatja; ha a forrás több különböző számot ad,
+    /// a `~` előjel jelzi, hogy ez csak a többségi, nem egységes forduló
+    /// (S208). Ha a forrás egyáltalán nem ad fordulót, akkor nincs felirat —
+    /// nem találgatunk számot. A női-marker címkék nem fordulók.
     var roundSummary: String? {
         let labels = matches
             .compactMap { MatchCardModel.foldedRoundLabel($0.roundLabel) }
@@ -69,11 +67,11 @@ struct LeagueGroup: Identifiable {
         if !numeric.isEmpty {
             var counts: [String: Int] = [:]
             for label in numeric { counts[label, default: 0] += 1 }
-            // S128: ha a forrás egynél több különböző fordulót ad (pl. a
-            // FotMob a League One-nál 8-at és 9-et is), a "leggyakoribb"
-            // kiválasztása hamis bizonyosság — ilyenkor nem mutatunk fordulót.
-            guard counts.count == 1, let winner = counts.keys.first else { return nil }
-            return MatchCardModel.roundText(for: winner)
+            guard let winner = counts.max(by: { lhs, rhs in
+                lhs.value == rhs.value ? lhs.key > rhs.key : lhs.value < rhs.value
+            })?.key else { return nil }
+            let text = MatchCardModel.roundText(for: winner) ?? winner
+            return counts.count == 1 ? text : "~\(text)"
         }
         guard let first = labels.first,
               labels.allSatisfy({ $0 == first }),

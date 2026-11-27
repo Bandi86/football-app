@@ -450,10 +450,11 @@ final class LeagueGroupTests: XCTestCase {
         XCTAssertEqual(groups[0].roundSummary, "13. forduló")
     }
 
-    /// S128: ha a forrás két különböző fordulót ad (pl. League One 8 és 9),
-    /// a régi "leggyakoribb / döntetlennél kisebb" szabály hamis 8-at mutatott.
-    /// Ilyenkor nem mutatunk fordulót (bizonytalan adat = nil, AGENTS.md §6).
-    func testRoundSummaryIsNilWhenSourceDisagreesOnRoundNumber() throws {
+    /// S208: ha a forrás két különböző fordulót ad (pl. League One 8 és 9),
+    /// a többségi szám `~` előjellel jelenik meg — a jelzi, hogy a forrás
+    /// nem egységes. Döntetlennél a kisebb számot választjuk, nem találunk ki
+    /// új adatot (AGENTS.md §6).
+    func testRoundSummaryMarksDisagreeingSourceRounds() throws {
         let leagueId = "00000000-0000-0000-0000-0000000000d6"
         let groups = try groups([
             roundMatchJSON(id: "00000000-0000-0000-0000-000000000d61",
@@ -469,7 +470,7 @@ final class LeagueGroupTests: XCTestCase {
                            competitionId: leagueId, competitionName: "League One",
                            countryCode: "ENG", roundLabel: "9"),
         ])
-        XCTAssertNil(groups[0].roundSummary)
+        XCTAssertEqual(groups[0].roundSummary, "~8. forduló")
     }
 
     func testRoundSummaryIsNilWithoutRoundLabels() throws {
