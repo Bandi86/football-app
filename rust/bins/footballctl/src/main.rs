@@ -42,6 +42,7 @@ mod match_insight_import;
 mod player_import;
 mod prediction_fit;
 mod prediction_measure;
+mod season_stats_import;
 mod tipplap_replay;
 
 /// S2b-2: a TRUST_LEVEL + odds trust szabálykészlet verziója (a tickével azonos).
@@ -317,6 +318,14 @@ enum Command {
         from: NaiveDate,
         #[arg(long)]
         to: NaiveDate,
+        #[arg(long)]
+        apply: bool,
+    },
+    /// Auditált season-stats import a match_insight.season_stats JSON-ból a
+    /// fact.season_team_stats táblába, hálózat nélkül. Alapból dry-run;
+    /// napi bontás, exact season_id/team_id párosítás, ON CONFLICT DO NOTHING,
+    /// apply-nál tábla-backup. (match_team_stats / season_player_stats érintetlen.)
+    SeasonStatsImport {
         #[arg(long)]
         apply: bool,
     },
@@ -1588,6 +1597,27 @@ async fn main() -> Result<()> {
             );
             for skip in report.skipped.iter().take(10) {
                 println!("  kihagyva: {skip}");
+            }
+        }
+        Command::SeasonStatsImport { apply } => {
+            let report = season_stats_import::run(&pool, apply).await?;
+            println!(
+                "season-stats-import: {} nap / {} meccs / {} jelölt sor / \
+                 {} utasítva bizonyíték hiányában / {} nem számszerű / {} beszúrt{}",
+                report.days,
+                report.matches_scanned,
+                report.candidate_rows,
+                report.rejected_missing_evidence,
+                report.rejected_non_numeric,
+                report.inserted,
+                if report.applied {
+                    ""
+                } else {
+                    " (dry-run — nem történt írás)"
+                }
+            );
+            if let Some(backup) = &report.backup_path {
+                println!("  backup: {backup}");
             }
         }
         Command::PlayerImport { from, to, apply } => {
