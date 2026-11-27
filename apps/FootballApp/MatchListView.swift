@@ -376,7 +376,6 @@ private struct MatchItemRow: View {
     private let kickoffWidth: CGFloat = 76
 
     private var clock: MatchCardModel.ClockDisplay? { match.clock(at: now) }
-    private var phase: String? { match.phaseLabel(at: now) }
 
     var body: some View {
         Group {
@@ -468,26 +467,23 @@ private struct MatchItemRow: View {
 
     // MARK: - Kártyaelemek
 
+    /// Látható réteg tudatosan egyszerű (S207): csak a kezdési időpont,
+    /// lezárt meccsnél `FT`, élőnél a becsült óra. A dátum, a fázis és a
+    /// minuta a VoiceOver AX-címkében továbbra is megvan.
     private var kickoffColumn: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            if !match.dayLabel.isEmpty {
-                Text(match.dayLabel)
-                    .font(.system(size: 11, weight: .medium).monospacedDigit())
+        VStack(alignment: .leading, spacing: 2) {
+            if match.isFinished {
+                Text("FT")
+                    .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(AppTheme.secondaryText)
-                    .lineLimit(1)
-            }
-            if let clock {
+                    .accessibilityIdentifier("match.ft.\(match.id)")
+            } else if let clock {
                 HStack(spacing: 4) {
+                    if clock.isEstimated { LiveDot() }
                     Text(clock.text)
                         .font(.system(size: 13, weight: .semibold).monospacedDigit())
                         .foregroundStyle(AppTheme.liveGreen)
                         .accessibilityIdentifier("match.clock.\(match.id)")
-                    if clock.isEstimated {
-                        Text("becsült")
-                            .font(.system(size: 8.5, weight: .medium))
-                            .foregroundStyle(AppTheme.secondaryText)
-                            .accessibilityIdentifier("match.clock.estimated.\(match.id)")
-                    }
                 }
             } else if let note = match.kickoffNote {
                 Text(note)
@@ -498,31 +494,6 @@ private struct MatchItemRow: View {
                 Text(match.timeDisplay)
                     .font(.system(size: 13, weight: .semibold).monospacedDigit())
                     .foregroundStyle(AppTheme.primaryText)
-            }
-            if let phase {
-                HStack(spacing: 4) {
-                    if clock != nil || match.isLive { LiveDot() }
-                    Text(phase)
-                        .font(.system(size: 9.5, weight: .bold))
-                        .tracking(0.6)
-                        .foregroundStyle(
-                            phase == "FT" || phase == "EREDMÉNY VÁRHATÓ"
-                                ? AppTheme.secondaryText : AppTheme.liveGreen
-                        )
-                    // Az aktív óra már hordozza a percet; csak óra nélkül
-                    // mutatjuk a forrás részletesebb fázisát/minutáját.
-                    if clock == nil {
-                        if let detail = match.livePhaseText {
-                            Text(detail)
-                                .font(.system(size: 9.5, weight: .bold).monospacedDigit())
-                                .foregroundStyle(AppTheme.liveGreen)
-                        } else if let minute = match.minuteText {
-                            Text(minute)
-                                .font(.system(size: 9.5, weight: .bold).monospacedDigit())
-                                .foregroundStyle(AppTheme.liveGreen)
-                        }
-                    }
-                }
             }
         }
         .frame(width: kickoffWidth, alignment: .leading)
