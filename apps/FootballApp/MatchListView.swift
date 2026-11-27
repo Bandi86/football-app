@@ -175,6 +175,19 @@ struct MatchListView: View {
     /// későbbi tartalomnak; keskeny ablaknál a lista teljes szélességű.
     private static let twoColumnThreshold: CGFloat = 1200
 
+    /// S213: a bal oszlop pontosan akkora, amekkora a kártya tartalmához kell;
+    /// a maradék a jobb oldali panelé. Pure függvény, ezért pixelre tesztelhető.
+    static let listHorizontalPadding: CGFloat = 48
+    static let columnSpacing: CGFloat = 16
+
+    static func columnWidths(totalWidth: CGFloat) -> (list: CGFloat, side: CGFloat, twoColumns: Bool) {
+        let usable = totalWidth - 2 * listHorizontalPadding
+        let twoColumns = totalWidth >= twoColumnThreshold
+        guard twoColumns else { return (usable, 0, false) }
+        let list = min(max(MatchItemRow.minimumContentWidth, usable * 0.25), usable * 0.5)
+        return (list, usable - list - columnSpacing, true)
+    }
+
     private var orderedIDs: [String] {
         leagues.flatMap { league in
             league.matches.sorted { ($0.time, $0.id) < ($1.time, $1.id) }.map(\.id)
@@ -196,11 +209,16 @@ struct MatchListView: View {
             .accessibilityIdentifier("match.list.empty")
         } else {
             GeometryReader { geometry in
-                let isWide = geometry.size.width >= Self.wideLayoutThreshold
-                let twoColumns = geometry.size.width >= Self.twoColumnThreshold
+                let columns = Self.columnWidths(totalWidth: geometry.size.width)
+                // Két oszlopnál a kártya csak a saját, pointosan mért oszlopában
+                // dönt a széles/stacked elrendezésről; egy oszlopnál marad a régi küszöb.
+                let isWide = columns.twoColumns
+                    ? columns.list >= MatchItemRow.minimumContentWidth
+                    : geometry.size.width >= Self.wideLayoutThreshold
+                let twoColumns = columns.twoColumns
                 ScrollViewReader { proxy in
                     ScrollView {
-                        HStack(alignment: .top, spacing: twoColumns ? 16 : 0) {
+                        HStack(alignment: .top, spacing: twoColumns ? Self.columnSpacing : 0) {
                             LazyVStack(spacing: 10) {
                                 ForEach(leagues) { league in
                                     LeagueSectionView(
@@ -221,19 +239,19 @@ struct MatchListView: View {
                                     )
                                 }
                             }
-                            .frame(width: twoColumns ? geometry.size.width * 0.5 : nil,
+                            .frame(width: twoColumns ? columns.list : nil,
                                    alignment: .leading)
                             if twoColumns {
                                 // Üres jobb oszlop — későbbi tartalom helye.
                                 RoundedRectangle(cornerRadius: 19, style: .continuous)
                                     .strokeBorder(AppTheme.hairline)
-                                    .frame(width: geometry.size.width * 0.5 - 16,
+                                    .frame(width: columns.side,
                                            height: geometry.size.height - 32)
                                     .allowsHitTesting(false)
                                     .accessibilityIdentifier("home.sidepanel")
                             }
                         }
-                        .padding(.horizontal, 48)
+                        .padding(.horizontal, Self.listHorizontalPadding)
                         .padding(.vertical, 10)
                     }
                     .onChange(of: focusedMatch) { _, newValue in
@@ -362,7 +380,7 @@ private struct LeagueSectionView: View {
 /// A napi lista kártyája: kezdés, két csapatnév, végeredmény és 1X2 odds.
 /// Minden más adat (logó, pozíció, ELO, BTTS, 2,5, piacok, forrás, periódusok)
 /// a részletes nézetben él.
-private struct MatchItemRow: View {
+struct MatchItemRow: View {
     let match: MatchCardModel
     let logos: LogoStore
     let now: Date
@@ -371,9 +389,21 @@ private struct MatchItemRow: View {
     let onSelect: (String) -> Void
     @State private var hover = false
 
-    /// A kezdés-oszlop szélessége: a dátum, az idő és az állapotjelzés alatt
-    /// egy vonalban marad. Fix, mert ez az oszlop minden sornál ugyanaz.
-    private let kickoffWidth: CGFloat = 76
+    /// S213: a kártya tartalmi szélessége pontosan kiszámolható a fix
+    /// oszlopokból — nem kell „szélesre" hagyni a bal oszlopot.
+    static let kickoffWidth: CGFloat = 76
+    static let teamMinWidth: CGFloat = 190
+    static let teamMaxWidth: CGFloat = 280
+    static let scoreMinWidth: CGFloat = 56
+    /// Három 1X2 pill: ~56 pt/pill + 2×6 pt rés + 10 pt szegély.
+    static let oddsWidth: CGFloat = 180
+    static let cardHorizontalPadding: CGFloat = 14
+
+    /// 76 (idő) + 190 (csapatok) + 56 (eredmény) + 180 (odds)
+    /// + 4×10 (HStack rések) + 4 (Spacer) + 2×14 (kártya padding) = 574 pt.
+    static let minimumContentWidth: CGFloat =
+        kickoffWidth + teamMinWidth + scoreMinWidth + oddsWidth
+        + 4 * 10 + 4 + 2 * cardHorizontalPadding
 
     private var clock: MatchCardModel.ClockDisplay? { match.clock(at: now) }
 
@@ -442,7 +472,8 @@ private struct MatchItemRow: View {
         HStack(alignment: .center, spacing: 10) {
             kickoffColumn
             teamsColumn
-                .frame(maxWidth: 280, alignment: .leading)
+                .frame(minWidth: Self.teamMinWidth, maxWidth: Self.teamMaxWidth,
+                       alignment: .leading)
             Spacer(minLength: 4)
             scoreColumn
             oddsBlock
@@ -460,7 +491,7 @@ private struct MatchItemRow: View {
             }
             if match.hasOdds {
                 oddsBlock
-                    .padding(.leading, kickoffWidth + 16)
+                    .padding(.leading, Self.kickoffWidth + 16)
             }
         }
     }
@@ -505,7 +536,7 @@ private struct MatchItemRow: View {
                     .foregroundStyle(AppTheme.primaryText)
             }
         }
-        .frame(width: kickoffWidth, alignment: .leading)
+        .frame(width: Self.kickoffWidth, alignment: .leading)
     }
 
     /// Két csapatnév a címerrel. A forduló kizárólag a liga fejlécében jelenik
