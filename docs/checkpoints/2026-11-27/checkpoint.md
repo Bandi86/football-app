@@ -793,7 +793,42 @@ app unit 101/0, UI **34/34**, `daily-check` ZÖLD, `integrity` OK, `git diff --c
       `round_label` mezőjét a research obszervációkból újra lehet generálni;
       destruktív törlés nem történt. Az új daemon a régi commitból újraépíthető.
 
+## S212–S214 — Elhalasztott meccsek, pontos oszlopszélesség, kártyaállapotok
+
+- [x] **S212 — elhalasztottak:** új `Elhalasztott` szűrő (`feat/postponed-handling`
+      @ `51b51ee`) — a `postponed` státusz kikerült a `Következik` és a
+      `Lejárt, nyitott` szűrőből; a kártyán `ELHALASZTOTT` felirat jelenik meg
+      idő helyett. Mért adat: novemberben **107** elhalasztott meccs (100 múltbeli,
+      7 mai); a teljes audit `docs/operations/postponed-audit.md`-ben, újra
+      futtatható SQL-lel. Egységteszt: `testPostponedIsSeparateFromUpcoming`.
+- [x] **S213 — pontos szélesség:** `feat/panel-exact-width` @ `73725aa`.
+      A bal oszlop nem százalék, hanem a kártya tényleges tartalmi minimuma:
+      `76 + 190 + 56 + 180 + 4×10 + 4 + 2×14 = **574 pt**`. 1440 pt ablomnál
+      lista **574 pt**, jobb panel **754 pt**; 1200 pt-nél 552/536; 900 pt-nél
+      egyoszlopos (804 pt). A `columnWidths()` tiszta függvény, 5 pixelpontos
+      egységteszttel (`MatchListLayoutTests`). A kártya `isWide` döntése most
+      a saját oszlopán alapul, nem a teljes ablakon.
+- [x] **S214 — minden állapot látható:** a kártya bal felső sorában
+      `KÖVETKEZIK` / `ÉLŐ` / `LEZÁRT` / `VÁRHATÓ` / `ELHALASZTOTT` jelenik meg.
+      A hosszú felirat 7,5 pt betűvel elfér a 76 pt-es oszlopban (képi ellenőrzés).
+- [x] **Integráció:** `feat/homepage-preview` @ `621f436` — a három feature ág
+      és az S211 backend ág merge-elve, pusholva. App unit **zöld**; a teljes
+      15 perces UI-harness **nem futott** (felhasználói döntés). Helyette valódi
+      macOS ellenőrzés: AX-probe `home.sidepanel` és `filter.postponed` jelen van,
+      az `Elhalasztott: 7` chipre kattintva 7 elhalasztott kártya látszik AX-ben
+      (pl. `FC Dordrecht – Vitesse, Elhalasztott, 17. forduló`), képek:
+      `/tmp/fb-homepage-preview3.png`, `/tmp/fb-postponed-filter2.png`.
+      Az app újratelepítve, futó PID **6153**-ból újraindítva; a szűrő visszaállítva `Mind`re.
+- [x] A backfill után a ligafejlécekben ténylegesen megjelennek a fordulószámok
+      (12., 15., 11., 13., 14. forduló a képen) — nem találgatás, a research-adatból.
+
+### Visszaállás (S212–S214)
+
+- `git revert` a feature ágak commitjaira; a preview ág újraépíthető a feature
+      ágak merge-éből. Az adatot ezek a szeletek nem írják. A szűrő és a badge
+      visszaállítása külön revertelhető.
+
 ## Következő döntési pont
 
-- A predikció shadowban marad; nyitva: a 25/75 implementáció (S210 terv),
-      hosszabb backtest/rho-illesztés, S9 AI-gomb. VoiceOver skip.
+- A predikció shadowban marad; nyitva: a 25/75 részletező panel widgetjei
+      (S210–S212 terv), hosszabb backtest/rho-illesztés, S9 AI-gomb. VoiceOver skip.
