@@ -6,7 +6,7 @@ use football_storage::test_support::test_pool;
 
 fn measurement(hash: &str) -> NewMeasurement {
     NewMeasurement {
-        model_version: "test-v1",
+        model_version: "test-v1".to_owned(),
         date_from: NaiveDate::from_ymd_opt(2026, 11, 1).unwrap(),
         date_to: NaiveDate::from_ymd_opt(2026, 11, 27).unwrap(),
         market: "1x2",

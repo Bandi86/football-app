@@ -11,8 +11,23 @@ use sqlx::PgPool;
 
 const MODEL_VERSION: &str = "dixon-coles-eb-v1";
 
-pub async fn run(pool: &PgPool, date: NaiveDate, apply: bool) -> Result<()> {
-    let cutoff = Utc::now();
+pub async fn run(
+    pool: &PgPool,
+    date: NaiveDate,
+    as_of: Option<NaiveDate>,
+    apply: bool,
+) -> Result<()> {
+    let cutoff = match as_of {
+        Some(day) => day
+            .and_hms_opt(0, 0, 0)
+            .map(|naive| naive.and_utc())
+            .context("érvénytelen as-of dátum")?,
+        None => Utc::now(),
+    };
+    let model_version = match as_of {
+        Some(day) => format!("{MODEL_VERSION}-bt-{day}"),
+        None => MODEL_VERSION.to_owned(),
+    };
     let history = analytics::scored_matches_before(pool, cutoff, 365).await?;
     let upcoming = analytics::upcoming_matches(pool, date, cutoff).await?;
     if upcoming.is_empty() {
@@ -20,7 +35,7 @@ pub async fn run(pool: &PgPool, date: NaiveDate, apply: bool) -> Result<()> {
         return Ok(());
     }
     println!(
-        "Predikciók [{date}] modell={MODEL_VERSION} as-of={} history={} upcoming={}",
+        "Predikciók [{date}] modell={model_version} as-of={} history={} upcoming={}",
         cutoff.to_rfc3339(),
         history.len(),
         upcoming.len()
@@ -58,7 +73,7 @@ pub async fn run(pool: &PgPool, date: NaiveDate, apply: bool) -> Result<()> {
         };
         let odds = goals::fair_odds_for_markets(&markets).context("fair odds")?;
         let report = serde_json::json!({
-            "model": MODEL_VERSION,
+            "model": model_version.clone(),
             "match_id": match_row.id,
             "as_of": cutoff,
             "lambda_home": params.lambda_home,
@@ -90,7 +105,7 @@ pub async fn run(pool: &PgPool, date: NaiveDate, apply: bool) -> Result<()> {
                 pool,
                 &NewPrediction {
                     match_id: match_row.id,
-                    model_version: MODEL_VERSION,
+                    model_version: model_version.clone(),
                     outcomes: outcomes.to_vec(),
                     quality: "ok",
                     inputs_hash: hash.clone(),

@@ -208,6 +208,9 @@ enum Command {
     PredictionFit {
         #[arg(long)]
         date: NaiveDate,
+        /// Backtest: a becslés cutoffja; ekkor a modellverzió `-bt-{dátum}` utótagot kap.
+        #[arg(long)]
+        as_of: Option<NaiveDate>,
         #[arg(long, default_value_t = false)]
         apply: bool,
     },
@@ -217,6 +220,9 @@ enum Command {
         from: NaiveDate,
         #[arg(long)]
         to: NaiveDate,
+        /// Mérendő modellverzió (alap: market-shin-v1).
+        #[arg(long)]
+        model_version: Option<String>,
         #[arg(long, default_value_t = false)]
         apply: bool,
     },
@@ -728,11 +734,16 @@ async fn main() -> Result<()> {
             WorkerAction::Tick => worker_tick(&pool, &store, &data_dir).await?,
         },
         Command::Identity { action } => identity_command(&pool, action).await?,
-        Command::PredictionFit { date, apply } => {
-            prediction_fit::run(&pool, date, apply).await?;
+        Command::PredictionFit { date, as_of, apply } => {
+            prediction_fit::run(&pool, date, as_of, apply).await?;
         }
-        Command::PredictionMeasure { from, to, apply } => {
-            prediction_measure::run(&pool, from, to, apply).await?;
+        Command::PredictionMeasure {
+            from,
+            to,
+            model_version,
+            apply,
+        } => {
+            prediction_measure::run(&pool, from, to, model_version.as_deref(), apply).await?;
         }
         Command::Issues { action } => match action {
             IssuesAction::Detect { date, apply } => {

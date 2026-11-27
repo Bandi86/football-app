@@ -565,9 +565,43 @@ egy nem tőlem származó `HomeHeader.swift` módosítás a munkaterületen
   model_version='dixon-coles-eb-v1'` (a raw/audit sorok megőrzendők).
       A kanonikus adatot a szelet nem írta.
 
+## S199 — Predikció P1c: backtest mód és shadow-modell mérése
+
+- [x] **Döntés:** a felhasználó a backtest módot választotta (a 11-28-i
+      eredményekre várás helyett).
+- [x] **CLI:** `prediction-fit --date D --as-of D2 [--apply]` — a cutoff `D2`
+      00:00 UTC, a modellverzió `-bt-{D2}` utótagot kap, hogy ne írja felül az
+      éles shadow-predikciókat; `prediction-measure --model-version V` — a
+      rögzített predikciókat méri a tényleges eredményre. Mindkettő alapból
+      dry-run. A `upcoming_matches` a jelenlegi státusz helyett a `kickoff >
+      cutoff` feltételt használja (különben a már lezárt meccsek kimaradtak a
+      backtestből — javítva).
+- [x] **Éles backtest (2026-11-24 cutoff → 2026-11-25 meccsei):** 522 predikciós
+      sor (174 meccs × 3), ebből **146 lezárt meccs** mérhető. Eredmény:
+      Brier/3 **0,2213** vs bázis **0,2222** (különbség **−0,0010**, bootstrap CI
+      **[−0,0174; +0,0126]** → **nem szignifikáns**), de a de-vigelt piac
+      Brier-e **0,1408** — a piac messze jobb. Log-loss **1,0928**, top-1
+      **64/146**, Wilson CI [0,3605; 0,5194]. A mérés rögzítve
+      (`analytics.measurement` id `01a21cd6-61cf-71c7-8486-57da7f5c216f`).
+- [x] **Kapuk:** teljes workspace **669 passed, 0 failed** · clippy 0 · fmt 0 ·
+      build OK · `daily-check 11-26` EXIT=0 · `integrity` OK · `git diff --check` 0.
+- [x] **Döntés a kapuban:** a modell **nem aktiválható** — a P0 szerződés
+      szerint a CI átmetszi a 0-t, és a piac is jobb nála. Shadow marad.
+- [ ] **Nem ellenőrzött**: a backtest csak egy napon (146 minta) futott;
+      hosszabb ablak, `rho` illesztése, OU/BTTS predikciók rögzítése,
+      és a `home_ft`-hiányos meccsek kiszűrésének oka nincs kivizsgálva.
+      Egy korábbi, hibás backtest-futtatás 75 sorát töröltük az analytics
+      táblából (csak saját generált adat).
+- [ ] A 2 névreview és az S9 AI-gomb továbbra is külön döntés.
+
+### Visszaállás (S199)
+
+- `git revert <S199 commit>`; a backtest sorok törlése:
+      `DELETE FROM analytics.prediction WHERE model_version LIKE 'dixon-coles-eb-v1-bt-%'`
+      és `DELETE FROM analytics.measurement WHERE model_version LIKE '...'`.
+      A kanonikus adatot a szelet nem írta.
+
 ## Következő döntési pont
 
-- Predikció **P1c**: a shadow predikciók mérése a P0 szerződéssel (Brier/log-loss,
-      Wilson, klaszterezett bootstrap a piac és a bázis ellen), és csak
-      szignifikáns javulás esetén aktiválás. Külön döntés marad a 2 névreview
-      és az S9 AI-gomb.
+- A predikció shadowban marad; külön döntés: hosszabb backtest/rho-illesztés,
+      OU/BTTS predikciók, a 2 névreview, illetve az S9 AI-gomb.

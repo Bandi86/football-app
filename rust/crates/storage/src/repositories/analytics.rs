@@ -127,7 +127,6 @@ pub async fn upcoming_matches(
         "SELECT id, home_team_id AS home, away_team_id AS away, kickoff_at
            FROM core.match
           WHERE kickoff_at::date = $1 AND kickoff_at > $2
-            AND status IN ('scheduled', 'confirmed')
           ORDER BY kickoff_at",
     )
     .bind(date)
@@ -140,7 +139,7 @@ pub async fn upcoming_matches(
 #[derive(Debug, Clone)]
 pub struct NewPrediction {
     pub match_id: Uuid,
-    pub model_version: &'static str,
+    pub model_version: String,
     pub outcomes: Vec<(&'static str, f64, f64, f64)>, // (outcome, probability, fair_odds, edge)
     pub quality: &'static str,
     pub inputs_hash: String,
@@ -163,7 +162,7 @@ pub async fn upsert_prediction(pool: &PgPool, row: &NewPrediction) -> Result<usi
         )
         .bind(Uuid::now_v7())
         .bind(row.match_id)
-        .bind(row.model_version)
+        .bind(row.model_version.clone())
         .bind(*outcome)
         .bind(*probability)
         .bind(*fair_odds)
@@ -179,9 +178,50 @@ pub async fn upsert_prediction(pool: &PgPool, row: &NewPrediction) -> Result<usi
     Ok(written)
 }
 
+/// Egy rögzített predikció és a tényleges eredmény a méréshez.
+#[derive(Debug, Clone, FromRow)]
+pub struct PredictionSampleRow {
+    pub match_id: Uuid,
+    pub competition_id: Uuid,
+    pub home_prob: f64,
+    pub draw_prob: f64,
+    pub away_prob: f64,
+    pub home_ft: i16,
+    pub away_ft: i16,
+}
+
+pub async fn predicted_outcomes(
+    pool: &PgPool,
+    model_version: &str,
+    from: NaiveDate,
+    to: NaiveDate,
+) -> Result<Vec<PredictionSampleRow>> {
+    sqlx::query_as::<_, PredictionSampleRow>(
+        "SELECT p.match_id, m.competition_id,
+                max(p.probability) FILTER (WHERE p.outcome = 'home')::float8 AS home_prob,
+                max(p.probability) FILTER (WHERE p.outcome = 'draw')::float8 AS draw_prob,
+                max(p.probability) FILTER (WHERE p.outcome = 'away')::float8 AS away_prob,
+                r.home_ft, r.away_ft
+           FROM analytics.prediction p
+           JOIN core.match m ON m.id = p.match_id
+           JOIN core.match_result r ON r.match_id = m.id
+          WHERE p.model_version = $1
+            AND m.kickoff_at::date BETWEEN $2 AND $3
+          GROUP BY p.match_id, m.competition_id, r.home_ft, r.away_ft
+          HAVING count(*) FILTER (WHERE p.outcome IN ('home','draw','away')) = 3
+          ORDER BY p.match_id",
+    )
+    .bind(model_version)
+    .bind(from)
+    .bind(to)
+    .fetch_all(pool)
+    .await
+    .context("predikciók és eredmények lekérése")
+}
+
 #[derive(Debug, Clone)]
 pub struct NewMeasurement {
-    pub model_version: &'static str,
+    pub model_version: String,
     pub date_from: NaiveDate,
     pub date_to: NaiveDate,
     pub market: &'static str,
@@ -215,7 +255,7 @@ pub async fn upsert_measurement(pool: &PgPool, row: &NewMeasurement) -> Result<U
          RETURNING id",
     )
     .bind(Uuid::now_v7())
-    .bind(row.model_version)
+    .bind(row.model_version.clone())
     .bind(row.date_from)
     .bind(row.date_to)
     .bind(row.market)
