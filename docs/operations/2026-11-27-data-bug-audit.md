@@ -98,3 +98,67 @@ curl -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/v1/day/2026-11-25
   mezőjében és a fenti dry-run listában megvannak. Törlés nem történt.
 - A kézi algériai szerkesztések audit eventben visszakereshetők; nem lettek
   felülírva.
+
+## 4. Külső forrás-ellenőrzés (2026-11-27, web)
+
+A felhasználó kérésére külső oldalakon is ellenőriztem a három esetet.
+Ezek a leletek **felülírják** a korábbi „a forrásban nincs eredmény"
+megállapítást: a meccsek nem lettek elhalasztva úgy, hogy nyomuk veszett
+volna — **át lettek ütemezve, illetve a dátumuk placeholder volt**.
+
+### 4.1 Paraguay — átütemezve (ESPN)
+
+Az ESPN meccslapjai a `401888557`, `401888643`, `401888558` játékID-khez
+(amelyek a mi adatbázisunkban is szerepelnek) ma ezeket a dátumokat mutatják:
+
+| Meccs | Eredeti (nálunk) | ESPN ma |
+|---|---|---|
+| Luqueño – Olimpia | 11-25 20:00 UTC | **11-27 23:00** |
+| Nacional – Rubio Ñú | 11-25 20:00 UTC | **11-27 20:30** |
+| Trinidense – Recoleta | 11-25 20:00 UTC | **11-28 23:00** |
+
+Források:
+- https://www.espn.com/soccer/match/_/gameId/401888557
+- https://www.espn.com/soccer/match/_/gameId/401888643
+- https://www.espn.com/soccer/match/_/gameId/401888558
+
+A mi DB-nkben a három 11-25-i `Paraguayan Primera` sor **scheduled** maradt,
+közben ugyanezek a fixture-ek `Division Profesional: Clausura` alatt már
+11-27-nél, illetve 11-28-nál is megjelennek (kettő közülük). A harmadik
+(Trinidense–Recoleta) új dátuma még nincs benne az adatbázisban. Tehát nem
+eredményhiány, hanem **elavult dátum + párhuzamos kanonikus sor**.
+
+### 4.2 Ciprus-kupa — a 11-25-i dátum nem valós (CFA hivatalos program)
+
+A Ciprusi Labdarúgó-szövetség 2026-11-23-i hivatalos programja szerint
+a nyolc nyolcaddöntő meccs **egyikét sem** 11-25-én játszották:
+
+- 2026-12-09: AEL – EN Paralimni
+- 2026-12-16: Krasava ENY – ASIL
+- 2027-01-06: Omonia – Olympiakos
+- 2027-01-20: APOEL – Aris; AEK Larnaca – Anorthosis
+- 2027-01-27: Omonia Aradippou – Omonia 29M; Nea Salamis – Pafos; Karmiotissa – Apollon
+
+Forrás: https://larnakaonline.com.cy/2026/11/23/kypello-stis-20-ianouariou-to-aek-anorthosi-olo-to-programma/
+A sorsolásról szóló hír (goal.philenews.com) szintén azt írta, hogy a meccsek
+„legkorábban 2026. november 25-én kezdődhetnek" — a research feed ezt a
+**lehetséges legkorábbi dátumot** rögzítette tényleges kickoffként.
+
+### 4.3 Holland Eerste Divisie, 17. forduló — nincs hiányzó eredmény
+
+A Voetbalkrant 2026/2027-es 17. forduló programja (és az azt mutató
+OneFootball-meccslap) szerint a forduló 10 meccse:
+
+- elhalasztva (`Uitg`): Utrecht–Almere, Dordrecht–Vitesse, Jong AZ–Oss,
+  VVV–RKC, Emmen–Helmond;
+- lejátszva: NAC **3-0** Den Bosch, MVV **0-2** Jong PSV,
+  Jong Ajax **1-3** Heracles;
+- 11-29: Volendam–Eindhoven 12:15, Roda–De Graafschap 16:45.
+
+Forrás: https://www.voetbalkrant.com/nederland/eerste-divisie/2026-2027/kalender/speeldag-17/fc-volendam/eindhoven
+
+A mi adatbázisunkban pontosan ezek vannak, **kivéve a 11-29-i két meccset**:
+a research napi JSON 11-29-re egyáltalán nem létezik, ezért nem lett
+letöltve. Ez nem megjelenítési hiba, hanem **feed-lefedettségi hiány**.
+Egy eltérés: az Emmen–Helmond meccset a külső forrás elhalasztottnak
+mutatja, nálunk `scheduled` (11-28 16:30) — ezt külön kell egyeztetni.
