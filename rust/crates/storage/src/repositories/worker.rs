@@ -815,6 +815,22 @@ pub async fn heartbeat_job(pool: &PgPool, lease: &JobLease, lease_secs: i64) -> 
     Ok(result.rows_affected() == 1)
 }
 
+pub async fn lease_is_active(pool: &PgPool, lease: &JobLease) -> Result<bool> {
+    let active = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (
+            SELECT 1 FROM ops.job
+            WHERE id = $1 AND lease_token = $2 AND status = 'leased'
+              AND leased_until > clock_timestamp()
+        )",
+    )
+    .bind(lease.job_id)
+    .bind(lease.token)
+    .fetch_one(pool)
+    .await
+    .context("job lease aktivitásának ellenőrzése")?;
+    Ok(active)
+}
+
 pub async fn requeue_expired_leases(pool: &PgPool) -> Result<u64> {
     let res = sqlx::query(
         "UPDATE ops.job SET status='pending', worker_id=NULL, leased_until=NULL,

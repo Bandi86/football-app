@@ -469,6 +469,40 @@ async fn heartbeat_extends_only_a_live_owned_lease() {
 }
 
 #[tokio::test]
+async fn lease_activity_requires_the_current_token_and_unexpired_lease() {
+    let pool = test_pool().await;
+    seed_policy(&pool, "lease-activity").await;
+    let now = Utc::now().trunc_subsecs(6);
+    repo::insert_job(
+        &pool,
+        &new_job("lease-activity", "day", now - Duration::minutes(1), 10),
+    )
+    .await
+    .unwrap();
+    let lease = repo::claim_due_jobs(&pool, Uuid::now_v7(), 60, 1)
+        .await
+        .unwrap()
+        .remove(0)
+        .lease;
+    let forged = JobLease {
+        token: Uuid::now_v7(),
+        ..lease
+    };
+
+    assert!(repo::lease_is_active(&pool, &lease).await.unwrap());
+    assert!(!repo::lease_is_active(&pool, &forged).await.unwrap());
+
+    sqlx::query(
+        "UPDATE ops.job SET leased_until = clock_timestamp() - interval '1 second' WHERE id = $1",
+    )
+    .bind(lease.job_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(!repo::lease_is_active(&pool, &lease).await.unwrap());
+}
+
+#[tokio::test]
 async fn claim_generates_unique_lease_tokens() {
     let pool = test_pool().await;
     seed_policy(&pool, "lease-tokens").await;

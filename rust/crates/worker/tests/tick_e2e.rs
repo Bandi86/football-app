@@ -29,6 +29,9 @@ use football_storage::repositories::worker::{self as repo, BreakerRow};
 use football_storage::test_support::test_pool;
 use football_worker::{quota, scheduler, tick};
 use sqlx::PgPool;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
+use tokio::sync::oneshot;
 use uuid::Uuid;
 
 /// A tesztek fixture policy-i a fixture fetcheren mennek (nincs hálózat).
@@ -611,6 +614,162 @@ async fn unexpected_infra_error_marks_coverage_failed() {
     // A fetch és az L0 megőrzés sikeres volt: a nyers megmaradt.
     assert_eq!(count(&pool, "SELECT count(*) FROM raw.artifact").await, 1);
     assert_eq!(count(&pool, "SELECT count(*) FROM raw.capture").await, 1);
+}
+
+struct DemoHttpAdapter {
+    url: String,
+}
+
+impl SourceAdapter for DemoHttpAdapter {
+    fn meta(&self) -> AdapterMeta {
+        AdapterMeta {
+            source_slug: "demo-synthetic".into(),
+            adapter_version: "1.0".into(),
+            parser_version: "1.0".into(),
+            domains: vec!["match".into()],
+            transport: Transport::RustHttp,
+        }
+    }
+
+    fn plan(&self, _job: &FetchJob) -> Vec<FetchRequest> {
+        vec![FetchRequest {
+            url: self.url.clone(),
+            request_key: "demo-synthetic:match:http".into(),
+            endpoint_key: "match".into(),
+            ready_marker: None,
+            bearer_token: None,
+        }]
+    }
+
+    fn parse(&self, raw: &RawPayload, ctx: &ParseCtx) -> Result<Vec<Observation>, ParseError> {
+        DemoAdapter.parse(raw, ctx)
+    }
+}
+
+async fn serve_once(
+    listener: TcpListener,
+    body: String,
+    request_tx: oneshot::Sender<()>,
+    release_rx: oneshot::Receiver<()>,
+) {
+    let (mut socket, _) = listener.accept().await.unwrap();
+    let mut request = Vec::new();
+    let mut chunk = [0_u8; 1024];
+    loop {
+        let read = socket.read(&mut chunk).await.unwrap();
+        assert!(read > 0, "a HTTP kliens korán zárta a kapcsolatot");
+        request.extend_from_slice(&chunk[..read]);
+        if request.windows(4).any(|window| window == b"\r\n\r\n") {
+            break;
+        }
+    }
+    request_tx.send(()).unwrap();
+    release_rx.await.unwrap();
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    socket.write_all(response.as_bytes()).await.unwrap();
+    socket.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn lease_lost_during_fetch_prevents_raw_observation_and_canonical_writes() {
+    let pool = test_pool().await;
+    let now = tick_now();
+    let store_dir = tempfile::tempdir().unwrap();
+    let store = ObjectStore::new(store_dir.path()).unwrap();
+    let fetch_dir = tempfile::tempdir().unwrap();
+    let body = std::fs::read_to_string(write_rewritten_fixture(
+        "demo_day.json",
+        now,
+        fetch_dir.path(),
+    ))
+    .unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/page", listener.local_addr().unwrap());
+    let (request_tx, request_rx) = oneshot::channel();
+    let (release_tx, release_rx) = oneshot::channel();
+    let server = tokio::spawn(serve_once(listener, body, request_tx, release_rx));
+
+    repo::upsert_policy(&pool, &http_policy(0)).await.unwrap();
+    seed_http_job(&pool, now).await;
+    seed_robots_allowed(&pool, &url).await;
+    let adapters = HashMap::from([(
+        "demo-synthetic".to_string(),
+        Box::new(DemoHttpAdapter { url: url.clone() }) as Box<dyn SourceAdapter>,
+    )]);
+    let fetchers = as_fetchers(FixtureFetcher::new(HashMap::new()));
+    let mut tick_future = Box::pin(tick::tick(
+        &pool,
+        &store,
+        &fetchers,
+        &adapters,
+        Uuid::now_v7(),
+        now,
+    ));
+    tokio::select! {
+        biased;
+        result = &mut tick_future => panic!("a tick a fetch bekövetkezte előtt végzett: {result:?}"),
+        _ = request_rx => {}
+    }
+
+    let new_token = Uuid::now_v7();
+    let changed = sqlx::query(
+        "UPDATE ops.job
+         SET lease_token=$1, leased_until=clock_timestamp() + interval '60 seconds'
+         WHERE status='leased'",
+    )
+    .bind(new_token)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(changed.rows_affected(), 1);
+    release_tx.send(()).unwrap();
+
+    let outcome = tick_future.await.unwrap();
+    server.await.unwrap();
+    assert_eq!(outcome.blocked, 1);
+    assert_eq!(outcome.processed, 0);
+    assert_eq!(outcome.failed, 0);
+    assert_eq!(count(&pool, "SELECT count(*) FROM raw.artifact").await, 0);
+    assert_eq!(count(&pool, "SELECT count(*) FROM raw.capture").await, 0);
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM stage.observation").await,
+        0
+    );
+    assert_eq!(count(&pool, "SELECT count(*) FROM core.match").await, 0);
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM ops.publish_gate").await,
+        0
+    );
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM ops.coverage_slot").await,
+        0
+    );
+    assert_eq!(
+        std::fs::read_dir(store_dir.path().join("raw"))
+            .unwrap()
+            .count(),
+        0,
+        "a lejárt lease nem írhat objektumtár-fájlt"
+    );
+    let ledger_outcome: String =
+        sqlx::query_scalar("SELECT outcome FROM ops.fetch_ledger WHERE job_id IS NOT NULL")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(ledger_outcome, "reserved");
+    let (status, token): (String, Uuid) = sqlx::query_as("SELECT status, lease_token FROM ops.job")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "leased");
+    assert_eq!(
+        token, new_token,
+        "a régi worker nem zárhatja le az újabb lease-t"
+    );
 }
 
 struct TestHttpAdapter {

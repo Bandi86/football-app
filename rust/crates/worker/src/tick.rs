@@ -121,6 +121,48 @@ enum JobResult {
     Deferred,
 }
 
+async fn run_job_with_heartbeat(
+    heartbeat: &mut tokio::task::JoinHandle<bool>,
+    process: impl std::future::Future<Output = Result<JobResult>>,
+) -> Result<JobResult> {
+    tokio::select! {
+        biased;
+        result = process => result,
+        heartbeat_result = heartbeat => {
+            if !matches!(heartbeat_result, Ok(true)) {
+                tracing::warn!("worker lease elveszett a feldolgozás közben");
+            }
+            Ok(JobResult::Blocked)
+        }
+    }
+}
+
+fn spawn_heartbeats(
+    pool: &PgPool,
+    jobs: &[LeasedJob],
+    interval: StdDuration,
+    lease_secs: i64,
+) -> Vec<
+    Option<(
+        tokio::sync::watch::Sender<bool>,
+        tokio::task::JoinHandle<bool>,
+    )>,
+> {
+    jobs.iter()
+        .map(|leased| {
+            let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+            let heartbeat = tokio::spawn(lease::heartbeat_loop(
+                pool.clone(),
+                leased.lease,
+                interval,
+                lease_secs,
+                stop_rx,
+            ));
+            Some((stop_tx, heartbeat))
+        })
+        .collect()
+}
+
 /// S139: a catch-up akkor dolgozható fel, ha a forrásfájl a job létrehozása
 /// után frissült. Hiányzó fájl vagy 6 óránál régebbi job esetén a döntés:
 /// előbbi várakozás, utóbbi mégis feldolgozás (a forrás tartósan nem frissül).
@@ -183,20 +225,25 @@ pub async fn tick(
         failed: 0,
         deferred: 0,
     };
-    for leased in &jobs {
-        let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
-        let heartbeat = tokio::spawn(lease::heartbeat_loop(
-            pool.clone(),
-            leased.lease,
-            HEARTBEAT_INTERVAL,
-            LEASE_SECS,
-            stop_rx,
-        ));
-        let mut result = process_job(pool, store, fetchers, adapters, leased, now).await;
+    let mut heartbeats = spawn_heartbeats(pool, &jobs, HEARTBEAT_INTERVAL, LEASE_SECS);
+    for (index, leased) in jobs.iter().enumerate() {
+        let Some((stop_tx, mut heartbeat)) = heartbeats[index].take() else {
+            continue;
+        };
+        if heartbeat.is_finished() {
+            let _ = heartbeat.await;
+            let _ = stop_tx.send(true);
+            outcome.blocked += 1;
+            continue;
+        }
+        let result = run_job_with_heartbeat(
+            &mut heartbeat,
+            process_job(pool, store, fetchers, adapters, leased, now),
+        )
+        .await;
         let _ = stop_tx.send(true);
-        let heartbeat_ok = heartbeat.await.unwrap_or(false);
-        if !heartbeat_ok {
-            result = Ok(JobResult::Blocked);
+        if !heartbeat.is_finished() {
+            let _ = heartbeat.await;
         }
         match result {
             Ok(JobResult::Processed) => outcome.processed += 1,
@@ -260,6 +307,9 @@ async fn process_job(
 ) -> Result<JobResult> {
     let job = &leased.job;
     let lease = &leased.lease;
+    if !repo::lease_is_active(pool, lease).await? {
+        return Ok(JobResult::Blocked);
+    }
     // S139/S163: a research refresh csak akkor olvashat, ha a CÉL napi fájl a
     // job létrehozása UTÁN frissült (catchup: entity_key, slot: time_window).
     // A daemon 07:31-kor indult, a research fájl 07:38-kor frissül — régen a
@@ -360,6 +410,9 @@ async fn process_job(
     let mut observations: Vec<Observation> = Vec::new();
     let result = async {
         for req in &plan {
+            if !repo::lease_is_active(pool, lease).await? {
+                return Ok(JobResult::Blocked);
+            }
             // Robots-kapu kérésenként (fail-closed); helyi fájl-forrásnál nincs.
             if !local_file
                 && robots::check(pool, robots_fetcher, &job.source_slug, &req.url).await?
@@ -370,6 +423,9 @@ async fn process_job(
                     return Ok(JobResult::Blocked);
                 }
                 return finish(pool, leased, JobStatus::Failed, Some("robots tiltás")).await;
+            }
+            if !repo::lease_is_active(pool, lease).await? {
+                return Ok(JobResult::Blocked);
             }
 
             // Breaker-kapu: nyitva → nem számláló ledger + failed.
@@ -384,6 +440,10 @@ async fn process_job(
             // placeholder megmarad. Hálózati kérésnél a reservation dönti el
             // egyszerre a kvótát, a min-delayt és a ledger-foglalást.
             let ledger_id = if local_file {
+                if !repo::lease_is_active(pool, lease).await? {
+                    probe.release().await?;
+                    return Ok(JobResult::Blocked);
+                }
                 repo::insert_ledger(
                     pool,
                     &LedgerEntry {
@@ -478,10 +538,17 @@ async fn process_job(
                     .await;
                 }
             };
+            if !repo::lease_is_active(pool, lease).await? {
+                probe.release().await?;
+                return Ok(JobResult::Blocked);
+            }
             // A breaker a fetch-egészséget tükrözi (S3a).
             breaker::on_success(pool, &job.source_slug, probe.token()).await?;
             probe.complete();
 
+            if !repo::lease_is_active(pool, lease).await? {
+                return Ok(JobResult::Blocked);
+            }
             let http_status =
                 i16::try_from(raw.http_status).context("HTTP-státusz i16 konverzió")?;
             let byte_size = i64::try_from(raw.bytes.len()).ok();
@@ -530,6 +597,9 @@ async fn process_job(
             let parsed = match adapter.parse(&raw, &ctx) {
                 Ok(parsed) => parsed,
                 Err(err) => {
+                    if !repo::lease_is_active(pool, lease).await? {
+                        return Ok(JobResult::Blocked);
+                    }
                     repo::update_ledger_outcome(
                         pool,
                         ledger_id,
@@ -548,7 +618,13 @@ async fn process_job(
             };
 
             // Observationök a stage rétegbe.
+            if !repo::lease_is_active(pool, lease).await? {
+                return Ok(JobResult::Blocked);
+            }
             for obs in &parsed {
+                if !repo::lease_is_active(pool, lease).await? {
+                    return Ok(JobResult::Blocked);
+                }
                 insert_observation(
                     pool,
                     source_id,
@@ -568,10 +644,16 @@ async fn process_job(
             // a forrás sorát a már linkelt kanonikus meccshez rendeljük, és
             // az egész odds-blokkot (1X2 + minden piacot) együtt írjuk.
             if job.domain == "markets" && policy.mode != SourceMode::Shadow {
+                if !repo::lease_is_active(pool, lease).await? {
+                    return Ok(JobResult::Blocked);
+                }
                 let mut written = 0usize;
                 for obs in &parsed {
                     if obs.aspect != "match_odds" {
                         continue;
+                    }
+                    if !repo::lease_is_active(pool, lease).await? {
+                        return Ok(JobResult::Blocked);
                     }
                     let Some(match_id) =
                         repo::active_match_ref(pool, source_id, &obs.source_record_key).await?
@@ -625,6 +707,9 @@ async fn process_job(
 
             // A fetch sikeres: a ledger-sor véglegesítése (a kanonikus szakasz
             // hibája már nem a fetch eredménye).
+            if !repo::lease_is_active(pool, lease).await? {
+                return Ok(JobResult::Blocked);
+            }
             repo::update_ledger_outcome(
                 pool,
                 ledger_id,
@@ -642,6 +727,9 @@ async fn process_job(
         // lista legitím nulla-nap → no_data, nem hiba.
         if policy.mode != SourceMode::Shadow && !observations.is_empty() && job.domain != "markets"
         {
+            if !repo::lease_is_active(pool, lease).await? {
+                return Ok(JobResult::Blocked);
+            }
             if observations.iter().any(|o| o.aspect == "club_elo") {
                 let elo = football_ingest::normalized::ClubEloDay::from_observations(&observations)
                     .context("observationökből club_elo nap")?;
@@ -653,6 +741,9 @@ async fn process_job(
                 )
                 .context("observationökből normalizált napok")?;
                 for day in &days {
+                    if !repo::lease_is_active(pool, lease).await? {
+                        return Ok(JobResult::Blocked);
+                    }
                     verify_and_publish(pool, day).await?;
                 }
                 tracing::info!(competitions = days.len(), "napi versenyek materializálva");
@@ -663,6 +754,9 @@ async fn process_job(
                     && let Ok(date) =
                         chrono::NaiveDate::parse_from_str(&job.time_window, "%Y-%m-%d")
                 {
+                    if !repo::lease_is_active(pool, lease).await? {
+                        return Ok(JobResult::Blocked);
+                    }
                     match auto_dedupe_day(pool, date).await {
                         Ok((merged, skipped)) => {
                             tracing::info!(%date, merged, skipped, "napi dedupe pass (research)");
@@ -801,6 +895,10 @@ async fn fetch_failure(
     probe: &mut breaker::ProbeGuard,
 ) -> Result<JobResult> {
     let job = &leased.job;
+    if !repo::lease_is_active(pool, &leased.lease).await? {
+        probe.release().await?;
+        return Ok(JobResult::Blocked);
+    }
     let retry_after = match err {
         FetchError::RateLimited(retry_after) => *retry_after,
         _ => None,
@@ -1360,12 +1458,143 @@ async fn auto_merge_pair(
 #[cfg(test)]
 mod tests {
     use super::{
-        BACKOFF_CAP_SECS, backoff_delay, catchup_source_stale, next_quota_reset,
-        research_refresh_target, stale_slot_job,
+        BACKOFF_CAP_SECS, JobResult, backoff_delay, catchup_source_stale, next_quota_reset, repo,
+        research_refresh_target, run_job_with_heartbeat, scheduler, spawn_heartbeats,
+        stale_slot_job,
     };
-    use chrono::{NaiveDate, TimeZone, Utc};
-    use football_domain::policy::{FetchJob, Transport};
+    use chrono::{DateTime, Duration, NaiveDate, SubsecRound, TimeZone, Utc};
+    use football_domain::policy::{FetchJob, SourceMode, SourcePolicy, Transport};
+    use football_storage::test_support::test_pool;
+    use std::collections::HashMap;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    use std::time::Duration as StdDuration;
     use uuid::Uuid;
+
+    struct CancelOnDrop(Arc<AtomicBool>);
+
+    impl Drop for CancelOnDrop {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn heartbeat_loss_cancels_job_processing() {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let guard_cancelled = Arc::clone(&cancelled);
+        let process = async move {
+            let _guard = CancelOnDrop(guard_cancelled);
+            std::future::pending::<anyhow::Result<JobResult>>().await
+        };
+        let mut heartbeat = tokio::spawn(async {
+            tokio::task::yield_now().await;
+            false
+        });
+
+        let result = run_job_with_heartbeat(&mut heartbeat, process)
+            .await
+            .unwrap();
+
+        assert!(matches!(result, JobResult::Blocked));
+        assert!(
+            cancelled.load(Ordering::SeqCst),
+            "a heartbeatvesztésnek azonnal le kell állítania a feldolgozást"
+        );
+    }
+
+    #[tokio::test]
+    async fn completed_job_is_not_overwritten_by_late_heartbeat_failure() {
+        let mut heartbeat = tokio::spawn(async { false });
+
+        let result = run_job_with_heartbeat(&mut heartbeat, async { Ok(JobResult::Processed) })
+            .await
+            .unwrap();
+
+        assert!(matches!(result, JobResult::Processed));
+        assert!(!heartbeat.await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn every_claimed_job_gets_an_independent_heartbeat() {
+        let pool = test_pool().await;
+        let policy = SourcePolicy {
+            source_slug: "multi-heartbeat".into(),
+            transport: Transport::Fixture,
+            mode: SourceMode::Shadow,
+            daily_budget: 100,
+            min_delay_ms: 0,
+            jitter_ms: 0,
+            breaker_threshold: 3,
+            breaker_cooldown_secs: 60,
+            adapter_version: "1.0".into(),
+            parser_version: "1.0".into(),
+            domains: vec!["match".into()],
+            events: vec![],
+            enabled: true,
+            max_bytes: 5_242_880,
+        };
+        repo::upsert_policy(&pool, &policy).await.unwrap();
+        let now = Utc::now().trunc_subsecs(6);
+        for entity_key in ["first", "second"] {
+            repo::insert_job(
+                &pool,
+                &repo::NewJob {
+                    source_slug: policy.source_slug.clone(),
+                    domain: "match".into(),
+                    entity_key: entity_key.into(),
+                    event_type: "discovery".into(),
+                    time_window: now.date_naive().to_string(),
+                    due_at: now - Duration::minutes(1),
+                    priority: 0,
+                },
+            )
+            .await
+            .unwrap();
+        }
+        let jobs = scheduler::claim(&pool, Uuid::now_v7(), 60, 10)
+            .await
+            .unwrap();
+        assert_eq!(jobs.len(), 2);
+        let before: HashMap<Uuid, DateTime<Utc>> =
+            sqlx::query_as("SELECT id, leased_until FROM ops.job WHERE status='leased'")
+                .fetch_all(&pool)
+                .await
+                .unwrap()
+                .into_iter()
+                .collect();
+        let mut heartbeats = spawn_heartbeats(&pool, &jobs, StdDuration::from_millis(10), 60);
+
+        tokio::time::timeout(StdDuration::from_secs(2), async {
+            loop {
+                let current: HashMap<Uuid, DateTime<Utc>> =
+                    sqlx::query_as("SELECT id, leased_until FROM ops.job WHERE status='leased'")
+                        .fetch_all(&pool)
+                        .await
+                        .unwrap()
+                        .into_iter()
+                        .collect();
+                if jobs.iter().all(|leased| {
+                    current
+                        .get(&leased.job.id)
+                        .is_some_and(|until| *until > before[&leased.job.id])
+                }) {
+                    break;
+                }
+                tokio::time::sleep(StdDuration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("minden claimelt lease-nek időben kell heartbeatelnie");
+
+        for item in &mut heartbeats {
+            let (stop_tx, heartbeat) = item.take().unwrap();
+            stop_tx.send(true).unwrap();
+            assert!(heartbeat.await.unwrap());
+        }
+    }
 
     /// S139: a 07:31-es job nem olvashatja a 07:38-as frissítés előtti fájlt;
     /// 07:46-kor viszont már igen. Hiányzó fájl és tartósan elavult forrás
