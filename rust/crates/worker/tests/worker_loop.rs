@@ -11,16 +11,17 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
-use football_domain::policy::{EventTemplate, SourceMode, SourcePolicy, Transport};
-use football_ingest::adapter::SourceAdapter;
+use football_domain::error::ParseError;
+use football_domain::policy::{EventTemplate, FetchJob, SourceMode, SourcePolicy, Transport};
+use football_ingest::adapter::{AdapterMeta, Observation, ParseCtx, SourceAdapter};
 use football_ingest::demo::DemoAdapter;
-use football_ingest::fetch::{Fetchers, FixtureFetcher};
+use football_ingest::fetch::{FetchRequest, Fetchers, FixtureFetcher, RawPayload};
 use football_ingest::http::RustHttpFetcher;
 use football_storage::object_store::ObjectStore;
 use football_storage::repositories::worker as repo;
 use football_storage::test_support::test_pool;
 use football_worker::{lease, runner, runner::run_loop, scheduler};
-use sqlx::{ConnectOptions, PgPool};
+use sqlx::{ConnectOptions, PgPool, postgres::PgAdvisoryLock};
 use uuid::Uuid;
 
 /// A tesztek fixture policy-i a fixture fetcheren mennek (nincs hálózat).
@@ -77,6 +78,71 @@ fn adapters() -> HashMap<String, Box<dyn SourceAdapter>> {
     )])
 }
 
+struct DelayedHttpAdapter {
+    url: String,
+}
+
+#[async_trait::async_trait]
+impl SourceAdapter for DelayedHttpAdapter {
+    fn meta(&self) -> AdapterMeta {
+        AdapterMeta {
+            source_slug: "demo-synthetic".into(),
+            adapter_version: "1.0".into(),
+            parser_version: "1.0".into(),
+            domains: vec!["match".into()],
+            transport: Transport::RustHttp,
+        }
+    }
+
+    fn plan(&self, _job: &FetchJob) -> Vec<FetchRequest> {
+        vec![FetchRequest {
+            url: self.url.clone(),
+            request_key: "demo-synthetic:match:delayed".into(),
+            endpoint_key: "match".into(),
+            ready_marker: None,
+            bearer_token: None,
+        }]
+    }
+
+    fn parse(&self, _raw: &RawPayload, _ctx: &ParseCtx) -> Result<Vec<Observation>, ParseError> {
+        Ok(vec![])
+    }
+}
+
+async fn seed_delayed_http_job(pool: &PgPool, url: &str) {
+    let mut policy = policy();
+    policy.transport = Transport::RustHttp;
+    policy.events.clear();
+    repo::upsert_policy(pool, &policy).await.unwrap();
+    repo::insert_job(
+        pool,
+        &repo::NewJob {
+            source_slug: policy.source_slug,
+            domain: "match".into(),
+            entity_key: "delayed".into(),
+            event_type: "discovery".into(),
+            time_window: Utc::now().date_naive().to_string(),
+            due_at: Utc::now() - ChronoDuration::minutes(1),
+            priority: 10,
+        },
+    )
+    .await
+    .unwrap();
+
+    let origin = url::Url::parse(url).unwrap().origin().ascii_serialization();
+    let now = Utc::now();
+    sqlx::query(
+        "INSERT INTO ops.robots_cache (host, fetched_at, verdict, rules_text, expires_at)
+         VALUES ($1, $2, 'allowed', 'User-agent: *\nAllow: /\n', $3)",
+    )
+    .bind(origin)
+    .bind(now)
+    .bind(now + ChronoDuration::hours(24))
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
 async fn seed_and_generate(pool: &PgPool) {
     let policy = policy();
     repo::upsert_policy(pool, &policy).await.unwrap();
@@ -126,6 +192,83 @@ async fn singleton_skips_busy_cycle_and_runs_after_release() {
         .expect("a lock elengedése után a kör futnia kell");
     assert_eq!(outcome.generated, 1);
     assert_eq!(outcome.processed, 1);
+}
+
+#[tokio::test]
+async fn lock_connection_loss_stops_cycle_before_delayed_fetch_finishes() {
+    let pool = test_pool().await;
+    let store_dir = tempfile::tempdir().unwrap();
+    let store = ObjectStore::new(store_dir.path()).unwrap();
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/page"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({}))
+                .set_delay(Duration::from_secs(30)),
+        )
+        .mount(&server)
+        .await;
+    let url = format!("{}/page", server.uri());
+    seed_delayed_http_job(&pool, &url).await;
+    let adapters = HashMap::from([(
+        "demo-synthetic".to_string(),
+        Box::new(DelayedHttpAdapter { url }) as Box<dyn SourceAdapter>,
+    )]);
+    let fetchers = as_fetchers(FixtureFetcher::new(HashMap::new()));
+
+    let cycle_pool = pool.clone();
+    let mut handle = tokio::spawn(async move {
+        runner::run_cycle(&cycle_pool, &store, &fetchers, &adapters, Uuid::now_v7()).await
+    });
+
+    let request_deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        if !server.received_requests().await.unwrap().is_empty() {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < request_deadline,
+            "a késleltetett HTTP fetch nem indult el"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    let lock = PgAdvisoryLock::new("football-app-v2:worker-cycle:v1");
+    let lock_key = lock.key().as_bigint().unwrap();
+    let pid: i32 = sqlx::query_scalar(
+        "SELECT pid FROM pg_locks
+         WHERE locktype = 'advisory' AND granted
+           AND classid = ((($1::bigint >> 32) & 4294967295)::oid)
+           AND objid = (($1::bigint & 4294967295)::oid)
+           AND objsubid = 1",
+    )
+    .bind(lock_key)
+    .fetch_one(&pool)
+    .await
+    .expect("a production singleton lock backend kapcsolata");
+    assert!(
+        sqlx::query_scalar::<_, bool>("SELECT pg_terminate_backend($1)")
+            .bind(pid)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+    );
+
+    let joined = tokio::time::timeout(Duration::from_secs(3), &mut handle).await;
+    if joined.is_err() {
+        handle.abort();
+        panic!("a lockkapcsolat elvesztése után a régi kör tovább futott");
+    }
+    let error = joined
+        .unwrap()
+        .unwrap()
+        .expect_err("a megszakadt lockkapcsolatnak hibával kell leállítania a kört");
+    assert!(
+        error.to_string().contains("lockkapcsolat"),
+        "várt lockfigyelési hiba, kapott: {error:#}"
+    );
+    assert_eq!(count(&pool, "SELECT count(*) FROM raw.capture").await, 0);
 }
 
 #[tokio::test]
