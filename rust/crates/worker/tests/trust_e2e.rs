@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, SubsecRound, Utc};
 use football_domain::policy::{EventTemplate, SourceMode, SourcePolicy, Transport};
 use football_domain::trust::TrustClass;
 use football_ingest::adapter::SourceAdapter;
@@ -43,10 +43,9 @@ fn as_fetchers(fixture: FixtureFetcher) -> Fetchers {
     )
 }
 
-/// Mai nap 12:00 UTC — a fixture dátum-guard és a publish-dátum is erre a napra esik.
-fn today_noon() -> DateTime<Utc> {
-    let day = Utc::now().date_naive();
-    Utc.from_utc_datetime(&day.and_hms_opt(12, 0, 0).expect("12:00 érvényes idő"))
+/// Aktuális UTC időpont — a fixture dátum-guard és a publish-dátum is erre a napra esik.
+fn today_now() -> DateTime<Utc> {
+    Utc::now().trunc_subsecs(6)
 }
 
 fn policy(mode: SourceMode) -> SourcePolicy {
@@ -198,7 +197,7 @@ async fn count(pool: &PgPool, sql: &str) -> i64 {
 #[tokio::test]
 async fn demo_two_medium_sources_verified_with_verified_odds() {
     let pool = test_pool().await;
-    let now = today_noon();
+    let now = today_now();
     let store_dir = tempfile::tempdir().unwrap();
     let store = ObjectStore::new(store_dir.path()).unwrap();
     let fetch_dir = tempfile::tempdir().unwrap();
@@ -263,7 +262,7 @@ async fn demo_two_medium_sources_verified_with_verified_odds() {
 #[tokio::test]
 async fn single_medium_source_provisional() {
     let pool = test_pool().await;
-    let now = today_noon();
+    let now = today_now();
     let store_dir = tempfile::tempdir().unwrap();
     let store = ObjectStore::new(store_dir.path()).unwrap();
     let fetch_dir = tempfile::tempdir().unwrap();
@@ -332,7 +331,7 @@ async fn single_medium_source_provisional() {
 #[tokio::test]
 async fn high_source_alone_verified() {
     let pool = test_pool().await;
-    let now = today_noon();
+    let now = today_now();
     let store_dir = tempfile::tempdir().unwrap();
     let store = ObjectStore::new(store_dir.path()).unwrap();
     let fetch_dir = tempfile::tempdir().unwrap();
@@ -379,7 +378,7 @@ async fn high_source_alone_verified() {
 #[tokio::test]
 async fn differing_odds_provisional_but_match_verified() {
     let pool = test_pool().await;
-    let now = today_noon();
+    let now = today_now();
     let store_dir = tempfile::tempdir().unwrap();
     let store = ObjectStore::new(store_dir.path()).unwrap();
     let fetch_dir = tempfile::tempdir().unwrap();
@@ -437,7 +436,7 @@ async fn differing_odds_provisional_but_match_verified() {
 #[tokio::test]
 async fn shadow_unchanged() {
     let pool = test_pool().await;
-    let now = today_noon();
+    let now = today_now();
     let store_dir = tempfile::tempdir().unwrap();
     let store = ObjectStore::new(store_dir.path()).unwrap();
     let fetch_dir = tempfile::tempdir().unwrap();

@@ -400,7 +400,11 @@ async fn delay_blocked_rows_do_not_reset_min_delay_clock() {
     let mut policy = policy(SourceMode::Shadow);
     policy.min_delay_ms = 60_000;
     repo::upsert_policy(&pool, &policy).await.unwrap();
-    let t = tick_now();
+    let db_now: DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let t = db_now - Duration::seconds(30);
     repo::insert_job(
         &pool,
         &repo::NewJob {
@@ -415,7 +419,7 @@ async fn delay_blocked_rows_do_not_reset_min_delay_clock() {
     )
     .await
     .unwrap();
-    let leased = repo::claim_due_jobs(&pool, Uuid::now_v7(), Utc::now(), 60, 1)
+    let leased = repo::claim_due_jobs(&pool, Uuid::now_v7(), 60, 1)
         .await
         .unwrap()
         .remove(0);
@@ -450,26 +454,22 @@ async fn delay_blocked_rows_do_not_reset_min_delay_clock() {
     assert_eq!(last, Some(t));
 
     // T+30 mp: a min_delay (60 mp) még nem telt le → DelayBlocked.
-    let decision = quota::reserve(
-        &pool,
-        "demo-synthetic",
-        "blocked",
-        &leased.lease,
-        t + Duration::seconds(30),
-    )
-    .await
-    .unwrap();
+    let decision = quota::reserve(&pool, "demo-synthetic", "blocked", &leased.lease)
+        .await
+        .unwrap();
     assert_eq!(decision, quota::QuotaDecision::DelayBlocked);
-    // T+60 mp + 1 ms: Allowed — a blokk-sorok nem resetelték az órát.
-    let decision = quota::reserve(
-        &pool,
-        "demo-synthetic",
-        "allowed",
-        &leased.lease,
-        t + Duration::seconds(60) + Duration::milliseconds(1),
+    sqlx::query(
+        "UPDATE ops.fetch_ledger
+         SET attempted_at = clock_timestamp() - interval '61 seconds'
+         WHERE source_slug='demo-synthetic' AND outcome='success'",
     )
+    .execute(&pool)
     .await
     .unwrap();
+    // T+60 mp + 1 ms: Allowed — a blokk-sorok nem resetelték az órát.
+    let decision = quota::reserve(&pool, "demo-synthetic", "allowed", &leased.lease)
+        .await
+        .unwrap();
     assert!(matches!(decision, quota::QuotaDecision::Allowed(_)));
 }
 
@@ -1208,11 +1208,10 @@ async fn repeated_fetch_with_same_request_key_keeps_per_capture_provenance() {
     let later = now + Duration::minutes(1);
     sqlx::query(
         "UPDATE ops.job
-            SET status='pending', due_at=$1, leased_until=NULL, worker_id=NULL,
-                attempts=0, last_error=NULL
+            SET status='pending', due_at=clock_timestamp() - interval '1 second',
+                leased_until=NULL, worker_id=NULL, attempts=0, last_error=NULL
           WHERE source_slug='demo-synthetic' AND status='done'",
     )
-    .bind(later)
     .execute(&pool)
     .await
     .unwrap();

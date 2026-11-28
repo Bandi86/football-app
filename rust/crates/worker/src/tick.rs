@@ -174,8 +174,8 @@ pub async fn tick(
     now: DateTime<Utc>,
 ) -> Result<TickOutcome> {
     // 1. Lejárt lease-ek visszasorolása, majd esedékes jobok igénylése.
-    scheduler::requeue_expired(pool, now).await?;
-    let jobs = scheduler::claim(pool, worker_id, now, LEASE_SECS, CLAIM_LIMIT).await?;
+    scheduler::requeue_expired(pool).await?;
+    let jobs = scheduler::claim(pool, worker_id, LEASE_SECS, CLAIM_LIMIT).await?;
 
     let mut outcome = TickOutcome {
         processed: 0,
@@ -398,7 +398,7 @@ async fn process_job(
                 )
                 .await?
             } else {
-                match quota::reserve(pool, &job.source_slug, &req.request_key, lease, now).await {
+                match quota::reserve(pool, &job.source_slug, &req.request_key, lease).await {
                     Ok(quota::QuotaDecision::Allowed(id)) => id,
                     Ok(quota::QuotaDecision::QuotaBlocked) => {
                         breaker::release_probe(pool, &job.source_slug).await?;
@@ -710,15 +710,7 @@ async fn wait_for_delay(
     let deadline = tokio::time::Instant::now() + StdDuration::from_secs(15);
     loop {
         let now = Utc::now();
-        match quota::reserve(
-            pool,
-            &leased.job.source_slug,
-            request_key,
-            &leased.lease,
-            now,
-        )
-        .await?
-        {
+        match quota::reserve(pool, &leased.job.source_slug, request_key, &leased.lease).await? {
             quota::QuotaDecision::Allowed(id) => return Ok(DelayDecision::Reserved(id)),
             quota::QuotaDecision::QuotaBlocked => return Ok(DelayDecision::QuotaBlocked),
             quota::QuotaDecision::LeaseLost => return Ok(DelayDecision::LeaseLost),

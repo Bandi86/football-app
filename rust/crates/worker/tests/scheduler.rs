@@ -300,7 +300,7 @@ async fn generate_is_idempotent_and_prioritized() {
     assert_eq!(n2, 0); // egyedi kulcs: nincs duplikátum
 
     // A kickoff idején mindkét job esedékes; a discovery (base 0) a refresh előtt jön.
-    let claimed = scheduler::claim(&pool, Uuid::now_v7(), kickoff, 60, 10)
+    let claimed = scheduler::claim(&pool, Uuid::now_v7(), 60, 10)
         .await
         .unwrap();
     assert_eq!(claimed.len(), 2);
@@ -319,7 +319,10 @@ async fn generate_is_idempotent_and_prioritized() {
 #[tokio::test]
 async fn subdaily_interval_generates_slot_jobs_with_due_times() {
     let pool = test_pool().await;
-    let now = base_time(); // 2026-11-12 12:00 UTC
+    let now: DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     let policy = policy_with(vec![interval_event("refresh", 240)], true);
     repo::upsert_policy(&pool, &policy).await.unwrap();
 
@@ -340,24 +343,52 @@ async fn subdaily_interval_generates_slot_jobs_with_due_times() {
             "slot-00", "slot-01", "slot-02", "slot-03", "slot-04", "slot-05"
         ]
     );
-    assert!(rows.iter().all(|r| r.0 == "refresh" && r.2 == "2026-11-12"));
+    assert!(
+        rows.iter()
+            .all(|r| r.0 == "refresh" && r.2 == now.date_naive().to_string())
+    );
     // priority = refresh base 10 + sáv index.
     assert_eq!(rows[0].3, 10);
     assert_eq!(rows[5].3, 15);
 
-    // 12:00-kor a 00/04/08/12 sáv esedékes; a 16/20 még nem.
-    let claimed = scheduler::claim(&pool, Uuid::now_v7(), now, 60, 10)
-        .await
-        .unwrap();
-    assert_eq!(claimed.len(), 4);
-    assert_eq!(
-        claimed[0].job.due_at,
-        now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc()
+    let midnight = now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
+    let due_times: Vec<DateTime<Utc>> =
+        sqlx::query_scalar("SELECT due_at FROM ops.job ORDER BY due_at")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(due_times.len(), 6);
+    assert_eq!(due_times[0], midnight);
+    assert!(
+        due_times
+            .windows(2)
+            .all(|pair| pair[1] - pair[0] == Duration::hours(4))
     );
-    let later = scheduler::claim(&pool, Uuid::now_v7(), now + Duration::hours(8), 60, 10)
+    sqlx::query(
+        "UPDATE ops.job SET due_at = CASE
+             WHEN entity_key IN ('slot-00','slot-01','slot-02')
+                 THEN clock_timestamp() - interval '1 second'
+             ELSE clock_timestamp() + interval '1 hour'
+         END",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let claimed = scheduler::claim(&pool, Uuid::now_v7(), 60, 10)
         .await
         .unwrap();
-    assert_eq!(later.len(), 2, "16:00 és 20:00 sáv 20:00-kor már esedékes");
+    assert_eq!(claimed.len(), 3, "csak a már esedékes sávok claimelhetők");
+    sqlx::query(
+        "UPDATE ops.job SET due_at = clock_timestamp() - interval '1 second'
+         WHERE status='pending'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let later = scheduler::claim(&pool, Uuid::now_v7(), 60, 10)
+        .await
+        .unwrap();
+    assert_eq!(later.len(), 3, "a későbbi sávok most esedékesek");
 }
 
 #[tokio::test]
@@ -465,26 +496,21 @@ async fn claim_requeue_and_complete_lifecycle() {
     );
 
     let worker = Uuid::now_v7();
-    let claimed = scheduler::claim(&pool, worker, now, 60, 10).await.unwrap();
+    let claimed = scheduler::claim(&pool, worker, 60, 10).await.unwrap();
     assert_eq!(claimed.len(), 1);
     let job_id = claimed[0].job.id;
     // Lease él: nem jár le, nem sorolódik vissza.
-    assert_eq!(
-        scheduler::requeue_expired(&pool, now + Duration::seconds(30))
-            .await
-            .unwrap(),
-        0
-    );
+    assert_eq!(scheduler::requeue_expired(&pool).await.unwrap(), 0);
     // Lejárt lease visszasorolása, majd új claim ugyanarra a jobra.
-    assert_eq!(
-        scheduler::requeue_expired(&pool, now + Duration::seconds(61))
-            .await
-            .unwrap(),
-        1
-    );
-    let again = scheduler::claim(&pool, worker, now + Duration::seconds(61), 60, 10)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE ops.job SET leased_until = clock_timestamp() - interval '1 second' WHERE id = $1",
+    )
+    .bind(job_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(scheduler::requeue_expired(&pool).await.unwrap(), 1);
+    let again = scheduler::claim(&pool, worker, 60, 10).await.unwrap();
     assert_eq!(again.len(), 1);
     assert_eq!(again[0].job.id, job_id);
     let attempts: i32 = sqlx::query_scalar("SELECT attempts FROM ops.job WHERE id=$1")
@@ -509,7 +535,7 @@ async fn claim_requeue_and_complete_lifecycle() {
     assert_eq!(worker_id, None);
     assert_eq!(leased_until, None);
     assert!(
-        scheduler::claim(&pool, worker, now + Duration::seconds(62), 60, 10)
+        scheduler::claim(&pool, worker, 60, 10)
             .await
             .unwrap()
             .is_empty()

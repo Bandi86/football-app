@@ -147,7 +147,7 @@ async fn heartbeat_loop_renews_lease_and_reports_lost_ownership() {
     )
     .await
     .unwrap();
-    let leased = repo::claim_due_jobs(&pool, Uuid::now_v7(), Utc::now(), 1, 1)
+    let leased = repo::claim_due_jobs(&pool, Uuid::now_v7(), 1, 1)
         .await
         .unwrap()
         .remove(0);
@@ -252,7 +252,7 @@ async fn loop_stops_on_shutdown_and_releases_leases() {
     )
     .await
     .unwrap();
-    let claimed = repo::claim_due_jobs(&pool, worker_id, Utc::now(), 3600, 10)
+    let claimed = repo::claim_due_jobs(&pool, worker_id, 3600, 10)
         .await
         .unwrap();
     assert_eq!(claimed.len(), 1);

@@ -16,7 +16,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, SubsecRound, Utc};
 use football_domain::policy::{EventTemplate, SourceMode, SourcePolicy, Transport};
 use football_identity::review;
 use football_ingest::adapter::SourceAdapter;
@@ -41,10 +41,9 @@ fn as_fetchers(fixture: FixtureFetcher) -> Fetchers {
     )
 }
 
-/// Mai nap 12:00 UTC — a fixture dátum-guard és a publish-dátum is erre a napra esik.
-fn today_noon() -> DateTime<Utc> {
-    let day = Utc::now().date_naive();
-    Utc.from_utc_datetime(&day.and_hms_opt(12, 0, 0).expect("12:00 érvényes idő"))
+/// Aktuális UTC időpont — a fixture dátum-guard és a publish-dátum is erre a napra esik.
+fn today_now() -> DateTime<Utc> {
+    Utc::now().trunc_subsecs(6)
 }
 
 fn policy(mode: SourceMode) -> SourcePolicy {
@@ -259,7 +258,7 @@ async fn setup_live(
 #[tokio::test]
 async fn exact_fixture_stays_verified() {
     let pool = test_pool().await;
-    let now = today_noon();
+    let now = today_now();
     let (store, fetcher, _fixture, _store_dir, _fetch_dir) = setup_live(&pool, now).await;
     let fetchers = as_fetchers(fetcher);
 
@@ -318,7 +317,7 @@ async fn exact_fixture_stays_verified() {
 #[tokio::test]
 async fn uncertain_identity_cycle() {
     let pool = test_pool().await;
-    let now = today_noon();
+    let now = today_now();
     let (store, fetcher, fixture, _store_dir, _fetch_dir) = setup_live(&pool, now).await;
     let fetchers = as_fetchers(fetcher);
 
@@ -460,7 +459,7 @@ async fn uncertain_identity_cycle() {
 #[tokio::test]
 async fn shadow_mode_unchanged() {
     let pool = test_pool().await;
-    let now = today_noon();
+    let now = today_now();
     let store_dir = tempfile::tempdir().unwrap();
     let store = ObjectStore::new(store_dir.path()).unwrap();
     let fetch_dir = tempfile::tempdir().unwrap();

@@ -2,7 +2,6 @@
 //! egy per-source tranzakcióban dönt.
 
 use anyhow::Result;
-use chrono::{DateTime, Utc};
 use football_domain::policy::JobLease;
 use football_storage::repositories::worker::{FetchReservation, reserve_fetch};
 use sqlx::PgPool;
@@ -21,18 +20,8 @@ pub async fn reserve(
     source_slug: &str,
     request_key: &str,
     lease: &JobLease,
-    now: DateTime<Utc>,
 ) -> Result<QuotaDecision> {
-    match reserve_fetch(
-        pool,
-        source_slug,
-        request_key,
-        lease.job_id,
-        lease.token,
-        now,
-    )
-    .await?
-    {
+    match reserve_fetch(pool, source_slug, request_key, lease.job_id, lease.token).await? {
         FetchReservation::Reserved(id) => Ok(QuotaDecision::Allowed(id)),
         FetchReservation::QuotaBlocked => Ok(QuotaDecision::QuotaBlocked),
         FetchReservation::DelayBlocked => Ok(QuotaDecision::DelayBlocked),

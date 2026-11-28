@@ -279,25 +279,78 @@ async fn claim_lease_and_requeue() {
     .unwrap();
 
     let worker = Uuid::now_v7();
-    let claimed = repo::claim_due_jobs(&pool, worker, now, 60, 10)
-        .await
-        .unwrap();
+    let claimed = repo::claim_due_jobs(&pool, worker, 60, 10).await.unwrap();
     assert_eq!(claimed.len(), 1);
     // második claim ugyanarra a jobra nem ad vissza semmit (leased)
     assert!(
-        repo::claim_due_jobs(&pool, worker, now, 60, 10)
+        repo::claim_due_jobs(&pool, worker, 60, 10)
             .await
             .unwrap()
             .is_empty()
     );
     // lejárt lease visszasorolása
-    let later = now + Duration::seconds(120);
-    assert_eq!(repo::requeue_expired_leases(&pool, later).await.unwrap(), 1);
-    let reclaimed = repo::claim_due_jobs(&pool, Uuid::now_v7(), later, 60, 10)
+    sqlx::query(
+        "UPDATE ops.job SET leased_until = clock_timestamp() - interval '1 second' WHERE id = $1",
+    )
+    .bind(claimed[0].job.id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(repo::requeue_expired_leases(&pool).await.unwrap(), 1);
+    let reclaimed = repo::claim_due_jobs(&pool, Uuid::now_v7(), 60, 10)
         .await
         .unwrap();
     assert_eq!(reclaimed.len(), 1);
     assert_eq!(reclaimed[0].job.id, claimed[0].job.id);
+}
+
+#[tokio::test]
+async fn claim_uses_database_clock_instead_of_caller_time() {
+    let pool = test_pool().await;
+    seed_policy(&pool, "db-clock-claim").await;
+    let now = Utc::now().trunc_subsecs(6);
+    repo::insert_job(
+        &pool,
+        &new_job("db-clock-claim", "future", now + Duration::hours(1), 10),
+    )
+    .await
+    .unwrap();
+
+    let claimed = repo::claim_due_jobs(&pool, Uuid::now_v7(), 60, 10)
+        .await
+        .unwrap();
+    assert!(
+        claimed.is_empty(),
+        "a jövőbeli due_at nem claimelhető a hívó hamis órája alapján"
+    );
+}
+
+#[tokio::test]
+async fn requeue_expired_uses_database_clock_instead_of_caller_time() {
+    let pool = test_pool().await;
+    seed_policy(&pool, "db-clock-reaper").await;
+    let now = Utc::now().trunc_subsecs(6);
+    repo::insert_job(
+        &pool,
+        &new_job("db-clock-reaper", "active", now - Duration::minutes(1), 10),
+    )
+    .await
+    .unwrap();
+    let claimed = repo::claim_due_jobs(&pool, Uuid::now_v7(), 3_600, 10)
+        .await
+        .unwrap();
+    assert_eq!(claimed.len(), 1);
+
+    let requeued = repo::requeue_expired_leases(&pool).await.unwrap();
+    assert_eq!(
+        requeued, 0,
+        "az aktív lease-t nem érintheti a hívó hamis órája"
+    );
+    let status: String = sqlx::query_scalar("SELECT status FROM ops.job")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "leased");
 }
 
 #[tokio::test]
@@ -310,7 +363,7 @@ async fn stale_lease_cannot_complete_requeue_or_write_coverage() {
         .await
         .unwrap();
 
-    let stale = repo::claim_due_jobs(&pool, Uuid::now_v7(), now, 60, 1)
+    let stale = repo::claim_due_jobs(&pool, Uuid::now_v7(), 60, 1)
         .await
         .unwrap()
         .remove(0)
@@ -323,8 +376,8 @@ async fn stale_lease_cannot_complete_requeue_or_write_coverage() {
     .await
     .unwrap();
     let later = now + Duration::seconds(120);
-    assert_eq!(repo::requeue_expired_leases(&pool, later).await.unwrap(), 1);
-    let current = repo::claim_due_jobs(&pool, Uuid::now_v7(), later, 60, 1)
+    assert_eq!(repo::requeue_expired_leases(&pool).await.unwrap(), 1);
+    let current = repo::claim_due_jobs(&pool, Uuid::now_v7(), 60, 1)
         .await
         .unwrap()
         .remove(0);
@@ -384,7 +437,7 @@ async fn heartbeat_extends_only_a_live_owned_lease() {
     )
     .await
     .unwrap();
-    let lease = repo::claim_due_jobs(&pool, Uuid::now_v7(), now, 60, 1)
+    let lease = repo::claim_due_jobs(&pool, Uuid::now_v7(), 60, 1)
         .await
         .unwrap()
         .remove(0)
@@ -429,7 +482,7 @@ async fn claim_generates_unique_lease_tokens() {
         .unwrap();
     }
 
-    let claimed = repo::claim_due_jobs(&pool, Uuid::now_v7(), now, 60, 10)
+    let claimed = repo::claim_due_jobs(&pool, Uuid::now_v7(), 60, 10)
         .await
         .unwrap();
     assert_eq!(claimed.len(), 2);
@@ -465,7 +518,7 @@ async fn job_dedup_priority_limit_and_attempts() {
     repo::insert_job(&pool, &new_job("demo-synthetic", "urgent", due, 5))
         .await
         .unwrap();
-    let claimed = repo::claim_due_jobs(&pool, Uuid::now_v7(), now, 60, 1)
+    let claimed = repo::claim_due_jobs(&pool, Uuid::now_v7(), 60, 1)
         .await
         .unwrap();
     assert_eq!(claimed.len(), 1);
@@ -487,7 +540,7 @@ async fn job_dedup_priority_limit_and_attempts() {
     )
     .await
     .unwrap();
-    let rest = repo::claim_due_jobs(&pool, Uuid::now_v7(), now, 60, 10)
+    let rest = repo::claim_due_jobs(&pool, Uuid::now_v7(), 60, 10)
         .await
         .unwrap();
     assert_eq!(rest.len(), 1);
@@ -523,7 +576,7 @@ async fn claim_returns_jobs_sorted_by_priority_and_due_at() {
         .await
         .unwrap();
 
-    let claimed = repo::claim_due_jobs(&pool, Uuid::now_v7(), now, 60, 10)
+    let claimed = repo::claim_due_jobs(&pool, Uuid::now_v7(), 60, 10)
         .await
         .unwrap();
     assert_eq!(claimed.len(), 5);
@@ -640,7 +693,7 @@ async fn coverage_upsert_updates_state_and_job() {
     )
     .await
     .unwrap();
-    let leased = repo::claim_due_jobs(&pool, Uuid::now_v7(), Utc::now(), 60, 1)
+    let leased = repo::claim_due_jobs(&pool, Uuid::now_v7(), 60, 1)
         .await
         .unwrap()
         .remove(0);
@@ -766,9 +819,7 @@ async fn complete_job_and_release_worker_leases() {
         .unwrap();
 
     let worker = Uuid::now_v7();
-    let claimed = repo::claim_due_jobs(&pool, worker, now, 60, 10)
-        .await
-        .unwrap();
+    let claimed = repo::claim_due_jobs(&pool, worker, 60, 10).await.unwrap();
     assert_eq!(claimed.len(), 2);
 
     // sikeres befejezés: státusz done, lease törölve
@@ -831,9 +882,7 @@ async fn complete_job_and_release_worker_leases() {
     repo::insert_job(&pool, &new_job("demo-synthetic", "harmadik", due, 10))
         .await
         .unwrap();
-    let held = repo::claim_due_jobs(&pool, worker, now, 60, 10)
-        .await
-        .unwrap();
+    let held = repo::claim_due_jobs(&pool, worker, 60, 10).await.unwrap();
     assert_eq!(held.len(), 1);
     assert_eq!(repo::release_worker_leases(&pool, worker).await.unwrap(), 1);
     let row = sqlx::query("SELECT status, worker_id, leased_until FROM ops.job WHERE id = $1")

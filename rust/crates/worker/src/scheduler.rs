@@ -251,16 +251,15 @@ pub async fn generate_jobs(
 pub async fn claim(
     pool: &PgPool,
     worker_id: Uuid,
-    now: DateTime<Utc>,
     lease_secs: i64,
     limit: i64,
 ) -> Result<Vec<LeasedJob>> {
-    repo::claim_due_jobs(pool, worker_id, now, lease_secs, limit).await
+    repo::claim_due_jobs(pool, worker_id, lease_secs, limit).await
 }
 
 /// Lejárt lease-ek visszasorolása pending állapotba (repo wrapper).
-pub async fn requeue_expired(pool: &PgPool, now: DateTime<Utc>) -> Result<u64> {
-    repo::requeue_expired_leases(pool, now).await
+pub async fn requeue_expired(pool: &PgPool) -> Result<u64> {
+    repo::requeue_expired_leases(pool).await
 }
 
 /// Job befejezése végleges állapottal (repo wrapper).

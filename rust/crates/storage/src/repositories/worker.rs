@@ -394,7 +394,6 @@ pub async fn reserve_fetch(
     request_key: &str,
     job_id: Uuid,
     lease_token: Uuid,
-    now: DateTime<Utc>,
 ) -> Result<FetchReservation> {
     let mut tx = pool.begin().await.context("fetch reservation tranzakció")?;
     let policy_sql =
@@ -421,18 +420,26 @@ pub async fn reserve_fetch(
         return Ok(FetchReservation::LeaseLost);
     }
 
+    let db_now: DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
+        .fetch_one(&mut *tx)
+        .await
+        .context("fetch reservation DB időpontja")?;
     let (attempts, last_attempt) = sqlx::query_as::<_, (i64, Option<DateTime<Utc>>)>(
-        "SELECT count(*), max(attempted_at) FROM ops.fetch_ledger
-         WHERE source_slug = $1 AND (attempted_at AT TIME ZONE 'UTC')::date = $2
+        "SELECT count(*) FILTER (
+                    WHERE (attempted_at AT TIME ZONE 'UTC')::date
+                          = ($2 AT TIME ZONE 'UTC')::date
+                ), max(attempted_at)
+         FROM ops.fetch_ledger
+         WHERE source_slug = $1
            AND outcome IN ('success','http_error','timeout','oversize',
                            'transport_error','parse_error','reserved')
            AND request_key NOT LIKE '%:robots:%'",
     )
     .bind(source_slug)
-    .bind(now.date_naive())
+    .bind(db_now)
     .fetch_one(&mut *tx)
     .await
-    .context("zárolt napi kvóta és utolsó kísérlet")?;
+    .context("zárolt napi kvóta és globális utolsó kísérlet")?;
     if attempts >= i64::from(policy.daily_budget) {
         tx.rollback().await.context("kvótablokk rollback")?;
         return Ok(FetchReservation::QuotaBlocked);
@@ -442,7 +449,7 @@ pub async fn reserve_fetch(
         let delay_ok = match Duration::try_milliseconds(policy.min_delay_ms) {
             Some(delay) => last
                 .checked_add_signed(delay)
-                .is_some_and(|earliest| earliest <= now),
+                .is_some_and(|earliest| earliest <= db_now),
             None => false,
         };
         if !delay_ok {
@@ -460,7 +467,7 @@ pub async fn reserve_fetch(
     .bind(id)
     .bind(source_slug)
     .bind(request_key)
-    .bind(now)
+    .bind(db_now)
     .bind(job_id)
     .execute(&mut *tx)
     .await
@@ -728,23 +735,21 @@ pub async fn active_match_ref(
 pub async fn claim_due_jobs(
     pool: &PgPool,
     worker_id: Uuid,
-    now: DateTime<Utc>,
     lease_secs: i64,
     limit: i64,
 ) -> Result<Vec<LeasedJob>> {
     let rows = sqlx::query(
-        "UPDATE ops.job SET status='leased', worker_id=$2,
-             leased_until=$1 + make_interval(secs => $3),
+        "UPDATE ops.job SET status='leased', worker_id=$1,
+             leased_until=clock_timestamp() + make_interval(secs => $2),
              lease_token=gen_random_uuid(), attempts = attempts + 1
          WHERE id IN (
              SELECT id FROM ops.job
-             WHERE status='pending' AND due_at <= $1
+             WHERE status='pending' AND due_at <= clock_timestamp()
              ORDER BY priority, due_at
-             FOR UPDATE SKIP LOCKED LIMIT $4)
+             FOR UPDATE SKIP LOCKED LIMIT $3)
          RETURNING id, source_slug, domain, entity_key, event_type, time_window,
                    due_at, priority, lease_token, leased_until",
     )
-    .bind(now)
     .bind(worker_id)
     .bind(lease_secs)
     .bind(limit)
@@ -796,13 +801,12 @@ pub async fn heartbeat_job(pool: &PgPool, lease: &JobLease, lease_secs: i64) -> 
     Ok(result.rows_affected() == 1)
 }
 
-pub async fn requeue_expired_leases(pool: &PgPool, now: DateTime<Utc>) -> Result<u64> {
+pub async fn requeue_expired_leases(pool: &PgPool) -> Result<u64> {
     let res = sqlx::query(
         "UPDATE ops.job SET status='pending', worker_id=NULL, leased_until=NULL,
              lease_token=NULL
-         WHERE status='leased' AND leased_until < $1",
+         WHERE status='leased' AND leased_until < clock_timestamp()",
     )
-    .bind(now)
     .execute(pool)
     .await
     .context("lease visszasorolás")?;

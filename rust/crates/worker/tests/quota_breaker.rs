@@ -68,7 +68,7 @@ async fn leased_job(pool: &PgPool, entity_key: &str) -> football_domain::policy:
     )
     .await
     .unwrap();
-    repo::claim_due_jobs(pool, uuid::Uuid::now_v7(), Utc::now(), 60, 1)
+    repo::claim_due_jobs(pool, uuid::Uuid::now_v7(), 60, 1)
         .await
         .unwrap()
         .remove(0)
@@ -79,28 +79,20 @@ async fn quota_blocks_after_budget() {
     let pool = test_pool().await;
     seed_policy(&pool, 2, 0).await;
     let leased = leased_job(&pool, "quota-budget").await;
-    let now = base_time();
     for index in 0..2 {
         let decision = quota::reserve(
             &pool,
             "demo-synthetic",
             &format!("budget-{index}"),
             &leased.lease,
-            now,
         )
         .await
         .unwrap();
         assert!(matches!(decision, quota::QuotaDecision::Allowed(_)));
     }
-    let decision = quota::reserve(
-        &pool,
-        "demo-synthetic",
-        "budget-blocked",
-        &leased.lease,
-        now,
-    )
-    .await
-    .unwrap();
+    let decision = quota::reserve(&pool, "demo-synthetic", "budget-blocked", &leased.lease)
+        .await
+        .unwrap();
     assert_eq!(decision, quota::QuotaDecision::QuotaBlocked);
 }
 
@@ -109,9 +101,9 @@ async fn quota_blocked_ledger_rows_do_not_count() {
     let pool = test_pool().await;
     seed_policy(&pool, 2, 0).await;
     let leased = leased_job(&pool, "quota-blocked-ledger").await;
-    let now = base_time();
+    let now = Utc::now();
     assert!(matches!(
-        quota::reserve(&pool, "demo-synthetic", "first", &leased.lease, now)
+        quota::reserve(&pool, "demo-synthetic", "first", &leased.lease)
             .await
             .unwrap(),
         quota::QuotaDecision::Allowed(_)
@@ -121,13 +113,13 @@ async fn quota_blocked_ledger_rows_do_not_count() {
     }
     // 1 valódi kísérlet + 3 quota_blocked: a számláló 1, budget 2 → Allowed
     assert!(matches!(
-        quota::reserve(&pool, "demo-synthetic", "second", &leased.lease, now)
+        quota::reserve(&pool, "demo-synthetic", "second", &leased.lease)
             .await
             .unwrap(),
         quota::QuotaDecision::Allowed(_)
     ));
     assert_eq!(
-        quota::reserve(&pool, "demo-synthetic", "third", &leased.lease, now)
+        quota::reserve(&pool, "demo-synthetic", "third", &leased.lease)
             .await
             .unwrap(),
         quota::QuotaDecision::QuotaBlocked
@@ -139,51 +131,57 @@ async fn delay_blocks_until_min_delay_elapsed() {
     let pool = test_pool().await;
     seed_policy(&pool, 10, 60_000).await;
     let leased = leased_job(&pool, "delay-boundary").await;
-    let now = base_time();
-    assert!(matches!(
-        quota::reserve(
-            &pool,
-            "demo-synthetic",
-            "initial",
-            &leased.lease,
-            now - Duration::seconds(30)
-        )
+    let db_now: DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
+        .fetch_one(&pool)
         .await
-        .unwrap(),
-        quota::QuotaDecision::Allowed(_)
-    ));
-    // last + 60s = now + 30s: addig DelayBlocked
+        .unwrap();
+    ledger(&pool, db_now - Duration::seconds(30), FetchOutcome::Success).await;
     assert_eq!(
-        quota::reserve(&pool, "demo-synthetic", "blocked", &leased.lease, now)
+        quota::reserve(&pool, "demo-synthetic", "blocked", &leased.lease)
             .await
             .unwrap(),
         quota::QuotaDecision::DelayBlocked
     );
-    assert_eq!(
-        quota::reserve(
-            &pool,
-            "demo-synthetic",
-            "blocked-again",
-            &leased.lease,
-            now + Duration::seconds(29),
-        )
-        .await
-        .unwrap(),
-        quota::QuotaDecision::DelayBlocked
-    );
-    // határon (last + min_delay == now) már engedélyezett
+
+    sqlx::query(
+        "UPDATE ops.fetch_ledger
+         SET attempted_at = clock_timestamp() - interval '61 seconds'
+         WHERE source_slug='demo-synthetic' AND outcome='success'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     assert!(matches!(
-        quota::reserve(
-            &pool,
-            "demo-synthetic",
-            "allowed",
-            &leased.lease,
-            now + Duration::seconds(30),
-        )
-        .await
-        .unwrap(),
+        quota::reserve(&pool, "demo-synthetic", "allowed", &leased.lease)
+            .await
+            .unwrap(),
         quota::QuotaDecision::Allowed(_)
     ));
+}
+
+#[tokio::test]
+async fn min_delay_survives_utc_midnight() {
+    let pool = test_pool().await;
+    let mut policy = seed_policy(&pool, 10, 0).await;
+    let leased = leased_job(&pool, "midnight-delay").await;
+    let db_now: DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let midnight = db_now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
+    let last = midnight - Duration::seconds(1);
+    ledger(&pool, last, FetchOutcome::Success).await;
+    policy.min_delay_ms = db_now.signed_duration_since(last).num_milliseconds() + 60_000;
+    repo::upsert_policy(&pool, &policy).await.unwrap();
+
+    let decision = quota::reserve(&pool, "demo-synthetic", "after-midnight", &leased.lease)
+        .await
+        .unwrap();
+    assert_eq!(
+        decision,
+        quota::QuotaDecision::DelayBlocked,
+        "az éjfél nem törölheti az előző nap globális min-delay óráját"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -205,11 +203,10 @@ async fn concurrent_reservations_never_exceed_daily_budget() {
     )
     .await
     .unwrap();
-    let leased = repo::claim_due_jobs(&pool, uuid::Uuid::now_v7(), Utc::now(), 60, 1)
+    let leased = repo::claim_due_jobs(&pool, uuid::Uuid::now_v7(), 60, 1)
         .await
         .unwrap()
         .remove(0);
-    let now = base_time();
     let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(12));
     let handles: Vec<_> = (0..12)
         .map(|index| {
@@ -218,15 +215,9 @@ async fn concurrent_reservations_never_exceed_daily_budget() {
             let barrier = barrier.clone();
             tokio::spawn(async move {
                 barrier.wait().await;
-                quota::reserve(
-                    &pool,
-                    "demo-synthetic",
-                    &format!("race-{index}"),
-                    &lease,
-                    now,
-                )
-                .await
-                .unwrap()
+                quota::reserve(&pool, "demo-synthetic", &format!("race-{index}"), &lease)
+                    .await
+                    .unwrap()
             })
         })
         .collect();
@@ -270,11 +261,10 @@ async fn concurrent_reservations_obey_min_delay_and_reserved_survives_crash() {
     )
     .await
     .unwrap();
-    let leased = repo::claim_due_jobs(&pool, uuid::Uuid::now_v7(), Utc::now(), 60, 1)
+    let leased = repo::claim_due_jobs(&pool, uuid::Uuid::now_v7(), 60, 1)
         .await
         .unwrap()
         .remove(0);
-    let now = base_time();
     let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(8));
     let handles: Vec<_> = (0..8)
         .map(|index| {
@@ -283,15 +273,9 @@ async fn concurrent_reservations_obey_min_delay_and_reserved_survives_crash() {
             let barrier = barrier.clone();
             tokio::spawn(async move {
                 barrier.wait().await;
-                quota::reserve(
-                    &pool,
-                    "demo-synthetic",
-                    &format!("delay-{index}"),
-                    &lease,
-                    now,
-                )
-                .await
-                .unwrap()
+                quota::reserve(&pool, "demo-synthetic", &format!("delay-{index}"), &lease)
+                    .await
+                    .unwrap()
             })
         })
         .collect();
@@ -307,7 +291,7 @@ async fn concurrent_reservations_obey_min_delay_and_reserved_survives_crash() {
     }
     assert_eq!((allowed, delayed), (1, 7));
 
-    let next = quota::reserve(&pool, "demo-synthetic", "after-crash", &leased.lease, now)
+    let next = quota::reserve(&pool, "demo-synthetic", "after-crash", &leased.lease)
         .await
         .unwrap();
     assert!(matches!(next, quota::QuotaDecision::DelayBlocked));
@@ -340,7 +324,7 @@ async fn reservation_rejects_a_lost_lease_without_consuming_quota() {
     )
     .await
     .unwrap();
-    let leased = repo::claim_due_jobs(&pool, uuid::Uuid::now_v7(), now, 60, 1)
+    let leased = repo::claim_due_jobs(&pool, uuid::Uuid::now_v7(), 60, 1)
         .await
         .unwrap()
         .remove(0);
@@ -352,15 +336,9 @@ async fn reservation_rejects_a_lost_lease_without_consuming_quota() {
     .await
     .unwrap();
 
-    let decision = quota::reserve(
-        &pool,
-        "demo-synthetic",
-        "lost-lease",
-        &leased.lease,
-        base_time(),
-    )
-    .await
-    .unwrap();
+    let decision = quota::reserve(&pool, "demo-synthetic", "lost-lease", &leased.lease)
+        .await
+        .unwrap();
     assert!(matches!(decision, quota::QuotaDecision::LeaseLost));
     let reserved: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM ops.fetch_ledger
