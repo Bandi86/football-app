@@ -31,7 +31,7 @@ use football_verification::gate::evaluate_and_persist_gate;
 use football_verification::odds::evaluate_odds_trust;
 use football_verification::persist::persist_report;
 use football_verification::rules::default_rules;
-use football_worker::{scheduler, tick};
+use football_worker::runner;
 use sqlx::postgres::PgPoolOptions;
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
@@ -2353,14 +2353,13 @@ async fn worker_tick(pool: &sqlx::PgPool, store: &ObjectStore, data_dir: &str) -
         "tipplap".into(),
         Box::new(football_ingest::tipplap::TipplapAdapter),
     );
-    let now = Utc::now();
-    let policies = worker_repo::list_enabled_policies(pool).await?;
-    let generated = scheduler::generate_jobs(pool, &policies, now).await?;
-    let outcome = tick::tick(pool, store, &fetchers, &adapters, uuid::Uuid::now_v7(), now).await?;
-    println!(
-        "generált={generated} feldolgozott={} blokkolt={} sikertelen={}",
-        outcome.processed, outcome.blocked, outcome.failed
-    );
+    match runner::run_cycle(pool, store, &fetchers, &adapters, uuid::Uuid::now_v7()).await? {
+        Some(outcome) => println!(
+            "generált={} feldolgozott={} blokkolt={} sikertelen={} halasztott={}",
+            outcome.generated, outcome.processed, outcome.blocked, outcome.failed, outcome.deferred
+        ),
+        None => println!("worker tick kihagyva: egy másik kör már fut"),
+    }
     Ok(())
 }
 

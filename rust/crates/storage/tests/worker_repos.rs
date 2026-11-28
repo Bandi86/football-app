@@ -626,17 +626,37 @@ async fn coverage_upsert_updates_state_and_job() {
     seed_policy(&pool, "demo-synthetic").await;
     let window = Utc::now().date_naive().to_string();
 
-    repo::upsert_coverage(
+    repo::insert_job(
         &pool,
-        "demo-synthetic",
-        "match",
-        "schedule",
-        &window,
-        CoverageState::Pending,
-        None,
+        &repo::NewJob {
+            source_slug: "demo-synthetic".into(),
+            domain: "match".into(),
+            entity_key: "coverage".into(),
+            event_type: "schedule".into(),
+            time_window: window.clone(),
+            due_at: Utc::now() - Duration::minutes(1),
+            priority: 0,
+        },
     )
     .await
     .unwrap();
+    let leased = repo::claim_due_jobs(&pool, Uuid::now_v7(), Utc::now(), 60, 1)
+        .await
+        .unwrap()
+        .remove(0);
+    let job_id = leased.job.id;
+    assert!(
+        repo::upsert_job_coverage(
+            &pool,
+            &leased.lease,
+            "match",
+            "schedule",
+            &window,
+            CoverageState::Pending,
+        )
+        .await
+        .unwrap()
+    );
     let row = sqlx::query(
         "SELECT state, last_job_id FROM ops.coverage_slot
          WHERE source_slug='demo-synthetic' AND entity_type='match'
@@ -648,25 +668,24 @@ async fn coverage_upsert_updates_state_and_job() {
     .unwrap();
     use sqlx::Row;
     assert_eq!(row.try_get::<String, _>("state").unwrap(), "pending");
-    assert!(
-        row.try_get::<Option<Uuid>, _>("last_job_id")
-            .unwrap()
-            .is_none()
+    assert_eq!(
+        row.try_get::<Option<Uuid>, _>("last_job_id").unwrap(),
+        Some(job_id)
     );
 
-    // upsert ugyanarra a slotra: állapot és job frissül, nem duplikál
-    let job_id = Uuid::now_v7();
-    repo::upsert_coverage(
-        &pool,
-        "demo-synthetic",
-        "match",
-        "schedule",
-        &window,
-        CoverageState::Done,
-        Some(job_id),
-    )
-    .await
-    .unwrap();
+    // upsert ugyanarra a slotra: állapot frissül, nem duplikál
+    assert!(
+        repo::upsert_job_coverage(
+            &pool,
+            &leased.lease,
+            "match",
+            "schedule",
+            &window,
+            CoverageState::Done,
+        )
+        .await
+        .unwrap()
+    );
     let row = sqlx::query(
         "SELECT state, last_job_id FROM ops.coverage_slot
          WHERE source_slug='demo-synthetic' AND entity_type='match'
@@ -753,18 +772,22 @@ async fn complete_job_and_release_worker_leases() {
     assert_eq!(claimed.len(), 2);
 
     // sikeres befejezés: státusz done, lease törölve
-    repo::complete_job(&pool, claimed[0].job.id, JobStatus::Done, None)
-        .await
-        .unwrap();
+    assert!(
+        repo::complete_leased(&pool, &claimed[0].lease, JobStatus::Done, None)
+            .await
+            .unwrap()
+    );
     // sikertelen befejezés: státusz failed, hibaüzenet tárolva
-    repo::complete_job(
-        &pool,
-        claimed[1].job.id,
-        JobStatus::Failed,
-        Some("kapcsolati hiba"),
-    )
-    .await
-    .unwrap();
+    assert!(
+        repo::complete_leased(
+            &pool,
+            &claimed[1].lease,
+            JobStatus::Failed,
+            Some("kapcsolati hiba"),
+        )
+        .await
+        .unwrap()
+    );
 
     use sqlx::Row;
     let row = sqlx::query(

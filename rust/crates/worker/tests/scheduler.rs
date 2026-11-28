@@ -2,7 +2,7 @@
 //! Determinisztikus idő: fix bázis-időpont, nincs élő hálózat.
 //! A core.match seed minimális, de FK-érvényes (country/entity/competition/season/team/match).
 
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use chrono::{DateTime, Duration, SubsecRound, TimeZone, Utc};
 use football_domain::policy::{EventTemplate, JobStatus, SourceMode, SourcePolicy, Transport};
 use football_storage::repositories::worker as repo;
 use football_storage::test_support::test_pool;
@@ -304,16 +304,16 @@ async fn generate_is_idempotent_and_prioritized() {
         .await
         .unwrap();
     assert_eq!(claimed.len(), 2);
-    assert_eq!(claimed[0].event_type, "discovery");
-    assert_eq!(claimed[0].priority, 0); // interval: közelség 0, verseny-prioritás 0
-    assert_eq!(claimed[0].time_window, "2026-11-12");
-    assert_eq!(claimed[0].due_at, now);
-    assert_eq!(claimed[1].event_type, "refresh");
+    assert_eq!(claimed[0].job.event_type, "discovery");
+    assert_eq!(claimed[0].job.priority, 0); // interval: közelség 0, verseny-prioritás 0
+    assert_eq!(claimed[0].job.time_window, "2026-11-12");
+    assert_eq!(claimed[0].job.due_at, now);
+    assert_eq!(claimed[1].job.event_type, "refresh");
     // 10 base + 10 verseny + 1200 közelség (generáláskor 20 óra van a kickoffig).
-    assert_eq!(claimed[1].priority, 1220);
-    assert_eq!(claimed[1].entity_key, match_id.to_string());
-    assert_eq!(claimed[1].time_window, "2026-11-13");
-    assert_eq!(claimed[1].due_at, kickoff - Duration::minutes(60));
+    assert_eq!(claimed[1].job.priority, 1220);
+    assert_eq!(claimed[1].job.entity_key, match_id.to_string());
+    assert_eq!(claimed[1].job.time_window, "2026-11-13");
+    assert_eq!(claimed[1].job.due_at, kickoff - Duration::minutes(60));
 }
 
 #[tokio::test]
@@ -351,7 +351,7 @@ async fn subdaily_interval_generates_slot_jobs_with_due_times() {
         .unwrap();
     assert_eq!(claimed.len(), 4);
     assert_eq!(
-        claimed[0].due_at,
+        claimed[0].job.due_at,
         now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc()
     );
     let later = scheduler::claim(&pool, Uuid::now_v7(), now + Duration::hours(8), 60, 10)
@@ -454,7 +454,7 @@ async fn kickoff_window_boundaries_and_proximity_clamp() {
 #[tokio::test]
 async fn claim_requeue_and_complete_lifecycle() {
     let pool = test_pool().await;
-    let now = base_time();
+    let now = Utc::now().trunc_subsecs(6);
     let policy = policy_with(vec![interval_event("discovery", 1440)], true);
     repo::upsert_policy(&pool, &policy).await.unwrap();
     assert_eq!(
@@ -467,7 +467,7 @@ async fn claim_requeue_and_complete_lifecycle() {
     let worker = Uuid::now_v7();
     let claimed = scheduler::claim(&pool, worker, now, 60, 10).await.unwrap();
     assert_eq!(claimed.len(), 1);
-    let job_id = claimed[0].id;
+    let job_id = claimed[0].job.id;
     // Lease él: nem jár le, nem sorolódik vissza.
     assert_eq!(
         scheduler::requeue_expired(&pool, now + Duration::seconds(30))
@@ -486,7 +486,7 @@ async fn claim_requeue_and_complete_lifecycle() {
         .await
         .unwrap();
     assert_eq!(again.len(), 1);
-    assert_eq!(again[0].id, job_id);
+    assert_eq!(again[0].job.id, job_id);
     let attempts: i32 = sqlx::query_scalar("SELECT attempts FROM ops.job WHERE id=$1")
         .bind(job_id)
         .fetch_one(&pool)
@@ -494,9 +494,11 @@ async fn claim_requeue_and_complete_lifecycle() {
         .unwrap();
     assert_eq!(attempts, 2);
 
-    scheduler::complete(&pool, job_id, JobStatus::Done, None)
-        .await
-        .unwrap();
+    assert!(
+        scheduler::complete(&pool, &again[0].lease, JobStatus::Done, None)
+            .await
+            .unwrap()
+    );
     let (status, worker_id, leased_until): (String, Option<Uuid>, Option<DateTime<Utc>>) =
         sqlx::query_as("SELECT status, worker_id, leased_until FROM ops.job WHERE id=$1")
             .bind(job_id)

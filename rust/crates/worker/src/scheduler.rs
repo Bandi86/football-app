@@ -7,7 +7,7 @@
 
 use anyhow::Result;
 use chrono::{DateTime, Datelike, Duration, Utc};
-use football_domain::policy::{FetchJob, JobStatus, SourcePolicy};
+use football_domain::policy::{JobLease, JobStatus, LeasedJob, SourcePolicy};
 use football_storage::repositories::worker::{self as repo, NewJob};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -254,9 +254,8 @@ pub async fn claim(
     now: DateTime<Utc>,
     lease_secs: i64,
     limit: i64,
-) -> Result<Vec<FetchJob>> {
-    let leased = repo::claim_due_jobs(pool, worker_id, now, lease_secs, limit).await?;
-    Ok(leased.into_iter().map(|item| item.job).collect())
+) -> Result<Vec<LeasedJob>> {
+    repo::claim_due_jobs(pool, worker_id, now, lease_secs, limit).await
 }
 
 /// Lejárt lease-ek visszasorolása pending állapotba (repo wrapper).
@@ -267,9 +266,9 @@ pub async fn requeue_expired(pool: &PgPool, now: DateTime<Utc>) -> Result<u64> {
 /// Job befejezése végleges állapottal (repo wrapper).
 pub async fn complete(
     pool: &PgPool,
-    job_id: Uuid,
+    lease: &JobLease,
     status: JobStatus,
     last_error: Option<&str>,
-) -> Result<()> {
-    repo::complete_job(pool, job_id, status, last_error).await
+) -> Result<bool> {
+    repo::complete_leased(pool, lease, status, last_error).await
 }

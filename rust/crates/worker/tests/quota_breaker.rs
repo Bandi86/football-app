@@ -52,56 +52,138 @@ async fn ledger(pool: &PgPool, at: DateTime<Utc>, outcome: FetchOutcome) {
     .unwrap();
 }
 
+async fn leased_job(pool: &PgPool, entity_key: &str) -> football_domain::policy::LeasedJob {
+    let due = Utc::now() - Duration::seconds(1);
+    repo::insert_job(
+        pool,
+        &repo::NewJob {
+            source_slug: "demo-synthetic".into(),
+            domain: "match".into(),
+            entity_key: entity_key.into(),
+            event_type: "discovery".into(),
+            time_window: due.date_naive().to_string(),
+            due_at: due,
+            priority: 0,
+        },
+    )
+    .await
+    .unwrap();
+    repo::claim_due_jobs(pool, uuid::Uuid::now_v7(), Utc::now(), 60, 1)
+        .await
+        .unwrap()
+        .remove(0)
+}
+
 #[tokio::test]
 async fn quota_blocks_after_budget() {
     let pool = test_pool().await;
-    let policy = seed_policy(&pool, 2, 0).await;
+    seed_policy(&pool, 2, 0).await;
+    let leased = leased_job(&pool, "quota-budget").await;
     let now = base_time();
-    // üres ledger: engedélyezett
-    let decision = quota::guard(&pool, &policy, now).await.unwrap();
-    assert!(matches!(decision, quota::GuardDecision::Allowed));
-    for _ in 0..2 {
-        ledger(&pool, now, FetchOutcome::Success).await;
+    for index in 0..2 {
+        let decision = quota::reserve(
+            &pool,
+            "demo-synthetic",
+            &format!("budget-{index}"),
+            &leased.lease,
+            now,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(decision, quota::QuotaDecision::Allowed(_)));
     }
-    let decision = quota::guard(&pool, &policy, now).await.unwrap();
-    assert!(matches!(decision, quota::GuardDecision::QuotaBlocked));
+    let decision = quota::reserve(
+        &pool,
+        "demo-synthetic",
+        "budget-blocked",
+        &leased.lease,
+        now,
+    )
+    .await
+    .unwrap();
+    assert_eq!(decision, quota::QuotaDecision::QuotaBlocked);
 }
 
 #[tokio::test]
 async fn quota_blocked_ledger_rows_do_not_count() {
     let pool = test_pool().await;
-    let policy = seed_policy(&pool, 2, 0).await;
+    seed_policy(&pool, 2, 0).await;
+    let leased = leased_job(&pool, "quota-blocked-ledger").await;
     let now = base_time();
-    ledger(&pool, now, FetchOutcome::Success).await;
+    assert!(matches!(
+        quota::reserve(&pool, "demo-synthetic", "first", &leased.lease, now)
+            .await
+            .unwrap(),
+        quota::QuotaDecision::Allowed(_)
+    ));
     for _ in 0..3 {
         ledger(&pool, now, FetchOutcome::QuotaBlocked).await;
     }
     // 1 valódi kísérlet + 3 quota_blocked: a számláló 1, budget 2 → Allowed
-    let decision = quota::guard(&pool, &policy, now).await.unwrap();
-    assert!(matches!(decision, quota::GuardDecision::Allowed));
-    ledger(&pool, now, FetchOutcome::Success).await;
-    let decision = quota::guard(&pool, &policy, now).await.unwrap();
-    assert!(matches!(decision, quota::GuardDecision::QuotaBlocked));
+    assert!(matches!(
+        quota::reserve(&pool, "demo-synthetic", "second", &leased.lease, now)
+            .await
+            .unwrap(),
+        quota::QuotaDecision::Allowed(_)
+    ));
+    assert_eq!(
+        quota::reserve(&pool, "demo-synthetic", "third", &leased.lease, now)
+            .await
+            .unwrap(),
+        quota::QuotaDecision::QuotaBlocked
+    );
 }
 
 #[tokio::test]
 async fn delay_blocks_until_min_delay_elapsed() {
     let pool = test_pool().await;
-    let policy = seed_policy(&pool, 10, 60_000).await;
+    seed_policy(&pool, 10, 60_000).await;
+    let leased = leased_job(&pool, "delay-boundary").await;
     let now = base_time();
-    ledger(&pool, now - Duration::seconds(30), FetchOutcome::Success).await;
+    assert!(matches!(
+        quota::reserve(
+            &pool,
+            "demo-synthetic",
+            "initial",
+            &leased.lease,
+            now - Duration::seconds(30)
+        )
+        .await
+        .unwrap(),
+        quota::QuotaDecision::Allowed(_)
+    ));
     // last + 60s = now + 30s: addig DelayBlocked
-    let decision = quota::guard(&pool, &policy, now).await.unwrap();
-    assert!(matches!(decision, quota::GuardDecision::DelayBlocked));
-    let decision = quota::guard(&pool, &policy, now + Duration::seconds(29))
+    assert_eq!(
+        quota::reserve(&pool, "demo-synthetic", "blocked", &leased.lease, now)
+            .await
+            .unwrap(),
+        quota::QuotaDecision::DelayBlocked
+    );
+    assert_eq!(
+        quota::reserve(
+            &pool,
+            "demo-synthetic",
+            "blocked-again",
+            &leased.lease,
+            now + Duration::seconds(29),
+        )
         .await
-        .unwrap();
-    assert!(matches!(decision, quota::GuardDecision::DelayBlocked));
+        .unwrap(),
+        quota::QuotaDecision::DelayBlocked
+    );
     // határon (last + min_delay == now) már engedélyezett
-    let decision = quota::guard(&pool, &policy, now + Duration::seconds(30))
+    assert!(matches!(
+        quota::reserve(
+            &pool,
+            "demo-synthetic",
+            "allowed",
+            &leased.lease,
+            now + Duration::seconds(30),
+        )
         .await
-        .unwrap();
-    assert!(matches!(decision, quota::GuardDecision::Allowed));
+        .unwrap(),
+        quota::QuotaDecision::Allowed(_)
+    ));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -333,6 +415,74 @@ async fn only_one_concurrent_half_open_probe_is_allowed() {
         .unwrap()
         .unwrap();
     assert_eq!(row.state, BreakerState::HalfOpen);
+}
+
+#[tokio::test]
+async fn unused_probe_release_preserves_open_state_and_allows_retry() {
+    let pool = test_pool().await;
+    let policy = seed_policy(&pool, 10, 0).await;
+    let now = base_time();
+    let open = BreakerRow {
+        state: BreakerState::Open,
+        failure_count: 2,
+        opened_at: Some(now - Duration::seconds(60)),
+        next_probe_at: Some(now),
+    };
+    repo::update_breaker_locked(&pool, &policy.source_slug, |_| {
+        ((), repo::BreakerWrite::Set(open.clone()))
+    })
+    .await
+    .unwrap();
+    assert!(breaker::allow(&pool, &policy, now).await.unwrap());
+
+    breaker::release_probe(&pool, &policy.source_slug)
+        .await
+        .unwrap();
+
+    let row = repo::get_breaker(&pool, &policy.source_slug)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.state, BreakerState::Open);
+    assert_eq!(row.failure_count, open.failure_count);
+    assert_eq!(row.opened_at, open.opened_at);
+    assert_eq!(row.next_probe_at, open.next_probe_at);
+    assert!(breaker::allow(&pool, &policy, now).await.unwrap());
+}
+
+#[tokio::test]
+async fn unused_probe_release_does_not_undo_a_newer_transition() {
+    let pool = test_pool().await;
+    let policy = seed_policy(&pool, 10, 0).await;
+    let now = base_time();
+    repo::update_breaker_locked(&pool, &policy.source_slug, |_| {
+        (
+            (),
+            repo::BreakerWrite::Set(BreakerRow {
+                state: BreakerState::Open,
+                failure_count: 2,
+                opened_at: Some(now - Duration::seconds(60)),
+                next_probe_at: Some(now),
+            }),
+        )
+    })
+    .await
+    .unwrap();
+    assert!(breaker::allow(&pool, &policy, now).await.unwrap());
+    breaker::on_success(&pool, &policy.source_slug)
+        .await
+        .unwrap();
+
+    breaker::release_probe(&pool, &policy.source_slug)
+        .await
+        .unwrap();
+
+    let row = repo::get_breaker(&pool, &policy.source_slug)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.state, BreakerState::Closed);
+    assert_eq!(row.failure_count, 0);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

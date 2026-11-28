@@ -5,14 +5,14 @@
 //! hogy a DemoAdapter dátum-guardja zöld legyen. A második meccs 22:30Z
 //! kickoffját 16:00Z-ra visszük: nyári időszámításnál (UTC+2) a 22:30Z
 //! Budapesten már a következő nap 00:30-a lenne, és a dátum-guard bukna.
-//! A tick `now` paramétere a mai nap 12:00 UTC-je: determinisztikus, és a
-//! Budapestre átszámított publish-dátum is a mai nap marad. A verified_publish
-//! E2E ághoz megerősítő második forrás is kell (TRUST_LEVEL szabály).
+//! A tick `now` paramétere valós aktuális UTC idő: a lease predikátumok
+//! `clock_timestamp()`-hez hasonlítanak. A verified_publish E2E ághoz
+//! megerősítő második forrás is kell (TRUST_LEVEL szabály).
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use chrono::{DateTime, Duration, Utc};
 use football_domain::error::ParseError;
 use football_domain::policy::{
     BreakerState, EventTemplate, FetchJob, FetchOutcome, SourceMode, SourcePolicy, Transport,
@@ -39,10 +39,8 @@ fn as_fetchers(fixture: FixtureFetcher) -> Fetchers {
     )
 }
 
-/// Mai nap 12:00 UTC — a fixture dátum-guard és a publish-dátum is erre a napra esik.
-fn today_noon() -> DateTime<Utc> {
-    let day = Utc::now().date_naive();
-    Utc.from_utc_datetime(&day.and_hms_opt(12, 0, 0).expect("12:00 érvényes idő"))
+fn tick_now() -> DateTime<Utc> {
+    Utc::now()
 }
 
 fn policy(mode: SourceMode) -> SourcePolicy {
@@ -235,7 +233,7 @@ async fn seed_corroborating_source(
 #[tokio::test]
 async fn e2e_replay_publishes_verified_match() {
     let pool = test_pool().await;
-    let now = today_noon();
+    let now = tick_now();
     let store_dir = tempfile::tempdir().unwrap();
     let store = ObjectStore::new(store_dir.path()).unwrap();
     let fetch_dir = tempfile::tempdir().unwrap();
@@ -308,7 +306,7 @@ async fn e2e_replay_publishes_verified_match() {
 #[tokio::test]
 async fn shadow_mode_writes_no_canonical() {
     let pool = test_pool().await;
-    let now = today_noon();
+    let now = tick_now();
     let store_dir = tempfile::tempdir().unwrap();
     let store = ObjectStore::new(store_dir.path()).unwrap();
     let fetch_dir = tempfile::tempdir().unwrap();
@@ -347,7 +345,7 @@ async fn shadow_mode_writes_no_canonical() {
 #[tokio::test]
 async fn decoy_payload_quarantined_raw_kept() {
     let pool = test_pool().await;
-    let now = today_noon();
+    let now = tick_now();
     let store_dir = tempfile::tempdir().unwrap();
     let store = ObjectStore::new(store_dir.path()).unwrap();
     let fetch_dir = tempfile::tempdir().unwrap();
@@ -395,14 +393,32 @@ async fn decoy_payload_quarantined_raw_kept() {
 /// DelayBlocked livelock regresszió: a quota_blocked ledger-sorok nem
 /// tolhatják ki a min_delay óráját. Valódi kísérlet T-ben, blokk-sorok
 /// T+10/20/30 mp-ben (tick-intervallus < min_delay): az óra T-nél marad,
-/// és T+min_delay+1 ms-nél a guard Allowed.
+/// és T+min_delay+1 ms-nél a reservation Allowed.
 #[tokio::test]
 async fn delay_blocked_rows_do_not_reset_min_delay_clock() {
     let pool = test_pool().await;
     let mut policy = policy(SourceMode::Shadow);
     policy.min_delay_ms = 60_000;
     repo::upsert_policy(&pool, &policy).await.unwrap();
-    let t = today_noon();
+    let t = tick_now();
+    repo::insert_job(
+        &pool,
+        &repo::NewJob {
+            source_slug: "demo-synthetic".into(),
+            domain: "match".into(),
+            entity_key: "delay-clock".into(),
+            event_type: "discovery".into(),
+            time_window: t.date_naive().to_string(),
+            due_at: Utc::now() - Duration::minutes(1),
+            priority: 0,
+        },
+    )
+    .await
+    .unwrap();
+    let leased = repo::claim_due_jobs(&pool, Uuid::now_v7(), Utc::now(), 60, 1)
+        .await
+        .unwrap()
+        .remove(0);
 
     let entry = |at: DateTime<Utc>, outcome: FetchOutcome| repo::LedgerEntry {
         source_slug: "demo-synthetic".into(),
@@ -434,19 +450,27 @@ async fn delay_blocked_rows_do_not_reset_min_delay_clock() {
     assert_eq!(last, Some(t));
 
     // T+30 mp: a min_delay (60 mp) még nem telt le → DelayBlocked.
-    let decision = quota::guard(&pool, &policy, t + Duration::seconds(30))
-        .await
-        .unwrap();
-    assert_eq!(decision, quota::GuardDecision::DelayBlocked);
-    // T+60 mp + 1 ms: Allowed — a blokk-sorok nem resetelték az órát.
-    let decision = quota::guard(
+    let decision = quota::reserve(
         &pool,
-        &policy,
+        "demo-synthetic",
+        "blocked",
+        &leased.lease,
+        t + Duration::seconds(30),
+    )
+    .await
+    .unwrap();
+    assert_eq!(decision, quota::QuotaDecision::DelayBlocked);
+    // T+60 mp + 1 ms: Allowed — a blokk-sorok nem resetelték az órát.
+    let decision = quota::reserve(
+        &pool,
+        "demo-synthetic",
+        "allowed",
+        &leased.lease,
         t + Duration::seconds(60) + Duration::milliseconds(1),
     )
     .await
     .unwrap();
-    assert_eq!(decision, quota::GuardDecision::Allowed);
+    assert!(matches!(decision, quota::QuotaDecision::Allowed(_)));
 }
 
 /// Megszemélyesítés-védelem: a payload source_code-ja eltér a job slugjától
@@ -456,7 +480,7 @@ async fn delay_blocked_rows_do_not_reset_min_delay_clock() {
 #[tokio::test]
 async fn payload_source_code_cannot_impersonate_another_source() {
     let pool = test_pool().await;
-    let now = today_noon();
+    let now = tick_now();
     let store_dir = tempfile::tempdir().unwrap();
     let store = ObjectStore::new(store_dir.path()).unwrap();
     let fetch_dir = tempfile::tempdir().unwrap();
@@ -531,7 +555,7 @@ async fn payload_source_code_cannot_impersonate_another_source() {
 #[tokio::test]
 async fn unexpected_infra_error_marks_coverage_failed() {
     let pool = test_pool().await;
-    let now = today_noon();
+    let now = tick_now();
     let store_dir = tempfile::tempdir().unwrap();
     let store = ObjectStore::new(store_dir.path()).unwrap();
     let fetch_dir = tempfile::tempdir().unwrap();
@@ -576,13 +600,14 @@ async fn unexpected_infra_error_marks_coverage_failed() {
         .await
         .unwrap();
     assert_eq!(job_status, "failed");
-    // A placeholder nem véglegesíthető success-re: transport_error marad.
+    // A fetch után váratlan hiba történt: a reservation crash-biztos
+    // reserved állapotban marad, nem mégyszerre success.
     let ledger_outcome: String =
         sqlx::query_scalar("SELECT outcome FROM ops.fetch_ledger WHERE job_id IS NOT NULL")
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(ledger_outcome, "transport_error");
+    assert_eq!(ledger_outcome, "reserved");
     // A fetch és az L0 megőrzés sikeres volt: a nyers megmaradt.
     assert_eq!(count(&pool, "SELECT count(*) FROM raw.artifact").await, 1);
     assert_eq!(count(&pool, "SELECT count(*) FROM raw.capture").await, 1);
@@ -691,7 +716,7 @@ async fn seed_robots_allowed(pool: &PgPool, url: &str) {
 #[tokio::test]
 async fn rate_limited_job_is_requeued_with_retry_after_delay() {
     let pool = test_pool().await;
-    let now = today_noon();
+    let now = tick_now();
     let store_dir = tempfile::tempdir().unwrap();
     let store = ObjectStore::new(store_dir.path()).unwrap();
     let server = wiremock::MockServer::start().await;
@@ -738,7 +763,7 @@ async fn rate_limited_job_is_requeued_with_retry_after_delay() {
 #[tokio::test]
 async fn transient_error_backoff_is_one_minute_on_first_attempt() {
     let pool = test_pool().await;
-    let now = today_noon();
+    let now = tick_now();
     let store_dir = tempfile::tempdir().unwrap();
     let store = ObjectStore::new(store_dir.path()).unwrap();
     let server = wiremock::MockServer::start().await;
@@ -774,7 +799,7 @@ async fn transient_error_backoff_is_one_minute_on_first_attempt() {
 #[tokio::test]
 async fn permanent_error_is_not_requeued() {
     let pool = test_pool().await;
-    let now = today_noon();
+    let now = tick_now();
     let store_dir = tempfile::tempdir().unwrap();
     let store = ObjectStore::new(store_dir.path()).unwrap();
     let server = wiremock::MockServer::start().await;
@@ -801,9 +826,85 @@ async fn permanent_error_is_not_requeued() {
 }
 
 #[tokio::test]
+async fn quota_blocked_half_open_probe_is_released_for_the_next_tick() {
+    let pool = test_pool().await;
+    let now = Utc::now();
+    let store_dir = tempfile::tempdir().unwrap();
+    let store = ObjectStore::new(store_dir.path()).unwrap();
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/page"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_string("{}"))
+        .mount(&server)
+        .await;
+    let mut blocked_policy = http_policy(0);
+    blocked_policy.daily_budget = 0;
+    repo::upsert_policy(&pool, &blocked_policy).await.unwrap();
+    seed_http_job(&pool, now).await;
+    repo::update_breaker_locked(&pool, "demo-synthetic", |_| {
+        (
+            (),
+            repo::BreakerWrite::Set(BreakerRow {
+                state: BreakerState::Open,
+                failure_count: 3,
+                opened_at: Some(now - Duration::minutes(5)),
+                next_probe_at: Some(now - Duration::seconds(1)),
+            }),
+        )
+    })
+    .await
+    .unwrap();
+    let fetchers = as_fetchers(FixtureFetcher::new(HashMap::new()));
+    seed_robots_allowed(&pool, &server.uri()).await;
+    let adapters = http_adapters(&format!("{}/page", server.uri()), false);
+
+    let outcome = tick::tick(&pool, &store, &fetchers, &adapters, Uuid::now_v7(), now)
+        .await
+        .unwrap();
+    assert_eq!(outcome.blocked, 1);
+    let state: String = sqlx::query_scalar(
+        "SELECT state FROM ops.breaker_state WHERE source_slug='demo-synthetic'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        state, "open",
+        "a kvótablokk nem fogyaszthatja el a probe-ot"
+    );
+
+    let mut retry_policy = blocked_policy;
+    retry_policy.daily_budget = 1;
+    repo::upsert_policy(&pool, &retry_policy).await.unwrap();
+    sqlx::query("UPDATE ops.job SET due_at = $1 WHERE status = 'pending'")
+        .bind(Utc::now() - Duration::seconds(1))
+        .execute(&pool)
+        .await
+        .unwrap();
+    let outcome = tick::tick(
+        &pool,
+        &store,
+        &fetchers,
+        &adapters,
+        Uuid::now_v7(),
+        Utc::now(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(outcome.processed, 1);
+    let state: String = sqlx::query_scalar(
+        "SELECT state FROM ops.breaker_state WHERE source_slug='demo-synthetic'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(state, "closed");
+}
+
+#[tokio::test]
 async fn successful_fetch_closes_half_open_breaker_even_on_parse_quarantine() {
     let pool = test_pool().await;
-    let now = today_noon();
+    let now = tick_now();
     let store_dir = tempfile::tempdir().unwrap();
     let store = ObjectStore::new(store_dir.path()).unwrap();
     let server = wiremock::MockServer::start().await;
@@ -853,7 +954,7 @@ async fn successful_fetch_closes_half_open_breaker_even_on_parse_quarantine() {
 #[tokio::test]
 async fn empty_canary_day_is_no_data_not_failure() {
     let pool = test_pool().await;
-    let now = today_noon();
+    let now = tick_now();
     let store_dir = tempfile::tempdir().unwrap();
     let store = ObjectStore::new(store_dir.path()).unwrap();
     let server = wiremock::MockServer::start().await;
@@ -991,8 +1092,6 @@ impl SourceAdapter for MultiDayAdapter {
 #[tokio::test]
 async fn multi_request_day_job_materializes_per_competition() {
     let pool = test_pool().await;
-    // Valós most: a jobon belüli min_delay-várakozás így értelmes
-    // (a today_noon a jövőben lehet, ami a delay-órát elrontaná).
     let now = Utc::now();
     let store_dir = tempfile::tempdir().unwrap();
     let store = ObjectStore::new(store_dir.path()).unwrap();
@@ -1083,7 +1182,7 @@ async fn multi_request_day_job_materializes_per_competition() {
 #[tokio::test]
 async fn repeated_fetch_with_same_request_key_keeps_per_capture_provenance() {
     let pool = test_pool().await;
-    let now = today_noon();
+    let now = tick_now();
     let store_dir = tempfile::tempdir().unwrap();
     let store = ObjectStore::new(store_dir.path()).unwrap();
     let fetch_dir = tempfile::tempdir().unwrap();

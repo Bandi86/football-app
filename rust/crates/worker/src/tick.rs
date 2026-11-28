@@ -12,9 +12,9 @@
 //! Failed-re állítja a job lezárása előtt. A nyers megőrzés forrásazonosítója
 //! a job source_slugja; a payload forráskódja NEM azonosít forrást.
 //!
-//! Controller-döntések: kvóta/delay blokknál a job azonnal pending-re zárul
-//! (nem marad leased); a complete_job fencing nélkül, saját worker_id-val zár
-//! (egy-workeres S2a); a breaker auth-ág egy tranzakcióban auditál.
+//! Controller-döntések: a completion, requeue és coverage minden írása a saját,
+//! aktív lease tokennel történik. A robots/kvóta/breaker blokkok nem fogyasztják
+//! a kvótát; a reservation pillanatától a kísérlet crash esetén is számlál.
 
 use std::collections::HashMap;
 use std::time::{Duration as StdDuration, Instant};
@@ -24,7 +24,8 @@ use chrono::{DateTime, Duration, NaiveDate, Utc};
 use football_domain::error::FetchError;
 use football_domain::identity::{IdentityContext, Resolution};
 use football_domain::policy::{
-    CoverageState, FetchJob, FetchOutcome, JobStatus, SourceMode, SourcePolicy, Transport,
+    CoverageState, FetchJob, FetchOutcome, JobStatus, LeasedJob, SourceMode, SourcePolicy,
+    Transport,
 };
 use football_domain::trust::{ODDS_TOLERANCE_DEFAULT, OddsTrustState};
 use football_identity::linker;
@@ -46,9 +47,10 @@ use rand::Rng;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::{breaker, coverage, quota, robots, scheduler};
+use crate::{breaker, coverage, lease, quota, robots, scheduler};
 
 const LEASE_SECS: i64 = 60;
+const HEARTBEAT_INTERVAL: StdDuration = StdDuration::from_secs(15);
 /// Backoff-alap (első próba): 60 s; a sapka 1 óra.
 const BACKOFF_BASE_SECS: i64 = 60;
 const BACKOFF_CAP_SECS: i64 = 3600;
@@ -181,25 +183,37 @@ pub async fn tick(
         failed: 0,
         deferred: 0,
     };
-    for job in &jobs {
-        match process_job(pool, store, fetchers, adapters, job, now).await {
+    for leased in &jobs {
+        let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+        let heartbeat = tokio::spawn(lease::heartbeat_loop(
+            pool.clone(),
+            leased.lease,
+            HEARTBEAT_INTERVAL,
+            LEASE_SECS,
+            stop_rx,
+        ));
+        let mut result = process_job(pool, store, fetchers, adapters, leased, now).await;
+        let _ = stop_tx.send(true);
+        let heartbeat_ok = heartbeat.await.unwrap_or(false);
+        if !heartbeat_ok {
+            result = Ok(JobResult::Blocked);
+        }
+        match result {
             Ok(JobResult::Processed) => outcome.processed += 1,
             Ok(JobResult::Blocked) => outcome.blocked += 1,
             Ok(JobResult::Failed) => outcome.failed += 1,
             Ok(JobResult::Deferred) => outcome.deferred += 1,
             Err(err) => {
-                // Váratlan infrastruktúra-hiba: a jobot lezárjuk failed-re,
-                // a kör a többi jobbal folytatódik. A reserve óta számláló
-                // ledger-placeholder transport_error-ként marad (jogos kísérlet).
-                tracing::error!(job_id = %job.id, error = %err, "tick: a job feldolgozása megszakadt");
-                if let Err(complete_err) =
-                    scheduler::complete(pool, job.id, JobStatus::Failed, Some(&err.to_string()))
-                        .await
-                {
-                    tracing::error!(job_id = %job.id, error = %complete_err,
-                        "tick: a hibás job lezárása sem sikerült");
+                tracing::error!(job_id = %leased.job.id, error = %err, "tick: a job feldolgozása megszakadt");
+                match finish(pool, leased, JobStatus::Failed, Some(&err.to_string())).await {
+                    Ok(JobResult::Failed) => outcome.failed += 1,
+                    Ok(_) => outcome.blocked += 1,
+                    Err(complete_err) => {
+                        tracing::error!(job_id = %leased.job.id, error = %complete_err,
+                            "tick: a hibás job lezárása sem sikerült");
+                        outcome.blocked += 1;
+                    }
                 }
-                outcome.failed += 1;
             }
         }
     }
@@ -241,9 +255,11 @@ async fn process_job(
     store: &ObjectStore,
     fetchers: &Fetchers,
     adapters: &HashMap<String, Box<dyn SourceAdapter>>,
-    job: &FetchJob,
+    leased: &LeasedJob,
     now: DateTime<Utc>,
 ) -> Result<JobResult> {
+    let job = &leased.job;
+    let lease = &leased.lease;
     // S139/S163: a research refresh csak akkor olvashat, ha a CÉL napi fájl a
     // job létrehozása UTÁN frissült (catchup: entity_key, slot: time_window).
     // A daemon 07:31-kor indult, a research fájl 07:38-kor frissül — régen a
@@ -265,41 +281,40 @@ async fn process_job(
             .map(DateTime::<Utc>::from);
         if catchup_source_stale(modified, created_at, now) {
             tracing::info!(%target, job_id = %job.id, "catch-up várakozik a research frissítésre");
-            repo::requeue_with_delay(pool, job.id, now + Duration::minutes(15)).await?;
+            if !repo::requeue_leased(pool, lease, now + Duration::minutes(15)).await? {
+                return Ok(JobResult::Blocked);
+            }
             return Ok(JobResult::Deferred);
         }
     }
 
     // 2. Policy-kapu: hiányzó vagy tiltott policy → cancelled.
     let Some(policy) = repo::get_policy(pool, &job.source_slug).await? else {
-        scheduler::complete(
+        return finish(
             pool,
-            job.id,
+            leased,
             JobStatus::Cancelled,
             Some("hiányzó source policy"),
         )
-        .await?;
-        return Ok(JobResult::Blocked);
+        .await;
     };
     if !policy.enabled {
-        scheduler::complete(
+        return finish(
             pool,
-            job.id,
+            leased,
             JobStatus::Cancelled,
             Some("tiltott source policy"),
         )
-        .await?;
-        return Ok(JobResult::Blocked);
+        .await;
     }
     let Some(adapter) = adapters.get(&job.source_slug) else {
-        scheduler::complete(
+        return finish(
             pool,
-            job.id,
+            leased,
             JobStatus::Failed,
             Some("nincs regisztrált adapter a forráshoz"),
         )
-        .await?;
-        return Ok(JobResult::Failed);
+        .await;
     };
 
     // S179: a napon belüli slot jobok a `time_window` napját kérdik a
@@ -307,30 +322,27 @@ async fn process_job(
     // mindig az aktuális napot szolgálja) — dátum-guard hiba helyett
     // érvénytelenítjük, hogy ne pazarolja a kvótát és ne szennyezze a jelzéseket.
     if stale_slot_job(job, policy.transport, now) {
-        scheduler::complete(
+        return finish(
             pool,
-            job.id,
+            leased,
             JobStatus::Cancelled,
             Some("elavult slot: a forrás csak az aktuális napot szolgálja"),
         )
-        .await?;
-        return Ok(JobResult::Blocked);
+        .await;
     }
 
     // S9: a job a forrás egy napi körét képviseli; a terv MINDEN kérését
     // feldolgozzuk (a korábbi kód csak az elsőt használta).
     let plan = adapter.plan(job);
     if plan.is_empty() {
-        scheduler::complete(pool, job.id, JobStatus::Failed, Some("üres fetch-terv")).await?;
-        return Ok(JobResult::Failed);
+        return finish(pool, leased, JobStatus::Failed, Some("üres fetch-terv")).await;
     }
 
     // A tartalom-fetch fetcherét a policy transzportja választja (S2c).
     let fetcher = match fetchers.for_transport(&policy.transport) {
         Ok(fetcher) => fetcher,
         Err(err) => {
-            scheduler::complete(pool, job.id, JobStatus::Failed, Some(&err.to_string())).await?;
-            return Ok(JobResult::Failed);
+            return finish(pool, leased, JobStatus::Failed, Some(&err.to_string())).await;
         }
     };
 
@@ -347,93 +359,104 @@ async fn process_job(
 
     let mut observations: Vec<Observation> = Vec::new();
     let result = async {
-        for (index, req) in plan.iter().enumerate() {
+        for req in &plan {
             // Robots-kapu kérésenként (fail-closed); helyi fájl-forrásnál nincs.
             if !local_file
                 && robots::check(pool, robots_fetcher, &job.source_slug, &req.url).await?
                     == robots::RobotsVerdict::Blocked
             {
                 block_ledger(pool, job, req, now, FetchOutcome::RobotsBlocked).await?;
-                coverage::set(
-                    pool,
-                    &job.source_slug,
-                    &job.domain,
-                    &job.event_type,
-                    &job.time_window,
-                    CoverageState::Blocked,
-                    job.id,
-                )
-                .await?;
-                scheduler::complete(pool, job.id, JobStatus::Failed, Some("robots tiltás"))
-                    .await?;
-                return Ok(JobResult::Blocked);
-            }
-
-            // Kvóta/delay-kapu: az első kérésnél a megszokott visszasorolás;
-            // további kéréseknél a policy min_delay-ét a jobon belül kivárjuk
-            // (max 15 s), utána újra ellenőrzünk. Helyi fájl-forrásnál nincs
-            // kvóta és nincs késleltetés (S38).
-            let decision = if local_file {
-                quota::GuardDecision::Allowed
-            } else if index == 0 {
-                quota::guard(pool, &policy, now).await?
-            } else {
-                wait_for_delay(pool, &policy).await?
-            };
-            if decision != quota::GuardDecision::Allowed {
-                block_ledger(pool, job, req, Utc::now(), FetchOutcome::QuotaBlocked).await?;
-                let (reason, due_at) = if decision == quota::GuardDecision::QuotaBlocked {
-                    // A kvóta naponta (UTC-éjfélkor) áll vissza: a jobot oda
-                    // soroljuk vissza, nem percenként újra próbálkozunk vele.
-                    ("napi kvóta kimerült", next_quota_reset(now))
-                } else {
-                    // A min_delay letelte után azonnal folytatható.
-                    let delay_ms = policy.min_delay_ms.max(1_000);
-                    let jitter = if policy.jitter_ms > 0 {
-                        rand::rng().random_range(0..policy.jitter_ms)
-                    } else {
-                        0
-                    };
-                    (
-                        "a min_delay még nem telt le",
-                        now + Duration::milliseconds(delay_ms + jitter),
-                    )
-                };
-                repo::requeue_with_delay(pool, job.id, due_at).await?;
-                tracing::debug!(
-                    job_id = %job.id,
-                    source = %job.source_slug,
-                    reason,
-                    %due_at,
-                    "job visszasorolva a kapu miatt (nem hot loop)"
-                );
-                return Ok(JobResult::Blocked);
+                if !coverage::set(pool, leased, CoverageState::Blocked).await? {
+                    return Ok(JobResult::Blocked);
+                }
+                return finish(pool, leased, JobStatus::Failed, Some("robots tiltás")).await;
             }
 
             // Breaker-kapu: nyitva → nem számláló ledger + failed.
             if !breaker::allow(pool, &policy, now).await? {
                 block_ledger(pool, job, req, now, FetchOutcome::BreakerOpen).await?;
-                scheduler::complete(pool, job.id, JobStatus::Failed, Some("breaker nyitva"))
-                    .await?;
-                return Ok(JobResult::Blocked);
+                return finish(pool, leased, JobStatus::Failed, Some("breaker nyitva")).await;
             }
 
-            // Reserve: a placeholder már a reserve pillanatában kísérletnek számít.
-            let ledger_id = repo::insert_ledger(
-                pool,
-                &LedgerEntry {
-                    source_slug: job.source_slug.clone(),
-                    request_key: req.request_key.clone(),
-                    attempted_at: now,
-                    outcome: FetchOutcome::TransportError,
-                    http_status: None,
-                    byte_size: None,
-                    latency_ms: None,
-                    artifact_hash: None,
-                    job_id: Some(job.id),
-                },
-            )
-            .await?;
+            // Helyi fájl-nál nincs kvóta/delay, de a megszokott időben kiírt
+            // placeholder megmarad. Hálózati kérésnél a reservation dönti el
+            // egyszerre a kvótát, a min-delayt és a ledger-foglalást.
+            let ledger_id = if local_file {
+                repo::insert_ledger(
+                    pool,
+                    &LedgerEntry {
+                        source_slug: job.source_slug.clone(),
+                        request_key: req.request_key.clone(),
+                        attempted_at: now,
+                        outcome: FetchOutcome::TransportError,
+                        http_status: None,
+                        byte_size: None,
+                        latency_ms: None,
+                        artifact_hash: None,
+                        job_id: Some(job.id),
+                    },
+                )
+                .await?
+            } else {
+                match quota::reserve(pool, &job.source_slug, &req.request_key, lease, now).await {
+                    Ok(quota::QuotaDecision::Allowed(id)) => id,
+                    Ok(quota::QuotaDecision::QuotaBlocked) => {
+                        breaker::release_probe(pool, &job.source_slug).await?;
+                        block_ledger(pool, job, req, now, FetchOutcome::QuotaBlocked).await?;
+                        let due_at = next_quota_reset(now);
+                        tracing::debug!(
+                            job_id = %job.id,
+                            source = %job.source_slug,
+                            %due_at,
+                            "job visszasorolva: napi kvóta kimerült"
+                        );
+                        return requeue_for_gate(pool, leased, due_at).await;
+                    }
+                    Ok(quota::QuotaDecision::DelayBlocked) => {
+                        block_ledger(pool, job, req, now, FetchOutcome::QuotaBlocked).await?;
+                        match wait_for_delay(pool, &policy, leased, &req.request_key).await {
+                            Ok(DelayDecision::Reserved(id)) => id,
+                            Ok(DelayDecision::LeaseLost) => {
+                                breaker::release_probe(pool, &job.source_slug).await?;
+                                return Ok(JobResult::Blocked);
+                            }
+                            Ok(DelayDecision::QuotaBlocked) => {
+                                breaker::release_probe(pool, &job.source_slug).await?;
+                                let due_at = next_quota_reset(now);
+                                tracing::debug!(
+                                    job_id = %job.id,
+                                    source = %job.source_slug,
+                                    %due_at,
+                                    "job visszasorolva: napi kvóta kimerült"
+                                );
+                                return requeue_for_gate(pool, leased, due_at).await;
+                            }
+                            Ok(DelayDecision::RetryAt(due_at)) => {
+                                breaker::release_probe(pool, &job.source_slug).await?;
+                                tracing::debug!(
+                                    job_id = %job.id,
+                                    source = %job.source_slug,
+                                    %due_at,
+                                    "job visszasorolva: a min_delay még nem telt le"
+                                );
+                                return requeue_for_gate(pool, leased, due_at).await;
+                            }
+                            Err(err) => {
+                                breaker::release_probe(pool, &job.source_slug).await?;
+                                return Err(err);
+                            }
+                        }
+                    }
+                    Ok(quota::QuotaDecision::LeaseLost) => {
+                        breaker::release_probe(pool, &job.source_slug).await?;
+                        return Ok(JobResult::Blocked);
+                    }
+                    Err(err) => {
+                        breaker::release_probe(pool, &job.source_slug).await?;
+                        return Err(err);
+                    }
+                }
+            };
 
             // Fetch a policy limitjeivel.
             let limits = FetchLimits {
@@ -447,7 +470,7 @@ async fn process_job(
             let raw = match fetched {
                 Ok(raw) => raw,
                 Err(err) => {
-                    return fetch_failure(pool, &policy, job, ledger_id, now, latency_ms, &err)
+                    return fetch_failure(pool, &policy, leased, ledger_id, now, latency_ms, &err)
                         .await;
                 }
             };
@@ -512,20 +535,10 @@ async fn process_job(
                         Some(&artifact.sha256),
                     )
                     .await?;
-                    coverage::set(
-                        pool,
-                        &job.source_slug,
-                        &job.domain,
-                        &job.event_type,
-                        &job.time_window,
-                        CoverageState::Quarantined,
-                        job.id,
-                    )
-                    .await?;
-                    scheduler::complete(pool, job.id, JobStatus::Failed, Some(&err.to_string()))
-                        .await?;
-                    tracing::warn!(job_id = %job.id, error = %err, "tick: parse karantén, a nyers megmaradt");
-                    return Ok(JobResult::Failed);
+                    if !coverage::set(pool, leased, CoverageState::Quarantined).await? {
+                        return Ok(JobResult::Blocked);
+                    }
+                    return finish(pool, leased, JobStatus::Failed, Some(&err.to_string())).await;
                 }
             };
 
@@ -555,12 +568,8 @@ async fn process_job(
                     if obs.aspect != "match_odds" {
                         continue;
                     }
-                    let Some(match_id) = repo::active_match_ref(
-                        pool,
-                        source_id,
-                        &obs.source_record_key,
-                    )
-                    .await?
+                    let Some(match_id) =
+                        repo::active_match_ref(pool, source_id, &obs.source_record_key).await?
                     else {
                         tracing::warn!(
                             source = %job.source_slug,
@@ -580,16 +589,20 @@ async fn process_job(
                     if let Some(rows) = obs.payload.get("quotes").and_then(|v| v.as_array()) {
                         for row in rows {
                             let get_str = |key: &str| {
-                                row.get(key).and_then(|v| v.as_str()).unwrap_or("").to_owned()
+                                row.get(key)
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_owned()
                             };
-                            odds.quotes.push(football_ingest::normalized::NormalizedQuote {
-                                bookmaker: get_str("bookmaker"),
-                                market: get_str("market"),
-                                outcome: get_str("outcome"),
-                                line: row.get("line").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                                phase: get_str("phase"),
-                                price: row.get("price").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                            });
+                            odds.quotes
+                                .push(football_ingest::normalized::NormalizedQuote {
+                                    bookmaker: get_str("bookmaker"),
+                                    market: get_str("market"),
+                                    outcome: get_str("outcome"),
+                                    line: row.get("line").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                                    phase: get_str("phase"),
+                                    price: row.get("price").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                                });
                         }
                     }
                     football_ingest::canonicalize::write_market_odds(
@@ -622,15 +635,11 @@ async fn process_job(
         // 8–9. Shadow ágban nincs kanonikus írás; live/canary ágban a teljes
         // verification + gate lánc fut, VERSENYENKÉNT (S9). Üres observation-
         // lista legitím nulla-nap → no_data, nem hiba.
-        if policy.mode != SourceMode::Shadow
-            && !observations.is_empty()
-            && job.domain != "markets"
+        if policy.mode != SourceMode::Shadow && !observations.is_empty() && job.domain != "markets"
         {
             if observations.iter().any(|o| o.aspect == "club_elo") {
-                let elo = football_ingest::normalized::ClubEloDay::from_observations(
-                    &observations,
-                )
-                .context("observationökből club_elo nap")?;
+                let elo = football_ingest::normalized::ClubEloDay::from_observations(&observations)
+                    .context("observationökből club_elo nap")?;
                 let written = Canonicalizer::materialize_elo(pool, &elo).await?;
                 tracing::info!(written, "club_elo pillanatkép materializálva");
             } else {
@@ -646,7 +655,8 @@ async fn process_job(
                 // hogy a forrás verseny-név-variánsai ne hagyjanak duplikátumot
                 // a napi feedben. A túlélő a legrégebben létrehozott sor.
                 if policy.transport == Transport::LocalFile
-                    && let Ok(date) = chrono::NaiveDate::parse_from_str(&job.time_window, "%Y-%m-%d")
+                    && let Ok(date) =
+                        chrono::NaiveDate::parse_from_str(&job.time_window, "%Y-%m-%d")
                 {
                     match auto_dedupe_day(pool, date).await {
                         Ok((merged, skipped)) => {
@@ -666,33 +676,15 @@ async fn process_job(
         } else {
             CoverageState::Done
         };
-        coverage::set(
-            pool,
-            &job.source_slug,
-            &job.domain,
-            &job.event_type,
-            &job.time_window,
-            coverage_state,
-            job.id,
-        )
-        .await?;
-        scheduler::complete(pool, job.id, JobStatus::Done, None).await?;
-        Ok(JobResult::Processed)
+        if !coverage::set(pool, leased, coverage_state).await? {
+            return Ok(JobResult::Blocked);
+        }
+        finish(pool, leased, JobStatus::Done, None).await
     }
     .await;
     if result.is_err() {
         // Best-effort coverage-failed: ha ez sem megy, a hiba naplózódik.
-        if let Err(cov_err) = coverage::set(
-            pool,
-            &job.source_slug,
-            &job.domain,
-            &job.event_type,
-            &job.time_window,
-            CoverageState::Failed,
-            job.id,
-        )
-        .await
-        {
+        if let Err(cov_err) = coverage::set(pool, leased, CoverageState::Failed).await {
             tracing::error!(job_id = %job.id, error = %cov_err,
                 "tick: a coverage failed állapot rögzítése sem sikerült");
         }
@@ -700,20 +692,76 @@ async fn process_job(
     result
 }
 
+enum DelayDecision {
+    Reserved(Uuid),
+    QuotaBlocked,
+    LeaseLost,
+    RetryAt(DateTime<Utc>),
+}
+
 /// A policy min_delay-ét kivárja a jobon belüli következő kéréshez
-/// (legfeljebb 15 s); utána a kvóta-állapotot adja vissza.
-async fn wait_for_delay(pool: &PgPool, policy: &SourcePolicy) -> Result<quota::GuardDecision> {
+/// (legfeljebb 15 s); a várakozás alatt is a saját lease-re reserve-ol.
+async fn wait_for_delay(
+    pool: &PgPool,
+    policy: &SourcePolicy,
+    leased: &LeasedJob,
+    request_key: &str,
+) -> Result<DelayDecision> {
     let deadline = tokio::time::Instant::now() + StdDuration::from_secs(15);
     loop {
-        let decision = quota::guard(pool, policy, Utc::now()).await?;
-        if decision != quota::GuardDecision::DelayBlocked {
-            return Ok(decision);
+        let now = Utc::now();
+        match quota::reserve(
+            pool,
+            &leased.job.source_slug,
+            request_key,
+            &leased.lease,
+            now,
+        )
+        .await?
+        {
+            quota::QuotaDecision::Allowed(id) => return Ok(DelayDecision::Reserved(id)),
+            quota::QuotaDecision::QuotaBlocked => return Ok(DelayDecision::QuotaBlocked),
+            quota::QuotaDecision::LeaseLost => return Ok(DelayDecision::LeaseLost),
+            quota::QuotaDecision::DelayBlocked => {}
         }
         if tokio::time::Instant::now() >= deadline {
-            return Ok(decision);
+            let delay_ms = policy.min_delay_ms.max(1_000);
+            let jitter = if policy.jitter_ms > 0 {
+                rand::rng().random_range(0..policy.jitter_ms)
+            } else {
+                0
+            };
+            return Ok(DelayDecision::RetryAt(
+                now + Duration::milliseconds(delay_ms + jitter),
+            ));
         }
         tokio::time::sleep(StdDuration::from_millis(250)).await;
     }
+}
+
+async fn finish(
+    pool: &PgPool,
+    leased: &LeasedJob,
+    status: JobStatus,
+    last_error: Option<&str>,
+) -> Result<JobResult> {
+    if !scheduler::complete(pool, &leased.lease, status, last_error).await? {
+        return Ok(JobResult::Blocked);
+    }
+    Ok(match status {
+        JobStatus::Done => JobResult::Processed,
+        JobStatus::Failed => JobResult::Failed,
+        _ => JobResult::Blocked,
+    })
+}
+
+async fn requeue_for_gate(
+    pool: &PgPool,
+    leased: &LeasedJob,
+    due_at: DateTime<Utc>,
+) -> Result<JobResult> {
+    repo::requeue_leased(pool, &leased.lease, due_at).await?;
+    Ok(JobResult::Blocked)
 }
 
 /// Nem számláló ledger-sor a kapu-blokkokhoz (reserve előtt).
@@ -748,12 +796,13 @@ async fn block_ledger(
 async fn fetch_failure(
     pool: &PgPool,
     policy: &SourcePolicy,
-    job: &FetchJob,
+    leased: &LeasedJob,
     ledger_id: Uuid,
     now: DateTime<Utc>,
     latency_ms: i64,
     err: &FetchError,
 ) -> Result<JobResult> {
+    let job = &leased.job;
     let retry_after = match err {
         FetchError::RateLimited(retry_after) => *retry_after,
         _ => None,
@@ -784,31 +833,23 @@ async fn fetch_failure(
     } else {
         breaker::on_failure(pool, policy, now).await?;
     }
-    coverage::set(
-        pool,
-        &job.source_slug,
-        &job.domain,
-        &job.event_type,
-        &job.time_window,
-        CoverageState::Failed,
-        job.id,
-    )
-    .await?;
+    if !coverage::set(pool, leased, CoverageState::Failed).await? {
+        return Ok(JobResult::Blocked);
+    }
     if transient {
         let attempts = repo::count_job_fetch_attempts(pool, job.id).await?;
         // A végtelen újrapróbálkozás helyett a job a limit után failed-re
         // zárul (a ledger és a coverage így is rögzíti a kísérleteket).
         if attempts >= MAX_TRANSIENT_ATTEMPTS {
-            scheduler::complete(
+            return finish(
                 pool,
-                job.id,
+                leased,
                 JobStatus::Failed,
                 Some(&format!(
                     "transiens újrapróbálkozás-limit elérve ({attempts} kísérlet): {err}"
                 )),
             )
-            .await?;
-            return Ok(JobResult::Failed);
+            .await;
         }
         let delay = retry_after
             .and_then(|d| Duration::from_std(d).ok())
@@ -818,11 +859,9 @@ async fn fetch_failure(
                     rng.random()
                 })
             });
-        repo::requeue_with_delay(pool, job.id, now + delay).await?;
-        return Ok(JobResult::Blocked);
+        return requeue_for_gate(pool, leased, now + delay).await;
     }
-    scheduler::complete(pool, job.id, JobStatus::Failed, Some(&err.to_string())).await?;
-    Ok(JobResult::Failed)
+    finish(pool, leased, JobStatus::Failed, Some(&err.to_string())).await
 }
 
 /// Megjelenítési név a nyers payloadból — kizárólag akkor, ha a payload

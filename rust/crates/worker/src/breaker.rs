@@ -81,6 +81,28 @@ pub async fn allow(pool: &PgPool, policy: &SourcePolicy, now: DateTime<Utc>) -> 
     .await
 }
 
+/// Fetch előtti kapublokk esetén a felhasználatlan half_open probe visszaadása.
+/// Csak a half_open állapotot módosítja; későbbi siker/hiba döntése így nem veszhet el.
+pub async fn release_probe(pool: &PgPool, slug: &str) -> Result<()> {
+    repo::update_breaker_locked(pool, slug, |current| {
+        let Some(row) = current else {
+            return ((), BreakerWrite::Keep);
+        };
+        if row.state == BreakerState::HalfOpen {
+            (
+                (),
+                BreakerWrite::Set(BreakerRow {
+                    state: BreakerState::Open,
+                    ..row.clone()
+                }),
+            )
+        } else {
+            ((), BreakerWrite::Keep)
+        }
+    })
+    .await
+}
+
 pub async fn on_success(pool: &PgPool, slug: &str) -> Result<()> {
     repo::update_breaker_locked(pool, slug, |_| ((), BreakerWrite::Set(closed_row()))).await
 }

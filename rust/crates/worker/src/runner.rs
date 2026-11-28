@@ -20,35 +20,60 @@ use football_ingest::adapter::SourceAdapter;
 use football_ingest::fetch::Fetchers;
 use football_storage::object_store::ObjectStore;
 use football_storage::repositories::worker as repo;
-use sqlx::PgPool;
+use sqlx::{ConnectOptions, Either, PgPool, postgres::PgAdvisoryLock};
 use tokio::sync::watch;
 use uuid::Uuid;
 
 use crate::{scheduler, tick};
 
-/// Egy teljes worker-kör: engedélyezett policy-k, idempotens job-generálás,
-/// majd a tick. A generálás a tick előtt fut, hogy a friss policy-események
-/// még ebben a körben feldolgozódjanak.
-async fn run_cycle(
+const WORKER_CYCLE_LOCK: &str = "football-app-v2:worker-cycle:v1";
+
+#[derive(Debug, Clone, Copy)]
+pub struct CycleOutcome {
+    pub generated: usize,
+    pub processed: usize,
+    pub blocked: usize,
+    pub failed: usize,
+    pub deferred: usize,
+}
+
+pub async fn run_cycle(
     pool: &PgPool,
     store: &ObjectStore,
     fetchers: &Fetchers,
     adapters: &HashMap<String, Box<dyn SourceAdapter>>,
     worker_id: Uuid,
-) -> Result<()> {
+) -> Result<Option<CycleOutcome>> {
+    let connection = pool.connect_options().connect().await?;
+    let lock = PgAdvisoryLock::new(WORKER_CYCLE_LOCK);
+    let guard = match lock.try_acquire(connection).await? {
+        Either::Right(_) => return Ok(None),
+        Either::Left(guard) => guard,
+    };
+    let result = run_cycle_unlocked(pool, store, fetchers, adapters, worker_id).await;
+    let _connection = guard.release_now().await?;
+    let outcome = result?;
+    Ok(Some(outcome))
+}
+
+async fn run_cycle_unlocked(
+    pool: &PgPool,
+    store: &ObjectStore,
+    fetchers: &Fetchers,
+    adapters: &HashMap<String, Box<dyn SourceAdapter>>,
+    worker_id: Uuid,
+) -> Result<CycleOutcome> {
     let now = Utc::now();
     let policies = repo::list_enabled_policies(pool).await?;
     let generated = scheduler::generate_jobs(pool, &policies, now).await?;
     let outcome = tick::tick(pool, store, fetchers, adapters, worker_id, now).await?;
-    tracing::info!(
+    Ok(CycleOutcome {
         generated,
-        processed = outcome.processed,
-        blocked = outcome.blocked,
-        failed = outcome.failed,
-        deferred = outcome.deferred,
-        "worker tick kész"
-    );
-    Ok(())
+        processed: outcome.processed,
+        blocked: outcome.blocked,
+        failed: outcome.failed,
+        deferred: outcome.deferred,
+    })
 }
 
 pub async fn run_loop(
@@ -75,8 +100,17 @@ pub async fn run_loop(
                 }
             }
             _ = interval.tick() => {
-                if let Err(err) = run_cycle(&pool, &store, &fetchers, &adapters, worker_id).await {
-                    tracing::error!(error = %err, "worker tick hiba, a ciklus folytatódik");
+                match run_cycle(&pool, &store, &fetchers, &adapters, worker_id).await {
+                    Ok(Some(outcome)) => tracing::info!(
+                        generated = outcome.generated,
+                        processed = outcome.processed,
+                        blocked = outcome.blocked,
+                        failed = outcome.failed,
+                        deferred = outcome.deferred,
+                        "worker tick kész"
+                    ),
+                    Ok(None) => tracing::debug!("worker tick kihagyva: egy másik kör már fut"),
+                    Err(err) => tracing::error!(error = %err, "worker tick hiba, a ciklus folytatódik"),
                 }
             }
         }

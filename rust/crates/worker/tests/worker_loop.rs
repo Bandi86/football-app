@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use chrono::Utc;
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use football_domain::policy::{EventTemplate, SourceMode, SourcePolicy, Transport};
 use football_ingest::adapter::SourceAdapter;
 use football_ingest::demo::DemoAdapter;
@@ -19,8 +19,8 @@ use football_ingest::http::RustHttpFetcher;
 use football_storage::object_store::ObjectStore;
 use football_storage::repositories::worker as repo;
 use football_storage::test_support::test_pool;
-use football_worker::{runner::run_loop, scheduler};
-use sqlx::PgPool;
+use football_worker::{lease, runner, runner::run_loop, scheduler};
+use sqlx::{ConnectOptions, PgPool};
 use uuid::Uuid;
 
 /// A tesztek fixture policy-i a fixture fetcheren mennek (nincs hálózat).
@@ -88,6 +88,110 @@ async fn seed_and_generate(pool: &PgPool) {
 
 async fn count(pool: &PgPool, sql: &str) -> i64 {
     sqlx::query_scalar(sql).fetch_one(pool).await.unwrap()
+}
+
+#[tokio::test]
+async fn singleton_skips_busy_cycle_and_runs_after_release() {
+    let pool = test_pool().await;
+    let policy = policy();
+    repo::upsert_policy(&pool, &policy).await.unwrap();
+    let store_dir = tempfile::tempdir().unwrap();
+    let store = ObjectStore::new(store_dir.path()).unwrap();
+    let fetch_dir = tempfile::tempdir().unwrap();
+    let fetcher = fixture_fetcher(fetch_dir.path());
+    let adapters = adapters();
+    let worker_id = Uuid::now_v7();
+
+    let connection = pool.connect_options().connect().await.unwrap();
+    let lock = sqlx::postgres::PgAdvisoryLock::new("football-app-v2:worker-cycle:v1");
+    let guard = lock.try_acquire(connection).await.unwrap().left().unwrap();
+
+    let busy = runner::run_cycle(
+        &pool,
+        &store,
+        &as_fetchers(fetcher.clone()),
+        &adapters,
+        worker_id,
+    )
+    .await
+    .unwrap();
+    assert!(busy.is_none());
+    assert_eq!(count(&pool, "SELECT count(*) FROM ops.job").await, 0);
+
+    let connection = guard.release_now().await.unwrap();
+    drop(connection);
+    let outcome = runner::run_cycle(&pool, &store, &as_fetchers(fetcher), &adapters, worker_id)
+        .await
+        .unwrap()
+        .expect("a lock elengedése után a kör futnia kell");
+    assert_eq!(outcome.generated, 1);
+    assert_eq!(outcome.processed, 1);
+}
+
+#[tokio::test]
+async fn heartbeat_loop_renews_lease_and_reports_lost_ownership() {
+    let pool = test_pool().await;
+    let policy = policy();
+    repo::upsert_policy(&pool, &policy).await.unwrap();
+    repo::insert_job(
+        &pool,
+        &repo::NewJob {
+            source_slug: policy.source_slug.clone(),
+            domain: "match".into(),
+            entity_key: "heartbeat-loop".into(),
+            event_type: "discovery".into(),
+            time_window: Utc::now().date_naive().to_string(),
+            due_at: Utc::now() - ChronoDuration::seconds(1),
+            priority: 0,
+        },
+    )
+    .await
+    .unwrap();
+    let leased = repo::claim_due_jobs(&pool, Uuid::now_v7(), Utc::now(), 1, 1)
+        .await
+        .unwrap()
+        .remove(0);
+    let (stop, shutdown) = tokio::sync::watch::channel(false);
+    let handle = tokio::spawn(lease::heartbeat_loop(
+        pool.clone(),
+        leased.lease,
+        Duration::from_millis(25),
+        1,
+        shutdown,
+    ));
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    let renewed: DateTime<Utc> = loop {
+        let value: DateTime<Utc> =
+            sqlx::query_scalar("SELECT leased_until FROM ops.job WHERE id = $1")
+                .bind(leased.job.id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        if value > leased.lease.leased_until {
+            break value;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "a heartbeat nem újította a lease-t"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    };
+    assert!(renewed > leased.lease.leased_until);
+
+    sqlx::query(
+        "UPDATE ops.job SET leased_until = clock_timestamp() - interval '1 second' WHERE id = $1",
+    )
+    .bind(leased.job.id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let alive = tokio::time::timeout(Duration::from_secs(2), handle)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!alive);
+    let _ = stop.send(true);
 }
 
 #[tokio::test]

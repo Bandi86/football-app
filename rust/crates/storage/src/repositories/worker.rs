@@ -187,21 +187,6 @@ pub async fn job_created_at(pool: &PgPool, job_id: Uuid) -> Result<DateTime<Utc>
         .context("job created_at lekérés")
 }
 
-/// A job visszasorolása pending állapotba késleltetett due_at-tel.
-pub async fn requeue_with_delay(pool: &PgPool, job_id: Uuid, due_at: DateTime<Utc>) -> Result<()> {
-    sqlx::query(
-        "UPDATE ops.job SET status='pending', due_at=$2, worker_id=NULL,
-             leased_until=NULL, lease_token=NULL
-         WHERE id=$1",
-    )
-    .bind(job_id)
-    .bind(due_at)
-    .execute(pool)
-    .await
-    .context("job késleltetett visszasorolása")?;
-    Ok(())
-}
-
 /// Worker-állapot számlálók (CLI `worker status`).
 pub struct WorkerStatusCounts {
     pub jobs_pending: i64,
@@ -905,26 +890,6 @@ pub async fn upsert_job_coverage(
     Ok(result.rows_affected() == 1)
 }
 
-pub async fn complete_job(
-    pool: &PgPool,
-    job_id: Uuid,
-    status: JobStatus,
-    last_error: Option<&str>,
-) -> Result<()> {
-    sqlx::query(
-        "UPDATE ops.job SET status=$2, last_error=$3, worker_id=NULL,
-             leased_until=NULL, lease_token=NULL
-         WHERE id=$1",
-    )
-    .bind(job_id)
-    .bind(status.as_db_str())
-    .bind(last_error)
-    .execute(pool)
-    .await
-    .context("job befejezés")?;
-    Ok(())
-}
-
 pub async fn release_worker_leases(pool: &PgPool, worker_id: Uuid) -> Result<u64> {
     let res = sqlx::query(
         "UPDATE ops.job SET status='pending', worker_id=NULL, leased_until=NULL,
@@ -936,34 +901,6 @@ pub async fn release_worker_leases(pool: &PgPool, worker_id: Uuid) -> Result<u64
     .await
     .context("worker lease-ek elengedése")?;
     Ok(res.rows_affected())
-}
-
-pub async fn upsert_coverage(
-    pool: &PgPool,
-    slug: &str,
-    entity_type: &str,
-    data_kind: &str,
-    time_window: &str,
-    state: CoverageState,
-    job_id: Option<Uuid>,
-) -> Result<()> {
-    sqlx::query(
-        "INSERT INTO ops.coverage_slot
-         (source_slug, entity_type, data_kind, time_window, state, last_job_id)
-         VALUES ($1,$2,$3,$4,$5,$6)
-         ON CONFLICT (source_slug, entity_type, data_kind, time_window) DO UPDATE SET
-          state = EXCLUDED.state, last_job_id = EXCLUDED.last_job_id, updated_at = now()",
-    )
-    .bind(slug)
-    .bind(entity_type)
-    .bind(data_kind)
-    .bind(time_window)
-    .bind(state.as_db_str())
-    .bind(job_id)
-    .execute(pool)
-    .await
-    .context("coverage upsert")?;
-    Ok(())
 }
 
 pub async fn get_robots_cache(pool: &PgPool, host: &str) -> Result<Option<RobotsCacheRow>> {
