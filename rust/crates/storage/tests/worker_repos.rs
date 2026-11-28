@@ -631,6 +631,7 @@ async fn breaker_set_get_roundtrip() {
         failure_count: 3,
         opened_at: Some(now),
         next_probe_at: Some(now + Duration::seconds(60)),
+        probe_token: None,
     };
     repo::update_breaker_locked(&pool, "demo-synthetic", |_| {
         ((), repo::BreakerWrite::Set(open))
@@ -652,6 +653,7 @@ async fn breaker_set_get_roundtrip() {
         failure_count: 0,
         opened_at: None,
         next_probe_at: None,
+        probe_token: None,
     };
     repo::update_breaker_locked(&pool, "demo-synthetic", |_| {
         ((), repo::BreakerWrite::Set(closed))
@@ -1136,7 +1138,7 @@ async fn record_auth_failure_writes_breaker_and_audit_together() {
     seed_policy(&pool, "demo-synthetic").await;
     let now = Utc::now().trunc_subsecs(6);
     let detail = serde_json::json!({"slug": "demo-synthetic", "status": "auth_failure"});
-    repo::record_auth_failure(&pool, &policy("demo-synthetic"), now, &detail)
+    repo::record_auth_failure(&pool, &policy("demo-synthetic"), now, None, &detail)
         .await
         .unwrap();
 

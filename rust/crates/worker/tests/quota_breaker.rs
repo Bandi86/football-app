@@ -7,6 +7,7 @@ use football_storage::repositories::worker::{self as repo, BreakerRow};
 use football_storage::test_support::test_pool;
 use football_worker::{breaker, quota};
 use sqlx::PgPool;
+use uuid::Uuid;
 
 fn base_time() -> DateTime<Utc> {
     DateTime::from_timestamp(1_763_000_000, 0).unwrap()
@@ -31,6 +32,20 @@ async fn seed_policy(pool: &PgPool, daily_budget: i32, min_delay_ms: i64) -> Sou
     };
     repo::upsert_policy(pool, &policy).await.unwrap();
     policy
+}
+
+async fn is_allowed(pool: &PgPool, policy: &SourcePolicy, now: DateTime<Utc>) -> bool {
+    matches!(
+        breaker::allow(pool, policy, now).await.unwrap(),
+        breaker::BreakerDecision::Allowed(_)
+    )
+}
+
+async fn acquire_probe(pool: &PgPool, policy: &SourcePolicy, now: DateTime<Utc>) -> Uuid {
+    match breaker::allow(pool, policy, now).await.unwrap() {
+        breaker::BreakerDecision::Allowed(Some(token)) => token,
+        other => panic!("nem érkezett probe engedély: {other:?}"),
+    }
 }
 
 async fn ledger(pool: &PgPool, at: DateTime<Utc>, outcome: FetchOutcome) {
@@ -363,6 +378,7 @@ async fn only_one_concurrent_half_open_probe_is_allowed() {
                 failure_count: 2,
                 opened_at: Some(now - Duration::seconds(60)),
                 next_probe_at: Some(now),
+                probe_token: None,
             }),
         )
     })
@@ -376,7 +392,7 @@ async fn only_one_concurrent_half_open_probe_is_allowed() {
             let barrier = barrier.clone();
             tokio::spawn(async move {
                 barrier.wait().await;
-                breaker::allow(&pool, &policy, now).await.unwrap()
+                is_allowed(&pool, &policy, now).await
             })
         })
         .collect();
@@ -405,15 +421,16 @@ async fn unused_probe_release_preserves_open_state_and_allows_retry() {
         failure_count: 2,
         opened_at: Some(now - Duration::seconds(60)),
         next_probe_at: Some(now),
+        probe_token: None,
     };
     repo::update_breaker_locked(&pool, &policy.source_slug, |_| {
         ((), repo::BreakerWrite::Set(open.clone()))
     })
     .await
     .unwrap();
-    assert!(breaker::allow(&pool, &policy, now).await.unwrap());
+    let token = acquire_probe(&pool, &policy, now).await;
 
-    breaker::release_probe(&pool, &policy.source_slug)
+    breaker::release_probe(&pool, &policy.source_slug, token)
         .await
         .unwrap();
 
@@ -425,7 +442,8 @@ async fn unused_probe_release_preserves_open_state_and_allows_retry() {
     assert_eq!(row.failure_count, open.failure_count);
     assert_eq!(row.opened_at, open.opened_at);
     assert_eq!(row.next_probe_at, open.next_probe_at);
-    assert!(breaker::allow(&pool, &policy, now).await.unwrap());
+    assert_eq!(row.probe_token, None);
+    assert!(is_allowed(&pool, &policy, now).await);
 }
 
 #[tokio::test]
@@ -441,17 +459,18 @@ async fn unused_probe_release_does_not_undo_a_newer_transition() {
                 failure_count: 2,
                 opened_at: Some(now - Duration::seconds(60)),
                 next_probe_at: Some(now),
+                probe_token: None,
             }),
         )
     })
     .await
     .unwrap();
-    assert!(breaker::allow(&pool, &policy, now).await.unwrap());
-    breaker::on_success(&pool, &policy.source_slug)
+    let token = acquire_probe(&pool, &policy, now).await;
+    breaker::on_success(&pool, &policy.source_slug, Some(token))
         .await
         .unwrap();
 
-    breaker::release_probe(&pool, &policy.source_slug)
+    breaker::release_probe(&pool, &policy.source_slug, token)
         .await
         .unwrap();
 
@@ -461,6 +480,157 @@ async fn unused_probe_release_does_not_undo_a_newer_transition() {
         .unwrap();
     assert_eq!(row.state, BreakerState::Closed);
     assert_eq!(row.failure_count, 0);
+}
+
+#[tokio::test]
+async fn stale_probe_release_cannot_reopen_newer_half_open_generation() {
+    let pool = test_pool().await;
+    let policy = seed_policy(&pool, 10, 0).await;
+    let now = base_time();
+    repo::update_breaker_locked(&pool, &policy.source_slug, |_| {
+        (
+            (),
+            repo::BreakerWrite::Set(BreakerRow {
+                state: BreakerState::Open,
+                failure_count: 2,
+                opened_at: Some(now - Duration::seconds(60)),
+                next_probe_at: Some(now),
+                probe_token: None,
+            }),
+        )
+    })
+    .await
+    .unwrap();
+
+    let old_token = acquire_probe(&pool, &policy, now).await;
+    breaker::release_probe(&pool, &policy.source_slug, old_token)
+        .await
+        .unwrap();
+    let new_token = acquire_probe(&pool, &policy, now).await;
+    breaker::release_probe(&pool, &policy.source_slug, old_token)
+        .await
+        .unwrap();
+
+    let row = repo::get_breaker(&pool, &policy.source_slug)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        row.state,
+        BreakerState::HalfOpen,
+        "a régi probe felszabadítása nem nyithatja vissza az újabb generációt"
+    );
+    assert_eq!(row.probe_token, Some(new_token));
+}
+
+#[tokio::test]
+async fn stale_probe_completion_cannot_change_newer_generation() {
+    let pool = test_pool().await;
+    let policy = seed_policy(&pool, 10, 0).await;
+    let now = base_time();
+    repo::update_breaker_locked(&pool, &policy.source_slug, |_| {
+        (
+            (),
+            repo::BreakerWrite::Set(BreakerRow {
+                state: BreakerState::Open,
+                failure_count: 2,
+                opened_at: Some(now - Duration::seconds(60)),
+                next_probe_at: Some(now),
+                probe_token: None,
+            }),
+        )
+    })
+    .await
+    .unwrap();
+
+    let old_token = acquire_probe(&pool, &policy, now).await;
+    breaker::release_probe(&pool, &policy.source_slug, old_token)
+        .await
+        .unwrap();
+    let new_token = acquire_probe(&pool, &policy, now).await;
+
+    breaker::on_success(&pool, &policy.source_slug, Some(old_token))
+        .await
+        .unwrap();
+    breaker::on_failure(&pool, &policy, now, Some(old_token))
+        .await
+        .unwrap();
+    breaker::on_auth_failure(&pool, &policy, now, Some(old_token))
+        .await
+        .unwrap();
+
+    let row = repo::get_breaker(&pool, &policy.source_slug)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.state, BreakerState::HalfOpen);
+    assert_eq!(row.failure_count, 2);
+    assert_eq!(row.probe_token, Some(new_token));
+}
+
+#[tokio::test]
+async fn cancelled_probe_owner_releases_half_open_generation() {
+    let pool = test_pool().await;
+    let policy = seed_policy(&pool, 10, 0).await;
+    let now = base_time();
+    repo::update_breaker_locked(&pool, &policy.source_slug, |_| {
+        (
+            (),
+            repo::BreakerWrite::Set(BreakerRow {
+                state: BreakerState::Open,
+                failure_count: 2,
+                opened_at: Some(now - Duration::seconds(60)),
+                next_probe_at: Some(now),
+                probe_token: None,
+            }),
+        )
+    })
+    .await
+    .unwrap();
+
+    let owner_pool = pool.clone();
+    let owner_policy = policy.clone();
+    let owner = tokio::spawn(async move {
+        let decision = breaker::allow(&owner_pool, &owner_policy, now)
+            .await
+            .unwrap();
+        let _guard = breaker::ProbeGuard::new(&owner_pool, &owner_policy.source_slug, decision);
+        std::future::pending::<()>().await;
+    });
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        let row = repo::get_breaker(&pool, &policy.source_slug)
+            .await
+            .unwrap()
+            .unwrap();
+        if row.state == BreakerState::HalfOpen {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "a probe tulajdonosa nem érte el a half_open állapotot"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+
+    owner.abort();
+    assert!(owner.await.unwrap_err().is_cancelled());
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        let row = repo::get_breaker(&pool, &policy.source_slug)
+            .await
+            .unwrap()
+            .unwrap();
+        if row.state == BreakerState::Open {
+            assert_eq!(row.probe_token, None);
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "a megszakított probe nem szabadult fel"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -476,7 +646,9 @@ async fn concurrent_breaker_failures_do_not_lose_updates() {
             let barrier = barrier.clone();
             tokio::spawn(async move {
                 barrier.wait().await;
-                breaker::on_failure(&pool, &policy, now).await.unwrap()
+                breaker::on_failure(&pool, &policy, now, None)
+                    .await
+                    .unwrap()
             })
         })
         .collect();
@@ -496,7 +668,9 @@ async fn auth_failure_opens_breaker_and_flags_policy_review() {
     let pool = test_pool().await;
     let policy = seed_policy(&pool, 10, 0).await;
     let now = base_time();
-    breaker::on_auth_failure(&pool, &policy, now).await.unwrap();
+    breaker::on_auth_failure(&pool, &policy, now, None)
+        .await
+        .unwrap();
     let row = repo::get_breaker(&pool, "demo-synthetic")
         .await
         .unwrap()
@@ -530,56 +704,63 @@ async fn breaker_opens_at_threshold_and_probes_once() {
     let policy = seed_policy(&pool, 10, 0).await;
     let now = base_time();
     // nincs breaker-sor → closed-ként kezel → true
-    assert!(breaker::allow(&pool, &policy, now).await.unwrap());
+    assert!(is_allowed(&pool, &policy, now).await);
     // küszöb alatti hiba: marad closed
-    breaker::on_failure(&pool, &policy, now).await.unwrap();
+    breaker::on_failure(&pool, &policy, now, None)
+        .await
+        .unwrap();
     let row = repo::get_breaker(&pool, "demo-synthetic")
         .await
         .unwrap()
         .unwrap();
     assert_eq!(row.state, BreakerState::Closed);
     assert_eq!(row.failure_count, 1);
-    assert!(breaker::allow(&pool, &policy, now).await.unwrap());
+    assert!(is_allowed(&pool, &policy, now).await);
     // második hiba (threshold=2): open, cooldown 60s
-    breaker::on_failure(&pool, &policy, now).await.unwrap();
+    breaker::on_failure(&pool, &policy, now, None)
+        .await
+        .unwrap();
     let row = repo::get_breaker(&pool, "demo-synthetic")
         .await
         .unwrap()
         .unwrap();
     assert_eq!(row.state, BreakerState::Open);
     assert_eq!(row.next_probe_at, Some(now + Duration::seconds(60)));
-    assert!(!breaker::allow(&pool, &policy, now).await.unwrap());
-    assert!(
-        !breaker::allow(&pool, &policy, now + Duration::seconds(59))
-            .await
-            .unwrap()
-    );
+    assert!(!is_allowed(&pool, &policy, now).await);
+    assert!(!is_allowed(&pool, &policy, now + Duration::seconds(59)).await);
     // probe-idő elérkezett: half_open átmenet + egyetlen probe
     let probe_at = now + Duration::seconds(60);
-    assert!(breaker::allow(&pool, &policy, probe_at).await.unwrap());
+    let token = acquire_probe(&pool, &policy, probe_at).await;
     let row = repo::get_breaker(&pool, "demo-synthetic")
         .await
         .unwrap()
         .unwrap();
     assert_eq!(row.state, BreakerState::HalfOpen);
+    assert_eq!(row.probe_token, Some(token));
     // half_open alatt nincs második probe
-    assert!(!breaker::allow(&pool, &policy, probe_at).await.unwrap());
+    assert!(!is_allowed(&pool, &policy, probe_at).await);
     // sikertelen probe: azonnal újra open, új cooldown
-    breaker::on_failure(&pool, &policy, probe_at).await.unwrap();
+    breaker::on_failure(&pool, &policy, probe_at, Some(token))
+        .await
+        .unwrap();
     let row = repo::get_breaker(&pool, "demo-synthetic")
         .await
         .unwrap()
         .unwrap();
     assert_eq!(row.state, BreakerState::Open);
     assert_eq!(row.next_probe_at, Some(probe_at + Duration::seconds(60)));
-    assert!(!breaker::allow(&pool, &policy, probe_at).await.unwrap());
-    // sikeres probe után closed, számláló nulla
-    breaker::on_success(&pool, "demo-synthetic").await.unwrap();
+    assert!(!is_allowed(&pool, &policy, probe_at).await);
+    // sikeres újabb probe után closed, számláló nulla
+    let retry_at = probe_at + Duration::seconds(60);
+    let retry_token = acquire_probe(&pool, &policy, retry_at).await;
+    breaker::on_success(&pool, "demo-synthetic", Some(retry_token))
+        .await
+        .unwrap();
     let row = repo::get_breaker(&pool, "demo-synthetic")
         .await
         .unwrap()
         .unwrap();
     assert_eq!(row.state, BreakerState::Closed);
     assert_eq!(row.failure_count, 0);
-    assert!(breaker::allow(&pool, &policy, probe_at).await.unwrap());
+    assert!(is_allowed(&pool, &policy, retry_at).await);
 }

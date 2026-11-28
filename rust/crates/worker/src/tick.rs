@@ -373,10 +373,12 @@ async fn process_job(
             }
 
             // Breaker-kapu: nyitva → nem számláló ledger + failed.
-            if !breaker::allow(pool, &policy, now).await? {
+            let decision = breaker::allow(pool, &policy, now).await?;
+            if matches!(decision, breaker::BreakerDecision::Blocked) {
                 block_ledger(pool, job, req, now, FetchOutcome::BreakerOpen).await?;
                 return finish(pool, leased, JobStatus::Failed, Some("breaker nyitva")).await;
             }
+            let mut probe = breaker::ProbeGuard::new(pool, &job.source_slug, decision);
 
             // Helyi fájl-nál nincs kvóta/delay, de a megszokott időben kiírt
             // placeholder megmarad. Hálózati kérésnél a reservation dönti el
@@ -401,7 +403,7 @@ async fn process_job(
                 match quota::reserve(pool, &job.source_slug, &req.request_key, lease).await {
                     Ok(quota::QuotaDecision::Allowed(id)) => id,
                     Ok(quota::QuotaDecision::QuotaBlocked) => {
-                        breaker::release_probe(pool, &job.source_slug).await?;
+                        probe.release().await?;
                         block_ledger(pool, job, req, now, FetchOutcome::QuotaBlocked).await?;
                         let due_at = next_quota_reset(now);
                         tracing::debug!(
@@ -417,11 +419,11 @@ async fn process_job(
                         match wait_for_delay(pool, &policy, leased, &req.request_key).await {
                             Ok(DelayDecision::Reserved(id)) => id,
                             Ok(DelayDecision::LeaseLost) => {
-                                breaker::release_probe(pool, &job.source_slug).await?;
+                                probe.release().await?;
                                 return Ok(JobResult::Blocked);
                             }
                             Ok(DelayDecision::QuotaBlocked) => {
-                                breaker::release_probe(pool, &job.source_slug).await?;
+                                probe.release().await?;
                                 let due_at = next_quota_reset(now);
                                 tracing::debug!(
                                     job_id = %job.id,
@@ -432,7 +434,7 @@ async fn process_job(
                                 return requeue_for_gate(pool, leased, due_at).await;
                             }
                             Ok(DelayDecision::RetryAt(due_at)) => {
-                                breaker::release_probe(pool, &job.source_slug).await?;
+                                probe.release().await?;
                                 tracing::debug!(
                                     job_id = %job.id,
                                     source = %job.source_slug,
@@ -442,17 +444,17 @@ async fn process_job(
                                 return requeue_for_gate(pool, leased, due_at).await;
                             }
                             Err(err) => {
-                                breaker::release_probe(pool, &job.source_slug).await?;
+                                probe.release().await?;
                                 return Err(err);
                             }
                         }
                     }
                     Ok(quota::QuotaDecision::LeaseLost) => {
-                        breaker::release_probe(pool, &job.source_slug).await?;
+                        probe.release().await?;
                         return Ok(JobResult::Blocked);
                     }
                     Err(err) => {
-                        breaker::release_probe(pool, &job.source_slug).await?;
+                        probe.release().await?;
                         return Err(err);
                     }
                 }
@@ -470,12 +472,15 @@ async fn process_job(
             let raw = match fetched {
                 Ok(raw) => raw,
                 Err(err) => {
-                    return fetch_failure(pool, &policy, leased, ledger_id, now, latency_ms, &err)
-                        .await;
+                    return fetch_failure(
+                        pool, &policy, leased, ledger_id, now, latency_ms, &err, &mut probe,
+                    )
+                    .await;
                 }
             };
             // A breaker a fetch-egészséget tükrözi (S3a).
-            breaker::on_success(pool, &job.source_slug).await?;
+            breaker::on_success(pool, &job.source_slug, probe.token()).await?;
+            probe.complete();
 
             let http_status =
                 i16::try_from(raw.http_status).context("HTTP-státusz i16 konverzió")?;
@@ -793,6 +798,7 @@ async fn fetch_failure(
     now: DateTime<Utc>,
     latency_ms: i64,
     err: &FetchError,
+    probe: &mut breaker::ProbeGuard,
 ) -> Result<JobResult> {
     let job = &leased.job;
     let retry_after = match err {
@@ -821,10 +827,11 @@ async fn fetch_failure(
     )
     .await?;
     if matches!(err, FetchError::HttpStatus(401 | 403)) {
-        breaker::on_auth_failure(pool, policy, now).await?;
+        breaker::on_auth_failure(pool, policy, now, probe.token()).await?;
     } else {
-        breaker::on_failure(pool, policy, now).await?;
+        breaker::on_failure(pool, policy, now, probe.token()).await?;
     }
+    probe.complete();
     if !coverage::set(pool, leased, CoverageState::Failed).await? {
         return Ok(JobResult::Blocked);
     }

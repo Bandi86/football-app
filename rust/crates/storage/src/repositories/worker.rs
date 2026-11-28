@@ -37,6 +37,7 @@ pub struct BreakerRow {
     pub failure_count: i32,
     pub opened_at: Option<DateTime<Utc>>,
     pub next_probe_at: Option<DateTime<Utc>>,
+    pub probe_token: Option<Uuid>,
 }
 
 #[derive(Debug, Clone)]
@@ -489,12 +490,15 @@ fn breaker_from_row(row: &PgRow) -> Result<BreakerRow> {
         next_probe_at: row
             .try_get("next_probe_at")
             .context("breaker next_probe_at oszlop")?,
+        probe_token: row
+            .try_get("probe_token")
+            .context("breaker probe_token oszlop")?,
     })
 }
 
 pub async fn get_breaker(pool: &PgPool, slug: &str) -> Result<Option<BreakerRow>> {
     let row = sqlx::query(
-        "SELECT state, failure_count, opened_at, next_probe_at
+        "SELECT state, failure_count, opened_at, next_probe_at, probe_token
          FROM ops.breaker_state WHERE source_slug = $1",
     )
     .bind(slug)
@@ -518,7 +522,7 @@ where
     .await
     .context("breaker alapállapot létrehozása")?;
     let row = sqlx::query(
-        "SELECT state, failure_count, opened_at, next_probe_at
+        "SELECT state, failure_count, opened_at, next_probe_at, probe_token
          FROM ops.breaker_state WHERE source_slug = $1 FOR UPDATE",
     )
     .bind(slug)
@@ -539,18 +543,20 @@ where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
     sqlx::query(
-        "INSERT INTO ops.breaker_state (source_slug, state, failure_count, opened_at, next_probe_at)
-         VALUES ($1,$2,$3,$4,$5)
+        "INSERT INTO ops.breaker_state
+           (source_slug, state, failure_count, opened_at, next_probe_at, probe_token)
+         VALUES ($1,$2,$3,$4,$5,$6)
          ON CONFLICT (source_slug) DO UPDATE SET
           state = EXCLUDED.state, failure_count = EXCLUDED.failure_count,
           opened_at = EXCLUDED.opened_at, next_probe_at = EXCLUDED.next_probe_at,
-          updated_at = now()",
+          probe_token = EXCLUDED.probe_token, updated_at = now()",
     )
     .bind(slug)
     .bind(breaker.state.as_db_str())
     .bind(breaker.failure_count)
     .bind(breaker.opened_at)
     .bind(breaker.next_probe_at)
+    .bind(breaker.probe_token)
     .execute(exec)
     .await
     .context("breaker upsert")?;
@@ -563,6 +569,7 @@ pub async fn record_auth_failure(
     pool: &PgPool,
     policy: &SourcePolicy,
     now: DateTime<Utc>,
+    probe_token: Option<Uuid>,
     detail: &serde_json::Value,
 ) -> Result<()> {
     let slug = &policy.source_slug;
@@ -579,7 +586,7 @@ pub async fn record_auth_failure(
     .await
     .context("breaker alapállapot létrehozása")?;
     let row = sqlx::query(
-        "SELECT state, failure_count, opened_at, next_probe_at
+        "SELECT state, failure_count, opened_at, next_probe_at, probe_token
          FROM ops.breaker_state WHERE source_slug = $1 FOR UPDATE",
     )
     .bind(slug)
@@ -587,14 +594,21 @@ pub async fn record_auth_failure(
     .await
     .context("zárolt auth breaker lekérés")?;
     let current = breaker_from_row(&row)?;
-    let cooldown = Duration::try_seconds(policy.breaker_cooldown_secs);
-    let next = BreakerRow {
-        state: BreakerState::Open,
-        failure_count: current.failure_count.saturating_add(1),
-        opened_at: Some(now),
-        next_probe_at: cooldown.and_then(|duration| now.checked_add_signed(duration)),
+    let owns_current_probe = match current.state {
+        BreakerState::HalfOpen => probe_token.is_some() && current.probe_token == probe_token,
+        _ => probe_token.is_none(),
     };
-    write_breaker(&mut *tx, slug, &next).await?;
+    if owns_current_probe {
+        let cooldown = Duration::try_seconds(policy.breaker_cooldown_secs);
+        let next = BreakerRow {
+            state: BreakerState::Open,
+            failure_count: current.failure_count.saturating_add(1),
+            opened_at: Some(now),
+            next_probe_at: cooldown.and_then(|duration| now.checked_add_signed(duration)),
+            probe_token: None,
+        };
+        write_breaker(&mut *tx, slug, &next).await?;
+    }
     sqlx::query(
         "INSERT INTO ops.audit_event (id, actor, action, subject_kind, subject_id, detail)
          VALUES ($1, 'worker', 'policy_review', 'source', NULL, $2)",

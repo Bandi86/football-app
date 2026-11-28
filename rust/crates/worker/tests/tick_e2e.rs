@@ -849,6 +849,7 @@ async fn quota_blocked_half_open_probe_is_released_for_the_next_tick() {
                 failure_count: 3,
                 opened_at: Some(now - Duration::minutes(5)),
                 next_probe_at: Some(now - Duration::seconds(1)),
+                probe_token: None,
             }),
         )
     })
@@ -924,6 +925,7 @@ async fn successful_fetch_closes_half_open_breaker_even_on_parse_quarantine() {
                 failure_count: 3,
                 opened_at: Some(now - Duration::minutes(5)),
                 next_probe_at: Some(now - Duration::seconds(1)),
+                probe_token: None,
             }),
         )
     })
