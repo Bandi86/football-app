@@ -374,15 +374,15 @@ async fn process_job(
             // (max 15 s), utána újra ellenőrzünk. Helyi fájl-forrásnál nincs
             // kvóta és nincs késleltetés (S38).
             let decision = if local_file {
-                quota::QuotaDecision::Allowed
+                quota::GuardDecision::Allowed
             } else if index == 0 {
                 quota::guard(pool, &policy, now).await?
             } else {
                 wait_for_delay(pool, &policy).await?
             };
-            if decision != quota::QuotaDecision::Allowed {
+            if decision != quota::GuardDecision::Allowed {
                 block_ledger(pool, job, req, Utc::now(), FetchOutcome::QuotaBlocked).await?;
-                let (reason, due_at) = if decision == quota::QuotaDecision::QuotaBlocked {
+                let (reason, due_at) = if decision == quota::GuardDecision::QuotaBlocked {
                     // A kvóta naponta (UTC-éjfélkor) áll vissza: a jobot oda
                     // soroljuk vissza, nem percenként újra próbálkozunk vele.
                     ("napi kvóta kimerült", next_quota_reset(now))
@@ -702,11 +702,11 @@ async fn process_job(
 
 /// A policy min_delay-ét kivárja a jobon belüli következő kéréshez
 /// (legfeljebb 15 s); utána a kvóta-állapotot adja vissza.
-async fn wait_for_delay(pool: &PgPool, policy: &SourcePolicy) -> Result<quota::QuotaDecision> {
+async fn wait_for_delay(pool: &PgPool, policy: &SourcePolicy) -> Result<quota::GuardDecision> {
     let deadline = tokio::time::Instant::now() + StdDuration::from_secs(15);
     loop {
         let decision = quota::guard(pool, policy, Utc::now()).await?;
-        if decision != quota::QuotaDecision::DelayBlocked {
+        if decision != quota::GuardDecision::DelayBlocked {
             return Ok(decision);
         }
         if tokio::time::Instant::now() >= deadline {

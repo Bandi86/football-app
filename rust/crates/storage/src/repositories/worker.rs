@@ -1,6 +1,6 @@
 use crate::object_store::StoredArtifact;
 use anyhow::{Context, Result};
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Duration, NaiveDate, Utc};
 use football_domain::policy::{
     BreakerState, CoverageState, FetchJob, FetchOutcome, JobLease, JobStatus, LeasedJob,
     SourcePolicy,
@@ -21,6 +21,14 @@ pub struct LedgerEntry {
     pub latency_ms: Option<i64>,
     pub artifact_hash: Option<String>,
     pub job_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FetchReservation {
+    Reserved(Uuid),
+    QuotaBlocked,
+    DelayBlocked,
+    LeaseLost,
 }
 
 #[derive(Debug, Clone)]
@@ -155,7 +163,7 @@ pub async fn count_job_fetch_attempts(pool: &PgPool, job_id: Uuid) -> Result<i64
     let count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM ops.fetch_ledger
          WHERE job_id = $1
-           AND outcome IN ('success','http_error','timeout','oversize','transport_error','parse_error')",
+           AND outcome IN ('success','http_error','timeout','oversize','transport_error','parse_error','reserved')",
     )
     .bind(job_id)
     .fetch_one(pool)
@@ -360,7 +368,7 @@ pub async fn count_fetch_attempts_today(pool: &PgPool, slug: &str, day: NaiveDat
     sqlx::query_scalar(
         "SELECT count(*) FROM ops.fetch_ledger
          WHERE source_slug = $1 AND (attempted_at AT TIME ZONE 'UTC')::date = $2
-           AND outcome IN ('success','http_error','timeout','oversize','transport_error','parse_error')
+           AND outcome IN ('success','http_error','timeout','oversize','transport_error','parse_error','reserved')
            AND request_key NOT LIKE '%:robots:%'",
     )
     .bind(slug)
@@ -380,13 +388,94 @@ pub async fn last_attempt_at(pool: &PgPool, slug: &str) -> Result<Option<DateTim
     sqlx::query_scalar(
         "SELECT max(attempted_at) FROM ops.fetch_ledger
          WHERE source_slug = $1
-           AND outcome IN ('success','http_error','timeout','oversize','transport_error','parse_error')
+           AND outcome IN ('success','http_error','timeout','oversize','transport_error','parse_error','reserved')
            AND request_key NOT LIKE '%:robots:%'",
     )
     .bind(slug)
     .fetch_one(pool)
     .await
     .context("utolsó kísérlet időpontja")
+}
+
+pub async fn reserve_fetch(
+    pool: &PgPool,
+    source_slug: &str,
+    request_key: &str,
+    job_id: Uuid,
+    lease_token: Uuid,
+    now: DateTime<Utc>,
+) -> Result<FetchReservation> {
+    let mut tx = pool.begin().await.context("fetch reservation tranzakció")?;
+    let policy_sql =
+        format!("SELECT {POLICY_COLUMNS} FROM ops.source_policy WHERE source_slug = $1 FOR UPDATE");
+    let policy_row = sqlx::query(&policy_sql)
+        .bind(source_slug)
+        .fetch_one(&mut *tx)
+        .await
+        .context("zárolt source policy lekérése")?;
+    let policy = policy_from_row(&policy_row)?;
+    let leased_job = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM ops.job
+         WHERE id = $1 AND lease_token = $2 AND status = 'leased'
+           AND leased_until > clock_timestamp()
+         FOR UPDATE",
+    )
+    .bind(job_id)
+    .bind(lease_token)
+    .fetch_optional(&mut *tx)
+    .await
+    .context("fetch reservation lease ellenőrzése")?;
+    if leased_job.is_none() {
+        tx.rollback().await.context("elveszett lease rollback")?;
+        return Ok(FetchReservation::LeaseLost);
+    }
+
+    let (attempts, last_attempt) = sqlx::query_as::<_, (i64, Option<DateTime<Utc>>)>(
+        "SELECT count(*), max(attempted_at) FROM ops.fetch_ledger
+         WHERE source_slug = $1 AND (attempted_at AT TIME ZONE 'UTC')::date = $2
+           AND outcome IN ('success','http_error','timeout','oversize',
+                           'transport_error','parse_error','reserved')
+           AND request_key NOT LIKE '%:robots:%'",
+    )
+    .bind(source_slug)
+    .bind(now.date_naive())
+    .fetch_one(&mut *tx)
+    .await
+    .context("zárolt napi kvóta és utolsó kísérlet")?;
+    if attempts >= i64::from(policy.daily_budget) {
+        tx.rollback().await.context("kvótablokk rollback")?;
+        return Ok(FetchReservation::QuotaBlocked);
+    }
+
+    if let Some(last) = last_attempt {
+        let delay_ok = match Duration::try_milliseconds(policy.min_delay_ms) {
+            Some(delay) => last
+                .checked_add_signed(delay)
+                .is_some_and(|earliest| earliest <= now),
+            None => false,
+        };
+        if !delay_ok {
+            tx.rollback().await.context("delay-blokk rollback")?;
+            return Ok(FetchReservation::DelayBlocked);
+        }
+    }
+
+    let id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO ops.fetch_ledger
+         (id, source_slug, request_key, attempted_at, outcome, job_id)
+         VALUES ($1,$2,$3,$4,'reserved',$5)",
+    )
+    .bind(id)
+    .bind(source_slug)
+    .bind(request_key)
+    .bind(now)
+    .bind(job_id)
+    .execute(&mut *tx)
+    .await
+    .context("fetch reservation ledger beszúrás")?;
+    tx.commit().await.context("fetch reservation commit")?;
+    Ok(FetchReservation::Reserved(id))
 }
 
 pub async fn get_breaker(pool: &PgPool, slug: &str) -> Result<Option<BreakerRow>> {

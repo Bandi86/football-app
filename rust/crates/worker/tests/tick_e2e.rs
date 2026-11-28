@@ -437,7 +437,7 @@ async fn delay_blocked_rows_do_not_reset_min_delay_clock() {
     let decision = quota::guard(&pool, &policy, t + Duration::seconds(30))
         .await
         .unwrap();
-    assert_eq!(decision, quota::QuotaDecision::DelayBlocked);
+    assert_eq!(decision, quota::GuardDecision::DelayBlocked);
     // T+60 mp + 1 ms: Allowed — a blokk-sorok nem resetelték az órát.
     let decision = quota::guard(
         &pool,
@@ -446,7 +446,7 @@ async fn delay_blocked_rows_do_not_reset_min_delay_clock() {
     )
     .await
     .unwrap();
-    assert_eq!(decision, quota::QuotaDecision::Allowed);
+    assert_eq!(decision, quota::GuardDecision::Allowed);
 }
 
 /// Megszemélyesítés-védelem: a payload source_code-ja eltér a job slugjától

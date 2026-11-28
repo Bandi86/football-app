@@ -1,7 +1,7 @@
 //! Kvóta- és breaker-kapu integrációs tesztek (Task 8).
 //! Determinisztikus idő: fix bázis-időpont, nincs élő hálózat.
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, SubsecRound, Utc};
 use football_domain::policy::{BreakerState, FetchOutcome, SourceMode, SourcePolicy, Transport};
 use football_storage::repositories::worker as repo;
 use football_storage::test_support::test_pool;
@@ -59,12 +59,12 @@ async fn quota_blocks_after_budget() {
     let now = base_time();
     // üres ledger: engedélyezett
     let decision = quota::guard(&pool, &policy, now).await.unwrap();
-    assert!(matches!(decision, quota::QuotaDecision::Allowed));
+    assert!(matches!(decision, quota::GuardDecision::Allowed));
     for _ in 0..2 {
         ledger(&pool, now, FetchOutcome::Success).await;
     }
     let decision = quota::guard(&pool, &policy, now).await.unwrap();
-    assert!(matches!(decision, quota::QuotaDecision::QuotaBlocked));
+    assert!(matches!(decision, quota::GuardDecision::QuotaBlocked));
 }
 
 #[tokio::test]
@@ -78,10 +78,10 @@ async fn quota_blocked_ledger_rows_do_not_count() {
     }
     // 1 valódi kísérlet + 3 quota_blocked: a számláló 1, budget 2 → Allowed
     let decision = quota::guard(&pool, &policy, now).await.unwrap();
-    assert!(matches!(decision, quota::QuotaDecision::Allowed));
+    assert!(matches!(decision, quota::GuardDecision::Allowed));
     ledger(&pool, now, FetchOutcome::Success).await;
     let decision = quota::guard(&pool, &policy, now).await.unwrap();
-    assert!(matches!(decision, quota::QuotaDecision::QuotaBlocked));
+    assert!(matches!(decision, quota::GuardDecision::QuotaBlocked));
 }
 
 #[tokio::test]
@@ -92,16 +92,202 @@ async fn delay_blocks_until_min_delay_elapsed() {
     ledger(&pool, now - Duration::seconds(30), FetchOutcome::Success).await;
     // last + 60s = now + 30s: addig DelayBlocked
     let decision = quota::guard(&pool, &policy, now).await.unwrap();
-    assert!(matches!(decision, quota::QuotaDecision::DelayBlocked));
+    assert!(matches!(decision, quota::GuardDecision::DelayBlocked));
     let decision = quota::guard(&pool, &policy, now + Duration::seconds(29))
         .await
         .unwrap();
-    assert!(matches!(decision, quota::QuotaDecision::DelayBlocked));
+    assert!(matches!(decision, quota::GuardDecision::DelayBlocked));
     // határon (last + min_delay == now) már engedélyezett
     let decision = quota::guard(&pool, &policy, now + Duration::seconds(30))
         .await
         .unwrap();
-    assert!(matches!(decision, quota::QuotaDecision::Allowed));
+    assert!(matches!(decision, quota::GuardDecision::Allowed));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_reservations_never_exceed_daily_budget() {
+    let pool = test_pool().await;
+    seed_policy(&pool, 3, 0).await;
+    let due = Utc::now() - Duration::seconds(1);
+    repo::insert_job(
+        &pool,
+        &repo::NewJob {
+            source_slug: "demo-synthetic".into(),
+            domain: "match".into(),
+            entity_key: "quota-race".into(),
+            event_type: "discovery".into(),
+            time_window: due.date_naive().to_string(),
+            due_at: due,
+            priority: 0,
+        },
+    )
+    .await
+    .unwrap();
+    let leased = repo::claim_due_jobs(&pool, uuid::Uuid::now_v7(), Utc::now(), 60, 1)
+        .await
+        .unwrap()
+        .remove(0);
+    let now = base_time();
+    let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(12));
+    let handles: Vec<_> = (0..12)
+        .map(|index| {
+            let pool = pool.clone();
+            let lease = leased.lease;
+            let barrier = barrier.clone();
+            tokio::spawn(async move {
+                barrier.wait().await;
+                quota::reserve(
+                    &pool,
+                    "demo-synthetic",
+                    &format!("race-{index}"),
+                    &lease,
+                    now,
+                )
+                .await
+                .unwrap()
+            })
+        })
+        .collect();
+
+    let mut allowed = 0;
+    let mut blocked = 0;
+    for handle in handles {
+        match handle.await.unwrap() {
+            quota::QuotaDecision::Allowed(_) => allowed += 1,
+            quota::QuotaDecision::QuotaBlocked => blocked += 1,
+            other => panic!("váratlan kvótadöntés: {other:?}"),
+        }
+    }
+    assert_eq!((allowed, blocked), (3, 9));
+    let reserved: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ops.fetch_ledger
+         WHERE source_slug='demo-synthetic' AND outcome='reserved'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(reserved, 3);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_reservations_obey_min_delay_and_reserved_survives_crash() {
+    let pool = test_pool().await;
+    seed_policy(&pool, 10, 60_000).await;
+    let due = Utc::now() - Duration::seconds(1);
+    repo::insert_job(
+        &pool,
+        &repo::NewJob {
+            source_slug: "demo-synthetic".into(),
+            domain: "match".into(),
+            entity_key: "delay-race".into(),
+            event_type: "discovery".into(),
+            time_window: due.date_naive().to_string(),
+            due_at: due,
+            priority: 0,
+        },
+    )
+    .await
+    .unwrap();
+    let leased = repo::claim_due_jobs(&pool, uuid::Uuid::now_v7(), Utc::now(), 60, 1)
+        .await
+        .unwrap()
+        .remove(0);
+    let now = base_time();
+    let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(8));
+    let handles: Vec<_> = (0..8)
+        .map(|index| {
+            let pool = pool.clone();
+            let lease = leased.lease;
+            let barrier = barrier.clone();
+            tokio::spawn(async move {
+                barrier.wait().await;
+                quota::reserve(
+                    &pool,
+                    "demo-synthetic",
+                    &format!("delay-{index}"),
+                    &lease,
+                    now,
+                )
+                .await
+                .unwrap()
+            })
+        })
+        .collect();
+
+    let mut allowed = 0;
+    let mut delayed = 0;
+    for handle in handles {
+        match handle.await.unwrap() {
+            quota::QuotaDecision::Allowed(_) => allowed += 1,
+            quota::QuotaDecision::DelayBlocked => delayed += 1,
+            other => panic!("váratlan delay-döntés: {other:?}"),
+        }
+    }
+    assert_eq!((allowed, delayed), (1, 7));
+
+    let next = quota::reserve(&pool, "demo-synthetic", "after-crash", &leased.lease, now)
+        .await
+        .unwrap();
+    assert!(matches!(next, quota::QuotaDecision::DelayBlocked));
+    let reserved: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ops.fetch_ledger
+         WHERE source_slug='demo-synthetic' AND outcome='reserved'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(reserved, 1);
+}
+
+#[tokio::test]
+async fn reservation_rejects_a_lost_lease_without_consuming_quota() {
+    let pool = test_pool().await;
+    seed_policy(&pool, 1, 0).await;
+    let now = Utc::now().trunc_subsecs(6);
+    repo::insert_job(
+        &pool,
+        &repo::NewJob {
+            source_slug: "demo-synthetic".into(),
+            domain: "match".into(),
+            entity_key: "lost-lease".into(),
+            event_type: "discovery".into(),
+            time_window: now.date_naive().to_string(),
+            due_at: now - Duration::seconds(1),
+            priority: 0,
+        },
+    )
+    .await
+    .unwrap();
+    let leased = repo::claim_due_jobs(&pool, uuid::Uuid::now_v7(), now, 60, 1)
+        .await
+        .unwrap()
+        .remove(0);
+    sqlx::query(
+        "UPDATE ops.job SET leased_until = clock_timestamp() - interval '1 second' WHERE id = $1",
+    )
+    .bind(leased.job.id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let decision = quota::reserve(
+        &pool,
+        "demo-synthetic",
+        "lost-lease",
+        &leased.lease,
+        base_time(),
+    )
+    .await
+    .unwrap();
+    assert!(matches!(decision, quota::QuotaDecision::LeaseLost));
+    let reserved: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ops.fetch_ledger
+         WHERE source_slug='demo-synthetic' AND outcome='reserved'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(reserved, 0);
 }
 
 #[tokio::test]
