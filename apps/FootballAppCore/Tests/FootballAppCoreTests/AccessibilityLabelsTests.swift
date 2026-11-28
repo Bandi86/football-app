@@ -126,7 +126,11 @@ import Testing
             homeName: "Paks",
             awayName: "Debrecen",
             homeGoals: nil,
-            awayGoals: nil
+            awayGoals: nil,
+            homeCorners: nil, awayCorners: nil,
+            homeYellow: nil, awayYellow: nil,
+            homeRed: nil, awayRed: nil,
+            homeXg: nil, awayXg: nil
         )
         let label = AccessibilityLabels.headToHeadMatchLabel(entry)
         #expect(label.contains("Meccs megnyitása"))
@@ -145,7 +149,8 @@ import Testing
             kickoffAt: kickoff,
             competitionName: "NB I",
             opponentName: "Győr",
-            isHome: true
+            isHome: true,
+            homeLogo: nil, awayLogo: nil
         )
         let label = AccessibilityLabels.nextMatchLabel(teamName: "Debrecen", entry)
         #expect(label.contains("Meccs megnyitása"))

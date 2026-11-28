@@ -62,6 +62,7 @@ pub async fn match_detail(
         detail.home_form = extras.home_form;
         detail.away_form = extras.away_form;
         detail.head_to_head = extras.head_to_head;
+        detail.h2h_summary = extras.h2h_summary;
         detail.home_next = extras.home_next;
         detail.away_next = extras.away_next;
         detail.home_position = extras.home_position;

@@ -78,6 +78,8 @@ public struct MatchDetail: Decodable, Equatable, Sendable {
     public let homeForm: [FormEntry]?
     public let awayForm: [FormEntry]?
     public let headToHead: [HeadToHeadEntry]?
+    /// S221: a H2H-listából számolt összesítő (coverage mezővel).
+    public let h2hSummary: H2HSummary?
     /// A két csapat következő meccsei (legfeljebb 3-3).
     public let homeNext: [NextMatchEntry]?
     public let awayNext: [NextMatchEntry]?
@@ -156,6 +158,7 @@ public struct MatchDetail: Decodable, Equatable, Sendable {
         case homeForm = "home_form"
         case awayForm = "away_form"
         case headToHead = "head_to_head"
+        case h2hSummary = "h2h_summary"
         case homeNext = "home_next"
         case awayNext = "away_next"
         case homePosition = "home_position"
@@ -248,6 +251,9 @@ public struct NextMatchEntry: Decodable, Equatable, Sendable, Identifiable {
     public let competitionName: String
     public let opponentName: String
     public let isHome: Bool
+    /// S221: a következő meccs két csapatának címere (hiány `nil`).
+    public let homeLogo: String?
+    public let awayLogo: String?
 
     public var id: UUID { matchId }
 
@@ -257,6 +263,8 @@ public struct NextMatchEntry: Decodable, Equatable, Sendable, Identifiable {
         case competitionName = "competition_name"
         case opponentName = "opponent_name"
         case isHome = "is_home"
+        case homeLogo = "home_logo"
+        case awayLogo = "away_logo"
     }
 }
 
@@ -295,6 +303,15 @@ public struct HeadToHeadEntry: Decodable, Equatable, Sendable, Identifiable {
     public let awayName: String
     public let homeGoals: Int?
     public let awayGoals: Int?
+    /// S221: opcionális meccs-szintű mutatók; hiány `nil`, nem 0.
+    public let homeCorners: Int?
+    public let awayCorners: Int?
+    public let homeYellow: Int?
+    public let awayYellow: Int?
+    public let homeRed: Int?
+    public let awayRed: Int?
+    public let homeXg: Double?
+    public let awayXg: Double?
 
     public var id: UUID { matchId }
 
@@ -306,6 +323,36 @@ public struct HeadToHeadEntry: Decodable, Equatable, Sendable, Identifiable {
         case awayName = "away_name"
         case homeGoals = "home_goals"
         case awayGoals = "away_goals"
+        case homeCorners = "home_corners"
+        case awayCorners = "away_corners"
+        case homeYellow = "home_yellow"
+        case awayYellow = "away_yellow"
+        case homeRed = "home_red"
+        case awayRed = "away_red"
+        case homeXg = "home_xg"
+        case awayXg = "away_xg"
+    }
+}
+
+/// S221: az egymás elleni meccsekből számolt összesítő. A számok csak akkor
+/// jelennek meg, ha a backendnek volt miből számolnia (`with_stats`).
+public struct H2HSummary: Decodable, Equatable, Sendable {
+    public let matches: Int
+    public let withStats: Int
+    public let totalGoals: Int?
+    public let bttsPct: Double?
+    public let over25Pct: Double?
+    public let cornersAvg: Double?
+    public let cardsAvg: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case matches
+        case withStats = "with_stats"
+        case totalGoals = "total_goals"
+        case bttsPct = "btts_pct"
+        case over25Pct = "over25_pct"
+        case cornersAvg = "corners_avg"
+        case cardsAvg = "cards_avg"
     }
 }
 

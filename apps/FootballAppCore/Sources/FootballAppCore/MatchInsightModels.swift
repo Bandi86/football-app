@@ -204,9 +204,23 @@ public struct InsightSeasonStat: Codable, Equatable, Sendable {
     public let rankLabel: String?
     public let group: String?
     public let source: String?
+    /// S221: a research JSON-ban már jelen lévő, de korábban dekódolatlan mezők.
+    /// Mind opcionális — a legtöbb forrás ezeket nem adja meg.
+    public let goalDifference: Int?
+    public let points: Int?
+    public let cleanSheets: Int?
+    public let assists: Int?
+    public let possessionPct: Double?
+    public let averageRating: Double?
 
     enum CodingKeys: String, CodingKey {
         case matches, wins, draws, losses, position, group, source
+        case goalDifference = "goal_difference"
+        case points
+        case cleanSheets = "clean_sheets"
+        case assists
+        case possessionPct = "possession_pct"
+        case averageRating = "average_rating"
         case goalsFor = "goals_for"
         case goalsAgainst = "goals_against"
         case goalsPerGame = "goals_per_game"
