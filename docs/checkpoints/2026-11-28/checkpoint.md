@@ -59,8 +59,34 @@
   merge-jére; a kijelölés és az üres állapot kódja külön is visszaállítható.
   Adatot a szelet nem ír.
 
+## S221–S227 — Részletes pre-match terv (dokumentáció, kód nélkül)
+
+- [x] A felhasználó kérésére **először terv készült**, kód nem változott:
+      `docs/superpowers/specs/2026-11-28-meccs-elonezet-melyseg-design.md` és
+      `docs/superpowers/plans/2026-11-28-meccs-elonezet-melyseg.md`.
+      A fejléc, a szűrők, a bal lista és a 25/75 arány változatlan marad.
+- [x] **Adatfelmérés (read-only, konkrét számokkal):** a research/DB alapján
+      `preview_hu` **88/27 035**, sérülések **2 881/27 035**, `season_stats`
+      24 048/27 035 — de `average_rating` csak **22**, `possession_pct` **22**,
+      `assists` **0**, `clean_sheets` **149** sor; `rank_label`/`goals_per_game`
+      ~1 040/1 914 oldalon teljes. H2H gólok + `match_id` rendelkezésre áll,
+      `fact.match_stats` 21 473/55 041 meccsre tartalmaz szöglet/lap/xG-t —
+      ezért a H2H-összesítés számolható, de `coverage` jelzéssel.
+- [x] **Kifejezett hiányok rögzítve:** nincs Sofascore-adapter/oszlop és
+      megbízható szezonális góllövőlista; a „kezdhet-e" csak forrás szerinti
+      szerep (kezdő/kispad/sérült/ismeretlen), nem megerősített kezdő.
+      Ezeket a terv **nem ígéri**, nem tölti ki nullával vagy becsléssel.
+- [x] A terv 7 szeletre bont (S221 adatszerződés → S227 integráció), minden
+      szelet külön branch + commit + magyar AX/képi ellenőrzés; teljes
+      XCUITest-harness továbbra sem része a kapunak.
+- [x] Magyar szöveg ellenőrizve: CJK/replacement karakter **0** a két új
+      dokumentumban.
+
 ## Következő döntési pont
 
+- A felhasználónak jóvá kell hagyni az S221–S227 tervet, illetve döntenie kell
+  arról, hogy a ritka mezők (preview, sérülés, rating) hiánya esetén a
+  „nincs adat" üzenet elfogadható-e, vagy új forrás kell (Sofascore **nem**).
 - Mi jelenjen meg a jobb panelben, ha nincs kijelölt meccs (napi összefoglaló,
   kedvencek, valami más)? A felhasználó ezt később dönti el.
 - Nyitva marad: 2876 függő review, a `daily-check` napközni failed-job
