@@ -40,6 +40,12 @@ pub struct BreakerRow {
 }
 
 #[derive(Debug, Clone)]
+pub enum BreakerWrite {
+    Set(BreakerRow),
+    Keep,
+}
+
+#[derive(Debug, Clone)]
 pub struct NewJob {
     pub source_slug: String,
     pub domain: String,
@@ -478,18 +484,9 @@ pub async fn reserve_fetch(
     Ok(FetchReservation::Reserved(id))
 }
 
-pub async fn get_breaker(pool: &PgPool, slug: &str) -> Result<Option<BreakerRow>> {
-    let row = sqlx::query(
-        "SELECT state, failure_count, opened_at, next_probe_at
-         FROM ops.breaker_state WHERE source_slug = $1",
-    )
-    .bind(slug)
-    .fetch_optional(pool)
-    .await
-    .context("breaker lekérés")?;
-    let Some(row) = row else { return Ok(None) };
+fn breaker_from_row(row: &PgRow) -> Result<BreakerRow> {
     let state: String = row.try_get("state").context("breaker state oszlop")?;
-    Ok(Some(BreakerRow {
+    Ok(BreakerRow {
         state: BreakerState::from_db_str(&state).context("breaker state érték")?,
         failure_count: row
             .try_get("failure_count")
@@ -500,11 +497,49 @@ pub async fn get_breaker(pool: &PgPool, slug: &str) -> Result<Option<BreakerRow>
         next_probe_at: row
             .try_get("next_probe_at")
             .context("breaker next_probe_at oszlop")?,
-    }))
+    })
 }
 
-pub async fn set_breaker(pool: &PgPool, slug: &str, breaker: &BreakerRow) -> Result<()> {
-    write_breaker(pool, slug, breaker).await
+pub async fn get_breaker(pool: &PgPool, slug: &str) -> Result<Option<BreakerRow>> {
+    let row = sqlx::query(
+        "SELECT state, failure_count, opened_at, next_probe_at
+         FROM ops.breaker_state WHERE source_slug = $1",
+    )
+    .bind(slug)
+    .fetch_optional(pool)
+    .await
+    .context("breaker lekérés")?;
+    row.as_ref().map(breaker_from_row).transpose()
+}
+
+pub async fn update_breaker_locked<T, F>(pool: &PgPool, slug: &str, transition: F) -> Result<T>
+where
+    F: FnOnce(Option<&BreakerRow>) -> (T, BreakerWrite),
+{
+    let mut tx = pool.begin().await.context("breaker tranzakció indítása")?;
+    sqlx::query(
+        "INSERT INTO ops.breaker_state (source_slug, state, failure_count)
+         VALUES ($1, 'closed', 0) ON CONFLICT (source_slug) DO NOTHING",
+    )
+    .bind(slug)
+    .execute(&mut *tx)
+    .await
+    .context("breaker alapállapot létrehozása")?;
+    let row = sqlx::query(
+        "SELECT state, failure_count, opened_at, next_probe_at
+         FROM ops.breaker_state WHERE source_slug = $1 FOR UPDATE",
+    )
+    .bind(slug)
+    .fetch_one(&mut *tx)
+    .await
+    .context("zárolt breaker lekérés")?;
+    let current = breaker_from_row(&row)?;
+    let (result, write) = transition(Some(&current));
+    if let BreakerWrite::Set(next) = write {
+        write_breaker(&mut *tx, slug, &next).await?;
+    }
+    tx.commit().await.context("breaker tranzakció commit")?;
+    Ok(result)
 }
 
 async fn write_breaker<'e, E>(exec: E, slug: &str, breaker: &BreakerRow) -> Result<()>
@@ -530,20 +565,44 @@ where
     Ok(())
 }
 
-/// Auth-hiba rögzítése egyetlen tranzakcióban: a breaker azonnali open-ra
-/// nyitása és a `policy_review` audit-esemény együtt commitsolódik, így a
-/// kézi áttekintésre jelzett forrás sosem marad audit nélkül (Task 8 deferred).
+/// Auth-hiba rögzítése egyetlen tranzakcióban: a zárolt breaker-növelés
+/// és a `policy_review` audit-esemény együtt commitsolódik.
 pub async fn record_auth_failure(
     pool: &PgPool,
-    slug: &str,
-    breaker: &BreakerRow,
+    policy: &SourcePolicy,
+    now: DateTime<Utc>,
     detail: &serde_json::Value,
 ) -> Result<()> {
+    let slug = &policy.source_slug;
     let mut tx = pool
         .begin()
         .await
         .context("auth-hiba tranzakció indítása")?;
-    write_breaker(&mut *tx, slug, breaker).await?;
+    sqlx::query(
+        "INSERT INTO ops.breaker_state (source_slug, state, failure_count)
+         VALUES ($1, 'closed', 0) ON CONFLICT (source_slug) DO NOTHING",
+    )
+    .bind(slug)
+    .execute(&mut *tx)
+    .await
+    .context("breaker alapállapot létrehozása")?;
+    let row = sqlx::query(
+        "SELECT state, failure_count, opened_at, next_probe_at
+         FROM ops.breaker_state WHERE source_slug = $1 FOR UPDATE",
+    )
+    .bind(slug)
+    .fetch_one(&mut *tx)
+    .await
+    .context("zárolt auth breaker lekérés")?;
+    let current = breaker_from_row(&row)?;
+    let cooldown = Duration::try_seconds(policy.breaker_cooldown_secs);
+    let next = BreakerRow {
+        state: BreakerState::Open,
+        failure_count: current.failure_count.saturating_add(1),
+        opened_at: Some(now),
+        next_probe_at: cooldown.and_then(|duration| now.checked_add_signed(duration)),
+    };
+    write_breaker(&mut *tx, slug, &next).await?;
     sqlx::query(
         "INSERT INTO ops.audit_event (id, actor, action, subject_kind, subject_id, detail)
          VALUES ($1, 'worker', 'policy_review', 'source', NULL, $2)",

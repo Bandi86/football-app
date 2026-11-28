@@ -6,7 +6,7 @@
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
 use football_domain::policy::{BreakerState, SourcePolicy};
-use football_storage::repositories::worker::{self as repo, BreakerRow};
+use football_storage::repositories::worker::{self as repo, BreakerRow, BreakerWrite};
 use sqlx::PgPool;
 
 fn closed_row() -> BreakerRow {
@@ -56,39 +56,44 @@ pub fn next_state(
 }
 
 pub async fn allow(pool: &PgPool, policy: &SourcePolicy, now: DateTime<Utc>) -> Result<bool> {
-    let Some(row) = repo::get_breaker(pool, &policy.source_slug).await? else {
-        // nincs breaker-sor → closed-ként kezeljük
-        return Ok(true);
-    };
-    match row.state {
-        BreakerState::Closed => Ok(true),
-        // egyetlen probe lehet folyamatban
-        BreakerState::HalfOpen => Ok(false),
-        BreakerState::Open => {
-            if row.next_probe_at.is_some_and(|t| t <= now) {
-                let probe = BreakerRow {
-                    state: BreakerState::HalfOpen,
-                    ..row
-                };
-                repo::set_breaker(pool, &policy.source_slug, &probe).await?;
-                Ok(true)
-            } else {
-                Ok(false)
+    repo::update_breaker_locked(pool, &policy.source_slug, |current| {
+        let Some(row) = current else {
+            return (true, BreakerWrite::Keep);
+        };
+        match row.state {
+            BreakerState::Closed => (true, BreakerWrite::Keep),
+            BreakerState::HalfOpen => (false, BreakerWrite::Keep),
+            BreakerState::Open => {
+                if row.next_probe_at.is_some_and(|probe| probe <= now) {
+                    (
+                        true,
+                        BreakerWrite::Set(BreakerRow {
+                            state: BreakerState::HalfOpen,
+                            ..row.clone()
+                        }),
+                    )
+                } else {
+                    (false, BreakerWrite::Keep)
+                }
             }
         }
-    }
+    })
+    .await
 }
 
 pub async fn on_success(pool: &PgPool, slug: &str) -> Result<()> {
-    repo::set_breaker(pool, slug, &closed_row()).await
+    repo::update_breaker_locked(pool, slug, |_| ((), BreakerWrite::Set(closed_row()))).await
 }
 
 pub async fn on_failure(pool: &PgPool, policy: &SourcePolicy, now: DateTime<Utc>) -> Result<()> {
-    let current = repo::get_breaker(pool, &policy.source_slug)
-        .await?
-        .unwrap_or_else(closed_row);
-    let next = next_state(&current, false, policy, now);
-    repo::set_breaker(pool, &policy.source_slug, &next).await
+    repo::update_breaker_locked(pool, &policy.source_slug, |current| {
+        let current = current.cloned().unwrap_or_else(closed_row);
+        (
+            (),
+            BreakerWrite::Set(next_state(&current, false, policy, now)),
+        )
+    })
+    .await
 }
 
 /// Auth-hiba (401/403, login-redirect): azonnali open, küszöbtől függetlenül,
@@ -98,21 +103,11 @@ pub async fn on_auth_failure(
     policy: &SourcePolicy,
     now: DateTime<Utc>,
 ) -> Result<()> {
-    let current = repo::get_breaker(pool, &policy.source_slug)
-        .await?
-        .unwrap_or_else(closed_row);
-    let next = BreakerRow {
-        state: BreakerState::Open,
-        failure_count: current.failure_count.saturating_add(1),
-        opened_at: Some(now),
-        next_probe_at: probe_time(now, policy),
-    };
     let detail = serde_json::json!({
         "slug": policy.source_slug,
         "status": "auth_failure",
     });
-    // A breaker-nyitás és az audit-esemény egyetlen tranzakcióban (storage).
-    repo::record_auth_failure(pool, &policy.source_slug, &next, &detail).await
+    repo::record_auth_failure(pool, policy, now, &detail).await
 }
 
 #[cfg(test)]

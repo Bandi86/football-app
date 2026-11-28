@@ -3,7 +3,7 @@
 
 use chrono::{DateTime, Duration, SubsecRound, Utc};
 use football_domain::policy::{BreakerState, FetchOutcome, SourceMode, SourcePolicy, Transport};
-use football_storage::repositories::worker as repo;
+use football_storage::repositories::worker::{self as repo, BreakerRow};
 use football_storage::test_support::test_pool;
 use football_worker::{breaker, quota};
 use sqlx::PgPool;
@@ -288,6 +288,79 @@ async fn reservation_rejects_a_lost_lease_without_consuming_quota() {
     .await
     .unwrap();
     assert_eq!(reserved, 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn only_one_concurrent_half_open_probe_is_allowed() {
+    let pool = test_pool().await;
+    let policy = seed_policy(&pool, 10, 0).await;
+    let now = base_time();
+    repo::update_breaker_locked(&pool, &policy.source_slug, |_| {
+        (
+            (),
+            repo::BreakerWrite::Set(BreakerRow {
+                state: BreakerState::Open,
+                failure_count: 2,
+                opened_at: Some(now - Duration::seconds(60)),
+                next_probe_at: Some(now),
+            }),
+        )
+    })
+    .await
+    .unwrap();
+    let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(12));
+    let handles: Vec<_> = (0..12)
+        .map(|_| {
+            let pool = pool.clone();
+            let policy = policy.clone();
+            let barrier = barrier.clone();
+            tokio::spawn(async move {
+                barrier.wait().await;
+                breaker::allow(&pool, &policy, now).await.unwrap()
+            })
+        })
+        .collect();
+
+    let mut probes = 0;
+    for handle in handles {
+        if handle.await.unwrap() {
+            probes += 1;
+        }
+    }
+    assert_eq!(probes, 1);
+    let row = repo::get_breaker(&pool, &policy.source_slug)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.state, BreakerState::HalfOpen);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_breaker_failures_do_not_lose_updates() {
+    let pool = test_pool().await;
+    let policy = seed_policy(&pool, 10, 0).await;
+    let now = base_time();
+    let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(10));
+    let handles: Vec<_> = (0..10)
+        .map(|_| {
+            let pool = pool.clone();
+            let policy = policy.clone();
+            let barrier = barrier.clone();
+            tokio::spawn(async move {
+                barrier.wait().await;
+                breaker::on_failure(&pool, &policy, now).await.unwrap()
+            })
+        })
+        .collect();
+    for handle in handles {
+        handle.await.unwrap();
+    }
+    let row = repo::get_breaker(&pool, &policy.source_slug)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.failure_count, 10);
+    assert_eq!(row.state, BreakerState::Open);
 }
 
 #[tokio::test]

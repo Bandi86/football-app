@@ -579,9 +579,11 @@ async fn breaker_set_get_roundtrip() {
         opened_at: Some(now),
         next_probe_at: Some(now + Duration::seconds(60)),
     };
-    repo::set_breaker(&pool, "demo-synthetic", &open)
-        .await
-        .unwrap();
+    repo::update_breaker_locked(&pool, "demo-synthetic", |_| {
+        ((), repo::BreakerWrite::Set(open))
+    })
+    .await
+    .unwrap();
     let got = repo::get_breaker(&pool, "demo-synthetic")
         .await
         .unwrap()
@@ -598,9 +600,11 @@ async fn breaker_set_get_roundtrip() {
         opened_at: None,
         next_probe_at: None,
     };
-    repo::set_breaker(&pool, "demo-synthetic", &closed)
-        .await
-        .unwrap();
+    repo::update_breaker_locked(&pool, "demo-synthetic", |_| {
+        ((), repo::BreakerWrite::Set(closed))
+    })
+    .await
+    .unwrap();
     let got = repo::get_breaker(&pool, "demo-synthetic")
         .await
         .unwrap()
@@ -1059,14 +1063,8 @@ async fn record_auth_failure_writes_breaker_and_audit_together() {
     let pool = test_pool().await;
     seed_policy(&pool, "demo-synthetic").await;
     let now = Utc::now().trunc_subsecs(6);
-    let open = repo::BreakerRow {
-        state: BreakerState::Open,
-        failure_count: 1,
-        opened_at: Some(now),
-        next_probe_at: Some(now + Duration::seconds(60)),
-    };
     let detail = serde_json::json!({"slug": "demo-synthetic", "status": "auth_failure"});
-    repo::record_auth_failure(&pool, "demo-synthetic", &open, &detail)
+    repo::record_auth_failure(&pool, &policy("demo-synthetic"), now, &detail)
         .await
         .unwrap();
 
@@ -1076,6 +1074,7 @@ async fn record_auth_failure_writes_breaker_and_audit_together() {
         .unwrap();
     assert_eq!(row.state, BreakerState::Open);
     assert_eq!(row.failure_count, 1);
+    assert_eq!(row.opened_at, Some(now));
     assert_eq!(row.next_probe_at, Some(now + Duration::seconds(60)));
 
     let (actor, action, subject_kind, slug, status): (String, String, String, String, String) =

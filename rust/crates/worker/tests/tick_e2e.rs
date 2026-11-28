@@ -815,16 +815,17 @@ async fn successful_fetch_closes_half_open_breaker_even_on_parse_quarantine() {
     repo::upsert_policy(&pool, &http_policy(0)).await.unwrap();
     seed_http_job(&pool, now).await;
     // A breaker párhuzamos próbája: az allow half-openként enged, a fetch után closed.
-    repo::set_breaker(
-        &pool,
-        "demo-synthetic",
-        &BreakerRow {
-            state: BreakerState::Open,
-            failure_count: 3,
-            opened_at: Some(now - Duration::minutes(5)),
-            next_probe_at: Some(now - Duration::seconds(1)),
-        },
-    )
+    repo::update_breaker_locked(&pool, "demo-synthetic", |_| {
+        (
+            (),
+            repo::BreakerWrite::Set(BreakerRow {
+                state: BreakerState::Open,
+                failure_count: 3,
+                opened_at: Some(now - Duration::minutes(5)),
+                next_probe_at: Some(now - Duration::seconds(1)),
+            }),
+        )
+    })
     .await
     .unwrap();
     // A fetch sikeres (parse-karantén követi): a breaker closed kell legyen.
