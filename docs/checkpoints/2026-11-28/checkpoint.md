@@ -82,6 +82,36 @@
 - [x] Magyar szöveg ellenőrizve: CJK/replacement karakter **0** a két új
       dokumentumban.
 
+## S221 — Adatszerződés a pre-match panelhez (jóváhagyva)
+
+- [x] **Döntés:** a felhasználó az S221-gyel indított, UI még nem változott.
+- [x] **Rust/storage:** `HeadToHeadEntry` 8 opcionális mutatóval bővült
+      (szöglet, sárga/piros lap, xG) a `fact.match_stats` legfrissebb sorából;
+      új `H2HSummary` (matches, with_stats, total_goals, btts_pct, over25_pct,
+      corners_avg, cards_avg) a meglévő H2H-listából számolva — ott `null`, ahol
+      nincs alapadat. `NextMatchEntry` `home_logo`/`away_logo` mezőkkel bővült.
+      A régi mezők változatlanok; a kontrakt-fixture 70 → 71 kulcs.
+- [x] **Swift/Core:** `MatchDetail.h2hSummary`, `HeadToHeadEntry` új mezői,
+      `NextMatchEntry` logói, `InsightSeasonStat` 8 korábban dekódolatlan mező
+      (clean_sheets, assists, possession_pct, average_rating, points,
+      goal_difference…). Mind opcionális, régi payload-ek dekódolhatók maradnak.
+- [x] **Tesztek:** Rust workspace **0 failed**, clippy 0, fmt 0; új egységtesztek
+      a H2H-számolásra (BTTS 33,3%, over 33,3%, szögletátlag 10,0, lapátlag 3,0)
+      és a hiány-esetre (`with_stats=0` → minden átlag `null`). Core **167/167**,
+      app unit **TEST SUCCEEDED**. Teljes XCUITest-harness nem futott.
+- [x] **Élő ellenőrzés:** daemon újraépítve/telepítve, `/v1/health` OK;
+      Leeds–Coventry meccsen `/v1/match` 71 kulcs, `h2h_summary`:
+      **5 meccs, 5 stattal, 13 gól, BTTS 60%, over2.5 60%, szögletátlag 9,8,
+      lapátlag 4,8**; az első H2H-sor 3–8 szöglettel és 2–1 sárga lappal;
+      a következő meccs mindkét logóval. Az adatot a szelet nem írta.
+- [x] Branch `feat/match-preview-contract` @ `5dfa456` pusholva, preview
+      `ba98a83`-re merge-elve. Az app binárisa nem lett cserélve (nincs UI-változás).
+
+### Visszaállás (S221)
+
+- `git revert 5dfa456`; a DTO-mezők opcionálisak, a régi fixture és a régi app
+      továbbra is működik. Adatot a szelet nem írt.
+
 ## Következő döntési pont
 
 - A felhasználónak jóvá kell hagyni az S221–S227 tervet, illetve döntenie kell
