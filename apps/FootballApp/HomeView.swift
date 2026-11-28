@@ -78,6 +78,10 @@ struct HomeView: View {
     var body: some View {
         @Bindable var model = model
         GeometryReader { geometry in
+            // S220: széles ablaknál a részlet a jobb panelben nyílik meg,
+            // ezért ilyenkor a régi modalis sheetet nem mutatjuk. Keskeny
+            // ablaknál (nincs jobb panel) a sheet marad a tartalék út.
+            let useSidePanel = geometry.size.width >= MatchListView.twoColumnThreshold
             VStack(spacing: 0) {
                 TopNavigationBar(selected: tab, focused: focus,
                                  compact: geometry.size.width < 760,
@@ -93,8 +97,12 @@ struct HomeView: View {
                 case .teams:
                     TeamsView()
                 case .day:
-                    dayContent(model: model, width: geometry.size.width)
+                    dayContent(model: model, width: geometry.size.width,
+                               useSidePanel: useSidePanel)
                 }
+            }
+            .sheet(item: useSidePanel ? .constant(nil) : $selected) { item in
+                MatchDetailSheet(matchId: item.id)
             }
         }
         .background(AppTheme.background)
@@ -163,9 +171,8 @@ struct HomeView: View {
         .onChange(of: matchIDs) { _, ids in
             if case .match(let id) = focus, !ids.contains(id) { focus = nil }
         }
-        .sheet(item: $selected) { item in
-            MatchDetailSheet(matchId: item.id)
-        }
+        // A részletező sheetet a GeometryReader-en belül kötjük be (S220),
+        // hogy széles ablaknál ne nyíljon panel és sheet egyszerre.
     }
 
     // MARK: - App-szintű Tab-sorrend
@@ -277,7 +284,8 @@ struct HomeView: View {
     }
 
     @ViewBuilder
-    private func dayContent(model: DayModel, width: CGFloat) -> some View {
+    private func dayContent(model: DayModel, width: CGFloat,
+                            useSidePanel: Bool) -> some View {
         @Bindable var model = model
         VStack(spacing: 0) {
             HomeHeader(
@@ -306,12 +314,12 @@ struct HomeView: View {
                       counts: filterCounts, countries: allCountries,
                       compact: width < 1_000)
 
-            content
+            content(useSidePanel: useSidePanel)
         }
     }
 
     @ViewBuilder
-    private var content: some View {
+    private func content(useSidePanel: Bool) -> some View {
         switch model.state {
         case .idle, .loading:
             ProgressView()
@@ -326,6 +334,8 @@ struct HomeView: View {
                     leagues: leagues,
                     logos: model.logos,
                     focusedMatch: focusedMatchID,
+                    selectedMatchID: selected?.id,
+                    onClearSelection: { selected = nil },
                     onSelect: { id in
                         if let uuid = UUID(uuidString: id) {
                             selected = SelectedMatch(id: uuid)
