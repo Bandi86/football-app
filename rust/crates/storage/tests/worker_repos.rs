@@ -297,7 +297,148 @@ async fn claim_lease_and_requeue() {
         .await
         .unwrap();
     assert_eq!(reclaimed.len(), 1);
-    assert_eq!(reclaimed[0].id, claimed[0].id);
+    assert_eq!(reclaimed[0].job.id, claimed[0].job.id);
+}
+
+#[tokio::test]
+async fn stale_lease_cannot_complete_requeue_or_write_coverage() {
+    let pool = test_pool().await;
+    seed_policy(&pool, "stale-lease").await;
+    let now = Utc::now().trunc_subsecs(6);
+    let due = now - Duration::minutes(1);
+    repo::insert_job(&pool, &new_job("stale-lease", "day", due, 10))
+        .await
+        .unwrap();
+
+    let stale = repo::claim_due_jobs(&pool, Uuid::now_v7(), now, 60, 1)
+        .await
+        .unwrap()
+        .remove(0)
+        .lease;
+    sqlx::query(
+        "UPDATE ops.job SET leased_until = clock_timestamp() - interval '1 second' WHERE id = $1",
+    )
+    .bind(stale.job_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let later = now + Duration::seconds(120);
+    assert_eq!(repo::requeue_expired_leases(&pool, later).await.unwrap(), 1);
+    let current = repo::claim_due_jobs(&pool, Uuid::now_v7(), later, 60, 1)
+        .await
+        .unwrap()
+        .remove(0);
+    assert_ne!(stale.token, current.lease.token);
+
+    assert!(!repo::heartbeat_job(&pool, &stale, 60).await.unwrap());
+    assert!(
+        !repo::complete_leased(&pool, &stale, JobStatus::Done, None)
+            .await
+            .unwrap()
+    );
+    let retry_due = later + Duration::minutes(5);
+    assert!(
+        !repo::requeue_leased(&pool, &stale, retry_due)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !repo::upsert_job_coverage(
+            &pool,
+            &stale,
+            "match",
+            "observations",
+            "day",
+            CoverageState::Done,
+        )
+        .await
+        .unwrap()
+    );
+
+    let (status, token, due_at) =
+        sqlx::query_as::<_, (String, Option<Uuid>, chrono::DateTime<Utc>)>(
+            "SELECT status, lease_token, due_at FROM ops.job WHERE id = $1",
+        )
+        .bind(current.job.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "leased");
+    assert_eq!(token, Some(current.lease.token));
+    assert_eq!(due_at, due);
+    let coverage: i64 = sqlx::query_scalar("SELECT count(*) FROM ops.coverage_slot")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(coverage, 0);
+}
+
+#[tokio::test]
+async fn heartbeat_extends_only_a_live_owned_lease() {
+    let pool = test_pool().await;
+    seed_policy(&pool, "lease-heartbeat").await;
+    let now = Utc::now().trunc_subsecs(6);
+    repo::insert_job(
+        &pool,
+        &new_job("lease-heartbeat", "day", now - Duration::minutes(1), 10),
+    )
+    .await
+    .unwrap();
+    let lease = repo::claim_due_jobs(&pool, Uuid::now_v7(), now, 60, 1)
+        .await
+        .unwrap()
+        .remove(0)
+        .lease;
+    let before = lease.leased_until;
+    let forged = JobLease {
+        token: Uuid::now_v7(),
+        ..lease
+    };
+
+    assert!(!repo::heartbeat_job(&pool, &forged, 60).await.unwrap());
+    assert!(repo::heartbeat_job(&pool, &lease, 120).await.unwrap());
+    let extended: chrono::DateTime<Utc> =
+        sqlx::query_scalar("SELECT leased_until FROM ops.job WHERE id = $1")
+            .bind(lease.job_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(extended > before);
+
+    sqlx::query(
+        "UPDATE ops.job SET leased_until = clock_timestamp() - interval '1 second' WHERE id = $1",
+    )
+    .bind(lease.job_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(!repo::heartbeat_job(&pool, &lease, 120).await.unwrap());
+}
+
+#[tokio::test]
+async fn claim_generates_unique_lease_tokens() {
+    let pool = test_pool().await;
+    seed_policy(&pool, "lease-tokens").await;
+    let now = Utc::now().trunc_subsecs(6);
+    for key in ["first", "second"] {
+        repo::insert_job(
+            &pool,
+            &new_job("lease-tokens", key, now - Duration::minutes(1), 10),
+        )
+        .await
+        .unwrap();
+    }
+
+    let claimed = repo::claim_due_jobs(&pool, Uuid::now_v7(), now, 60, 10)
+        .await
+        .unwrap();
+    assert_eq!(claimed.len(), 2);
+    assert_ne!(claimed[0].lease.token, claimed[1].lease.token);
+    let tokens: i64 = sqlx::query_scalar("SELECT count(DISTINCT lease_token) FROM ops.job")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(tokens, 2);
 }
 
 #[tokio::test]
@@ -328,12 +469,12 @@ async fn job_dedup_priority_limit_and_attempts() {
         .await
         .unwrap();
     assert_eq!(claimed.len(), 1);
-    assert_eq!(claimed[0].entity_key, "urgent");
-    assert_eq!(claimed[0].priority, 5);
+    assert_eq!(claimed[0].job.entity_key, "urgent");
+    assert_eq!(claimed[0].job.priority, 5);
 
     // claim növeli az attempts számlálót
     let attempts: i32 = sqlx::query_scalar("SELECT attempts FROM ops.job WHERE id = $1")
-        .bind(claimed[0].id)
+        .bind(claimed[0].job.id)
         .fetch_one(&pool)
         .await
         .unwrap();
@@ -350,7 +491,7 @@ async fn job_dedup_priority_limit_and_attempts() {
         .await
         .unwrap();
     assert_eq!(rest.len(), 1);
-    assert_eq!(rest[0].entity_key, "day");
+    assert_eq!(rest[0].job.entity_key, "day");
 }
 
 #[tokio::test]
@@ -386,9 +527,9 @@ async fn claim_returns_jobs_sorted_by_priority_and_due_at() {
         .await
         .unwrap();
     assert_eq!(claimed.len(), 5);
-    let priorities: Vec<i32> = claimed.iter().map(|j| j.priority).collect();
+    let priorities: Vec<i32> = claimed.iter().map(|j| j.job.priority).collect();
     assert_eq!(priorities, [10, 15, 15, 20, 30]);
-    let keys: Vec<&str> = claimed.iter().map(|j| j.entity_key.as_str()).collect();
+    let keys: Vec<&str> = claimed.iter().map(|j| j.job.entity_key.as_str()).collect();
     assert_eq!(keys, ["p10", "tie-early", "tie-late", "p20", "p30"]);
 }
 
@@ -608,13 +749,13 @@ async fn complete_job_and_release_worker_leases() {
     assert_eq!(claimed.len(), 2);
 
     // sikeres befejezés: státusz done, lease törölve
-    repo::complete_job(&pool, claimed[0].id, JobStatus::Done, None)
+    repo::complete_job(&pool, claimed[0].job.id, JobStatus::Done, None)
         .await
         .unwrap();
     // sikertelen befejezés: státusz failed, hibaüzenet tárolva
     repo::complete_job(
         &pool,
-        claimed[1].id,
+        claimed[1].job.id,
         JobStatus::Failed,
         Some("kapcsolati hiba"),
     )
@@ -625,7 +766,7 @@ async fn complete_job_and_release_worker_leases() {
     let row = sqlx::query(
         "SELECT status, worker_id, leased_until, last_error FROM ops.job WHERE id = $1",
     )
-    .bind(claimed[0].id)
+    .bind(claimed[0].job.id)
     .fetch_one(&pool)
     .await
     .unwrap();
@@ -647,7 +788,7 @@ async fn complete_job_and_release_worker_leases() {
     );
 
     let row = sqlx::query("SELECT status, last_error FROM ops.job WHERE id = $1")
-        .bind(claimed[1].id)
+        .bind(claimed[1].job.id)
         .fetch_one(&pool)
         .await
         .unwrap();
@@ -669,7 +810,7 @@ async fn complete_job_and_release_worker_leases() {
     assert_eq!(held.len(), 1);
     assert_eq!(repo::release_worker_leases(&pool, worker).await.unwrap(), 1);
     let row = sqlx::query("SELECT status, worker_id, leased_until FROM ops.job WHERE id = $1")
-        .bind(held[0].id)
+        .bind(held[0].job.id)
         .fetch_one(&pool)
         .await
         .unwrap();

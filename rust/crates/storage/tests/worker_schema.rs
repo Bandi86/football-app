@@ -11,6 +11,32 @@ async fn worker_tables_exist_and_constraints_hold() {
     .fetch_one(&pool).await.unwrap();
     assert_eq!(tables, 6);
 
+    let lease_type: String = sqlx::query_scalar(
+        "SELECT data_type FROM information_schema.columns
+         WHERE table_schema='ops' AND table_name='job' AND column_name='lease_token'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(lease_type, "uuid");
+    let lease_index: String = sqlx::query_scalar(
+        "SELECT indexdef FROM pg_indexes
+         WHERE schemaname='ops' AND tablename='job' AND indexname='idx_job_lease_token'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(lease_index.contains("CREATE UNIQUE INDEX"));
+    assert!(lease_index.contains("lease_token IS NOT NULL"));
+    let lease_constraint: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM pg_constraint
+         WHERE conname='job_lease_token_status_check' AND conrelid='ops.job'::regclass",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(lease_constraint, 1);
+
     // CHECK: ismeretlen transport nem írható
     let bad = sqlx::query(
         "INSERT INTO ops.source_policy (source_slug, transport, mode, daily_budget,
@@ -46,4 +72,41 @@ async fn worker_tables_exist_and_constraints_hold() {
         .await
         .unwrap();
     assert_eq!(jobs, 1);
+
+    let invalid_status = sqlx::query(
+        "INSERT INTO ops.job (id, source_slug, domain, entity_key, event_type,
+         time_window, due_at, status, lease_token)
+         VALUES (gen_random_uuid(),'demo-synthetic','match','invalid-token',
+         'discovery','2026-11-12',now(),'pending',gen_random_uuid())",
+    )
+    .execute(&pool)
+    .await;
+    assert!(invalid_status.is_err());
+
+    sqlx::query(
+        "INSERT INTO ops.job (id, source_slug, domain, entity_key, event_type,
+         time_window, due_at, status, lease_token)
+         VALUES (gen_random_uuid(),'demo-synthetic','match','token-a',
+         'discovery','2026-11-12',now(),'leased','11111111-1111-1111-1111-111111111111')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let duplicate_token = sqlx::query(
+        "INSERT INTO ops.job (id, source_slug, domain, entity_key, event_type,
+         time_window, due_at, status, lease_token)
+         VALUES (gen_random_uuid(),'demo-synthetic','match','token-b',
+         'discovery','2026-11-12',now(),'leased','11111111-1111-1111-1111-111111111111')",
+    )
+    .execute(&pool)
+    .await;
+    assert!(duplicate_token.is_err());
+
+    sqlx::query(
+        "INSERT INTO ops.fetch_ledger (id, source_slug, request_key, attempted_at, outcome)
+         VALUES (gen_random_uuid(),'demo-synthetic','reserved-check',now(),'reserved')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
 }

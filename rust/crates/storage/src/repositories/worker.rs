@@ -2,7 +2,8 @@ use crate::object_store::StoredArtifact;
 use anyhow::{Context, Result};
 use chrono::{DateTime, NaiveDate, Utc};
 use football_domain::policy::{
-    BreakerState, CoverageState, FetchJob, FetchOutcome, JobStatus, SourcePolicy,
+    BreakerState, CoverageState, FetchJob, FetchOutcome, JobLease, JobStatus, LeasedJob,
+    SourcePolicy,
 };
 use sqlx::{PgPool, Row, postgres::PgRow};
 use uuid::Uuid;
@@ -175,7 +176,8 @@ pub async fn job_created_at(pool: &PgPool, job_id: Uuid) -> Result<DateTime<Utc>
 /// A job visszasorolása pending állapotba késleltetett due_at-tel.
 pub async fn requeue_with_delay(pool: &PgPool, job_id: Uuid, due_at: DateTime<Utc>) -> Result<()> {
     sqlx::query(
-        "UPDATE ops.job SET status='pending', due_at=$2, worker_id=NULL, leased_until=NULL
+        "UPDATE ops.job SET status='pending', due_at=$2, worker_id=NULL,
+             leased_until=NULL, lease_token=NULL
          WHERE id=$1",
     )
     .bind(job_id)
@@ -596,16 +598,18 @@ pub async fn claim_due_jobs(
     now: DateTime<Utc>,
     lease_secs: i64,
     limit: i64,
-) -> Result<Vec<FetchJob>> {
+) -> Result<Vec<LeasedJob>> {
     let rows = sqlx::query(
         "UPDATE ops.job SET status='leased', worker_id=$2,
-             leased_until=$1 + make_interval(secs => $3), attempts = attempts + 1
+             leased_until=$1 + make_interval(secs => $3),
+             lease_token=gen_random_uuid(), attempts = attempts + 1
          WHERE id IN (
              SELECT id FROM ops.job
              WHERE status='pending' AND due_at <= $1
              ORDER BY priority, due_at
              FOR UPDATE SKIP LOCKED LIMIT $4)
-         RETURNING id, source_slug, domain, entity_key, event_type, time_window, due_at, priority",
+         RETURNING id, source_slug, domain, entity_key, event_type, time_window,
+                   due_at, priority, lease_token, leased_until",
     )
     .bind(now)
     .bind(worker_id)
@@ -614,10 +618,10 @@ pub async fn claim_due_jobs(
     .fetch_all(pool)
     .await
     .context("job claim")?;
-    let mut jobs: Vec<FetchJob> = rows
+    let mut jobs: Vec<LeasedJob> = rows
         .iter()
         .map(|r| {
-            Ok(FetchJob {
+            let job = FetchJob {
                 id: r.try_get("id").context("job id oszlop")?,
                 source_slug: r.try_get("source_slug").context("job source_slug oszlop")?,
                 domain: r.try_get("domain").context("job domain oszlop")?,
@@ -626,16 +630,43 @@ pub async fn claim_due_jobs(
                 time_window: r.try_get("time_window").context("job time_window oszlop")?,
                 due_at: r.try_get("due_at").context("job due_at oszlop")?,
                 priority: r.try_get("priority").context("job priority oszlop")?,
+            };
+            Ok(LeasedJob {
+                lease: JobLease {
+                    job_id: job.id,
+                    token: r.try_get("lease_token").context("job lease_token oszlop")?,
+                    leased_until: r
+                        .try_get("leased_until")
+                        .context("job leased_until oszlop")?,
+                },
+                job,
             })
         })
         .collect::<Result<Vec<_>>>()?;
-    jobs.sort_by_key(|job| (job.priority, job.due_at));
+    jobs.sort_by_key(|item| (item.job.priority, item.job.due_at));
     Ok(jobs)
+}
+
+pub async fn heartbeat_job(pool: &PgPool, lease: &JobLease, lease_secs: i64) -> Result<bool> {
+    let result = sqlx::query(
+        "UPDATE ops.job
+         SET leased_until = clock_timestamp() + make_interval(secs => $3)
+         WHERE id = $1 AND lease_token = $2 AND status = 'leased'
+           AND leased_until > clock_timestamp()",
+    )
+    .bind(lease.job_id)
+    .bind(lease.token)
+    .bind(lease_secs)
+    .execute(pool)
+    .await
+    .context("job lease heartbeat")?;
+    Ok(result.rows_affected() == 1)
 }
 
 pub async fn requeue_expired_leases(pool: &PgPool, now: DateTime<Utc>) -> Result<u64> {
     let res = sqlx::query(
-        "UPDATE ops.job SET status='pending', worker_id=NULL, leased_until=NULL
+        "UPDATE ops.job SET status='pending', worker_id=NULL, leased_until=NULL,
+             lease_token=NULL
          WHERE status='leased' AND leased_until < $1",
     )
     .bind(now)
@@ -645,6 +676,87 @@ pub async fn requeue_expired_leases(pool: &PgPool, now: DateTime<Utc>) -> Result
     Ok(res.rows_affected())
 }
 
+pub async fn requeue_leased(
+    pool: &PgPool,
+    lease: &JobLease,
+    due_at: DateTime<Utc>,
+) -> Result<bool> {
+    let result = sqlx::query(
+        "UPDATE ops.job
+         SET status='pending', due_at=$3, worker_id=NULL, leased_until=NULL,
+             lease_token=NULL
+         WHERE id=$1 AND lease_token=$2 AND status='leased'
+           AND leased_until > clock_timestamp()",
+    )
+    .bind(lease.job_id)
+    .bind(lease.token)
+    .bind(due_at)
+    .execute(pool)
+    .await
+    .context("fenced job visszasorolás")?;
+    Ok(result.rows_affected() == 1)
+}
+
+pub async fn complete_leased(
+    pool: &PgPool,
+    lease: &JobLease,
+    status: JobStatus,
+    last_error: Option<&str>,
+) -> Result<bool> {
+    let result = sqlx::query(
+        "UPDATE ops.job
+         SET status=$3, last_error=$4, worker_id=NULL, leased_until=NULL,
+             lease_token=NULL
+         WHERE id=$1 AND lease_token=$2 AND status='leased'
+           AND leased_until > clock_timestamp()",
+    )
+    .bind(lease.job_id)
+    .bind(lease.token)
+    .bind(status.as_db_str())
+    .bind(last_error)
+    .execute(pool)
+    .await
+    .context("fenced job befejezés")?;
+    Ok(result.rows_affected() == 1)
+}
+
+pub async fn upsert_job_coverage(
+    pool: &PgPool,
+    lease: &JobLease,
+    entity_type: &str,
+    data_kind: &str,
+    time_window: &str,
+    state: CoverageState,
+) -> Result<bool> {
+    let result = sqlx::query(
+        "WITH leased AS (
+             SELECT id, source_slug FROM ops.job
+             WHERE id = $5 AND lease_token = $6 AND status = 'leased'
+               AND leased_until > clock_timestamp()
+             FOR UPDATE
+         )
+         INSERT INTO ops.coverage_slot
+             (source_slug, entity_type, data_kind, time_window, state,
+              last_job_id, updated_at)
+         SELECT source_slug, $1, $2, $3, $4, id, clock_timestamp()
+         FROM leased
+         ON CONFLICT (source_slug, entity_type, data_kind, time_window)
+         DO UPDATE SET state = EXCLUDED.state,
+                       last_job_id = EXCLUDED.last_job_id,
+                       updated_at = EXCLUDED.updated_at",
+    )
+    .bind(entity_type)
+    .bind(data_kind)
+    .bind(time_window)
+    .bind(state.as_db_str())
+    .bind(lease.job_id)
+    .bind(lease.token)
+    .execute(pool)
+    .await
+    .context("fenced coverage upsert")?;
+    Ok(result.rows_affected() == 1)
+}
+
 pub async fn complete_job(
     pool: &PgPool,
     job_id: Uuid,
@@ -652,7 +764,8 @@ pub async fn complete_job(
     last_error: Option<&str>,
 ) -> Result<()> {
     sqlx::query(
-        "UPDATE ops.job SET status=$2, last_error=$3, worker_id=NULL, leased_until=NULL
+        "UPDATE ops.job SET status=$2, last_error=$3, worker_id=NULL,
+             leased_until=NULL, lease_token=NULL
          WHERE id=$1",
     )
     .bind(job_id)
@@ -666,7 +779,8 @@ pub async fn complete_job(
 
 pub async fn release_worker_leases(pool: &PgPool, worker_id: Uuid) -> Result<u64> {
     let res = sqlx::query(
-        "UPDATE ops.job SET status='pending', worker_id=NULL, leased_until=NULL
+        "UPDATE ops.job SET status='pending', worker_id=NULL, leased_until=NULL,
+             lease_token=NULL
          WHERE status='leased' AND worker_id=$1",
     )
     .bind(worker_id)

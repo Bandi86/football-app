@@ -255,7 +255,8 @@ pub async fn claim(
     lease_secs: i64,
     limit: i64,
 ) -> Result<Vec<FetchJob>> {
-    repo::claim_due_jobs(pool, worker_id, now, lease_secs, limit).await
+    let leased = repo::claim_due_jobs(pool, worker_id, now, lease_secs, limit).await?;
+    Ok(leased.into_iter().map(|item| item.job).collect())
 }
 
 /// Lejárt lease-ek visszasorolása pending állapotba (repo wrapper).

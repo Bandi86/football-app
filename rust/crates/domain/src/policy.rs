@@ -53,6 +53,7 @@ pub enum FetchOutcome {
     BreakerOpen,
     TransportError,
     ParseError,
+    Reserved,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,7 +109,8 @@ db_str!(
     QuotaBlocked => "quota_blocked",
     BreakerOpen => "breaker_open",
     TransportError => "transport_error",
-    ParseError => "parse_error"
+    ParseError => "parse_error",
+    Reserved => "reserved"
 );
 db_str!(
     JobStatus,
@@ -154,4 +156,17 @@ pub struct FetchJob {
     pub time_window: String,
     pub due_at: DateTime<Utc>,
     pub priority: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JobLease {
+    pub job_id: Uuid,
+    pub token: Uuid,
+    pub leased_until: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LeasedJob {
+    pub job: FetchJob,
+    pub lease: JobLease,
 }
