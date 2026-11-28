@@ -1,0 +1,119 @@
+{
+  "leagues": [
+    {
+      "id": "700",
+      "name": "English Premier League",
+      "slug": "eng.1",
+      "season": { "year": 2026, "displayName": "2026-27 English Premier League" }
+    }
+  ],
+  "season": { "year": 2026, "type": 14308 },
+  "day": { "date": "2026-11-27" },
+  "events": [
+    {
+      "id": "401879225",
+      "date": "2026-11-27T20:00Z",
+      "name": "Chelsea at Nottingham Forest",
+      "season": { "year": 2026, "slug": "2026-27-english-premier-league" },
+      "status": { "type": { "name": "STATUS_FULL_TIME", "state": "post", "completed": true } },
+      "competitions": [
+        {
+          "id": "401879225",
+          "date": "2026-11-27T20:00Z",
+          "timeValid": true,
+          "status": { "type": { "name": "STATUS_FULL_TIME", "state": "post", "completed": true } },
+          "venue": { "id": "131", "fullName": "The City Ground", "address": { "city": "Nottingham", "country": "England" } },
+          "competitors": [
+            { "id": "393", "type": "team", "homeAway": "home", "score": "3", "team": { "id": "393", "displayName": "Nottingham Forest" } },
+            { "id": "363", "type": "team", "homeAway": "away", "score": "2", "team": { "id": "363", "displayName": "Chelsea" } }
+          ],
+          "links": []
+        }
+      ],
+      "links": [
+        { "rel": ["summary", "desktop", "event"], "href": "https://www.espn.com/soccer/match/_/gameId/401879225" }
+      ]
+    },
+    {
+      "id": "401879226",
+      "date": "2026-11-28T15:00Z",
+      "name": "Arsenal at Liverpool",
+      "season": { "year": 2026, "slug": "2026-27-english-premier-league" },
+      "status": { "type": { "name": "STATUS_SCHEDULED", "state": "pre", "completed": false } },
+      "competitions": [
+        {
+          "id": "401879226",
+          "date": "2026-11-28T15:00Z",
+          "timeValid": true,
+          "status": { "type": { "name": "STATUS_SCHEDULED", "state": "pre", "completed": false } },
+          "competitors": [
+            { "id": "359", "type": "team", "homeAway": "home", "team": { "id": "359", "displayName": "Liverpool" } },
+            { "id": "382", "type": "team", "homeAway": "away", "team": { "id": "382", "displayName": "Arsenal" } }
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-11-28T18:00Z",
+      "name": "No id event",
+      "competitions": [
+        {
+          "status": { "type": { "name": "STATUS_SCHEDULED", "state": "pre", "completed": false } },
+          "competitors": [
+            { "id": "1", "type": "team", "homeAway": "home", "team": { "id": "1", "displayName": "A" } },
+            { "id": "2", "type": "team", "homeAway": "away", "team": { "id": "2", "displayName": "B" } }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "401879230",
+      "date": null,
+      "name": "No kickoff",
+      "season": { "year": 2026 },
+      "status": { "type": { "name": "STATUS_SCHEDULED", "state": "pre", "completed": false } },
+      "competitions": [
+        {
+          "status": { "type": { "name": "STATUS_SCHEDULED", "state": "pre", "completed": false } },
+          "competitors": [
+            { "id": "1", "type": "team", "homeAway": "home", "team": { "id": "1", "displayName": "A" } },
+            { "id": "2", "type": "team", "homeAway": "away", "team": { "id": "2", "displayName": "B" } }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "401879231",
+      "date": "2026-11-28T18:00Z",
+      "name": "One competitor",
+      "season": { "year": 2026 },
+      "status": { "type": { "name": "STATUS_SCHEDULED", "state": "pre", "completed": false } },
+      "competitions": [
+        {
+          "date": "2026-11-28T18:00Z",
+          "status": { "type": { "name": "STATUS_SCHEDULED", "state": "pre", "completed": false } },
+          "competitors": [
+            { "id": "1", "type": "team", "homeAway": "home", "team": { "id": "1", "displayName": "A" } }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "401879232",
+      "date": "2026-11-28T18:00Z",
+      "name": "Unknown status",
+      "season": { "year": 2026 },
+      "status": { "type": { "name": "STATUS_TOTALLY_UNKNOWN", "state": "weird", "completed": false } },
+      "competitions": [
+        {
+          "date": "2026-11-28T18:00Z",
+          "status": { "type": { "name": "STATUS_TOTALLY_UNKNOWN", "state": "weird", "completed": false } },
+          "competitors": [
+            { "id": "1", "type": "team", "homeAway": "home", "team": { "id": "1", "displayName": "A" } },
+            { "id": "2", "type": "team", "homeAway": "away", "team": { "id": "2", "displayName": "B" } }
+          ]
+        }
+      ]
+    }
+  ]
+}
