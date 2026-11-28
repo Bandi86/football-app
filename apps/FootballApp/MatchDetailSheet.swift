@@ -26,13 +26,23 @@ private enum DetailOverlay: Identifiable {
     }
 }
 
-/// Meccs-részletező panel: eredménytábla-fejléc, meta-rács, odds-mátrix,
-/// statisztika-párbaj és ellenőrzési sáv. Minden szakasz adatvezérelt:
-/// ami hiányzik, az nem jelenik meg, hamis értéket nem rajzolunk.
-struct MatchDetailSheet: View {
+/// A meccs-részletezés közös gazdája: a modalis sheet és a főoldal jobb
+/// panelje is ezt rajzolja. Minden szakasz adatvezérelt — ami hiányzik, az
+/// nem jelenik meg, hamis értéket nem rajzolunk. Egy helyen marad a betöltés,
+/// a hibaállapot és a kapcsolódó lapok (manuális szerkesztés, meccs, csapat,
+/// verseny, játékos) kezelése is.
+struct MatchDetailPane: View {
     let matchId: UUID
+    /// Láncolt meccslapnál a fejléc „Vissza" gombot mutat.
     var isPresentedInChain = false
-    @Environment(\.dismiss) private var dismiss
+    /// Bezáró gomb: a sheet a `dismiss`-t, a beágyazott panel a kijelölés
+    /// törlését küldi ide. `nil` esetén nincs bezáró gomb.
+    var onClose: (() -> Void)? = nil
+    var headerTitle = "Meccs"
+    /// A tartalom maximális szélessége. A sheet a régi 860 pt-et használja,
+    /// a széles jobb panel viszont kihasználja a rendelkezésre álló helyet.
+    var contentMaxWidth: CGFloat? = nil
+
     @State private var model = MatchDetailModel()
     @State private var overlay: DetailOverlay?
 
@@ -50,7 +60,7 @@ struct MatchDetailSheet: View {
                         .accessibilityIdentifier("match.detail.back")
                         .onExitCommand { overlay = nil }
                 }
-                Text("Meccs")
+                Text(headerTitle)
                     .font(.appLabel(11))
                     .tracking(2.4)
                     .foregroundStyle(AppTheme.secondaryText)
@@ -68,9 +78,11 @@ struct MatchDetailSheet: View {
                       ? "A szerkesztés a meccs betöltése után érhető el."
                       : "Kezdés, státusz és eredmény szerkesztése")
                 .accessibilityIdentifier("match.detail.manual")
-                Button("Bezárás") { dismiss() }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(AppTheme.secondaryText)
+                if let onClose {
+                    Button("Bezárás", action: onClose)
+                        .buttonStyle(.plain)
+                        .foregroundStyle(AppTheme.secondaryText)
+                }
             }
             .padding(.horizontal, AppTheme.Spacing.xl)
             .padding(.vertical, AppTheme.Spacing.m)
@@ -79,8 +91,6 @@ struct MatchDetailSheet: View {
 
             content
         }
-        .frame(minWidth: 720, minHeight: 620)
-        .background(AppTheme.background)
         .task(id: matchId) { await model.load(matchId: matchId) }
         .sheet(item: $overlay) { target in
             switch target {
@@ -124,6 +134,7 @@ struct MatchDetailSheet: View {
                     try? await model.addNote(matchId: detail.id, body: body, kind: kind)
                 },
                 logos: model.logos,
+                contentMaxWidth: contentMaxWidth,
                 accessibilityPrefix: accessibilityPrefix,
                 onSelectMatch: { overlay = .match(SelectedMatch(id: $0)) },
                 onSelectTeam: { id, name in
@@ -135,6 +146,24 @@ struct MatchDetailSheet: View {
                 onSelectPlayer: { overlay = .player($0) }
             )
         }
+    }
+}
+
+/// A régi modalis megjelenítés: mostantól csak vékony burkoló, hogy a
+/// tartalom és a sheet/bezárás viselkedése ne ágazzon kétfelé.
+struct MatchDetailSheet: View {
+    let matchId: UUID
+    var isPresentedInChain = false
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        MatchDetailPane(
+            matchId: matchId,
+            isPresentedInChain: isPresentedInChain,
+            onClose: { dismiss() }
+        )
+        .frame(minWidth: 720, minHeight: 620)
+        .background(AppTheme.background)
     }
 }
 
@@ -494,6 +523,8 @@ struct MatchDetailContent: View {
     let history: [HistoryEntryDTO]
     let onAddNote: (String, String) async -> Void
     let logos: LogoStore
+    /// `nil` = kitölti a rendelkezésre álló szélességet (jobb panel).
+    var contentMaxWidth: CGFloat? = 860
     let accessibilityPrefix: String
     let onSelectMatch: (UUID) -> Void
     /// Entitáslinkek: a csapat és a verseny azonosítója a `MatchDetail`-ből jön.
@@ -607,7 +638,7 @@ struct MatchDetailContent: View {
                         }
                     }
                     .padding(AppTheme.Spacing.xl)
-                    .frame(maxWidth: 860, alignment: .leading)
+                    .frame(maxWidth: contentMaxWidth, alignment: .leading)
                     .frame(maxWidth: .infinity)
                 }
             }

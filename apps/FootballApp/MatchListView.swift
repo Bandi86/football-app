@@ -159,6 +159,11 @@ struct MatchListView: View {
     let leagues: [LeagueGroup]
     let logos: LogoStore
     let focusedMatch: String?
+    /// S220: a kijelölt meccs a jobb oldali részletező panelhez. `nil` esetén
+    /// a panel üres állapotot mutat (később más tartalom jöhet ide).
+    var selectedMatchID: UUID? = nil
+    /// A panel bezárása — a kijelölés törlése a gazdában.
+    var onClearSelection: () -> Void = {}
     let onSelect: (String) -> Void
     /// A kedvenc versenyek kulcsai (a szekciófejléc csillagához).
     var favorites: Set<String> = []
@@ -177,7 +182,7 @@ struct MatchListView: View {
     private static let wideLayoutThreshold: CGFloat = 800
     /// Teljes képernyőn bal oldal a meccslista, jobb oldal üres hely a
     /// későbbi tartalomnak; keskeny ablaknál a lista teljes szélességű.
-    private static let twoColumnThreshold: CGFloat = 1200
+    static let twoColumnThreshold: CGFloat = 1200
 
     /// S213: a bal oszlop pontosan akkora, amekkora a kártya tartalmához kell;
     /// a maradék a jobb oldali panelé. Pure függvény, ezért pixelre tesztelhető.
@@ -246,13 +251,16 @@ struct MatchListView: View {
                             .frame(width: twoColumns ? columns.list : nil,
                                    alignment: .leading)
                             if twoColumns {
-                                // Üres jobb oszlop — későbbi tartalom helye.
-                                RoundedRectangle(cornerRadius: 19, style: .continuous)
-                                    .strokeBorder(AppTheme.hairline)
-                                    .frame(width: columns.side,
-                                           height: geometry.size.height - 32)
-                                    .allowsHitTesting(false)
-                                    .accessibilityIdentifier("home.sidepanel")
+                                // S220: a jobb panel a kijelölt meccs teljes
+                                // részletezését mutatja — ugyanaz a tartalom,
+                                // mint a sheetben, csak beágyazva.
+                                MatchDetailPanel(
+                                    matchID: selectedMatchID,
+                                    onClose: onClearSelection
+                                )
+                                .frame(width: columns.side,
+                                       height: geometry.size.height - 32)
+                                .accessibilityIdentifier("home.sidepanel")
                             }
                         }
                         .padding(.horizontal, Self.listHorizontalPadding)
