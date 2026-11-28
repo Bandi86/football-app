@@ -95,13 +95,16 @@
   ],
   "away_form": [],
   "head_to_head": [],
+  "h2h_summary": null,
   "home_next": [
     {
       "match_id": "01a1fc05-0d39-7309-920b-7cb4ca681428",
       "kickoff_at": "2026-11-25T00:00:00Z",
       "competition_name": "Division Profesional: Clausura",
       "opponent_name": "Sportivo Trinidense",
-      "is_home": false
+      "is_home": false,
+      "home_logo": null,
+      "away_logo": null
     }
   ],
   "away_next": [
@@ -110,7 +113,9 @@
       "kickoff_at": "2026-11-25T00:00:00Z",
       "competition_name": "Division Profesional: Clausura",
       "opponent_name": "Cerro Porteño",
-      "is_home": false
+      "is_home": false,
+      "home_logo": null,
+      "away_logo": null
     }
   ],
   "home_position": 2,

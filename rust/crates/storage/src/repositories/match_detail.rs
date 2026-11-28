@@ -84,6 +84,10 @@ pub struct MatchDetailRow {
     /// Az utolsó öt egymás elleni meccs (a meccs kezdete előtt).
     #[serde(default)]
     pub head_to_head: Vec<HeadToHeadEntry>,
+    /// S221: a fenti H2H-listából számolt összesítő, `coverage` mezővel.
+    /// Régi válaszokból hiányozhat → `null`.
+    #[serde(default)]
+    pub h2h_summary: Option<H2HSummary>,
     /// A hazai csapat következő legfeljebb három meccse.
     #[serde(default)]
     pub home_next: Vec<NextMatchEntry>,
@@ -580,6 +584,7 @@ impl From<MatchDetailDbRow> for MatchDetailRow {
             home_form: Vec::new(),
             away_form: Vec::new(),
             head_to_head: Vec::new(),
+            h2h_summary: None,
             home_next: Vec::new(),
             away_next: Vec::new(),
             home_position: None,
@@ -614,6 +619,44 @@ pub struct HeadToHeadEntry {
     pub away_name: String,
     pub home_goals: Option<i16>,
     pub away_goals: Option<i16>,
+    /// S221: opcionális meccs-szintű mutatók a `fact.match_stats`-ból.
+    /// Hiány esetén `null` — nem 0, nem becslés.
+    #[serde(default)]
+    pub home_corners: Option<i32>,
+    #[serde(default)]
+    pub away_corners: Option<i32>,
+    #[serde(default)]
+    pub home_yellow: Option<i32>,
+    #[serde(default)]
+    pub away_yellow: Option<i32>,
+    #[serde(default)]
+    pub home_red: Option<i32>,
+    #[serde(default)]
+    pub away_red: Option<i32>,
+    #[serde(default)]
+    pub home_xg: Option<f64>,
+    #[serde(default)]
+    pub away_xg: Option<f64>,
+}
+
+/// S221: az egymás elleni meccsekből számolt összesítő. Minden mező `null`,
+/// ha a hozzá tartozó alapadat egyetlen H2H-meccsre sem áll rendelkezésre.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct H2HSummary {
+    /// Hány H2H-meccs lett figyelembe véve.
+    pub matches: usize,
+    /// Hány H2H-meccshez volt `fact.match_stats` sor.
+    pub with_stats: usize,
+    /// Összes gól a figyelembe vett meccseken (mindkét csapat).
+    pub total_goals: Option<i32>,
+    /// Hány százalékban szerzett mindkét csapat gólt (BTTS).
+    pub btts_pct: Option<f64>,
+    /// Hány százalékban esett legalább 3 gól (over 2.5).
+    pub over25_pct: Option<f64>,
+    /// Meccsenkénti összes szögletátlag (a statisztikával rendelkező meccsekből).
+    pub corners_avg: Option<f64>,
+    /// Meccsenkénti összes lapátlag (sárga + piros, mindkét csapat).
+    pub cards_avg: Option<f64>,
 }
 
 /// A részletező nézet kiegészítései: a két csapat utolsó meccsei és az
@@ -624,6 +667,8 @@ pub struct MatchExtras {
     pub home_form: Vec<FormEntry>,
     pub away_form: Vec<FormEntry>,
     pub head_to_head: Vec<HeadToHeadEntry>,
+    /// S221: az egymás elleni meccsekből számolt, hiányt jelző összesítő.
+    pub h2h_summary: Option<H2HSummary>,
     /// A csapat helyezése a verseny aktuális tabelláján (ha van ilyen).
     pub home_position: Option<i64>,
     pub away_position: Option<i64>,
@@ -658,6 +703,8 @@ pub async fn fetch_team_next(
         competition_name: String,
         opponent_name: String,
         is_home: bool,
+        home_logo: Option<String>,
+        away_logo: Option<String>,
     }
 
     let rows = sqlx::query_as::<_, NextDbRow>(
@@ -665,11 +712,33 @@ pub async fn fetch_team_next(
                 m.kickoff_at,
                 c.name AS competition_name,
                 CASE WHEN m.home_team_id = $1 THEN away.name ELSE home.name END AS opponent_name,
-                (m.home_team_id = $1) AS is_home
+                (m.home_team_id = $1) AS is_home,
+                hl.logo AS home_logo,
+                al.logo AS away_logo
          FROM core.match m
          JOIN core.team home ON home.id = m.home_team_id
          JOIN core.team away ON away.id = m.away_team_id
          JOIN core.competition c ON c.id = m.competition_id
+         LEFT JOIN LATERAL (
+             SELECT CASE WHEN a.storage_key IS NOT NULL
+                         THEN '/v1/asset/' || a.storage_key
+                         ELSE a.url END AS logo
+               FROM ops.asset a
+              WHERE a.entity_kind = 'team' AND a.kind = 'logo'
+                AND a.entity_id = m.home_team_id
+              ORDER BY (a.storage_key IS NULL), a.captured_at DESC
+              LIMIT 1
+         ) hl ON true
+         LEFT JOIN LATERAL (
+             SELECT CASE WHEN a.storage_key IS NOT NULL
+                         THEN '/v1/asset/' || a.storage_key
+                         ELSE a.url END AS logo
+               FROM ops.asset a
+              WHERE a.entity_kind = 'team' AND a.kind = 'logo'
+                AND a.entity_id = m.away_team_id
+              ORDER BY (a.storage_key IS NULL), a.captured_at DESC
+              LIMIT 1
+         ) al ON true
          WHERE (m.home_team_id = $1 OR m.away_team_id = $1)
            AND m.kickoff_at > $2
            AND m.status IN ('scheduled', 'confirmed')
@@ -690,6 +759,8 @@ pub async fn fetch_team_next(
             competition_name: row.competition_name,
             opponent_name: row.opponent_name,
             is_home: row.is_home,
+            home_logo: row.home_logo,
+            away_logo: row.away_logo,
         })
         .collect())
 }
@@ -758,6 +829,14 @@ struct HeadToHeadDbRow {
     away_name: String,
     home_goals: Option<i16>,
     away_goals: Option<i16>,
+    home_corners: Option<i32>,
+    away_corners: Option<i32>,
+    home_yellow: Option<i32>,
+    away_yellow: Option<i32>,
+    home_red: Option<i32>,
+    away_red: Option<i32>,
+    home_xg: Option<f64>,
+    away_xg: Option<f64>,
 }
 
 pub async fn fetch_head_to_head(
@@ -774,12 +853,26 @@ pub async fn fetch_head_to_head(
                 home.name AS home_name,
                 away.name AS away_name,
                 r.home_ft AS home_goals,
-                r.away_ft AS away_goals
+                r.away_ft AS away_goals,
+                ms.home_corners, ms.away_corners,
+                ms.home_yellow, ms.away_yellow,
+                ms.home_red, ms.away_red,
+                ms.home_xg, ms.away_xg
          FROM core.match m
          JOIN core.team home ON home.id = m.home_team_id
          JOIN core.team away ON away.id = m.away_team_id
          JOIN core.competition c ON c.id = m.competition_id
          LEFT JOIN core.match_result r ON r.match_id = m.id
+         LEFT JOIN LATERAL (
+             SELECT home_corners, away_corners, home_yellow, away_yellow,
+                    home_red, away_red,
+                    home_xg::double precision AS home_xg,
+                    away_xg::double precision AS away_xg
+               FROM fact.match_stats s
+              WHERE s.match_id = m.id
+              ORDER BY s.captured_at DESC
+              LIMIT 1
+         ) ms ON true
          WHERE ((m.home_team_id = $1 AND m.away_team_id = $2)
              OR (m.home_team_id = $2 AND m.away_team_id = $1))
            AND m.kickoff_at < $3
@@ -804,8 +897,91 @@ pub async fn fetch_head_to_head(
             away_name: row.away_name,
             home_goals: row.home_goals,
             away_goals: row.away_goals,
+            home_corners: row.home_corners,
+            away_corners: row.away_corners,
+            home_yellow: row.home_yellow,
+            away_yellow: row.away_yellow,
+            home_red: row.home_red,
+            away_red: row.away_red,
+            home_xg: row.home_xg,
+            away_xg: row.away_xg,
         })
         .collect())
+}
+
+/// S221: a H2H-listából számolt összesítő. A BTTS/over-átlagot a kanonikus
+/// gólokból, a szöglet- és lapátlagot a csatlakozó `fact.match_stats`-ból
+/// számoljuk. Ahol nincs alapadat, ott `null` — nem 0. A `with_stats`
+/// mező teszi láthatóvá, hány meccsből számoltunk.
+pub fn summarise_head_to_head(entries: &[HeadToHeadEntry]) -> Option<H2HSummary> {
+    if entries.is_empty() {
+        return None;
+    }
+    let completed: Vec<&HeadToHeadEntry> = entries
+        .iter()
+        .filter(|e| e.home_goals.is_some() && e.away_goals.is_some())
+        .collect();
+    let with_stats = entries
+        .iter()
+        .filter(|e| e.home_corners.is_some() || e.home_yellow.is_some() || e.home_xg.is_some())
+        .count();
+    let total_goals: Option<i32> = if completed.is_empty() {
+        None
+    } else {
+        Some(
+            completed
+                .iter()
+                .map(|e| (e.home_goals.unwrap_or(0) + e.away_goals.unwrap_or(0)) as i32)
+                .sum(),
+        )
+    };
+    let pct = |count: usize| -> Option<f64> {
+        if completed.is_empty() {
+            None
+        } else {
+            Some(((count as f64 / completed.len() as f64) * 1000.0).round() / 10.0)
+        }
+    };
+    let btts = completed
+        .iter()
+        .filter(|e| e.home_goals.unwrap_or(0) > 0 && e.away_goals.unwrap_or(0) > 0)
+        .count();
+    let over25 = completed
+        .iter()
+        .filter(|e| e.home_goals.unwrap_or(0) + e.away_goals.unwrap_or(0) >= 3)
+        .count();
+    let corners: Vec<i32> = entries
+        .iter()
+        .filter_map(|e| match (e.home_corners, e.away_corners) {
+            (Some(h), Some(a)) => Some(h + a),
+            _ => None,
+        })
+        .collect();
+    let cards: Vec<i32> = entries
+        .iter()
+        .filter_map(
+            |e| match (e.home_yellow, e.away_yellow, e.home_red, e.away_red) {
+                (Some(hy), Some(ay), Some(hr), Some(ar)) => Some(hy + ay + hr + ar),
+                _ => None,
+            },
+        )
+        .collect();
+    let avg = |vals: &[i32]| -> Option<f64> {
+        if vals.is_empty() {
+            None
+        } else {
+            Some(((vals.iter().sum::<i32>() as f64 / vals.len() as f64) * 10.0).round() / 10.0)
+        }
+    };
+    Some(H2HSummary {
+        matches: entries.len(),
+        with_stats,
+        total_goals,
+        btts_pct: pct(btts),
+        over25_pct: pct(over25),
+        corners_avg: avg(&corners),
+        cards_avg: avg(&cards),
+    })
 }
 
 pub async fn fetch_match_extras(
@@ -826,6 +1002,7 @@ pub async fn fetch_match_extras(
     let home_form = fetch_team_form(pool, home_team_id, before, 5).await?;
     let away_form = fetch_team_form(pool, away_team_id, before, 5).await?;
     let head_to_head = fetch_head_to_head(pool, home_team_id, away_team_id, before, 5).await?;
+    let h2h_summary = summarise_head_to_head(&head_to_head);
     let home_next = fetch_team_next(pool, home_team_id, before, 3).await?;
     let away_next = fetch_team_next(pool, away_team_id, before, 3).await?;
     // A tabella-pozíció nem kritikus: ha a verseny tabellája nem számolható,
@@ -847,6 +1024,7 @@ pub async fn fetch_match_extras(
         home_form,
         away_form,
         head_to_head,
+        h2h_summary,
         home_position,
         away_position,
         home_next,
@@ -863,6 +1041,11 @@ pub struct NextMatchEntry {
     pub competition_name: String,
     pub opponent_name: String,
     pub is_home: bool,
+    /// S221: a következő meccs két csapatának címere (hiány esetén `null`).
+    #[serde(default)]
+    pub home_logo: Option<String>,
+    #[serde(default)]
+    pub away_logo: Option<String>,
 }
 
 /// A tabella azon sorai, amelyek a megadott helyezések körüli `radius` sávban
@@ -951,5 +1134,63 @@ mod contract_tests {
         assert_eq!(venue.name.as_deref(), Some("Estadio Ricardo Gregor"));
         let weather = row.weather.expect("a fixture időjárást tartalmaz");
         assert_eq!(weather.temperature_c, Some(27.0));
+    }
+}
+
+#[cfg(test)]
+mod h2h_summary_tests {
+    use super::{HeadToHeadEntry, summarise_head_to_head};
+    use chrono::{TimeZone, Utc};
+    use uuid::Uuid;
+
+    fn entry(
+        home_goals: Option<i16>,
+        away_goals: Option<i16>,
+        with_stats: bool,
+    ) -> HeadToHeadEntry {
+        HeadToHeadEntry {
+            match_id: Uuid::now_v7(),
+            kickoff_at: Utc.with_ymd_and_hms(2025, 11, 1, 18, 0, 0).unwrap(),
+            competition_name: "NB I".into(),
+            home_name: "A".into(),
+            away_name: "B".into(),
+            home_goals,
+            away_goals,
+            home_corners: with_stats.then_some(4),
+            away_corners: with_stats.then_some(6),
+            home_yellow: with_stats.then_some(2),
+            away_yellow: with_stats.then_some(1),
+            home_red: with_stats.then_some(0),
+            away_red: with_stats.then_some(0),
+            home_xg: None,
+            away_xg: None,
+        }
+    }
+
+    #[test]
+    fn summary_computes_goals_btts_and_over_with_coverage() {
+        let entries = vec![
+            entry(Some(1), Some(1), true),
+            entry(Some(2), Some(0), true),
+            entry(Some(0), Some(3), false),
+        ];
+        let s = summarise_head_to_head(&entries).unwrap();
+        assert_eq!(s.matches, 3);
+        assert_eq!(s.with_stats, 2);
+        assert_eq!(s.total_goals, Some(7));
+        assert_eq!(s.btts_pct, Some(33.3));
+        assert_eq!(s.over25_pct, Some(33.3));
+        assert_eq!(s.corners_avg, Some(10.0));
+        assert_eq!(s.cards_avg, Some(3.0));
+    }
+
+    #[test]
+    fn summary_is_none_without_matches_and_null_without_stats() {
+        assert!(summarise_head_to_head(&[]).is_none());
+        let s = summarise_head_to_head(&[entry(Some(1), Some(0), false)]).unwrap();
+        assert_eq!(s.total_goals, Some(1));
+        assert_eq!(s.corners_avg, None);
+        assert_eq!(s.cards_avg, None);
+        assert_eq!(s.with_stats, 0);
     }
 }
